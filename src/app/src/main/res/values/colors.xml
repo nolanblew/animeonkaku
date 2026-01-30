@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ink_900">#0B0B0F</color>
+    <color name="ink_800">#12131A</color>
+    <color name="ink_700">#1A1C26</color>
+    <color name="plum_500">#C65D7B</color>
+    <color name="magenta_500">#FF4D6D</color>
+    <color name="rose_400">#F27EA9</color>
+    <color name="ember_400">#FF8B5C</color>
+    <color name="gold_400">#FFD166</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>
