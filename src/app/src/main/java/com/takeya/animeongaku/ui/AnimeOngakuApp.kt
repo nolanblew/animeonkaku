@@ -217,6 +217,9 @@ fun AnimeOngakuApp(
                     onBack = { navController.popBackStack() },
                     onPlayTheme = {
                         navController.navigate(Routes.Player)
+                    },
+                    onOpenAnime = { kitsuId ->
+                        navController.navigate("${Routes.AnimeDetail}/$kitsuId")
                     }
                 )
             }

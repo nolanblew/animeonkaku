@@ -146,31 +146,39 @@ fun LibraryScreen(
 
             when (currentTab) {
                 LibraryTab.Playlists -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        if (playlists.isEmpty()) {
-                            item {
-                                EmptyState(
-                                    title = "No playlists yet",
-                                    subtitle = "Tap + to create your first playlist."
-                                )
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            if (playlists.isEmpty()) {
+                                item {
+                                    EmptyState(
+                                        title = "No playlists yet",
+                                        subtitle = "Tap + to create your first playlist."
+                                    )
+                                }
+                            } else {
+                                items(playlists) { playlist ->
+                                    ListRow(
+                                        title = playlist.playlist.name,
+                                        subtitle = "${playlist.trackCount} tracks",
+                                        accent = Rose500,
+                                        onClick = { onOpenPlaylist(playlist.playlist.id) },
+                                        onRename = { playlistToRename = playlist },
+                                        onDelete = { playlistToDelete = playlist }
+                                    )
+                                }
                             }
-                        } else {
-                            items(playlists) { playlist ->
-                                ListRow(
-                                    title = playlist.playlist.name,
-                                    subtitle = "${playlist.trackCount} tracks",
-                                    accent = Rose500,
-                                    onClick = { onOpenPlaylist(playlist.playlist.id) },
-                                    onRename = { playlistToRename = playlist },
-                                    onDelete = { playlistToDelete = playlist }
-                                )
-                            }
+                            item { Spacer(modifier = Modifier.height(90.dp)) }
                         }
-                        item { Spacer(modifier = Modifier.height(90.dp)) }
+                        NewPlaylistPill(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(20.dp),
+                            onClick = { showDialog = true }
+                        )
                     }
                 }
 
@@ -256,7 +264,7 @@ fun LibraryScreen(
                         }
                     } else {
                         LazyVerticalGrid(
-                            columns = GridCells.Fixed(2),
+                            columns = GridCells.Fixed(3),
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -275,13 +283,6 @@ fun LibraryScreen(
                 }
             }
         }
-
-        NewPlaylistPill(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(20.dp),
-            onClick = { showDialog = true }
-        )
 
         if (showDialog) {
             NewPlaylistDialog(
@@ -458,12 +459,12 @@ private fun ArtistGridCard(
             .background(Ink800.copy(alpha = 0.6f))
             .border(1.dp, Mist200.copy(alpha = 0.1f), shape)
             .clickable { onClick() }
-            .padding(16.dp),
+            .padding(10.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
             modifier = Modifier
-                .size(80.dp)
+                .size(56.dp)
                 .clip(CircleShape)
                 .background(
                     Brush.linearGradient(listOf(Rose500.copy(alpha = 0.3f), Ink800)),

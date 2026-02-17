@@ -93,7 +93,7 @@ class LibraryViewModel @Inject constructor(
                 trackCount = row.trackCount,
                 imageUrl = imageMap[row.artistName]?.imageUrl
             )
-        }
+        }.sortedBy { it.name.lowercase() }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun createPlaylist(name: String) {

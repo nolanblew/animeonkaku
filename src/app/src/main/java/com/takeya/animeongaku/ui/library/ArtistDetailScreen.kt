@@ -65,6 +65,7 @@ import com.takeya.animeongaku.ui.theme.Rose500
 fun ArtistDetailScreen(
     onBack: () -> Unit,
     onPlayTheme: () -> Unit,
+    onOpenAnime: (String) -> Unit = {},
     viewModel: ArtistDetailViewModel = hiltViewModel()
 ) {
     val themes by viewModel.themes.collectAsStateWithLifecycle()
@@ -267,7 +268,8 @@ fun ArtistDetailScreen(
                 items(artistAnime) { animeEntity ->
                     AnimeRow(
                         anime = animeEntity,
-                        songCount = themes.count { it.animeId == animeEntity.animeThemesId }
+                        songCount = themes.count { it.animeId == animeEntity.animeThemesId },
+                        onClick = { animeEntity.kitsuId?.let { onOpenAnime(it) } }
                     )
                 }
             }
@@ -332,11 +334,12 @@ private fun ArtistSongRow(index: Int, theme: ThemeEntity, anime: AnimeEntity?, i
 }
 
 @Composable
-private fun AnimeRow(anime: AnimeEntity, songCount: Int) {
+private fun AnimeRow(anime: AnimeEntity, songCount: Int, onClick: () -> Unit = {}) {
     val coverUrl = anime.coverUrl ?: anime.thumbnailUrl
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable { onClick() }
             .padding(horizontal = 20.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
