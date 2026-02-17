@@ -17,11 +17,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -36,6 +42,7 @@ import androidx.compose.ui.draw.clip
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.ui.common.SongOptionsSheet
 import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
@@ -46,7 +53,7 @@ import com.takeya.animeongaku.ui.theme.Rose500
 
 @Composable
 fun HomeScreen(
-    onPlayTheme: (Long) -> Unit,
+    onPlayTheme: () -> Unit,
     onOpenPlaylist: (Long) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
@@ -59,6 +66,19 @@ fun HomeScreen(
     val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
     val animeByThemesId = remember(anime) {
         anime.mapNotNull { entry -> entry.animeThemesId?.let { id -> id to entry } }.toMap()
+    }
+
+    var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }
+    sheetTheme?.let { theme ->
+        val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
+        SongOptionsSheet(
+            theme = theme,
+            anime = sheetAnime,
+            onDismiss = { sheetTheme = null },
+            onPlayNext = { viewModel.nowPlayingManager.playNext(theme, sheetAnime) },
+            onAddToQueue = { viewModel.nowPlayingManager.addToQueue(theme, sheetAnime) },
+            onSaveToPlaylist = { /* TODO: open playlist picker */ }
+        )
     }
 
     Box(
@@ -102,7 +122,14 @@ fun HomeScreen(
                 items(quickPicks) { theme ->
                     val animeEntry = animeByThemesId[theme.animeId]
                     val imageUrl = animeEntry?.coverUrl ?: animeEntry?.thumbnailUrl
-                    QuickPickRow(theme = theme, anime = animeEntry, imageUrl = imageUrl, onPlay = { onPlayTheme(theme.id) })
+                    QuickPickRow(
+                        theme = theme, anime = animeEntry, imageUrl = imageUrl,
+                        onPlay = {
+                            viewModel.playFromQuickPicks(theme.id)
+                            onPlayTheme()
+                        },
+                        onMoreOptions = { sheetTheme = theme }
+                    )
                 }
             }
 
@@ -138,7 +165,14 @@ fun HomeScreen(
                 items(topSongs) { theme ->
                     val animeEntry = animeByThemesId[theme.animeId]
                     val imageUrl = animeEntry?.coverUrl ?: animeEntry?.thumbnailUrl
-                    QuickPickRow(theme = theme, anime = animeEntry, imageUrl = imageUrl, onPlay = { onPlayTheme(theme.id) })
+                    QuickPickRow(
+                        theme = theme, anime = animeEntry, imageUrl = imageUrl,
+                        onPlay = {
+                            viewModel.playFromTopSongs(theme.id)
+                            onPlayTheme()
+                        },
+                        onMoreOptions = { sheetTheme = theme }
+                    )
                 }
             }
 
@@ -242,7 +276,7 @@ private fun FeaturedPlaylistCard(title: String, subtitle: String, onClick: () ->
 }
 
 @Composable
-private fun QuickPickRow(theme: ThemeEntity, anime: AnimeEntity?, imageUrl: String?, onPlay: () -> Unit) {
+private fun QuickPickRow(theme: ThemeEntity, anime: AnimeEntity?, imageUrl: String?, onPlay: () -> Unit, onMoreOptions: () -> Unit = {}) {
     val info = theme.displayInfo(anime)
     val shape = RoundedCornerShape(14.dp)
     Row(
@@ -283,6 +317,9 @@ private fun QuickPickRow(theme: ThemeEntity, anime: AnimeEntity?, imageUrl: Stri
                 style = MaterialTheme.typography.labelSmall,
                 color = Mist200
             )
+        }
+        IconButton(onClick = onMoreOptions, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.Rounded.MoreVert, contentDescription = "More options", tint = Mist200, modifier = Modifier.size(20.dp))
         }
     }
 }

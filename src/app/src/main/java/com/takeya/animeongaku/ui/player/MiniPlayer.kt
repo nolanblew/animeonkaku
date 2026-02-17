@@ -49,6 +49,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.media.MediaPlaybackService
+import com.takeya.animeongaku.ui.common.MarqueeText
 import com.takeya.animeongaku.ui.theme.Ink800
 import com.takeya.animeongaku.ui.theme.Ink900
 import com.takeya.animeongaku.ui.theme.Mist100
@@ -118,19 +119,15 @@ fun MiniPlayer(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    Text(
+                    MarqueeText(
                         text = state.title,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Mist100,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        color = Mist100
                     )
-                    Text(
+                    MarqueeText(
                         text = state.artist,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Mist200,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        color = Mist200
                     )
                 }
 

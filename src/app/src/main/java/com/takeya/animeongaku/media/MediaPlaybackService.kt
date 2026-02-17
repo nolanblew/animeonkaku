@@ -4,21 +4,31 @@ import android.app.PendingIntent
 import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.takeya.animeongaku.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
+@UnstableApi
 @AndroidEntryPoint
 class MediaPlaybackService : MediaSessionService() {
+
+    @Inject lateinit var audioCacheProvider: AudioCacheProvider
+
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaSession
 
     override fun onCreate() {
         super.onCreate()
         player = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(audioCacheProvider.playerDataSourceFactory)
+            )
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)

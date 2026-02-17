@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.Button
@@ -31,6 +32,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +48,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.ui.common.SongOptionsSheet
 import com.takeya.animeongaku.ui.theme.Ember400
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
@@ -55,13 +60,25 @@ import com.takeya.animeongaku.ui.theme.Rose500
 @Composable
 fun AnimeDetailScreen(
     onBack: () -> Unit,
-    onPlayTheme: (Long) -> Unit,
+    onPlayTheme: () -> Unit,
     viewModel: AnimeDetailViewModel = hiltViewModel()
 ) {
     val anime by viewModel.anime.collectAsStateWithLifecycle()
     val themes by viewModel.themes.collectAsStateWithLifecycle()
     val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
     val coverUrl = anime?.coverUrl ?: anime?.thumbnailUrl
+
+    var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }
+    sheetTheme?.let { theme ->
+        SongOptionsSheet(
+            theme = theme,
+            anime = anime,
+            onDismiss = { sheetTheme = null },
+            onPlayNext = { viewModel.nowPlayingManager.playNext(theme, anime) },
+            onAddToQueue = { viewModel.nowPlayingManager.addToQueue(theme, anime) },
+            onSaveToPlaylist = { /* TODO: open playlist picker */ }
+        )
+    }
 
     Box(
         modifier = Modifier
@@ -143,7 +160,7 @@ fun AnimeDetailScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Button(
-                        onClick = { themes.firstOrNull()?.let { onPlayTheme(it.id) } },
+                        onClick = { viewModel.playAll(); onPlayTheme() },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(containerColor = Rose500),
                         shape = RoundedCornerShape(12.dp),
@@ -154,7 +171,7 @@ fun AnimeDetailScreen(
                         Text("Play")
                     }
                     Button(
-                        onClick = { themes.randomOrNull()?.let { onPlayTheme(it.id) } },
+                        onClick = { viewModel.shuffleAll(); onPlayTheme() },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(containerColor = Ink800),
                         shape = RoundedCornerShape(12.dp),
@@ -197,10 +214,13 @@ fun AnimeDetailScreen(
             } else {
                 itemsIndexed(themes) { index, theme ->
                     ThemeRow(
-                        index = index + 1,
                         theme = theme,
                         coverUrl = coverUrl,
-                        onPlay = { onPlayTheme(theme.id) }
+                        onPlay = {
+                            viewModel.playTheme(theme.id)
+                            onPlayTheme()
+                        },
+                        onMoreOptions = { sheetTheme = theme }
                     )
                 }
             }
@@ -213,7 +233,8 @@ fun AnimeDetailScreen(
 }
 
 @Composable
-private fun ThemeRow(index: Int, theme: ThemeEntity, coverUrl: String?, onPlay: () -> Unit) {
+private fun ThemeRow(theme: ThemeEntity, coverUrl: String?, onPlay: () -> Unit, onMoreOptions: () -> Unit = {}) {
+    val typeLabel = theme.themeType ?: ""
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -222,10 +243,10 @@ private fun ThemeRow(index: Int, theme: ThemeEntity, coverUrl: String?, onPlay: 
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = "$index",
+            text = typeLabel,
             style = MaterialTheme.typography.labelMedium,
             color = Mist200,
-            modifier = Modifier.width(24.dp)
+            modifier = Modifier.width(36.dp)
         )
         Box(
             modifier = Modifier
@@ -245,13 +266,7 @@ private fun ThemeRow(index: Int, theme: ThemeEntity, coverUrl: String?, onPlay: 
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = buildString {
-                    if (!theme.themeType.isNullOrBlank()) {
-                        append(theme.themeType)
-                        append(" · ")
-                    }
-                    append(theme.title)
-                },
+                text = theme.title,
                 style = MaterialTheme.typography.bodyMedium,
                 color = Mist100,
                 maxLines = 1,
@@ -260,8 +275,13 @@ private fun ThemeRow(index: Int, theme: ThemeEntity, coverUrl: String?, onPlay: 
             Text(
                 text = theme.artistName ?: "Unknown artist",
                 style = MaterialTheme.typography.labelSmall,
-                color = Mist200
+                color = Mist200,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
+        }
+        IconButton(onClick = onMoreOptions, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.Rounded.MoreVert, contentDescription = "More options", tint = Mist200, modifier = Modifier.size(20.dp))
         }
     }
 }

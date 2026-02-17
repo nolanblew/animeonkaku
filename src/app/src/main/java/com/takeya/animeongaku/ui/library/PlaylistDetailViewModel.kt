@@ -10,6 +10,7 @@ import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.PlaylistTrack
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.media.NowPlayingManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,7 +24,8 @@ class PlaylistDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val playlistDao: PlaylistDao,
     private val themeDao: ThemeDao,
-    animeDao: AnimeDao
+    animeDao: AnimeDao,
+    val nowPlayingManager: NowPlayingManager
 ) : ViewModel() {
     private val playlistId: Long = checkNotNull(savedStateHandle["playlistId"]) {
         "playlistId is required"
@@ -101,5 +103,29 @@ class PlaylistDetailViewModel @Inject constructor(
                 )
             )
         }
+    }
+
+    private fun buildAnimeMap(): Map<Long, AnimeEntity> {
+        return anime.value.mapNotNull { entry ->
+            entry.animeThemesId?.let { id -> id to entry }
+        }.toMap()
+    }
+
+    private fun contextLabel(): String = playlist.value?.name ?: "Playlist"
+
+    fun playTheme(themeId: Long) {
+        val list = tracks.value.map { it.theme }
+        val idx = list.indexOfFirst { it.id == themeId }.coerceAtLeast(0)
+        nowPlayingManager.play(contextLabel(), list, idx, animeMap = buildAnimeMap())
+    }
+
+    fun playAll() {
+        val list = tracks.value.map { it.theme }
+        if (list.isNotEmpty()) nowPlayingManager.play(contextLabel(), list, 0, animeMap = buildAnimeMap())
+    }
+
+    fun shuffleAll() {
+        val list = tracks.value.map { it.theme }
+        if (list.isNotEmpty()) nowPlayingManager.play(contextLabel(), list, 0, shuffle = true, animeMap = buildAnimeMap())
     }
 }

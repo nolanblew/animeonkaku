@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -32,7 +33,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,6 +51,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.ui.common.SongOptionsSheet
 import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.theme.Ember400
 import com.takeya.animeongaku.ui.theme.Ink700
@@ -60,7 +64,7 @@ import com.takeya.animeongaku.ui.theme.Rose500
 @Composable
 fun ArtistDetailScreen(
     onBack: () -> Unit,
-    onPlayTheme: (Long) -> Unit,
+    onPlayTheme: () -> Unit,
     viewModel: ArtistDetailViewModel = hiltViewModel()
 ) {
     val themes by viewModel.themes.collectAsStateWithLifecycle()
@@ -72,6 +76,20 @@ fun ArtistDetailScreen(
     val animeByThemesId = remember(anime) {
         anime.mapNotNull { entry -> entry.animeThemesId?.let { id -> id to entry } }.toMap()
     }
+
+    var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }
+    sheetTheme?.let { theme ->
+        val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
+        SongOptionsSheet(
+            theme = theme,
+            anime = sheetAnime,
+            onDismiss = { sheetTheme = null },
+            onPlayNext = { viewModel.nowPlayingManager.playNext(theme, sheetAnime) },
+            onAddToQueue = { viewModel.nowPlayingManager.addToQueue(theme, sheetAnime) },
+            onSaveToPlaylist = { /* TODO: open playlist picker */ }
+        )
+    }
+
     val artistAnime = remember(themes, animeByThemesId) {
         themes.mapNotNull { it.animeId?.let { id -> animeByThemesId[id] } }.distinctBy { it.kitsuId }
     }
@@ -168,7 +186,7 @@ fun ArtistDetailScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Button(
-                        onClick = { themes.firstOrNull()?.let { onPlayTheme(it.id) } },
+                        onClick = { viewModel.playAll(); onPlayTheme() },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(containerColor = Rose500),
                         shape = RoundedCornerShape(12.dp),
@@ -179,7 +197,7 @@ fun ArtistDetailScreen(
                         Text("Play")
                     }
                     Button(
-                        onClick = { themes.randomOrNull()?.let { onPlayTheme(it.id) } },
+                        onClick = { viewModel.shuffleAll(); onPlayTheme() },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(containerColor = Ink800),
                         shape = RoundedCornerShape(12.dp),
@@ -227,7 +245,11 @@ fun ArtistDetailScreen(
                         theme = theme,
                         anime = animeEntry,
                         imageUrl = imageUrl,
-                        onPlay = { onPlayTheme(theme.id) }
+                        onPlay = {
+                            viewModel.playTheme(theme.id)
+                            onPlayTheme()
+                        },
+                        onMoreOptions = { sheetTheme = theme }
                     )
                 }
             }
@@ -258,7 +280,7 @@ fun ArtistDetailScreen(
 }
 
 @Composable
-private fun ArtistSongRow(index: Int, theme: ThemeEntity, anime: AnimeEntity?, imageUrl: String?, onPlay: () -> Unit) {
+private fun ArtistSongRow(index: Int, theme: ThemeEntity, anime: AnimeEntity?, imageUrl: String?, onPlay: () -> Unit, onMoreOptions: () -> Unit = {}) {
     val info = theme.displayInfo(anime)
     Row(
         modifier = Modifier
@@ -302,6 +324,9 @@ private fun ArtistSongRow(index: Int, theme: ThemeEntity, anime: AnimeEntity?, i
                 style = MaterialTheme.typography.labelSmall,
                 color = Mist200
             )
+        }
+        IconButton(onClick = onMoreOptions, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.Rounded.MoreVert, contentDescription = "More options", tint = Mist200, modifier = Modifier.size(20.dp))
         }
     }
 }

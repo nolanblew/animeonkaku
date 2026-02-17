@@ -6,6 +6,7 @@ import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.repository.AnimeRepository
+import com.takeya.animeongaku.media.NowPlayingManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlin.math.abs
@@ -19,7 +20,8 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class ExploreViewModel @Inject constructor(
     private val animeRepository: AnimeRepository,
-    private val themeDao: ThemeDao
+    private val themeDao: ThemeDao,
+    private val nowPlayingManager: NowPlayingManager
 ) : ViewModel() {
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
@@ -35,7 +37,7 @@ class ExploreViewModel @Inject constructor(
 
     private var searchJob: Job? = null
 
-    suspend fun saveAndGetThemeId(entry: AnimeThemeEntry): Long {
+    suspend fun saveAndPlayTheme(entry: AnimeThemeEntry) {
         val themeId = entry.themeId.toLongOrNull() ?: abs(entry.themeId.hashCode()).toLong()
         val animeId = entry.animeId.toLongOrNull()
         val entity = ThemeEntity(
@@ -50,7 +52,24 @@ class ExploreViewModel @Inject constructor(
             themeType = entry.themeType
         )
         themeDao.upsertAll(listOf(entity))
-        return themeId
+
+        // Build context from all current search results
+        val allEntities = _results.value.map { e ->
+            val id = e.themeId.toLongOrNull() ?: abs(e.themeId.hashCode()).toLong()
+            ThemeEntity(
+                id = id,
+                animeId = e.animeId.toLongOrNull(),
+                title = e.title,
+                artistName = e.artist,
+                audioUrl = e.audioUrl,
+                videoUrl = e.videoUrl,
+                isDownloaded = false,
+                localFilePath = null,
+                themeType = e.themeType
+            )
+        }
+        val idx = allEntities.indexOfFirst { it.id == themeId }.coerceAtLeast(0)
+        nowPlayingManager.play("Search: ${_query.value}", allEntities, idx)
     }
 
     fun onQueryChange(value: String) {

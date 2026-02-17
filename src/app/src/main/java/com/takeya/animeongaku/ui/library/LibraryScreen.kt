@@ -58,6 +58,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.PlaylistWithCount
+import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.ui.common.SongOptionsSheet
 import com.takeya.animeongaku.ui.theme.Ember400
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
@@ -77,7 +79,7 @@ private enum class LibraryTab(val label: String) {
 fun LibraryScreen(
     onOpenImport: () -> Unit,
     onOpenPlaylist: (Long) -> Unit,
-    onPlayTheme: (Long) -> Unit,
+    onPlayTheme: () -> Unit,
     onOpenAnime: (String) -> Unit = {},
     onOpenArtist: (String) -> Unit = {},
     initialTab: String? = null,
@@ -104,6 +106,19 @@ fun LibraryScreen(
     var playlistToDelete by remember { mutableStateOf<PlaylistWithCount?>(null) }
     val animeByThemesId = remember(anime) {
         anime.mapNotNull { entry -> entry.animeThemesId?.let { id -> id to entry } }.toMap()
+    }
+
+    var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }
+    sheetTheme?.let { theme ->
+        val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
+        SongOptionsSheet(
+            theme = theme,
+            anime = sheetAnime,
+            onDismiss = { sheetTheme = null },
+            onPlayNext = { viewModel.nowPlayingManager.playNext(theme, sheetAnime) },
+            onAddToQueue = { viewModel.nowPlayingManager.addToQueue(theme, sheetAnime) },
+            onSaveToPlaylist = { /* TODO: open playlist picker */ }
+        )
     }
 
     val backgroundGradient = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
@@ -181,7 +196,11 @@ fun LibraryScreen(
                                     subtitle = theme.artistName ?: "Unknown artist",
                                     accent = Rose500,
                                     imageUrl = imageUrl,
-                                    onClick = { onPlayTheme(theme.id) }
+                                    onClick = {
+                                        viewModel.playFromSongs(theme.id)
+                                        onPlayTheme()
+                                    },
+                                    onMoreOptions = { sheetTheme = theme }
                                 )
                             }
                         }
@@ -496,7 +515,8 @@ private fun ListRow(
     imageUrl: String? = null,
     onClick: () -> Unit = {},
     onRename: (() -> Unit)? = null,
-    onDelete: (() -> Unit)? = null
+    onDelete: (() -> Unit)? = null,
+    onMoreOptions: (() -> Unit)? = null
 ) {
     val shape = RoundedCornerShape(12.dp)
     var showMenu by remember { mutableStateOf(false) }
@@ -539,7 +559,11 @@ private fun ListRow(
                 color = Mist200
             )
         }
-        if (onRename != null || onDelete != null) {
+        if (onMoreOptions != null) {
+            IconButton(onClick = onMoreOptions, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Rounded.MoreVert, contentDescription = "More options", tint = Mist200, modifier = Modifier.size(20.dp))
+            }
+        } else if (onRename != null || onDelete != null) {
             Box {
                 IconButton(onClick = { showMenu = true }) {
                     Icon(Icons.Rounded.MoreVert, contentDescription = "More", tint = Mist200)

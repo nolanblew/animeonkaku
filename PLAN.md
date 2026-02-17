@@ -241,6 +241,28 @@
 *   [x] Library route now supports `?tab=` query param for tab restoration.
 *   [x] Code cleanup: `AnimeItem` now includes `kitsuId`, `PlaylistRow` renamed to `ListRow`, added `GridCard` and `ArtistGridCard` composables.
 
+### Phase 13: Now Playing Queue System
+> Full spec: [NOW_PLAYING_SPEC.md](NOW_PLAYING_SPEC.md)
+*   [ ] Create `NowPlayingManager` singleton — central queue state (originalQueue, nowPlaying, currentIndex, history, playNextStack, shuffle state).
+*   [ ] Refactor `PlayerScreen` + `PlayerViewModel` to read from `NowPlayingManager` instead of nav-based queue params.
+*   [ ] Remove `themeId`/`playlistId`/`queue` nav arguments — Player route becomes simple `"player"`.
+*   [ ] Update all Play/Shuffle buttons (Anime, Artist, Playlist, Home, Library Songs) to set context playlist via `NowPlayingManager.play(...)`.
+*   [ ] Implement shuffle logic: enable shuffles remaining songs (not current, not play-next); disable restores original context order.
+*   [ ] Add ⋮ overflow menu to every song row across all screens (Home, Explore, Library Songs, Anime Detail, Artist Detail, Playlist Detail).
+*   [ ] Build `SongOptionsSheet` modal bottom sheet: header (art + title), top buttons (Play Next, Save to Playlist), list item (Add to Queue).
+*   [ ] Implement "Play Next" — inserts after current track, LIFO stacking, unaffected by shuffle toggle.
+*   [ ] Implement "Add to Queue" — appends to end, shuffled in on shuffle toggle.
+*   [ ] Build "Up Next" screen: history (dimmed, scrollable up, tap to rewind), current track (highlighted), upcoming tracks.
+*   [ ] Queue persists across navigation — no queue loss on back press or screen change.
+*   [ ] MiniPlayer + notification reflect `NowPlayingManager` state.
+
+### Phase 14: Library Search (Future — Not Yet Implemented)
+*   [ ] Add search bar to Library screen header.
+*   [ ] Fuzzy search across songs, anime, artists, and playlists.
+*   [ ] Support multi-script matching (Romaji, English, Japanese titles).
+*   [ ] Results grouped by type (Anime, Songs, Artists, Playlists) with tap-to-navigate.
+*   [ ] Future: Offline search — search only downloaded items when no connection.
+
 ## 7. Data Models (Simplified Schema)
 
 **Anime**

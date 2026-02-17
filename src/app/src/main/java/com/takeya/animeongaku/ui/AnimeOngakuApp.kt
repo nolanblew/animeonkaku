@@ -55,7 +55,6 @@ private object Routes {
     const val ArtistDetail = "artistDetail"
     const val Import = "import"
     const val Player = "player"
-    const val PlayerRoute = "player?themeId={themeId}&playlistId={playlistId}&queue={queue}"
 }
 
 private data class BottomNavItem(
@@ -143,8 +142,8 @@ fun AnimeOngakuApp(
         ) {
             composable(Routes.Home) {
                 HomeScreen(
-                    onPlayTheme = { themeId ->
-                        navController.navigate("${Routes.Player}?themeId=$themeId&queue=library")
+                    onPlayTheme = {
+                        navController.navigate(Routes.Player)
                     },
                     onOpenPlaylist = { playlistId ->
                         navController.navigate("${Routes.Playlist}/$playlistId")
@@ -158,8 +157,8 @@ fun AnimeOngakuApp(
                 ExploreScreen(
                     onPlayTheme = { entry ->
                         scope.launch {
-                            val themeId = exploreViewModel.saveAndGetThemeId(entry)
-                            navController.navigate("${Routes.Player}?themeId=$themeId")
+                            exploreViewModel.saveAndPlayTheme(entry)
+                            navController.navigate(Routes.Player)
                         }
                     },
                     viewModel = exploreViewModel
@@ -175,8 +174,8 @@ fun AnimeOngakuApp(
                     onOpenPlaylist = { playlistId ->
                         navController.navigate("${Routes.Playlist}/$playlistId")
                     },
-                    onPlayTheme = { themeId ->
-                        navController.navigate("${Routes.Player}?themeId=$themeId&queue=library")
+                    onPlayTheme = {
+                        navController.navigate(Routes.Player)
                     },
                     onOpenAnime = { kitsuId ->
                         navController.navigate("${Routes.AnimeDetail}/$kitsuId")
@@ -194,8 +193,8 @@ fun AnimeOngakuApp(
                 val playlistId = it.arguments?.getLong("playlistId") ?: return@composable
                 PlaylistDetailScreen(
                     onBack = { navController.popBackStack() },
-                    onPlayTheme = { themeId ->
-                        navController.navigate("${Routes.Player}?themeId=$themeId&playlistId=$playlistId")
+                    onPlayTheme = {
+                        navController.navigate(Routes.Player)
                     }
                 )
             }
@@ -205,8 +204,8 @@ fun AnimeOngakuApp(
             ) {
                 AnimeDetailScreen(
                     onBack = { navController.popBackStack() },
-                    onPlayTheme = { themeId ->
-                        navController.navigate("${Routes.Player}?themeId=$themeId&queue=library")
+                    onPlayTheme = {
+                        navController.navigate(Routes.Player)
                     }
                 )
             }
@@ -216,8 +215,8 @@ fun AnimeOngakuApp(
             ) {
                 ArtistDetailScreen(
                     onBack = { navController.popBackStack() },
-                    onPlayTheme = { themeId ->
-                        navController.navigate("${Routes.Player}?themeId=$themeId&queue=library")
+                    onPlayTheme = {
+                        navController.navigate(Routes.Player)
                     }
                 )
             }
@@ -227,12 +226,7 @@ fun AnimeOngakuApp(
                 )
             }
             composable(
-                route = Routes.PlayerRoute,
-                arguments = listOf(
-                    navArgument("themeId") { type = NavType.LongType; defaultValue = -1L },
-                    navArgument("playlistId") { type = NavType.LongType; defaultValue = -1L },
-                    navArgument("queue") { type = NavType.StringType; defaultValue = "" }
-                ),
+                route = Routes.Player,
                 enterTransition = { slideInVertically(initialOffsetY = { it }, animationSpec = tween(350)) },
                 exitTransition = { fadeOut(animationSpec = tween(200)) },
                 popEnterTransition = { fadeIn(animationSpec = tween(200)) },

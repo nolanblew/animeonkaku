@@ -8,6 +8,7 @@ import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.media.NowPlayingManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,7 +23,8 @@ import kotlinx.coroutines.flow.stateIn
 class HomeViewModel @Inject constructor(
     animeDao: AnimeDao,
     themeDao: ThemeDao,
-    playlistDao: PlaylistDao
+    playlistDao: PlaylistDao,
+    val nowPlayingManager: NowPlayingManager
 ) : ViewModel() {
     private val allThemes: StateFlow<List<ThemeEntity>> = themeDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -54,5 +56,23 @@ class HomeViewModel @Inject constructor(
 
     fun selectChip(chip: String?) {
         _selectedChip.value = if (_selectedChip.value == chip) null else chip
+    }
+
+    private fun buildAnimeMap(): Map<Long, AnimeEntity> {
+        return anime.value.mapNotNull { entry ->
+            entry.animeThemesId?.let { id -> id to entry }
+        }.toMap()
+    }
+
+    fun playFromQuickPicks(themeId: Long) {
+        val picks = quickPicks.value
+        val idx = picks.indexOfFirst { it.id == themeId }.coerceAtLeast(0)
+        nowPlayingManager.play("Quick Picks", picks, idx, animeMap = buildAnimeMap())
+    }
+
+    fun playFromTopSongs(themeId: Long) {
+        val songs = topSongs.value
+        val idx = songs.indexOfFirst { it.id == themeId }.coerceAtLeast(0)
+        nowPlayingManager.play("Top Songs", songs, idx, animeMap = buildAnimeMap())
     }
 }

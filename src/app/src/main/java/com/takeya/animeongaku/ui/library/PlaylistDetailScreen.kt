@@ -65,6 +65,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.PlaylistTrack
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.ui.common.SongOptionsSheet
 import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
@@ -76,7 +77,7 @@ import com.takeya.animeongaku.ui.theme.Rose500
 @Composable
 fun PlaylistDetailScreen(
     onBack: () -> Unit,
-    onPlayTheme: (Long) -> Unit,
+    onPlayTheme: () -> Unit,
     viewModel: PlaylistDetailViewModel = hiltViewModel()
 ) {
     val playlist by viewModel.playlist.collectAsStateWithLifecycle()
@@ -85,8 +86,21 @@ fun PlaylistDetailScreen(
     val anime by viewModel.anime.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     var showAddDialog by remember { mutableStateOf(false) }
+    var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }
     val animeByThemesId = remember(anime) {
         anime.mapNotNull { entry -> entry.animeThemesId?.let { id -> id to entry } }.toMap()
+    }
+
+    sheetTheme?.let { theme ->
+        val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
+        SongOptionsSheet(
+            theme = theme,
+            anime = sheetAnime,
+            onDismiss = { sheetTheme = null },
+            onPlayNext = { viewModel.nowPlayingManager.playNext(theme, sheetAnime) },
+            onAddToQueue = { viewModel.nowPlayingManager.addToQueue(theme, sheetAnime) },
+            onSaveToPlaylist = { /* TODO: open playlist picker */ }
+        )
     }
 
     val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
@@ -147,7 +161,7 @@ fun PlaylistDetailScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
-                            onClick = { tracks.firstOrNull()?.let { onPlayTheme(it.theme.id) } },
+                            onClick = { viewModel.playAll(); onPlayTheme() },
                             colors = ButtonDefaults.buttonColors(containerColor = Rose500),
                             shape = RoundedCornerShape(24.dp),
                             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
@@ -159,7 +173,7 @@ fun PlaylistDetailScreen(
                         }
                         Button(
                             onClick = {
-                                tracks.randomOrNull()?.let { onPlayTheme(it.theme.id) }
+                                viewModel.shuffleAll(); onPlayTheme()
                             },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Mist200.copy(alpha = 0.12f)
@@ -201,8 +215,9 @@ fun PlaylistDetailScreen(
                         title = info.primaryText,
                         artist = info.secondaryText,
                         imageUrl = imageUrl,
-                        onPlay = { onPlayTheme(track.theme.id) },
-                        onRemove = { viewModel.removeTheme(track.theme.id) }
+                        onPlay = { viewModel.playTheme(track.theme.id); onPlayTheme() },
+                        onRemove = { viewModel.removeTheme(track.theme.id) },
+                        onMoreOptions = { sheetTheme = track.theme }
                     )
                 }
             }
@@ -227,7 +242,8 @@ private fun CompactTrackRow(
     artist: String,
     imageUrl: String?,
     onPlay: () -> Unit,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    onMoreOptions: (() -> Unit)? = null
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -272,7 +288,10 @@ private fun CompactTrackRow(
             )
         }
         Box {
-            IconButton(onClick = { showMenu = true }, modifier = Modifier.size(36.dp)) {
+            IconButton(
+                onClick = { if (onMoreOptions != null) onMoreOptions() else showMenu = true },
+                modifier = Modifier.size(36.dp)
+            ) {
                 Icon(Icons.Rounded.MoreVert, contentDescription = "More", tint = Mist200, modifier = Modifier.size(20.dp))
             }
             DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {

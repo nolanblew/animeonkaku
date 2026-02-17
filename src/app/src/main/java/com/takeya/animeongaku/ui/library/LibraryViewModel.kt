@@ -3,12 +3,14 @@ package com.takeya.animeongaku.ui.library
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.takeya.animeongaku.data.local.AnimeDao
+import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.AnimeWithThemeCount
 import com.takeya.animeongaku.data.local.ArtistImageDao
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.repository.ArtistRepository
+import com.takeya.animeongaku.media.NowPlayingManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -29,7 +31,8 @@ class LibraryViewModel @Inject constructor(
     private val animeDao: AnimeDao,
     private val themeDao: ThemeDao,
     private val artistImageDao: ArtistImageDao,
-    private val artistRepository: ArtistRepository
+    private val artistRepository: ArtistRepository,
+    val nowPlayingManager: NowPlayingManager
 ) : ViewModel() {
     val playlists = playlistDao.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -131,6 +134,18 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             playlistDao.renamePlaylist(playlistId, trimmed)
         }
+    }
+
+    private fun buildAnimeMap(): Map<Long, AnimeEntity> {
+        return anime.value.mapNotNull { entry ->
+            entry.animeThemesId?.let { id -> id to entry }
+        }.toMap()
+    }
+
+    fun playFromSongs(themeId: Long) {
+        val allSongs = themes.value
+        val idx = allSongs.indexOfFirst { it.id == themeId }.coerceAtLeast(0)
+        nowPlayingManager.play("All Songs", allSongs, idx, animeMap = buildAnimeMap())
     }
 }
 
