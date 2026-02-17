@@ -12,5 +12,6 @@ data class ThemeEntity(
     val audioUrl: String,
     val videoUrl: String?,
     val isDownloaded: Boolean,
-    val localFilePath: String?
+    val localFilePath: String?,
+    val themeType: String? = null
 )

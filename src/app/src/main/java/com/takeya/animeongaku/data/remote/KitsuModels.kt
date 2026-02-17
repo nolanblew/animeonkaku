@@ -13,12 +13,22 @@ data class KitsuUser(
 )
 
 data class KitsuUserAttributes(
-    val name: String? = null
+    val name: String? = null,
+    val slug: String? = null
 )
 
 data class KitsuLibraryResponse(
     val data: List<KitsuLibraryEntry> = emptyList(),
-    val included: List<KitsuAnime> = emptyList()
+    val included: List<KitsuAnime> = emptyList(),
+    val meta: KitsuMeta? = null
+)
+
+data class KitsuAnimeResponse(
+    val data: List<KitsuAnime> = emptyList()
+)
+
+data class KitsuMeta(
+    val count: Int? = null
 )
 
 data class KitsuLibraryEntry(
@@ -41,11 +51,49 @@ data class KitsuRelationshipData(
 
 data class KitsuAnime(
     val id: String,
-    val attributes: KitsuAnimeAttributes? = null
+    val attributes: KitsuAnimeAttributes? = null,
+    val relationships: KitsuAnimeRelationships? = null
+)
+
+data class KitsuAnimeRelationships(
+    val mappings: KitsuRelatedListData? = null
+)
+
+data class KitsuRelatedListData(
+    val data: List<KitsuRelationshipData> = emptyList()
 )
 
 data class KitsuAnimeAttributes(
     @field:Json(name = "canonicalTitle")
     val canonicalTitle: String? = null,
-    val titles: Map<String, String>? = null
+    val titles: Map<String, String>? = null,
+    val abbreviatedTitles: List<String>? = null,
+    val posterImage: KitsuImageSet? = null,
+    val coverImage: KitsuImageSet? = null
+)
+
+data class KitsuAnimeWithMappingsResponse(
+    val data: List<KitsuAnime> = emptyList(),
+    val included: List<KitsuMapping> = emptyList()
+)
+
+data class KitsuMapping(
+    val id: String,
+    val type: String? = null,
+    val attributes: KitsuMappingAttributes? = null
+)
+
+data class KitsuMappingAttributes(
+    @field:Json(name = "externalSite")
+    val externalSite: String? = null,
+    @field:Json(name = "externalId")
+    val externalId: String? = null
+)
+
+data class KitsuImageSet(
+    val tiny: String? = null,
+    val small: String? = null,
+    val medium: String? = null,
+    val large: String? = null,
+    val original: String? = null
 )

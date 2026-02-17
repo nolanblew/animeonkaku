@@ -1,0 +1,302 @@
+package com.takeya.animeongaku.ui.home
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
+import androidx.compose.ui.draw.clip
+import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.PlaylistWithCount
+import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.ui.common.displayInfo
+import com.takeya.animeongaku.ui.theme.Ink700
+import com.takeya.animeongaku.ui.theme.Ink800
+import com.takeya.animeongaku.ui.theme.Ink900
+import com.takeya.animeongaku.ui.theme.Mist100
+import com.takeya.animeongaku.ui.theme.Mist200
+import com.takeya.animeongaku.ui.theme.Rose500
+
+@Composable
+fun HomeScreen(
+    onPlayTheme: (Long) -> Unit,
+    onOpenPlaylist: (Long) -> Unit = {},
+    viewModel: HomeViewModel = hiltViewModel()
+) {
+    val themes by viewModel.themes.collectAsStateWithLifecycle()
+    val anime by viewModel.anime.collectAsStateWithLifecycle()
+    val quickPicks by viewModel.quickPicks.collectAsStateWithLifecycle()
+    val topSongs by viewModel.topSongs.collectAsStateWithLifecycle()
+    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val selectedChip by viewModel.selectedChip.collectAsStateWithLifecycle()
+    val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
+    val animeByThemesId = remember(anime) {
+        anime.mapNotNull { entry -> entry.animeThemesId?.let { id -> id to entry } }.toMap()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(background)
+    ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                HomeTopBar()
+            }
+
+            item {
+                ChipRow(
+                    items = listOf("OPs", "EDs"),
+                    selectedChip = selectedChip,
+                    onChipSelected = { viewModel.selectChip(it) }
+                )
+            }
+
+            item {
+                SectionHeader(title = "Quick picks", action = "Play all")
+            }
+
+            if (quickPicks.isEmpty()) {
+                item {
+                    EmptyDataCard(
+                        if (anime.isEmpty()) {
+                            "Sync your library to see quick picks."
+                        } else {
+                            "No themes mapped yet. Try syncing again later."
+                        }
+                    )
+                }
+            } else {
+                items(quickPicks) { theme ->
+                    val animeEntry = animeByThemesId[theme.animeId]
+                    val imageUrl = animeEntry?.coverUrl ?: animeEntry?.thumbnailUrl
+                    QuickPickRow(theme = theme, anime = animeEntry, imageUrl = imageUrl, onPlay = { onPlayTheme(theme.id) })
+                }
+            }
+
+            item {
+                SectionHeader(title = "Your playlists", action = "See all")
+            }
+
+            if (playlists.isEmpty()) {
+                item {
+                    EmptyDataCard("Create a playlist in your Library to see it here.")
+                }
+            } else {
+                item {
+                    FeaturedPlaylistRow(playlists.take(4), onOpenPlaylist = onOpenPlaylist)
+                }
+            }
+
+            item {
+                SectionHeader(title = "Top songs", action = "See all")
+            }
+
+            if (topSongs.isEmpty()) {
+                item {
+                    EmptyDataCard(
+                        if (anime.isEmpty()) {
+                            "Sync your library to see top songs."
+                        } else {
+                            "No themes mapped yet. Try syncing again later."
+                        }
+                    )
+                }
+            } else {
+                items(topSongs) { theme ->
+                    val animeEntry = animeByThemesId[theme.animeId]
+                    val imageUrl = animeEntry?.coverUrl ?: animeEntry?.thumbnailUrl
+                    QuickPickRow(theme = theme, anime = animeEntry, imageUrl = imageUrl, onPlay = { onPlayTheme(theme.id) })
+                }
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(60.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeTopBar() {
+    Text(
+        text = "Anime Ongaku",
+        style = MaterialTheme.typography.titleLarge,
+        color = Mist100,
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+
+@Composable
+private fun ChipRow(
+    items: List<String>,
+    selectedChip: String?,
+    onChipSelected: (String) -> Unit
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items.forEach { label ->
+            val isSelected = label == selectedChip
+            val bg = if (isSelected) Ink800 else Ink700
+            val borderColor = if (isSelected) Rose500 else Mist200.copy(alpha = 0.3f)
+            Text(
+                text = label,
+                modifier = Modifier
+                    .background(bg, RoundedCornerShape(18.dp))
+                    .border(1.dp, borderColor, RoundedCornerShape(18.dp))
+                    .clickable { onChipSelected(label) }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                style = MaterialTheme.typography.labelMedium,
+                color = if (isSelected) Mist100 else Mist200
+            )
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String, action: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Bottom
+    ) {
+        Text(text = title, style = MaterialTheme.typography.titleLarge, color = Mist100)
+        Text(text = action, style = MaterialTheme.typography.labelMedium, color = Mist200)
+    }
+}
+
+@Composable
+private fun FeaturedPlaylistRow(playlists: List<PlaylistWithCount>, onOpenPlaylist: (Long) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        playlists.forEach { item ->
+            FeaturedPlaylistCard(
+                title = item.playlist.name,
+                subtitle = "${item.trackCount} tracks",
+                onClick = { onOpenPlaylist(item.playlist.id) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun FeaturedPlaylistCard(title: String, subtitle: String, onClick: () -> Unit = {}) {
+    Column(
+        modifier = Modifier
+            .width(160.dp)
+            .background(Ink800.copy(alpha = 0.6f), RoundedCornerShape(18.dp))
+            .border(1.dp, Mist200.copy(alpha = 0.2f), RoundedCornerShape(18.dp))
+            .clickable { onClick() }
+            .padding(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .height(120.dp)
+                .fillMaxWidth()
+                .background(
+                    Brush.linearGradient(listOf(Rose500.copy(alpha = 0.3f), Ink800)),
+                    RoundedCornerShape(14.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = title.take(2).uppercase(),
+                style = MaterialTheme.typography.headlineLarge,
+                color = Mist100.copy(alpha = 0.6f)
+            )
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(text = title, color = Mist100, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(text = subtitle, style = MaterialTheme.typography.labelMedium, color = Mist200)
+    }
+}
+
+@Composable
+private fun QuickPickRow(theme: ThemeEntity, anime: AnimeEntity?, imageUrl: String?, onPlay: () -> Unit) {
+    val info = theme.displayInfo(anime)
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Ink800.copy(alpha = 0.5f), shape)
+            .border(1.dp, Mist200.copy(alpha = 0.12f), shape)
+            .clickable { onPlay() }
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0xFF322A3C))
+        ) {
+            if (!imageUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = null,
+                    modifier = Modifier.matchParentSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = info.primaryText,
+                color = Mist100,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = info.secondaryText,
+                style = MaterialTheme.typography.labelSmall,
+                color = Mist200
+            )
+        }
+    }
+}
+
+@Composable
+private fun EmptyDataCard(message: String) {
+    val shape = RoundedCornerShape(16.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Ink800.copy(alpha = 0.6f), shape)
+            .border(1.dp, Mist200.copy(alpha = 0.2f), shape)
+            .padding(14.dp)
+    ) {
+        Text(text = message, style = MaterialTheme.typography.labelMedium, color = Mist200)
+    }
+}

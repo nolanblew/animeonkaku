@@ -1,0 +1,105 @@
+package com.takeya.animeongaku.ui.library
+
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.takeya.animeongaku.data.local.AnimeDao
+import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.PlaylistDao
+import com.takeya.animeongaku.data.local.PlaylistEntryEntity
+import com.takeya.animeongaku.data.local.PlaylistTrack
+import com.takeya.animeongaku.data.local.ThemeDao
+import com.takeya.animeongaku.data.local.ThemeEntity
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
+@HiltViewModel
+class PlaylistDetailViewModel @Inject constructor(
+    savedStateHandle: SavedStateHandle,
+    private val playlistDao: PlaylistDao,
+    private val themeDao: ThemeDao,
+    animeDao: AnimeDao
+) : ViewModel() {
+    private val playlistId: Long = checkNotNull(savedStateHandle["playlistId"]) {
+        "playlistId is required"
+    }
+
+    val playlist = playlistDao.observePlaylist(playlistId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val tracks = playlistDao.observePlaylistTracks(playlistId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val allThemes = themeDao.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val anime: StateFlow<List<AnimeEntity>> = animeDao.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val searchQuery = MutableStateFlow("")
+
+    fun onSearchChange(value: String) {
+        searchQuery.value = value
+    }
+
+    fun addTheme(theme: ThemeEntity) {
+        viewModelScope.launch {
+            val exists = tracks.value.any { it.theme.id == theme.id }
+            if (exists) return@launch
+            val lastOrder = tracks.value.maxOfOrNull { it.orderIndex } ?: -1
+            playlistDao.insertEntries(
+                listOf(
+                    PlaylistEntryEntity(
+                        playlistId = playlistId,
+                        themeId = theme.id,
+                        orderIndex = lastOrder + 1
+                    )
+                )
+            )
+        }
+    }
+
+    fun removeTheme(themeId: Long) {
+        viewModelScope.launch {
+            playlistDao.deleteEntry(playlistId, themeId)
+        }
+    }
+
+    fun moveUp(themeId: Long) {
+        val list = tracks.value
+        val index = list.indexOfFirst { it.theme.id == themeId }
+        if (index <= 0) return
+        swapOrder(list[index], list[index - 1])
+    }
+
+    fun moveDown(themeId: Long) {
+        val list = tracks.value
+        val index = list.indexOfFirst { it.theme.id == themeId }
+        if (index == -1 || index >= list.lastIndex) return
+        swapOrder(list[index], list[index + 1])
+    }
+
+    private fun swapOrder(current: PlaylistTrack, neighbor: PlaylistTrack) {
+        viewModelScope.launch {
+            playlistDao.insertEntries(
+                listOf(
+                    PlaylistEntryEntity(
+                        playlistId = playlistId,
+                        themeId = current.theme.id,
+                        orderIndex = neighbor.orderIndex
+                    ),
+                    PlaylistEntryEntity(
+                        playlistId = playlistId,
+                        themeId = neighbor.theme.id,
+                        orderIndex = current.orderIndex
+                    )
+                )
+            )
+        }
+    }
+}

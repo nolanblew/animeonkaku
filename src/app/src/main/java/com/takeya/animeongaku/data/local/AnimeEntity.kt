@@ -8,6 +8,10 @@ data class AnimeEntity(
     @PrimaryKey val kitsuId: String,
     val animeThemesId: Long?,
     val title: String?,
+    val titleEn: String? = null,
+    val titleRomaji: String? = null,
+    val titleJa: String? = null,
     val thumbnailUrl: String?,
+    val coverUrl: String?,
     val syncedAt: Long
 )

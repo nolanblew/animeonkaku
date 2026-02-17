@@ -2,8 +2,6 @@ package com.takeya.animeongaku.ui.player
 
 import android.content.ComponentName
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -12,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,17 +19,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.Forward10
+import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -50,58 +47,71 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.takeya.animeongaku.media.MediaPlaybackService
+import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.ui.theme.Ember400
-import com.takeya.animeongaku.ui.theme.Gold400
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
 import com.takeya.animeongaku.ui.theme.Ink900
 import com.takeya.animeongaku.ui.theme.Mist100
 import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.theme.Rose500
+import android.net.Uri
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlin.math.max
 
-private data class SampleTrack(
-    val id: String,
-    val title: String,
-    val artist: String,
-    val audioUrl: String
-)
-
 @Composable
-fun PlayerScreen() {
-    val sampleTrack = remember {
-        SampleTrack(
-            id = "sample_theme_01",
-            title = "Starlight Circuit",
-            artist = "Hikari Nova",
-            audioUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
-        )
-    }
+fun PlayerScreen(
+    onCollapse: () -> Unit = {},
+    viewModel: PlayerViewModel = hiltViewModel()
+) {
+    val queueState by viewModel.queueState.collectAsStateWithLifecycle()
 
     val mediaController = rememberMediaController()
     val playerState = rememberPlayerUiState(mediaController)
 
-    LaunchedEffect(mediaController) {
+    val queueSignature = remember(queueState.themes) {
+        queueState.themes.joinToString(",") { it.id.toString() }
+    }
+    val startIndex = queueState.startIndex.coerceAtLeast(0)
+    var lastLoadedSignature by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(mediaController, queueSignature, startIndex) {
         mediaController?.let { controller ->
-            if (controller.mediaItemCount == 0) {
-                controller.setMediaItem(sampleTrack.toMediaItem())
-                controller.prepare()
+            if (queueState.themes.isNotEmpty()) {
+                if (lastLoadedSignature != queueSignature) {
+                    val items = queueState.themes.map { theme ->
+                        val anime = theme.animeId?.let { queueState.animeByThemesId[it] }
+                        theme.toMediaItem(anime)
+                    }
+                    controller.setMediaItems(items, startIndex, C.TIME_UNSET)
+                    controller.playWhenReady = true
+                    controller.prepare()
+                    lastLoadedSignature = queueSignature
+                }
+            } else {
+                controller.clearMediaItems()
+                controller.stop()
+                lastLoadedSignature = null
             }
         }
     }
@@ -119,6 +129,12 @@ fun PlayerScreen() {
             .fillMaxSize()
             .background(backgroundGradient)
     ) {
+        val currentTheme = queueState.themes.firstOrNull { it.id.toString() == playerState.mediaId }
+            ?: queueState.themes.getOrNull(queueState.startIndex)
+        val animeArt = currentTheme?.animeId?.let { queueState.animeByThemesId[it] }
+        val artUrl = animeArt?.coverUrl ?: animeArt?.thumbnailUrl
+
+        PlayerBackgroundArt(artUrl)
         BackdropGlow()
 
         Column(
@@ -128,14 +144,45 @@ fun PlayerScreen() {
                 .padding(top = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            PlayerTopBar()
-            AlbumArtCard(sampleTrack)
+            PlayerTopBar(onCollapse)
+            Box(contentAlignment = Alignment.Center) {
+                AlbumArtCard(playerState.title, artUrl)
+                if (playerState.isBuffering) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(48.dp),
+                        color = Mist100.copy(alpha = 0.8f),
+                        strokeWidth = 3.dp
+                    )
+                }
+            }
             TrackInfo(playerState)
+            playerState.errorMessage?.let { error ->
+                Text(
+                    text = error,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Rose500,
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 2
+                )
+            }
             SeekBar(playerState, mediaController)
             PlaybackControls(playerState, mediaController)
-            SupportingActions()
+            SupportingActions(mediaController)
         }
     }
+}
+
+@Composable
+private fun PlayerBackgroundArt(imageUrl: String?) {
+    if (imageUrl.isNullOrBlank()) return
+    AsyncImage(
+        model = imageUrl,
+        contentDescription = null,
+        modifier = Modifier
+            .fillMaxSize(),
+        contentScale = ContentScale.Crop,
+        alpha = 0.18f
+    )
 }
 
 @Composable
@@ -168,104 +215,74 @@ private fun BackdropGlow() {
 }
 
 @Composable
-private fun PlayerTopBar() {
+private fun PlayerTopBar(onCollapse: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        GlassIconButton(onClick = { /* TODO */ }) {
+        GlassIconButton(onClick = onCollapse) {
             Icon(
                 imageVector = Icons.Rounded.KeyboardArrowDown,
                 contentDescription = "Collapse player",
                 tint = Mist100
             )
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = "NOW PLAYING",
-                style = MaterialTheme.typography.labelMedium,
-                color = Mist200
-            )
-            Text(
-                text = "Anime Ongaku",
-                style = MaterialTheme.typography.titleLarge,
-                color = Mist100
-            )
-        }
-        GlassIconButton(onClick = { /* TODO */ }) {
-            Icon(
-                imageVector = Icons.Rounded.MoreVert,
-                contentDescription = "More options",
-                tint = Mist100
-            )
-        }
+        Text(
+            text = "NOW PLAYING",
+            style = MaterialTheme.typography.labelMedium,
+            color = Mist200
+        )
+        Spacer(modifier = Modifier.size(44.dp))
     }
 }
 
 @Composable
-private fun AlbumArtCard(track: SampleTrack) {
-    val shimmerShift by animateFloatAsState(
-        targetValue = 1f,
-        animationSpec = tween(durationMillis = 2600, easing = FastOutSlowInEasing),
-        label = "shimmer"
-    )
-
-    val cardShape = RoundedCornerShape(28.dp)
+private fun AlbumArtCard(title: String, imageUrl: String?) {
+    val cardShape = RoundedCornerShape(24.dp)
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(320.dp)
-            .shadow(30.dp, cardShape)
+            .shadow(24.dp, cardShape)
             .clip(cardShape)
-            .background(
-                brush = Brush.linearGradient(
-                    0.0f to Ink800,
-                    0.35f to Rose500.copy(alpha = 0.7f),
-                    0.7f to Ember400.copy(alpha = 0.9f),
-                    1.0f to Ink700
-                )
-            )
-            .border(1.dp, Mist200.copy(alpha = 0.2f), cardShape)
+            .background(Ink800, cardShape)
+            .border(1.dp, Mist200.copy(alpha = 0.15f), cardShape),
+        contentAlignment = Alignment.Center
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(Gold400.copy(alpha = 0.4f), Color.Transparent),
-                    radius = size.minDimension * 0.45f
-                ),
-                radius = size.minDimension * 0.45f,
-                center = center.copy(x = size.width * (0.3f + shimmerShift * 0.2f), y = size.height * 0.3f)
+        if (!imageUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = title,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
             )
-            drawLine(
-                color = Mist100.copy(alpha = 0.15f),
-                start = center.copy(x = size.width * 0.15f, y = size.height * 0.75f),
-                end = center.copy(x = size.width * 0.85f, y = size.height * 0.55f),
-                strokeWidth = 6.dp.toPx(),
-                cap = StrokeCap.Round,
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(24f, 18f), phase = 8f)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0f to Color.Transparent,
+                            0.7f to Color.Transparent,
+                            1f to Ink900.copy(alpha = 0.6f)
+                        )
+                    )
             )
-        }
-
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(20.dp)
-                .background(
-                    color = Ink900.copy(alpha = 0.5f),
-                    shape = RoundedCornerShape(16.dp)
+        } else {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Rose500.copy(alpha = 0.3f), Color.Transparent),
+                        radius = size.minDimension * 0.6f
+                    ),
+                    radius = size.minDimension * 0.6f,
+                    center = center
                 )
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-        ) {
+            }
             Text(
-                text = "${track.title} Theme",
-                style = MaterialTheme.typography.titleLarge,
-                color = Mist100
-            )
-            Text(
-                text = "Volume I",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Mist200
+                text = title.take(2).uppercase(),
+                style = MaterialTheme.typography.displayLarge,
+                color = Mist100.copy(alpha = 0.3f)
             )
         }
     }
@@ -273,7 +290,7 @@ private fun AlbumArtCard(track: SampleTrack) {
 
 @Composable
 private fun TrackInfo(state: PlayerUiState) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             text = state.title,
             style = MaterialTheme.typography.headlineSmall,
@@ -285,30 +302,6 @@ private fun TrackInfo(state: PlayerUiState) {
             text = state.artist,
             style = MaterialTheme.typography.bodyLarge,
             color = Mist200
-        )
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TagChip("Hi-Fi")
-            TagChip("Japanese")
-            TagChip("OP 1")
-        }
-    }
-}
-
-@Composable
-private fun TagChip(text: String) {
-    Box(
-        modifier = Modifier
-            .border(1.dp, Mist200.copy(alpha = 0.4f), RoundedCornerShape(20.dp))
-            .background(Ink800.copy(alpha = 0.7f), RoundedCornerShape(20.dp))
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelMedium,
-            color = Mist100
         )
     }
 }
@@ -402,11 +395,11 @@ private fun PlaybackControls(state: PlayerUiState, controller: MediaController?)
             )
         }
 
-        IconButton(onClick = { controller?.repeatMode = Player.REPEAT_MODE_ALL }) {
+        IconButton(onClick = { controller?.toggleRepeatMode() }) {
             Icon(
                 imageVector = Icons.Rounded.Repeat,
                 contentDescription = "Repeat",
-                tint = if (controller?.repeatMode == Player.REPEAT_MODE_ALL) Rose500 else Mist200
+                tint = if (controller?.repeatMode == Player.REPEAT_MODE_OFF) Mist200 else Rose500
             )
         }
     }
@@ -441,26 +434,25 @@ private fun PlayButton(isPlaying: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SupportingActions() {
+private fun SupportingActions(controller: MediaController?) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        horizontalArrangement = Arrangement.Center
     ) {
-        GlassIconButton(onClick = { /* TODO */ }) {
-            Icon(
-                imageVector = Icons.Rounded.Favorite,
-                contentDescription = "Like",
-                tint = Rose500
-            )
-        }
-        GlassActionPill(icon = Icons.Rounded.Speed, label = "1.0x")
-        GlassActionPill(icon = Icons.Rounded.Forward10, label = "10s")
+        GlassActionPill(
+            icon = Icons.Rounded.Replay10,
+            label = "10s",
+            onClick = { controller?.seekBackTenSeconds() }
+        )
     }
 }
 
 @Composable
-private fun GlassActionPill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String) {
+private fun GlassActionPill(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit = {}
+) {
     Row(
         modifier = Modifier
             .background(Ink800.copy(alpha = 0.7f), RoundedCornerShape(24.dp))
@@ -469,7 +461,9 @@ private fun GlassActionPill(icon: androidx.compose.ui.graphics.vector.ImageVecto
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Icon(icon, contentDescription = null, tint = Mist100, modifier = Modifier.size(18.dp))
+        IconButton(onClick = onClick, modifier = Modifier.size(24.dp)) {
+            Icon(icon, contentDescription = null, tint = Mist100, modifier = Modifier.size(18.dp))
+        }
         Text(text = label, style = MaterialTheme.typography.labelMedium, color = Mist100)
     }
 }
@@ -522,9 +516,10 @@ private fun rememberPlayerUiState(controller: Player?): PlayerUiState {
     var state by remember {
         mutableStateOf(
             PlayerUiState(
-                title = "Loading...",
-                artist = "Connecting",
+                title = "Select a song",
+                artist = "Choose a track from your library",
                 isPlaying = false,
+                mediaId = null,
                 positionMs = 0L,
                 durationMs = 1L,
                 bufferedPositionMs = 0L
@@ -544,6 +539,24 @@ private fun rememberPlayerUiState(controller: Player?): PlayerUiState {
                 val title = mediaMetadata.title?.toString().orEmpty().ifBlank { state.title }
                 val artist = mediaMetadata.artist?.toString().orEmpty().ifBlank { state.artist }
                 state = state.copy(title = title, artist = artist)
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                state = state.copy(mediaId = mediaItem?.mediaId, errorMessage = null)
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                state = state.copy(
+                    isBuffering = playbackState == Player.STATE_BUFFERING,
+                    errorMessage = if (playbackState == Player.STATE_IDLE && state.errorMessage != null) state.errorMessage else null
+                )
+            }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                state = state.copy(
+                    errorMessage = "Playback error: ${error.localizedMessage ?: "Unknown error"}",
+                    isBuffering = false
+                )
             }
         }
 
@@ -571,14 +584,37 @@ private fun rememberPlayerUiState(controller: Player?): PlayerUiState {
     return state
 }
 
-private fun SampleTrack.toMediaItem(): MediaItem {
+private fun ThemeEntity.toMediaItem(anime: AnimeEntity? = null): MediaItem {
+    val artworkUrl = anime?.coverUrl ?: anime?.thumbnailUrl
+    val animeName = anime?.title
+    val typeTag = themeType
+
+    // Primary line: "Anime Name · OP1" or just anime name or theme type
+    val primaryLine = when {
+        !animeName.isNullOrBlank() && !typeTag.isNullOrBlank() -> "$animeName · $typeTag"
+        !animeName.isNullOrBlank() -> animeName
+        !typeTag.isNullOrBlank() -> "$typeTag · $title"
+        else -> title
+    }
+    // Secondary line: "Song Title · Artist" or just song title
+    val secondaryLine = when {
+        !artistName.isNullOrBlank() -> "$title · $artistName"
+        else -> title
+    }
+
     return MediaItem.Builder()
-        .setMediaId(id)
+        .setMediaId(id.toString())
         .setUri(audioUrl)
         .setMediaMetadata(
             MediaMetadata.Builder()
-                .setTitle(title)
-                .setArtist(artist)
+                .setTitle(primaryLine)
+                .setArtist(secondaryLine)
+                .setAlbumTitle(animeName)
+                .apply {
+                    if (!artworkUrl.isNullOrBlank()) {
+                        setArtworkUri(Uri.parse(artworkUrl))
+                    }
+                }
                 .build()
         )
         .build()
@@ -591,11 +627,27 @@ private fun formatTime(durationMs: Long): String {
     return "%d:%02d".format(minutes, seconds)
 }
 
+private fun MediaController.toggleRepeatMode() {
+    repeatMode = when (repeatMode) {
+        Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+        Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+        else -> Player.REPEAT_MODE_OFF
+    }
+}
+
+private fun MediaController.seekBackTenSeconds() {
+    val newPosition = (currentPosition - 10_000).coerceAtLeast(0L)
+    seekTo(newPosition)
+}
+
 private data class PlayerUiState(
     val title: String,
     val artist: String,
     val isPlaying: Boolean,
+    val mediaId: String?,
     val positionMs: Long,
     val durationMs: Long,
-    val bufferedPositionMs: Long
+    val bufferedPositionMs: Long,
+    val isBuffering: Boolean = false,
+    val errorMessage: String? = null
 )
