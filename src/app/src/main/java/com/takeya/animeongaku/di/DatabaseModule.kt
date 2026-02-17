@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.AppDatabase
+import com.takeya.animeongaku.data.local.ArtistDao
 import com.takeya.animeongaku.data.local.ArtistImageDao
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.ThemeDao
@@ -38,4 +39,7 @@ object DatabaseModule {
 
     @Provides
     fun provideArtistImageDao(database: AppDatabase): ArtistImageDao = database.artistImageDao()
+
+    @Provides
+    fun provideArtistDao(database: AppDatabase): ArtistDao = database.artistDao()
 }

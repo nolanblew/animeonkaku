@@ -3,9 +3,11 @@ package com.takeya.animeongaku.sync
 import android.util.Log
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.ArtistDao
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
+import com.takeya.animeongaku.data.local.ThemeArtistCrossRef
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
@@ -36,6 +38,7 @@ class SyncManager @Inject constructor(
     private val animeRepository: AnimeRepository,
     private val animeDao: AnimeDao,
     private val themeDao: ThemeDao,
+    private val artistDao: ArtistDao,
     private val playlistDao: PlaylistDao,
     private val tokenStore: KitsuTokenStore
 ) {
@@ -187,6 +190,7 @@ class SyncManager @Inject constructor(
             }
         }
         val themeEntities = syncResult.themes.map { it.toEntity() }
+        val artistCrossRefs = syncResult.themes.flatMap { it.toCrossRefs() }
         val mappedAnimeEntities = animeEntities.map { anime ->
             val mappedId = syncResult.animeMappings[anime.kitsuId]
             if (mappedId != null) anime.copy(animeThemesId = mappedId) else anime
@@ -195,6 +199,9 @@ class SyncManager @Inject constructor(
         updateState { copy(phase = SyncPhase.Saving, status = "Saving…") }
         animeDao.upsertAll(mappedAnimeEntities)
         themeDao.upsertAll(themeEntities)
+        if (artistCrossRefs.isNotEmpty()) {
+            artistDao.upsertCrossRefs(artistCrossRefs)
+        }
 
         checkPause()
 
@@ -249,9 +256,11 @@ class SyncManager @Inject constructor(
                 }
 
                 val malThemes = malResult.themes.map { it.toEntity() }
+                val malCrossRefs = malResult.themes.flatMap { it.toCrossRefs() }
                 if (malThemes.isNotEmpty()) {
                     themeDao.upsertAll(malThemes)
                     allThemeEntities.addAll(malThemes)
+                    if (malCrossRefs.isNotEmpty()) artistDao.upsertCrossRefs(malCrossRefs)
                 }
             }
 
@@ -297,7 +306,9 @@ class SyncManager @Inject constructor(
                     val updatedAnime = anime.copy(animeThemesId = result.animeThemesId)
                     animeDao.upsertAll(listOf(updatedAnime))
                     val newThemes = result.themes.map { it.toEntity() }
+                    val newCrossRefs = result.themes.flatMap { it.toCrossRefs() }
                     themeDao.upsertAll(newThemes)
+                    if (newCrossRefs.isNotEmpty()) artistDao.upsertCrossRefs(newCrossRefs)
                     allThemeEntities.addAll(newThemes)
 
                     val idx = finalAnimeEntities.indexOfFirst { it.kitsuId == anime.kitsuId }
@@ -395,17 +406,41 @@ class SyncManager @Inject constructor(
     private fun AnimeThemeEntry.toEntity(): ThemeEntity {
         val themeId = themeId.toLongOrNull() ?: abs(themeId.hashCode()).toLong()
         val animeId = animeId.toLongOrNull()
+        // Build display artist string from structured data if available
+        val displayArtist = if (artists.isNotEmpty()) {
+            artists.joinToString(", ") { credit ->
+                if (credit.asCharacter != null) {
+                    "${credit.name} (as ${credit.asCharacter})"
+                } else {
+                    credit.name
+                }
+            }
+        } else {
+            artist
+        }
         return ThemeEntity(
             id = themeId,
             animeId = animeId,
             title = title,
-            artistName = artist,
+            artistName = displayArtist,
             audioUrl = audioUrl,
             videoUrl = videoUrl,
             isDownloaded = false,
             localFilePath = null,
             themeType = themeType
         )
+    }
+
+    private fun AnimeThemeEntry.toCrossRefs(): List<ThemeArtistCrossRef> {
+        val themeIdLong = themeId.toLongOrNull() ?: abs(themeId.hashCode()).toLong()
+        return artists.map { credit ->
+            ThemeArtistCrossRef(
+                themeId = themeIdLong,
+                artistName = credit.name,
+                asCharacter = credit.asCharacter,
+                alias = credit.alias
+            )
+        }
     }
 }
 

@@ -8,5 +8,12 @@ data class AnimeThemeEntry(
     val artist: String?,
     val audioUrl: String,
     val videoUrl: String?,
-    val themeType: String? = null
+    val themeType: String? = null,
+    val artists: List<ArtistCredit> = emptyList()
+)
+
+data class ArtistCredit(
+    val name: String,
+    val asCharacter: String? = null,
+    val alias: String? = null
 )

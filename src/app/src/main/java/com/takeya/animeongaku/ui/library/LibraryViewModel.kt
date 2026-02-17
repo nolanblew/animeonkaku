@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.AnimeWithThemeCount
+import com.takeya.animeongaku.data.local.ArtistDao
 import com.takeya.animeongaku.data.local.ArtistImageDao
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistEntity
@@ -30,6 +31,7 @@ class LibraryViewModel @Inject constructor(
     private val playlistDao: PlaylistDao,
     private val animeDao: AnimeDao,
     private val themeDao: ThemeDao,
+    private val artistDao: ArtistDao,
     private val artistImageDao: ArtistImageDao,
     private val artistRepository: ArtistRepository,
     val nowPlayingManager: NowPlayingManager
@@ -43,12 +45,7 @@ class LibraryViewModel @Inject constructor(
     val themes = themeDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    private val artistNames = themes
-        .map { themeList ->
-            themeList.mapNotNull { it.artistName?.trim() }
-                .filter { it.isNotBlank() }
-                .distinct()
-        }
+    private val artistNames = artistDao.observeAllArtistNames()
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -85,27 +82,18 @@ class LibraryViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val artists: StateFlow<List<ArtistItem>> = combine(anime, themes, artistImages) { animeList, themeList, imageList ->
-        val animeById = animeList.mapNotNull { entry ->
-            entry.animeThemesId?.let { id -> id to entry }
-        }.toMap()
+    private val artistTrackCounts = artistDao.observeArtistTrackCounts()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val artists: StateFlow<List<ArtistItem>> = combine(artistTrackCounts, artistImages) { counts, imageList ->
         val imageMap = imageList.associateBy { it.name }
-        themeList
-            .mapNotNull { theme ->
-                val artist = theme.artistName?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-                val cover = theme.animeId?.let { animeById[it]?.coverUrl ?: animeById[it]?.thumbnailUrl }
-                val image = imageMap[artist]?.imageUrl ?: cover
-                artist to image
-            }
-            .groupBy({ it.first }, { it.second })
-            .map { (name, covers) ->
-                ArtistItem(
-                    name = name,
-                    trackCount = themeList.count { it.artistName == name },
-                    imageUrl = covers.firstOrNull { !it.isNullOrBlank() }
-                )
-            }
-            .sortedByDescending { it.trackCount }
+        counts.map { row ->
+            ArtistItem(
+                name = row.artistName,
+                trackCount = row.trackCount,
+                imageUrl = imageMap[row.artistName]?.imageUrl
+            )
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun createPlaylist(name: String) {

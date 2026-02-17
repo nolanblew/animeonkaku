@@ -3,12 +3,12 @@ package com.takeya.animeongaku.data.remote
 import com.squareup.moshi.Json
 
 data class AnimeThemesApiResponse(
-    @field:Json(name = "anime")
+    @Json(name = "anime")
     val anime: List<ApiAnime> = emptyList()
 )
 
 data class AnimeThemesArtistResponse(
-    @field:Json(name = "artists")
+    @Json(name = "artists")
     val artists: List<ApiArtistProfile> = emptyList()
 )
 
@@ -20,7 +20,7 @@ data class ApiAnime(
 )
 
 data class ApiResource(
-    @field:Json(name = "external_id")
+    @Json(name = "external_id")
     val externalId: Any? = null,
     val site: String? = null
 )
@@ -39,7 +39,15 @@ data class ApiSong(
 )
 
 data class ApiArtist(
-    val name: String? = null
+    val name: String? = null,
+    val slug: String? = null,
+    val artistsong: ApiArtistSong? = null
+)
+
+data class ApiArtistSong(
+    @Json(name = "as")
+    val asCharacter: String? = null,
+    val alias: String? = null
 )
 
 data class ApiArtistProfile(

@@ -9,9 +9,10 @@ import androidx.room.RoomDatabase
         AnimeEntity::class,
         PlaylistEntity::class,
         PlaylistEntryEntity::class,
-        ArtistImageEntity::class
+        ArtistImageEntity::class,
+        ThemeArtistCrossRef::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -19,4 +20,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun artistImageDao(): ArtistImageDao
     abstract fun playlistDao(): PlaylistDao
     abstract fun themeDao(): ThemeDao
+    abstract fun artistDao(): ArtistDao
 }

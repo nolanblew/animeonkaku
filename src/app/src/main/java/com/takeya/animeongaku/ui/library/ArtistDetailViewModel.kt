@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.ArtistDao
 import com.takeya.animeongaku.data.local.ArtistImageDao
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
@@ -21,12 +22,13 @@ class ArtistDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     themeDao: ThemeDao,
     animeDao: AnimeDao,
+    private val artistDao: ArtistDao,
     artistImageDao: ArtistImageDao,
     val nowPlayingManager: NowPlayingManager
 ) : ViewModel() {
     val artistName: String = savedStateHandle["artistName"] ?: ""
 
-    val themes: StateFlow<List<ThemeEntity>> = themeDao.observeByArtistName(artistName)
+    val themes: StateFlow<List<ThemeEntity>> = artistDao.observeThemesByArtist(artistName)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val anime: StateFlow<List<AnimeEntity>> = animeDao.observeAll()

@@ -4,6 +4,7 @@ import android.util.Log
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
+import com.takeya.animeongaku.data.model.ArtistCredit
 import com.takeya.animeongaku.data.model.KitsuAnimeEntry
 import com.takeya.animeongaku.data.remote.AnimeThemesApiResponse
 import com.takeya.animeongaku.data.remote.ApiAnime
@@ -123,19 +124,12 @@ class AnimeRepositoryImpl @Inject constructor(
         val includes = "animethemes,animethemes.animethemeentries.videos," +
             "animethemes.animethemeentries.videos.audio,animethemes.song,animethemes.song.artists"
 
-        // Pass 1: exact name filter for each title variant
+        // Search each title variant using full-text search (q=).
+        // Note: filter[name] does NOT return nested song.artists from the API,
+        // so we use q= which returns complete data including artists.
+        // The result matching still prefers exact name matches.
         for ((index, title) in uniqueTitles.withIndex()) {
-            Log.d(TAG_FALLBACK, "Exact search for: \"$title\" (${index + 1}/${uniqueTitles.size})")
-            val result = searchAnimeThemesInternal(
-                "filter[name]", title, includes, responseAdapter, title
-            )
-            if (result != null) return result
-            if (index < uniqueTitles.size - 1) kotlinx.coroutines.delay(500)
-        }
-
-        // Pass 2: fuzzy full-text search for each title variant
-        for ((index, title) in uniqueTitles.withIndex()) {
-            Log.d(TAG_FALLBACK, "Fuzzy search for: \"$title\" (${index + 1}/${uniqueTitles.size})")
+            Log.d(TAG_FALLBACK, "Searching for: \"$title\" (${index + 1}/${uniqueTitles.size})")
             val result = searchAnimeThemesInternal(
                 "q", title, includes, responseAdapter, title
             )
@@ -271,7 +265,7 @@ class AnimeRepositoryImpl @Inject constructor(
 
         val requestUrl = "https://api.animethemes.moe/anime".toHttpUrl()
             .newBuilder()
-            .addQueryParameter("filter[name]", query)
+            .addQueryParameter("q", query)
             .addQueryParameter(
                 "include",
                 "animethemes,animethemes.animethemeentries.videos," +
@@ -340,6 +334,17 @@ private fun ApiAnime.toThemeEntries(): List<AnimeThemeEntry> {
             "$type$seq"
         }
 
+        val artistCredits = theme.song?.artists
+            ?.filter { !it.name.isNullOrBlank() }
+            ?.map { apiArtist ->
+                ArtistCredit(
+                    name = apiArtist.name!!.trim(),
+                    asCharacter = apiArtist.artistsong?.asCharacter?.trim()?.takeIf { it.isNotBlank() },
+                    alias = apiArtist.artistsong?.alias?.trim()?.takeIf { it.isNotBlank() }
+                )
+            }
+            .orEmpty()
+
         AnimeThemeEntry(
             animeId = animeId,
             animeName = animeName,
@@ -348,7 +353,8 @@ private fun ApiAnime.toThemeEntries(): List<AnimeThemeEntry> {
             artist = theme.artistNames(),
             audioUrl = resolvedAudio,
             videoUrl = videoUrl,
-            themeType = themeTypeTag
+            themeType = themeTypeTag,
+            artists = artistCredits
         )
     }
 }
