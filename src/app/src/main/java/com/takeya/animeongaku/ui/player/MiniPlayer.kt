@@ -1,6 +1,5 @@
 package com.takeya.animeongaku.ui.player
 
-import android.content.ComponentName
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -25,49 +24,51 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalInspectionMode
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
-import androidx.media3.common.Player
-import androidx.media3.session.MediaController
-import androidx.media3.session.SessionToken
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
-import com.takeya.animeongaku.media.MediaPlaybackService
 import com.takeya.animeongaku.ui.common.MarqueeText
+import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.theme.Ink800
 import com.takeya.animeongaku.ui.theme.Ink900
 import com.takeya.animeongaku.ui.theme.Mist100
 import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.theme.Rose500
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlin.math.max
 
 @Composable
 fun MiniPlayer(
-    onExpand: () -> Unit
+    onExpand: () -> Unit,
+    viewModel: PlayerViewModel = hiltViewModel()
 ) {
-    val controller = rememberMiniPlayerController()
-    val state = rememberMiniPlayerState(controller)
+    val npState by viewModel.nowPlayingState.collectAsStateWithLifecycle()
+    val pbState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val controllerManager = viewModel.mediaControllerManager
+
+    // Derive display info from NowPlayingManager (single source of truth)
+    val currentTheme = npState.currentTheme
+    val animeEntity = currentTheme?.animeId?.let { npState.animeMap[it] }
+    val artUrl = animeEntity?.coverUrl ?: animeEntity?.thumbnailUrl
+    val trackInfo = currentTheme?.displayInfo(animeEntity)
+    val title = trackInfo?.primaryText ?: ""
+    val artist = trackInfo?.secondaryText ?: ""
+    val isVisible = npState.nowPlaying.isNotEmpty() && pbState.hasMedia
+
+    val duration = max(pbState.durationMs, 1L)
+    val progress = (pbState.positionMs.toFloat() / duration).coerceIn(0f, 1f)
 
     AnimatedVisibility(
-        visible = state.hasMedia,
+        visible = isVisible,
         enter = slideInVertically(initialOffsetY = { it }),
         exit = slideOutVertically(targetOffsetY = { it })
     ) {
@@ -83,8 +84,13 @@ fun MiniPlayer(
                 .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
                 .clickable { onExpand() }
         ) {
+            val smoothProgress by animateFloatAsState(
+                targetValue = progress,
+                animationSpec = tween(durationMillis = 150, easing = LinearEasing),
+                label = "miniProgress"
+            )
             LinearProgressIndicator(
-                progress = { state.progress },
+                progress = { smoothProgress },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(2.dp),
@@ -105,9 +111,9 @@ fun MiniPlayer(
                         .clip(RoundedCornerShape(8.dp))
                         .background(Ink800)
                 ) {
-                    if (state.artworkUrl != null) {
+                    if (artUrl != null) {
                         AsyncImage(
-                            model = state.artworkUrl,
+                            model = artUrl,
                             contentDescription = null,
                             modifier = Modifier.size(44.dp),
                             contentScale = ContentScale.Crop
@@ -120,12 +126,12 @@ fun MiniPlayer(
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     MarqueeText(
-                        text = state.title,
+                        text = title,
                         style = MaterialTheme.typography.bodyMedium,
                         color = Mist100
                     )
                     MarqueeText(
-                        text = state.artist,
+                        text = artist,
                         style = MaterialTheme.typography.bodySmall,
                         color = Mist200
                     )
@@ -133,16 +139,14 @@ fun MiniPlayer(
 
                 IconButton(
                     onClick = {
-                        controller?.let {
-                            if (it.isPlaying) it.pause() else it.play()
-                        }
+                        if (pbState.isPlaying) controllerManager.pause() else controllerManager.play()
                     },
                     modifier = Modifier
                         .size(40.dp)
                         .background(Rose500.copy(alpha = 0.15f), CircleShape)
                 ) {
                     Icon(
-                        imageVector = if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        imageVector = if (pbState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                         contentDescription = "Play or pause",
                         tint = Mist100,
                         modifier = Modifier.size(24.dp)
@@ -150,7 +154,7 @@ fun MiniPlayer(
                 }
 
                 IconButton(
-                    onClick = { controller?.seekToNext() },
+                    onClick = { controllerManager.seekToNext() },
                     modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
@@ -163,91 +167,4 @@ fun MiniPlayer(
             }
         }
     }
-}
-
-private data class MiniPlayerState(
-    val title: String = "",
-    val artist: String = "",
-    val artworkUrl: String? = null,
-    val isPlaying: Boolean = false,
-    val hasMedia: Boolean = false,
-    val progress: Float = 0f
-)
-
-@Composable
-private fun rememberMiniPlayerController(): MediaController? {
-    val context = LocalContext.current
-    val isPreview = LocalInspectionMode.current
-    var controller by remember { mutableStateOf<MediaController?>(null) }
-
-    DisposableEffect(context) {
-        if (isPreview) return@DisposableEffect onDispose { }
-        val sessionToken = SessionToken(context, ComponentName(context, MediaPlaybackService::class.java))
-        val controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
-        val executor = ContextCompat.getMainExecutor(context)
-
-        controllerFuture.addListener(
-            { controller = controllerFuture.get() },
-            executor
-        )
-
-        onDispose {
-            controller?.release()
-            controller = null
-        }
-    }
-
-    return controller
-}
-
-@Composable
-private fun rememberMiniPlayerState(controller: MediaController?): MiniPlayerState {
-    var state by remember { mutableStateOf(MiniPlayerState()) }
-
-    DisposableEffect(controller) {
-        if (controller == null) return@DisposableEffect onDispose { }
-
-        fun updateFromController() {
-            val meta = controller.mediaMetadata
-            val duration = controller.duration.takeIf { it > 0 } ?: 1L
-            state = MiniPlayerState(
-                title = meta.title?.toString().orEmpty(),
-                artist = meta.artist?.toString().orEmpty(),
-                artworkUrl = meta.artworkUri?.toString(),
-                isPlaying = controller.isPlaying,
-                hasMedia = controller.mediaItemCount > 0,
-                progress = (controller.currentPosition.toFloat() / max(duration, 1L)).coerceIn(0f, 1f)
-            )
-        }
-
-        val listener = object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) { updateFromController() }
-            override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) { updateFromController() }
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) { updateFromController() }
-            override fun onPlaybackStateChanged(playbackState: Int) { updateFromController() }
-        }
-
-        controller.addListener(listener)
-        updateFromController()
-
-        onDispose { controller.removeListener(listener) }
-    }
-
-    LaunchedEffect(controller) {
-        while (isActive) {
-            controller?.let {
-                if (it.mediaItemCount > 0) {
-                    val duration = it.duration.takeIf { d -> d > 0 } ?: 1L
-                    state = state.copy(
-                        progress = (it.currentPosition.toFloat() / max(duration, 1L)).coerceIn(0f, 1f),
-                        isPlaying = it.isPlaying,
-                        hasMedia = it.mediaItemCount > 0
-                    )
-                }
-            }
-            delay(500)
-        }
-    }
-
-    return state
 }

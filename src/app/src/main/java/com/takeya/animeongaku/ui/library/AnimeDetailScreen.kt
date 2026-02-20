@@ -48,7 +48,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.ThemeEntity
-import com.takeya.animeongaku.ui.common.SongOptionsSheet
+import com.takeya.animeongaku.ui.common.ActionSheet
+import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
+import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.theme.Ember400
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
@@ -65,18 +68,61 @@ fun AnimeDetailScreen(
 ) {
     val anime by viewModel.anime.collectAsStateWithLifecycle()
     val themes by viewModel.themes.collectAsStateWithLifecycle()
+    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
     val coverUrl = anime?.coverUrl ?: anime?.thumbnailUrl
 
     var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }
+    var showAnimeSheet by remember { mutableStateOf(false) }
+    var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
+
     sheetTheme?.let { theme ->
-        SongOptionsSheet(
-            theme = theme,
-            anime = anime,
+        val info = theme.displayInfo(anime)
+        ActionSheet(
+            config = ActionSheetConfig(
+                title = info.primaryText,
+                subtitle = info.secondaryText,
+                imageUrl = coverUrl
+            ),
             onDismiss = { sheetTheme = null },
             onPlayNext = { viewModel.nowPlayingManager.playNext(theme, anime) },
             onAddToQueue = { viewModel.nowPlayingManager.addToQueue(theme, anime) },
-            onSaveToPlaylist = { /* TODO: open playlist picker */ }
+            onReplaceQueue = {
+                val a = anime
+                viewModel.nowPlayingManager.play("Now Playing", listOf(theme), 0, animeMap = a?.let { e -> theme.animeId?.let { mapOf(it to e) } } ?: emptyMap())
+            },
+            onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) }
+        )
+    }
+
+    if (showAnimeSheet) {
+        ActionSheet(
+            config = ActionSheetConfig(
+                title = anime?.title ?: "Anime",
+                subtitle = "${themes.size} themes",
+                imageUrl = coverUrl,
+                showAddToLibrary = false
+            ),
+            onDismiss = { showAnimeSheet = false },
+            onPlayNext = { viewModel.nowPlayingManager.playNext(themes, anime?.let { a -> a.animeThemesId?.let { mapOf(it to a) } } ?: emptyMap()) },
+            onAddToQueue = { viewModel.nowPlayingManager.addToQueue(themes, anime?.let { a -> a.animeThemesId?.let { mapOf(it to a) } } ?: emptyMap()) },
+            onReplaceQueue = { viewModel.playAll(); onPlayTheme() },
+            onSaveToPlaylist = { pickerThemeIds = themes.map { it.id } }
+        )
+    }
+
+    pickerThemeIds?.let { ids ->
+        PlaylistPickerSheet(
+            playlists = playlists,
+            onDismiss = { pickerThemeIds = null },
+            onSelectPlaylist = { playlistId ->
+                viewModel.addToPlaylist(playlistId, ids)
+                pickerThemeIds = null
+            },
+            onCreatePlaylist = { name ->
+                viewModel.createAndAddToPlaylist(name, ids)
+                pickerThemeIds = null
+            }
         )
     }
 
@@ -116,17 +162,27 @@ fun AnimeDetailScreen(
                                 )
                             )
                     )
-                    IconButton(
-                        onClick = onBack,
+                    Row(
                         modifier = Modifier
+                            .fillMaxWidth()
                             .padding(8.dp)
-                            .align(Alignment.TopStart)
+                            .align(Alignment.TopStart),
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Icon(
-                            Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
-                            contentDescription = "Back",
-                            tint = Mist100
-                        )
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
+                                contentDescription = "Back",
+                                tint = Mist100
+                            )
+                        }
+                        IconButton(onClick = { showAnimeSheet = true }) {
+                            Icon(
+                                Icons.Rounded.MoreVert,
+                                contentDescription = "More options",
+                                tint = Mist100
+                            )
+                        }
                     }
                     Column(
                         modifier = Modifier

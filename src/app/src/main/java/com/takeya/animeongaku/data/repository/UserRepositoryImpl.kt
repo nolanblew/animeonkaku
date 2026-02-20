@@ -236,6 +236,28 @@ class UserRepositoryImpl @Inject constructor(
         return result
     }
 
+    override suspend fun searchKitsuAnime(query: String): List<KitsuAnimeEntry> {
+        if (query.isBlank()) return emptyList()
+        return try {
+            val response = kitsuApi.searchAnime(query = query, limit = 5)
+            response.data.map { anime ->
+                KitsuAnimeEntry(
+                    id = anime.id,
+                    title = anime.displayTitle(),
+                    titleEn = anime.titleEn(),
+                    titleRomaji = anime.titleRomaji(),
+                    titleJa = anime.titleJa(),
+                    abbreviatedTitles = anime.abbreviatedTitles(),
+                    posterUrl = anime.posterUrl(),
+                    coverUrl = anime.coverUrl()
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Kitsu anime search failed for '$query'", e)
+            emptyList()
+        }
+    }
+
     private suspend fun fetchAnimeDetailsByIds(ids: List<String>): Map<String, KitsuAnime> {
         if (ids.isEmpty()) return emptyMap()
         val uniqueIds = ids.filter { it.isNotBlank() }.distinct()

@@ -59,7 +59,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeEntity
-import com.takeya.animeongaku.ui.common.SongOptionsSheet
+import com.takeya.animeongaku.ui.common.ActionSheet
+import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
+import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.theme.Ember400
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
@@ -109,15 +112,37 @@ fun LibraryScreen(
     }
 
     var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }
+    var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
+
     sheetTheme?.let { theme ->
         val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
-        SongOptionsSheet(
-            theme = theme,
-            anime = sheetAnime,
+        val info = theme.displayInfo(sheetAnime)
+        ActionSheet(
+            config = ActionSheetConfig(
+                title = info.primaryText,
+                subtitle = info.secondaryText,
+                imageUrl = sheetAnime?.coverUrl ?: sheetAnime?.thumbnailUrl
+            ),
             onDismiss = { sheetTheme = null },
             onPlayNext = { viewModel.nowPlayingManager.playNext(theme, sheetAnime) },
             onAddToQueue = { viewModel.nowPlayingManager.addToQueue(theme, sheetAnime) },
-            onSaveToPlaylist = { /* TODO: open playlist picker */ }
+            onReplaceQueue = { viewModel.nowPlayingManager.play("Now Playing", listOf(theme), 0, animeMap = sheetAnime?.let { a -> theme.animeId?.let { mapOf(it to a) } } ?: emptyMap()) },
+            onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) }
+        )
+    }
+
+    pickerThemeIds?.let { ids ->
+        PlaylistPickerSheet(
+            playlists = playlists,
+            onDismiss = { pickerThemeIds = null },
+            onSelectPlaylist = { playlistId ->
+                viewModel.addToPlaylist(playlistId, ids)
+                pickerThemeIds = null
+            },
+            onCreatePlaylist = { name ->
+                viewModel.createAndAddToPlaylist(name, ids)
+                pickerThemeIds = null
+            }
         )
     }
 

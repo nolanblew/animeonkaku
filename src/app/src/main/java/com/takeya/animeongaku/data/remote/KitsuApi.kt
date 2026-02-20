@@ -34,6 +34,13 @@ interface KitsuApi {
     ): KitsuAnimeResponse
 
     @GET("anime")
+    suspend fun searchAnime(
+        @Query("filter[text]") query: String,
+        @Query("fields[anime]") fields: String = "canonicalTitle,titles,abbreviatedTitles,posterImage,coverImage",
+        @Query("page[limit]") limit: Int = 5
+    ): KitsuAnimeResponse
+
+    @GET("anime")
     suspend fun getAnimeWithMappings(
         @Query("filter[id]") ids: String,
         @Query("include") include: String = "mappings",

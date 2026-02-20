@@ -7,6 +7,7 @@ import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.model.ArtistCredit
 import com.takeya.animeongaku.data.model.KitsuAnimeEntry
 import com.takeya.animeongaku.data.remote.AnimeThemesApiResponse
+import com.takeya.animeongaku.data.remote.AnimeThemesSearchResponse
 import com.takeya.animeongaku.data.remote.ApiAnime
 import com.takeya.animeongaku.data.remote.ApiTheme
 import com.takeya.animeongaku.data.remote.ApiVideo
@@ -263,14 +264,13 @@ class AnimeRepositoryImpl @Inject constructor(
     override suspend fun searchAnimeThemes(query: String): List<AnimeThemeEntry> {
         if (query.isBlank()) return emptyList()
 
+        val includes = "resources,images,animesynonyms,animethemes,animethemes.animethemeentries.videos," +
+            "animethemes.animethemeentries.videos.audio,animethemes.song,animethemes.song.artists"
+
         val requestUrl = "https://api.animethemes.moe/anime".toHttpUrl()
             .newBuilder()
             .addQueryParameter("q", query)
-            .addQueryParameter(
-                "include",
-                "animethemes,animethemes.animethemeentries.videos," +
-                    "animethemes.animethemeentries.videos.audio,animethemes.song,animethemes.song.artists"
-            )
+            .addQueryParameter("include", includes)
             .addQueryParameter("page[size]", "15")
             .build()
 
@@ -282,12 +282,59 @@ class AnimeRepositoryImpl @Inject constructor(
         val responseAdapter = moshi.adapter(AnimeThemesApiResponse::class.java)
 
         return withContext(Dispatchers.IO) {
-            okHttpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext emptyList()
-                val body = response.body?.string() ?: return@withContext emptyList()
-                val parsed = responseAdapter.fromJson(body) ?: return@withContext emptyList()
-                parsed.anime.flatMap { it.toThemeEntries() }
+            val results = mutableListOf<AnimeThemeEntry>()
+            val seenThemeIds = mutableSetOf<String>()
+
+            // 1) Search by anime name
+            try {
+                okHttpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val body = response.body?.string()
+                        if (body != null) {
+                            val parsed = responseAdapter.fromJson(body)
+                            parsed?.anime?.flatMap { it.toThemeEntries() }?.forEach { entry ->
+                                if (seenThemeIds.add(entry.themeId)) results.add(entry)
+                            }
+                        }
+                    } else {
+                        Log.w(TAG, "searchAnimeThemes anime query failed: HTTP ${response.code}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "searchAnimeThemes anime query exception", e)
             }
+
+            // 2) Also search by song title / artist name via /search endpoint
+            try {
+                val searchUrl = "https://api.animethemes.moe/search".toHttpUrl()
+                    .newBuilder()
+                    .addQueryParameter("q", query)
+                    .addQueryParameter("include[anime]", includes)
+                    .addQueryParameter("fields[search]", "anime")
+                    .addQueryParameter("page[limit]", "10")
+                    .build()
+
+                val searchRequest = Request.Builder().url(searchUrl).get().build()
+                val searchAdapter = moshi.adapter(AnimeThemesSearchResponse::class.java)
+
+                okHttpClient.newCall(searchRequest).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val body = response.body?.string()
+                        if (body != null) {
+                            val parsed = searchAdapter.fromJson(body)
+                            parsed?.search?.anime?.flatMap { it.toThemeEntries() }?.forEach { entry ->
+                                if (seenThemeIds.add(entry.themeId)) results.add(entry)
+                            }
+                        }
+                    } else {
+                        Log.w(TAG, "searchAnimeThemes /search query failed: HTTP ${response.code}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "searchAnimeThemes /search query exception", e)
+            }
+
+            results
         }
     }
 }
@@ -303,9 +350,34 @@ private fun ApiAnime.kitsuExternalId(): String? {
     }
 }
 
+private fun ApiAnime.coverImageUrl(): String? {
+    val preferred = images.firstOrNull {
+        it.facet?.contains("Large Cover", ignoreCase = true) == true
+    } ?: images.firstOrNull {
+        it.facet?.contains("Small Cover", ignoreCase = true) == true
+    } ?: images.firstOrNull()
+    val link = preferred?.link
+    val path = preferred?.path
+    return when {
+        !link.isNullOrBlank() -> link
+        !path.isNullOrBlank() -> if (path.startsWith("http", ignoreCase = true)) path
+                                 else "https://i.animethemes.moe/$path"
+        else -> null
+    }
+}
+
+private fun ApiAnime.englishTitle(): String? {
+    return synonyms.firstOrNull {
+        it.type?.equals("English", ignoreCase = true) == true && !it.text.isNullOrBlank()
+    }?.text
+}
+
 private fun ApiAnime.toThemeEntries(): List<AnimeThemeEntry> {
     val animeId = id?.toString() ?: return emptyList()
     val animeName = name
+    val animeNameEn = englishTitle()
+    val kitsuId = kitsuExternalId()
+    val coverUrl = coverImageUrl()
     return animethemes.mapNotNull { theme ->
         val themeId = theme.id?.toString() ?: return@mapNotNull null
         val video = theme.flattenedVideos().firstOrNull {
@@ -348,6 +420,9 @@ private fun ApiAnime.toThemeEntries(): List<AnimeThemeEntry> {
         AnimeThemeEntry(
             animeId = animeId,
             animeName = animeName,
+            animeNameEn = animeNameEn,
+            kitsuId = kitsuId,
+            coverUrl = coverUrl,
             themeId = themeId,
             title = theme.title(),
             artist = theme.artistNames(),

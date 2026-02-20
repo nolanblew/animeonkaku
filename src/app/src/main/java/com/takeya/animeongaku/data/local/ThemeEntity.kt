@@ -13,5 +13,11 @@ data class ThemeEntity(
     val videoUrl: String?,
     val isDownloaded: Boolean,
     val localFilePath: String?,
-    val themeType: String? = null
-)
+    val themeType: String? = null,
+    val source: String = SOURCE_KITSU
+) {
+    companion object {
+        const val SOURCE_KITSU = "kitsu"
+        const val SOURCE_USER = "user"
+    }
+}

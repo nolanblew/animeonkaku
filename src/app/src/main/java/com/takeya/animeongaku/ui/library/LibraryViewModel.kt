@@ -9,6 +9,7 @@ import com.takeya.animeongaku.data.local.ArtistDao
 import com.takeya.animeongaku.data.local.ArtistImageDao
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistEntity
+import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.repository.ArtistRepository
 import com.takeya.animeongaku.media.NowPlayingManager
@@ -78,7 +79,7 @@ class LibraryViewModel @Inject constructor(
                     trackCount = row.themeCount,
                     coverUrl = row.anime.coverUrl ?: row.anime.thumbnailUrl
                 )
-            }.sortedByDescending { it.trackCount }
+            }.sortedBy { it.title.lowercase() }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -134,6 +135,28 @@ class LibraryViewModel @Inject constructor(
         val allSongs = themes.value
         val idx = allSongs.indexOfFirst { it.id == themeId }.coerceAtLeast(0)
         nowPlayingManager.play("All Songs", allSongs, idx, animeMap = buildAnimeMap())
+    }
+
+    fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {
+        viewModelScope.launch {
+            val count = playlistDao.countEntries(playlistId)
+            val entries = themeIds.mapIndexed { i, id ->
+                PlaylistEntryEntity(playlistId = playlistId, themeId = id, orderIndex = count + i)
+            }
+            playlistDao.insertEntries(entries)
+        }
+    }
+
+    fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
+        viewModelScope.launch {
+            val newId = playlistDao.insertPlaylist(
+                PlaylistEntity(name = name, createdAt = System.currentTimeMillis())
+            )
+            val entries = themeIds.mapIndexed { i, id ->
+                PlaylistEntryEntity(playlistId = newId, themeId = id, orderIndex = i)
+            }
+            playlistDao.insertEntries(entries)
+        }
     }
 }
 

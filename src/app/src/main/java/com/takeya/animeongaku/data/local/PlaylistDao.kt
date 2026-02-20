@@ -58,6 +58,17 @@ interface PlaylistDao {
 
     @Query("SELECT id FROM playlists WHERE name = :name LIMIT 1")
     suspend fun findPlaylistByName(name: String): Long?
+
+    @Query("""
+        SELECT p.*, COUNT(pe.themeId) AS trackCount
+        FROM playlists p
+        LEFT JOIN playlist_entries pe ON p.id = pe.playlistId
+        WHERE p.name LIKE '%' || :query || '%'
+        GROUP BY p.id
+        ORDER BY p.createdAt DESC
+        LIMIT 50
+    """)
+    fun searchPlaylists(query: String): Flow<List<PlaylistWithCount>>
 }
 
 data class PlaylistWithCount(

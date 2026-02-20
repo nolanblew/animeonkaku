@@ -56,6 +56,16 @@ interface ArtistDao {
         ORDER BY trackCount DESC
     """)
     fun observeArtistTrackCounts(): Flow<List<ArtistTrackCount>>
+
+    @Query("""
+        SELECT artistName, COUNT(DISTINCT themeId) as trackCount
+        FROM theme_artist
+        WHERE artistName LIKE '%' || :query || '%'
+        GROUP BY artistName
+        ORDER BY trackCount DESC
+        LIMIT 50
+    """)
+    fun searchArtists(query: String): Flow<List<ArtistTrackCount>>
 }
 
 data class ArtistTrackCount(

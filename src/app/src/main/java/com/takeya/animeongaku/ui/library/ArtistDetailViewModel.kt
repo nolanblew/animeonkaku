@@ -7,9 +7,14 @@ import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ArtistDao
 import com.takeya.animeongaku.data.local.ArtistImageDao
+import com.takeya.animeongaku.data.local.PlaylistDao
+import com.takeya.animeongaku.data.local.PlaylistEntity
+import com.takeya.animeongaku.data.local.PlaylistEntryEntity
+import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.media.NowPlayingManager
+import kotlinx.coroutines.launch
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
@@ -24,6 +29,7 @@ class ArtistDetailViewModel @Inject constructor(
     animeDao: AnimeDao,
     private val artistDao: ArtistDao,
     artistImageDao: ArtistImageDao,
+    private val playlistDao: PlaylistDao,
     val nowPlayingManager: NowPlayingManager
 ) : ViewModel() {
     val artistName: String = savedStateHandle["artistName"] ?: ""
@@ -58,5 +64,30 @@ class ArtistDetailViewModel @Inject constructor(
     fun shuffleAll() {
         val list = themes.value
         if (list.isNotEmpty()) nowPlayingManager.play(artistName, list, 0, shuffle = true, animeMap = buildAnimeMap())
+    }
+
+    val playlists: StateFlow<List<PlaylistWithCount>> = playlistDao.observePlaylists()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {
+        viewModelScope.launch {
+            val count = playlistDao.countEntries(playlistId)
+            val entries = themeIds.mapIndexed { i, id ->
+                PlaylistEntryEntity(playlistId = playlistId, themeId = id, orderIndex = count + i)
+            }
+            playlistDao.insertEntries(entries)
+        }
+    }
+
+    fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
+        viewModelScope.launch {
+            val playlistId = playlistDao.insertPlaylist(
+                PlaylistEntity(name = name, createdAt = System.currentTimeMillis())
+            )
+            val entries = themeIds.mapIndexed { i, id ->
+                PlaylistEntryEntity(playlistId = playlistId, themeId = id, orderIndex = i)
+            }
+            playlistDao.insertEntries(entries)
+        }
     }
 }

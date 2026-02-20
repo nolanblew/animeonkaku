@@ -169,7 +169,7 @@ class LibrarySyncService : Service() {
         )
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Syncing Library")
             .setContentText(text)
             .setContentIntent(contentIntent)
@@ -229,7 +229,7 @@ class LibrarySyncService : Service() {
         }
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Sync Complete")
             .setContentText(text)
             .setContentIntent(contentIntent)

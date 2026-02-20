@@ -1,6 +1,5 @@
 package com.takeya.animeongaku.ui.player
 
-import android.content.ComponentName
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -11,7 +10,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Repeat
@@ -36,8 +35,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -52,25 +49,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalInspectionMode
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import androidx.media3.common.C
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
-import androidx.media3.session.MediaController
-import androidx.media3.session.SessionToken
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
-import com.takeya.animeongaku.media.MediaPlaybackService
+import com.takeya.animeongaku.media.MediaControllerManager
 import com.takeya.animeongaku.media.NowPlayingState
-import com.takeya.animeongaku.data.local.AnimeEntity
-import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.media.PlaybackState
+import com.takeya.animeongaku.ui.common.ActionSheet
+import com.takeya.animeongaku.ui.common.ActionSheetConfig
 import com.takeya.animeongaku.ui.common.MarqueeText
+import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
+import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.theme.Ember400
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
@@ -78,9 +69,6 @@ import com.takeya.animeongaku.ui.theme.Ink900
 import com.takeya.animeongaku.ui.theme.Mist100
 import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.theme.Rose500
-import android.net.Uri
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlin.math.max
 
 @Composable
@@ -89,13 +77,14 @@ fun PlayerScreen(
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val npState by viewModel.nowPlayingState.collectAsStateWithLifecycle()
+    val pbState by viewModel.playbackState.collectAsStateWithLifecycle()
     val nowPlayingManager = viewModel.nowPlayingManager
+    val controllerManager = viewModel.mediaControllerManager
 
-    val mediaController = rememberMediaController()
-    val playerState = rememberPlayerUiState(mediaController, nowPlayingManager)
-
-    var lastLoadedVersion by remember { mutableStateOf(-1L) }
     var showUpNext by remember { mutableStateOf(false) }
+    var showPlayerSheet by remember { mutableStateOf(false) }
+    var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
+    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
 
     if (showUpNext) {
         UpNextSheet(
@@ -105,91 +94,41 @@ fun PlayerScreen(
         )
     }
 
-    LaunchedEffect(mediaController, npState.queueVersion) {
-        mediaController?.let { controller ->
-            if (npState.nowPlaying.isNotEmpty()) {
-                if (lastLoadedVersion != npState.queueVersion) {
-
-                    // Helper: surgically rebuild the queue around the current track
-                    // without interrupting playback of the current song.
-                    fun syncQueueAroundCurrent() {
-                        val controllerCount = controller.mediaItemCount
-                        val currentMediaIdx = controller.currentMediaItemIndex
-
-                        // Remove all items after current
-                        if (controllerCount > currentMediaIdx + 1) {
-                            controller.removeMediaItems(currentMediaIdx + 1, controllerCount)
-                        }
-                        // Remove all items before current
-                        if (currentMediaIdx > 0) {
-                            controller.removeMediaItems(0, currentMediaIdx)
-                        }
-                        // Now controller has only the current item at index 0.
-                        // Add items before current
-                        val beforeItems = npState.nowPlaying.subList(0, npState.currentIndex).map { theme ->
-                            val anime = theme.animeId?.let { npState.animeMap[it] }
-                            theme.toMediaItem(anime)
-                        }
-                        for ((i, item) in beforeItems.withIndex()) {
-                            controller.addMediaItem(i, item)
-                        }
-                        // Add items after current
-                        if (npState.currentIndex + 1 < npState.nowPlaying.size) {
-                            val afterItems = npState.nowPlaying.subList(npState.currentIndex + 1, npState.nowPlaying.size).map { theme ->
-                                val anime = theme.animeId?.let { npState.animeMap[it] }
-                                theme.toMediaItem(anime)
-                            }
-                            for (item in afterItems) {
-                                controller.addMediaItem(item)
-                            }
-                        }
-                    }
-
-                    if (lastLoadedVersion == -1L) {
-                        // PlayerScreen just composed (e.g. MiniPlayer expand).
-                        // Check if the MediaController already has the right track playing.
-                        val currentTheme = npState.currentTheme
-                        val controllerMediaId = controller.currentMediaItem?.mediaId
-                        val alreadyPlaying = controllerMediaId != null &&
-                                currentTheme != null &&
-                                controllerMediaId == currentTheme.id.toString() &&
-                                controller.mediaItemCount > 0
-
-                        if (alreadyPlaying) {
-                            // Controller has the right song — sync surrounding queue
-                            // without restarting the current track.
-                            syncQueueAroundCurrent()
-                        } else {
-                            // Genuine first load or new play() call
-                            val items = npState.nowPlaying.map { theme ->
-                                val anime = theme.animeId?.let { npState.animeMap[it] }
-                                theme.toMediaItem(anime)
-                            }
-                            controller.setMediaItems(items, npState.currentIndex, C.TIME_UNSET)
-                            controller.playWhenReady = true
-                            controller.prepare()
-                        }
-                    } else if (npState.isFullReload) {
-                        // Full reload: new play() call, skipTo, rewindTo
-                        val items = npState.nowPlaying.map { theme ->
-                            val anime = theme.animeId?.let { npState.animeMap[it] }
-                            theme.toMediaItem(anime)
-                        }
-                        controller.setMediaItems(items, npState.currentIndex, C.TIME_UNSET)
-                        controller.playWhenReady = true
-                        controller.prepare()
-                    } else {
-                        // Queue mutation while PlayerScreen is visible
-                        syncQueueAroundCurrent()
-                    }
-                    lastLoadedVersion = npState.queueVersion
-                }
-            } else {
-                controller.clearMediaItems()
-                controller.stop()
-                lastLoadedVersion = -1L
-            }
+    if (showPlayerSheet) {
+        val theme = npState.currentTheme
+        if (theme != null) {
+            val animeEntity = theme.animeId?.let { npState.animeMap[it] }
+            val info = theme.displayInfo(animeEntity)
+            ActionSheet(
+                config = ActionSheetConfig(
+                    title = info.primaryText,
+                    subtitle = info.secondaryText,
+                    imageUrl = animeEntity?.coverUrl ?: animeEntity?.thumbnailUrl,
+                    showPlayNext = false,
+                    showAddToQueue = false,
+                    showReplaceQueue = false,
+                    showSaveToPlaylist = true,
+                    showAddToLibrary = false
+                ),
+                onDismiss = { showPlayerSheet = false },
+                onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) }
+            )
         }
+    }
+
+    pickerThemeIds?.let { ids ->
+        PlaylistPickerSheet(
+            playlists = playlists,
+            onDismiss = { pickerThemeIds = null },
+            onSelectPlaylist = { playlistId ->
+                viewModel.addToPlaylist(playlistId, ids)
+                pickerThemeIds = null
+            },
+            onCreatePlaylist = { name ->
+                viewModel.createAndAddToPlaylist(name, ids)
+                pickerThemeIds = null
+            }
+        )
     }
 
     val backgroundGradient = Brush.verticalGradient(
@@ -205,9 +144,13 @@ fun PlayerScreen(
             .fillMaxSize()
             .background(backgroundGradient)
     ) {
+        // Derive display info from NowPlayingManager (single source of truth)
         val currentTheme = npState.currentTheme
-        val animeArt = currentTheme?.animeId?.let { npState.animeMap[it] }
-        val artUrl = animeArt?.coverUrl ?: animeArt?.thumbnailUrl
+        val animeEntity = currentTheme?.animeId?.let { npState.animeMap[it] }
+        val artUrl = animeEntity?.coverUrl ?: animeEntity?.thumbnailUrl
+        val trackInfo = currentTheme?.displayInfo(animeEntity)
+        val title = trackInfo?.primaryText ?: "Select a song"
+        val artist = trackInfo?.secondaryText ?: "Choose a track from your library"
 
         PlayerBackgroundArt(artUrl)
         BackdropGlow()
@@ -219,10 +162,10 @@ fun PlayerScreen(
                 .padding(top = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            PlayerTopBar(onCollapse)
+            PlayerTopBar(onCollapse, onMore = { showPlayerSheet = true })
             Box(contentAlignment = Alignment.Center) {
-                AlbumArtCard(playerState.title, artUrl)
-                if (playerState.isBuffering) {
+                AlbumArtCard(title, artUrl)
+                if (pbState.isBuffering) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(48.dp),
                         color = Mist100.copy(alpha = 0.8f),
@@ -230,8 +173,8 @@ fun PlayerScreen(
                     )
                 }
             }
-            TrackInfo(playerState)
-            playerState.errorMessage?.let { error ->
+            TrackInfo(title, artist)
+            pbState.errorMessage?.let { error ->
                 Text(
                     text = error,
                     style = MaterialTheme.typography.labelSmall,
@@ -240,9 +183,9 @@ fun PlayerScreen(
                     maxLines = 2
                 )
             }
-            SeekBar(playerState, mediaController)
-            PlaybackControls(playerState, mediaController, npState, nowPlayingManager)
-            SupportingActions(mediaController, onUpNext = { showUpNext = true })
+            SeekBar(pbState, controllerManager)
+            PlaybackControls(pbState, controllerManager, npState, nowPlayingManager)
+            SupportingActions(controllerManager, onUpNext = { showUpNext = true })
         }
     }
 }
@@ -290,7 +233,7 @@ private fun BackdropGlow() {
 }
 
 @Composable
-private fun PlayerTopBar(onCollapse: () -> Unit) {
+private fun PlayerTopBar(onCollapse: () -> Unit, onMore: () -> Unit = {}) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -308,7 +251,13 @@ private fun PlayerTopBar(onCollapse: () -> Unit) {
             style = MaterialTheme.typography.labelMedium,
             color = Mist200
         )
-        Spacer(modifier = Modifier.size(44.dp))
+        GlassIconButton(onClick = onMore) {
+            Icon(
+                imageVector = Icons.Rounded.MoreVert,
+                contentDescription = "More options",
+                tint = Mist100
+            )
+        }
     }
 }
 
@@ -364,15 +313,15 @@ private fun AlbumArtCard(title: String, imageUrl: String?) {
 }
 
 @Composable
-private fun TrackInfo(state: PlayerUiState) {
+private fun TrackInfo(title: String, artist: String) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         MarqueeText(
-            text = state.title,
+            text = title,
             style = MaterialTheme.typography.headlineSmall,
             color = Mist100
         )
         MarqueeText(
-            text = state.artist,
+            text = artist,
             style = MaterialTheme.typography.bodyLarge,
             color = Mist200
         )
@@ -380,11 +329,17 @@ private fun TrackInfo(state: PlayerUiState) {
 }
 
 @Composable
-private fun SeekBar(state: PlayerUiState, controller: MediaController?) {
-    val duration = max(state.durationMs, 1L)
+private fun SeekBar(pbState: PlaybackState, controllerManager: MediaControllerManager) {
+    val duration = max(pbState.durationMs, 1L)
     var scrubFraction by remember { mutableFloatStateOf(0f) }
     var isScrubbing by remember { mutableStateOf(false) }
-    val positionFraction = if (isScrubbing) scrubFraction else (state.positionMs.toFloat() / duration)
+    val rawFraction = (pbState.positionMs.toFloat() / duration).coerceIn(0f, 1f)
+    val smoothFraction by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = rawFraction,
+        animationSpec = tween(durationMillis = 150, easing = androidx.compose.animation.core.LinearEasing),
+        label = "seekSmooth"
+    )
+    val positionFraction = if (isScrubbing) scrubFraction else smoothFraction
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val activeColor by animateColorAsState(
@@ -400,7 +355,7 @@ private fun SeekBar(state: PlayerUiState, controller: MediaController?) {
             },
             onValueChangeFinished = {
                 val newPosition = (scrubFraction * duration).toLong()
-                controller?.seekTo(newPosition)
+                controllerManager.seekTo(newPosition)
                 isScrubbing = false
             },
             colors = androidx.compose.material3.SliderDefaults.colors(
@@ -429,8 +384,8 @@ private fun SeekBar(state: PlayerUiState, controller: MediaController?) {
 
 @Composable
 private fun PlaybackControls(
-    state: PlayerUiState,
-    controller: MediaController?,
+    pbState: PlaybackState,
+    controllerManager: MediaControllerManager,
     npState: NowPlayingState,
     nowPlayingManager: com.takeya.animeongaku.media.NowPlayingManager
 ) {
@@ -447,7 +402,7 @@ private fun PlaybackControls(
             )
         }
 
-        IconButton(onClick = { controller?.seekToPrevious() }) {
+        IconButton(onClick = { controllerManager.seekToPrevious() }) {
             Icon(
                 imageVector = Icons.Rounded.SkipPrevious,
                 contentDescription = "Previous",
@@ -456,15 +411,15 @@ private fun PlaybackControls(
             )
         }
 
-        PlayButton(isPlaying = state.isPlaying) {
-            if (state.isPlaying) {
-                controller?.pause()
+        PlayButton(isPlaying = pbState.isPlaying, isBuffering = pbState.isBuffering) {
+            if (pbState.isPlaying) {
+                controllerManager.pause()
             } else {
-                controller?.play()
+                controllerManager.play()
             }
         }
 
-        IconButton(onClick = { controller?.seekToNext() }) {
+        IconButton(onClick = { controllerManager.seekToNext() }) {
             Icon(
                 imageVector = Icons.Rounded.SkipNext,
                 contentDescription = "Next",
@@ -473,18 +428,18 @@ private fun PlaybackControls(
             )
         }
 
-        IconButton(onClick = { controller?.toggleRepeatMode() }) {
+        IconButton(onClick = { controllerManager.toggleRepeatMode() }) {
             Icon(
                 imageVector = Icons.Rounded.Repeat,
                 contentDescription = "Repeat",
-                tint = if (controller?.repeatMode == Player.REPEAT_MODE_OFF) Mist200 else Rose500
+                tint = if (pbState.repeatMode == Player.REPEAT_MODE_OFF) Mist200 else Rose500
             )
         }
     }
 }
 
 @Composable
-private fun PlayButton(isPlaying: Boolean, onClick: () -> Unit) {
+private fun PlayButton(isPlaying: Boolean, isBuffering: Boolean = false, onClick: () -> Unit) {
     val containerColor by animateColorAsState(
         targetValue = if (isPlaying) Rose500 else Ember400,
         animationSpec = tween(500),
@@ -500,19 +455,27 @@ private fun PlayButton(isPlaying: Boolean, onClick: () -> Unit) {
             .clip(CircleShape),
         contentAlignment = Alignment.Center
     ) {
-        IconButton(onClick = onClick) {
-            Icon(
-                imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                contentDescription = "Play or pause",
-                tint = Ink900,
-                modifier = Modifier.size(40.dp)
+        if (isBuffering) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(36.dp),
+                color = Ink900,
+                strokeWidth = 3.dp
             )
+        } else {
+            IconButton(onClick = onClick) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = "Play or pause",
+                    tint = Ink900,
+                    modifier = Modifier.size(40.dp)
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun SupportingActions(controller: MediaController?, onUpNext: () -> Unit = {}) {
+private fun SupportingActions(controllerManager: MediaControllerManager, onUpNext: () -> Unit = {}) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)
@@ -520,7 +483,7 @@ private fun SupportingActions(controller: MediaController?, onUpNext: () -> Unit
         GlassActionPill(
             icon = Icons.Rounded.Replay10,
             label = "10s",
-            onClick = { controller?.seekBackTenSeconds() }
+            onClick = { controllerManager.seekBackTenSeconds() }
         )
         GlassActionPill(
             icon = Icons.AutoMirrored.Rounded.QueueMusic,
@@ -565,193 +528,9 @@ private fun GlassIconButton(onClick: () -> Unit, content: @Composable () -> Unit
     }
 }
 
-@Composable
-private fun rememberMediaController(): MediaController? {
-    val context = LocalContext.current
-    val isPreview = LocalInspectionMode.current
-    var controller by remember { mutableStateOf<MediaController?>(null) }
-
-    DisposableEffect(context) {
-        if (isPreview) return@DisposableEffect onDispose { }
-        val sessionToken = SessionToken(context, ComponentName(context, MediaPlaybackService::class.java))
-        val controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
-        val executor = ContextCompat.getMainExecutor(context)
-
-        controllerFuture.addListener(
-            {
-                controller = controllerFuture.get()
-            },
-            executor
-        )
-
-        onDispose {
-            controller?.release()
-            controller = null
-        }
-    }
-
-    return controller
-}
-
-@Composable
-private fun rememberPlayerUiState(
-    controller: Player?,
-    nowPlayingManager: com.takeya.animeongaku.media.NowPlayingManager
-): PlayerUiState {
-    var state by remember {
-        mutableStateOf(
-            PlayerUiState(
-                title = "Select a song",
-                artist = "Choose a track from your library",
-                isPlaying = false,
-                mediaId = null,
-                positionMs = 0L,
-                durationMs = 1L,
-                bufferedPositionMs = 0L
-            )
-        )
-    }
-
-    DisposableEffect(controller) {
-        if (controller == null) return@DisposableEffect onDispose { }
-
-        val listener = object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                state = state.copy(isPlaying = isPlaying)
-            }
-
-            override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
-                val title = mediaMetadata.title?.toString().orEmpty().ifBlank { state.title }
-                val artist = mediaMetadata.artist?.toString().orEmpty().ifBlank { state.artist }
-                state = state.copy(title = title, artist = artist)
-            }
-
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                state = state.copy(mediaId = mediaItem?.mediaId, errorMessage = null)
-                // Sync NowPlayingManager with the player's current index
-                val idx = controller.currentMediaItemIndex
-                nowPlayingManager.onTrackChanged(idx)
-            }
-
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                state = state.copy(
-                    isBuffering = playbackState == Player.STATE_BUFFERING,
-                    errorMessage = if (playbackState == Player.STATE_IDLE && state.errorMessage != null) state.errorMessage else null
-                )
-            }
-
-            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                state = state.copy(
-                    errorMessage = "Playback error: ${error.localizedMessage ?: "Unknown error"}",
-                    isBuffering = false
-                )
-            }
-        }
-
-        controller.addListener(listener)
-
-        // Read initial state from controller (already playing when opened from MiniPlayer)
-        val meta = controller.mediaMetadata
-        val initTitle = meta.title?.toString().orEmpty().ifBlank { state.title }
-        val initArtist = meta.artist?.toString().orEmpty().ifBlank { state.artist }
-        val initDuration = controller.duration.takeIf { it > 0 } ?: state.durationMs
-        state = state.copy(
-            title = initTitle,
-            artist = initArtist,
-            isPlaying = controller.isPlaying,
-            mediaId = controller.currentMediaItem?.mediaId,
-            positionMs = controller.currentPosition,
-            durationMs = initDuration,
-            bufferedPositionMs = controller.bufferedPosition,
-            isBuffering = controller.playbackState == Player.STATE_BUFFERING
-        )
-
-        onDispose {
-            controller.removeListener(listener)
-        }
-    }
-
-    LaunchedEffect(controller) {
-        while (isActive) {
-            controller?.let {
-                val duration = it.duration.takeIf { value -> value > 0 } ?: state.durationMs
-                state = state.copy(
-                    positionMs = it.currentPosition,
-                    durationMs = duration,
-                    bufferedPositionMs = it.bufferedPosition
-                )
-            }
-            delay(500)
-        }
-    }
-
-    return state
-}
-
-private fun ThemeEntity.toMediaItem(anime: AnimeEntity? = null): MediaItem {
-    val artworkUrl = anime?.coverUrl ?: anime?.thumbnailUrl
-    val animeName = anime?.title
-    val typeTag = themeType
-
-    // Primary line: "Anime Name · OP1" or just anime name or theme type
-    val primaryLine = when {
-        !animeName.isNullOrBlank() && !typeTag.isNullOrBlank() -> "$animeName · $typeTag"
-        !animeName.isNullOrBlank() -> animeName
-        !typeTag.isNullOrBlank() -> "$typeTag · $title"
-        else -> title
-    }
-    // Secondary line: "Song Title · Artist" or just song title
-    val secondaryLine = when {
-        !artistName.isNullOrBlank() -> "$title · $artistName"
-        else -> title
-    }
-
-    return MediaItem.Builder()
-        .setMediaId(id.toString())
-        .setUri(audioUrl)
-        .setMediaMetadata(
-            MediaMetadata.Builder()
-                .setTitle(primaryLine)
-                .setArtist(secondaryLine)
-                .setAlbumTitle(animeName)
-                .apply {
-                    if (!artworkUrl.isNullOrBlank()) {
-                        setArtworkUri(Uri.parse(artworkUrl))
-                    }
-                }
-                .build()
-        )
-        .build()
-}
-
 private fun formatTime(durationMs: Long): String {
     val totalSeconds = max(durationMs, 0L) / 1000
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return "%d:%02d".format(minutes, seconds)
 }
-
-private fun MediaController.toggleRepeatMode() {
-    repeatMode = when (repeatMode) {
-        Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
-        Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
-        else -> Player.REPEAT_MODE_OFF
-    }
-}
-
-private fun MediaController.seekBackTenSeconds() {
-    val newPosition = (currentPosition - 10_000).coerceAtLeast(0L)
-    seekTo(newPosition)
-}
-
-private data class PlayerUiState(
-    val title: String,
-    val artist: String,
-    val isPlaying: Boolean,
-    val mediaId: String?,
-    val positionMs: Long,
-    val durationMs: Long,
-    val bufferedPositionMs: Long,
-    val isBuffering: Boolean = false,
-    val errorMessage: String? = null
-)

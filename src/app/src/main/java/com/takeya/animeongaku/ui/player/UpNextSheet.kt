@@ -182,8 +182,67 @@ private fun UpNextContent(
                 }
             }
 
-            // Up next section
-            if (upcoming.isNotEmpty()) {
+            // Split upcoming into regular and suggested
+            val suggestedSet = npState.suggestedItems.toSet()
+            val regularUpcoming = upcoming.filter { it !in suggestedSet }
+            val suggestedUpcoming = upcoming.filter { it in suggestedSet }
+
+            // Up next section (user-chosen queue items)
+            if (regularUpcoming.isNotEmpty()) {
+                item {
+                    Text(
+                        text = "Up next",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Mist200,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                    )
+                }
+                // We need the original upcoming index for skipTo
+                val regularIndices = upcoming.indices.filter { upcoming[it] !in suggestedSet }
+                regularIndices.forEachIndexed { _, upcomingIdx ->
+                    val theme = upcoming[upcomingIdx]
+                    val anime = theme.animeId?.let { npState.animeMap[it] }
+                    item {
+                        QueueTrackRow(
+                            theme = theme,
+                            anime = anime,
+                            isHistory = false,
+                            isCurrent = false,
+                            onClick = { nowPlayingManager.skipTo(npState.currentIndex + 1 + upcomingIdx) }
+                        )
+                    }
+                }
+            }
+
+            // Autoplay / suggested section
+            if (suggestedUpcoming.isNotEmpty()) {
+                item {
+                    Text(
+                        text = "Autoplay",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Mist200.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                    )
+                }
+                val suggestedIndices = upcoming.indices.filter { upcoming[it] in suggestedSet }
+                suggestedIndices.forEachIndexed { _, upcomingIdx ->
+                    val theme = upcoming[upcomingIdx]
+                    val anime = theme.animeId?.let { npState.animeMap[it] }
+                    item {
+                        QueueTrackRow(
+                            theme = theme,
+                            anime = anime,
+                            isHistory = false,
+                            isCurrent = false,
+                            isSuggested = true,
+                            onClick = { nowPlayingManager.skipTo(npState.currentIndex + 1 + upcomingIdx) }
+                        )
+                    }
+                }
+            }
+
+            // Fallback: if no suggested items, show regular "Up next" for all
+            if (upcoming.isNotEmpty() && regularUpcoming.isEmpty() && suggestedUpcoming.isEmpty()) {
                 item {
                     Text(
                         text = "Up next",
@@ -217,6 +276,7 @@ private fun QueueTrackRow(
     anime: AnimeEntity?,
     isHistory: Boolean,
     isCurrent: Boolean,
+    isSuggested: Boolean = false,
     onClick: () -> Unit
 ) {
     val info = theme.displayInfo(anime)
@@ -224,6 +284,7 @@ private fun QueueTrackRow(
     val alpha = when {
         isHistory -> 0.45f
         isCurrent -> 1f
+        isSuggested -> 0.6f
         else -> 0.85f
     }
 

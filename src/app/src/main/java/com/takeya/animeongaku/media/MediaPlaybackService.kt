@@ -11,6 +11,7 @@ import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.takeya.animeongaku.MainActivity
+import com.takeya.animeongaku.R
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -52,7 +53,9 @@ class MediaPlaybackService : MediaSessionService() {
             .setSessionActivity(sessionActivity)
             .build()
 
-        setMediaNotificationProvider(DefaultMediaNotificationProvider(this))
+        val notificationProvider = DefaultMediaNotificationProvider(this)
+        notificationProvider.setSmallIcon(R.drawable.ic_notification)
+        setMediaNotificationProvider(notificationProvider)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession = mediaSession

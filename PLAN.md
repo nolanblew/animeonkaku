@@ -243,25 +243,56 @@
 
 ### Phase 13: Now Playing Queue System
 > Full spec: [NOW_PLAYING_SPEC.md](NOW_PLAYING_SPEC.md)
-*   [ ] Create `NowPlayingManager` singleton — central queue state (originalQueue, nowPlaying, currentIndex, history, playNextStack, shuffle state).
-*   [ ] Refactor `PlayerScreen` + `PlayerViewModel` to read from `NowPlayingManager` instead of nav-based queue params.
-*   [ ] Remove `themeId`/`playlistId`/`queue` nav arguments — Player route becomes simple `"player"`.
-*   [ ] Update all Play/Shuffle buttons (Anime, Artist, Playlist, Home, Library Songs) to set context playlist via `NowPlayingManager.play(...)`.
-*   [ ] Implement shuffle logic: enable shuffles remaining songs (not current, not play-next); disable restores original context order.
-*   [ ] Add ⋮ overflow menu to every song row across all screens (Home, Explore, Library Songs, Anime Detail, Artist Detail, Playlist Detail).
-*   [ ] Build `SongOptionsSheet` modal bottom sheet: header (art + title), top buttons (Play Next, Save to Playlist), list item (Add to Queue).
-*   [ ] Implement "Play Next" — inserts after current track, LIFO stacking, unaffected by shuffle toggle.
-*   [ ] Implement "Add to Queue" — appends to end, shuffled in on shuffle toggle.
-*   [ ] Build "Up Next" screen: history (dimmed, scrollable up, tap to rewind), current track (highlighted), upcoming tracks.
-*   [ ] Queue persists across navigation — no queue loss on back press or screen change.
-*   [ ] MiniPlayer + notification reflect `NowPlayingManager` state.
+*   [x] Create `NowPlayingManager` singleton — central queue state (originalQueue, nowPlaying, currentIndex, history, playNextStack, shuffle state).
+*   [x] Refactor `PlayerScreen` + `PlayerViewModel` to read from `NowPlayingManager` instead of nav-based queue params.
+*   [x] Remove `themeId`/`playlistId`/`queue` nav arguments — Player route becomes simple `"player"`.
+*   [x] Update all Play/Shuffle buttons (Anime, Artist, Playlist, Home, Library Songs) to set context playlist via `NowPlayingManager.play(...)`.
+*   [x] Implement shuffle logic: enable shuffles remaining songs (not current, not play-next); disable restores original context order.
+*   [x] Add ⋮ overflow menu to every song row across all screens (Home, Library Songs, Anime Detail, Artist Detail, Playlist Detail).
+*   [x] Build `SongOptionsSheet` modal bottom sheet: header (art + title), top buttons (Play Next, Save to Playlist), list item (Add to Queue).
+*   [x] Implement "Play Next" — inserts after current track, LIFO stacking, unaffected by shuffle toggle.
+*   [x] Implement "Add to Queue" — appends to end, shuffled in on shuffle toggle.
+*   [x] Build "Up Next" screen: history (dimmed, scrollable up, tap to rewind), current track (highlighted), upcoming tracks.
+*   [x] Queue persists across navigation — no queue loss on back press or screen change.
+*   [x] MiniPlayer + notification reflect `NowPlayingManager` state.
 
-### Phase 14: Library Search (Future — Not Yet Implemented)
-*   [ ] Add search bar to Library screen header.
-*   [ ] Fuzzy search across songs, anime, artists, and playlists.
-*   [ ] Support multi-script matching (Romaji, English, Japanese titles).
-*   [ ] Results grouped by type (Anime, Songs, Artists, Playlists) with tap-to-navigate.
-*   [ ] Future: Offline search — search only downloaded items when no connection.
+### Phase 14: Unified Search & Action Sheet System
+*   [x] Add `source` field to `ThemeEntity` (`"kitsu"` or `"user"`) with DB migration to v9.
+*   [x] Add DAO search queries: `ThemeDao.searchThemes`, `AnimeDao.searchAnime`, `ArtistDao.searchArtists`, `PlaylistDao.searchPlaylists`.
+*   [x] Create reusable `ActionSheet` composable (replaces `SongOptionsSheet`): Play Next, Save to Playlist, Add to Queue, Replace Queue, Add to Library.
+*   [x] Create reusable `PlaylistPickerSheet` composable: list existing playlists with track counts, inline "New Playlist" creation.
+*   [x] Wire `ActionSheet` + `PlaylistPickerSheet` into all 5 screens: Home, Library, AnimeDetail, ArtistDetail, PlaylistDetail.
+*   [x] Add ⋮ context menu to AnimeDetail and ArtistDetail headers (bulk actions on all themes).
+*   [x] Add ⋮ context menu to PlayerScreen top bar (Save to Playlist for current track).
+*   [x] Create `SearchScreen` + `SearchViewModel` replacing the Explore tab.
+*   [x] Search prioritizes local library results (songs, anime, artists, playlists) with opt-in online search via AnimeThemes API.
+*   [x] Results grouped by type with horizontal scroll for anime/artists, vertical list for songs/playlists.
+*   [x] Update bottom navigation: Explore → Search (with Search icon).
+*   [x] Delete old `SongOptionsSheet.kt` (fully replaced by `ActionSheet`).
+
+### Phase 14.5: Search & Player Bug Fixes
+*   [x] Fix: Opening full player from mini-player no longer skips current song (sync NowPlayingManager index to controller on compose).
+*   [x] Fix: Online "Play Next" / "Add to Queue" no longer replaces entire queue (separate save vs play methods).
+*   [x] Fix: "Add to Library" creates artist cross-refs + enriches anime via Kitsu API (cover art, English titles).
+*   [x] Fix: Online search includes `resources` for Kitsu ID cross-referencing; uses direct Kitsu ID lookup when available.
+*   [x] Fix: Online search broadened — also queries `/search` endpoint for song title / artist name matches.
+*   [x] Fix: Search UI text changed from "Search AnimeThemes" to "Search online".
+*   [x] Fix: Loading spinner shown on play/pause button during buffering.
+*   [x] Fix: Anime list sorted alphabetically by name instead of by track count.
+*   [x] Fix: Progress bar smoothed with `animateFloatAsState` + 100ms poll interval (both PlayerScreen and MiniPlayer).
+
+### Phase 14.6: Branding & Polish
+*   [x] Design and implement Adaptive App Icon (Dark theme background + Gradient Play Button).
+*   [x] Add Monochrome App Icon for Android 13+ themed icons.
+*   [x] Implement Android 12+ Splash Screen API (`androidx.core:core-splashscreen`).
+*   [x] Create distinct Notification Icon (White silhouette) for status bar visibility.
+*   [x] Update `MediaPlaybackService` and `LibrarySyncService` to use the new notification icon.
+
+### Phase 15: Online Content Detail Pages (Future — Not Yet Implemented)
+*   [ ] Reuse `AnimeDetailScreen` for online anime content (fetch themes from AnimeThemes API instead of local DB).
+*   [ ] Reuse `ArtistDetailScreen` for online artist content (fetch songs from AnimeThemes API).
+*   [ ] Online search results should show anime and artist cards that navigate to these detail pages.
+*   [ ] Detail pages should support "Add All to Library" for bulk import of online content.
 
 ## 7. Data Models (Simplified Schema)
 

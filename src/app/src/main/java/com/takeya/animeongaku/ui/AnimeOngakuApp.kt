@@ -8,11 +8,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -30,10 +29,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.NavType
-import com.takeya.animeongaku.ui.explore.ExploreScreen
-import com.takeya.animeongaku.ui.explore.ExploreViewModel
-import kotlinx.coroutines.launch
 import com.takeya.animeongaku.ui.home.HomeScreen
+import com.takeya.animeongaku.ui.search.SearchScreen
 import com.takeya.animeongaku.ui.library.AnimeDetailScreen
 import com.takeya.animeongaku.ui.library.ArtistDetailScreen
 import com.takeya.animeongaku.ui.library.LibraryScreen
@@ -48,7 +45,7 @@ import com.takeya.animeongaku.ui.theme.Rose500
 
 private object Routes {
     const val Home = "home"
-    const val Explore = "explore"
+    const val Search = "search"
     const val Library = "library"
     const val Playlist = "playlist"
     const val AnimeDetail = "animeDetail"
@@ -83,7 +80,7 @@ fun AnimeOngakuApp(
     }
     val bottomItems = listOf(
         BottomNavItem(Routes.Home, "Home", Icons.Rounded.Home),
-        BottomNavItem(Routes.Explore, "Explore", Icons.Rounded.Explore),
+        BottomNavItem(Routes.Search, "Search", Icons.Rounded.Search),
         BottomNavItem(Routes.Library, "Library", Icons.Rounded.LibraryMusic)
     )
     val showBottomBar = currentDestination?.route?.let { route ->
@@ -150,18 +147,20 @@ fun AnimeOngakuApp(
                     }
                 )
             }
-            composable(Routes.Explore) {
-                val scope = rememberCoroutineScope()
-                val exploreViewModel: ExploreViewModel =
-                    androidx.hilt.navigation.compose.hiltViewModel()
-                ExploreScreen(
-                    onPlayTheme = { entry ->
-                        scope.launch {
-                            exploreViewModel.saveAndPlayTheme(entry)
-                            navController.navigate(Routes.Player)
-                        }
+            composable(Routes.Search) {
+                SearchScreen(
+                    onPlayTheme = {
+                        navController.navigate(Routes.Player)
                     },
-                    viewModel = exploreViewModel
+                    onOpenAnime = { kitsuId ->
+                        navController.navigate("${Routes.AnimeDetail}/$kitsuId")
+                    },
+                    onOpenArtist = { artistName ->
+                        navController.navigate("${Routes.ArtistDetail}/${android.net.Uri.encode(artistName)}")
+                    },
+                    onOpenPlaylist = { playlistId ->
+                        navController.navigate("${Routes.Playlist}/$playlistId")
+                    }
                 )
             }
             composable(

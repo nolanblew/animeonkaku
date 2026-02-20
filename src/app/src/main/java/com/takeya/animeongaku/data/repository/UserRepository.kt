@@ -28,4 +28,6 @@ interface UserRepository {
     suspend fun getAnimeDetails(ids: List<String>): List<KitsuAnimeEntry>
 
     suspend fun getAnimeMappings(kitsuIds: List<String>): Map<String, Map<String, String>>
+
+    suspend fun searchKitsuAnime(query: String): List<KitsuAnimeEntry>
 }

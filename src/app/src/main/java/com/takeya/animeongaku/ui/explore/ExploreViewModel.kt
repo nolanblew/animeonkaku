@@ -49,7 +49,8 @@ class ExploreViewModel @Inject constructor(
             videoUrl = entry.videoUrl,
             isDownloaded = false,
             localFilePath = null,
-            themeType = entry.themeType
+            themeType = entry.themeType,
+            source = ThemeEntity.SOURCE_USER
         )
         themeDao.upsertAll(listOf(entity))
 
@@ -65,7 +66,8 @@ class ExploreViewModel @Inject constructor(
                 videoUrl = e.videoUrl,
                 isDownloaded = false,
                 localFilePath = null,
-                themeType = e.themeType
+                themeType = e.themeType,
+                source = ThemeEntity.SOURCE_USER
             )
         }
         val idx = allEntities.indexOfFirst { it.id == themeId }.coerceAtLeast(0)

@@ -16,7 +16,21 @@ data class ApiAnime(
     val id: Long? = null,
     val name: String? = null,
     val resources: List<ApiResource> = emptyList(),
-    val animethemes: List<ApiTheme> = emptyList()
+    val animethemes: List<ApiTheme> = emptyList(),
+    val images: List<ApiAnimeImage> = emptyList(),
+    @Json(name = "animesynonyms")
+    val synonyms: List<ApiAnimeSynonym> = emptyList()
+)
+
+data class ApiAnimeImage(
+    val facet: String? = null,
+    val link: String? = null,
+    val path: String? = null
+)
+
+data class ApiAnimeSynonym(
+    val text: String? = null,
+    val type: String? = null
 )
 
 data class ApiResource(
@@ -74,4 +88,12 @@ data class ApiVideo(
 data class ApiAudio(
     val link: String? = null,
     val path: String? = null
+)
+
+data class AnimeThemesSearchResponse(
+    val search: AnimeThemesSearchData = AnimeThemesSearchData()
+)
+
+data class AnimeThemesSearchData(
+    val anime: List<ApiAnime> = emptyList()
 )

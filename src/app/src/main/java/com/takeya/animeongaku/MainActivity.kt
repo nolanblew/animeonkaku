@@ -12,12 +12,15 @@ import com.takeya.animeongaku.ui.theme.AnimeOngakuTheme
 import com.takeya.animeongaku.ui.AnimeOngakuApp
 import dagger.hilt.android.AndroidEntryPoint
 
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     val pendingNavigateTo = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         pendingNavigateTo.value = intent?.getStringExtra("navigate_to")
         enableEdgeToEdge()

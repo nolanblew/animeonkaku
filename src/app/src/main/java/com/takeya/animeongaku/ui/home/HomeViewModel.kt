@@ -18,12 +18,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import com.takeya.animeongaku.data.local.PlaylistEntity
+import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     animeDao: AnimeDao,
     themeDao: ThemeDao,
-    playlistDao: PlaylistDao,
+    private val playlistDao: PlaylistDao,
     val nowPlayingManager: NowPlayingManager
 ) : ViewModel() {
     private val allThemes: StateFlow<List<ThemeEntity>> = themeDao.observeAll()
@@ -74,5 +77,27 @@ class HomeViewModel @Inject constructor(
         val songs = topSongs.value
         val idx = songs.indexOfFirst { it.id == themeId }.coerceAtLeast(0)
         nowPlayingManager.play("Top Songs", songs, idx, animeMap = buildAnimeMap())
+    }
+
+    fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {
+        viewModelScope.launch {
+            val count = playlistDao.countEntries(playlistId)
+            val entries = themeIds.mapIndexed { i, id ->
+                PlaylistEntryEntity(playlistId = playlistId, themeId = id, orderIndex = count + i)
+            }
+            playlistDao.insertEntries(entries)
+        }
+    }
+
+    fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
+        viewModelScope.launch {
+            val playlistId = playlistDao.insertPlaylist(
+                PlaylistEntity(name = name, createdAt = System.currentTimeMillis())
+            )
+            val entries = themeIds.mapIndexed { i, id ->
+                PlaylistEntryEntity(playlistId = playlistId, themeId = id, orderIndex = i)
+            }
+            playlistDao.insertEntries(entries)
+        }
     }
 }

@@ -23,6 +23,12 @@ interface ThemeDao {
     @Query("SELECT * FROM themes ORDER BY title ASC")
     suspend fun getAllThemes(): List<ThemeEntity>
 
+    @Query("SELECT * FROM themes WHERE title LIKE '%' || :query || '%' OR artistName LIKE '%' || :query || '%' ORDER BY title ASC LIMIT 50")
+    fun searchThemes(query: String): Flow<List<ThemeEntity>>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM themes WHERE id = :themeId)")
+    suspend fun existsById(themeId: Long): Boolean
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(themes: List<ThemeEntity>)
 }

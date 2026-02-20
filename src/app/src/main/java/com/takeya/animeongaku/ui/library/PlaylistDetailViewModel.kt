@@ -6,8 +6,10 @@ import androidx.lifecycle.viewModelScope
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.PlaylistDao
+import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.PlaylistTrack
+import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.media.NowPlayingManager
@@ -127,5 +129,30 @@ class PlaylistDetailViewModel @Inject constructor(
     fun shuffleAll() {
         val list = tracks.value.map { it.theme }
         if (list.isNotEmpty()) nowPlayingManager.play(contextLabel(), list, 0, shuffle = true, animeMap = buildAnimeMap())
+    }
+
+    val playlists: StateFlow<List<PlaylistWithCount>> = playlistDao.observePlaylists()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun addToOtherPlaylist(targetPlaylistId: Long, themeIds: List<Long>) {
+        viewModelScope.launch {
+            val count = playlistDao.countEntries(targetPlaylistId)
+            val entries = themeIds.mapIndexed { i, id ->
+                PlaylistEntryEntity(playlistId = targetPlaylistId, themeId = id, orderIndex = count + i)
+            }
+            playlistDao.insertEntries(entries)
+        }
+    }
+
+    fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
+        viewModelScope.launch {
+            val newId = playlistDao.insertPlaylist(
+                PlaylistEntity(name = name, createdAt = System.currentTimeMillis())
+            )
+            val entries = themeIds.mapIndexed { i, id ->
+                PlaylistEntryEntity(playlistId = newId, themeId = id, orderIndex = i)
+            }
+            playlistDao.insertEntries(entries)
+        }
     }
 }

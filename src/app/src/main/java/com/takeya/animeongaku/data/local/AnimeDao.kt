@@ -30,6 +30,20 @@ interface AnimeDao {
     """)
     fun observeAllWithThemeCount(): Flow<List<AnimeWithThemeCount>>
 
+    @Query("""
+        SELECT * FROM anime
+        WHERE title LIKE '%' || :query || '%'
+           OR titleEn LIKE '%' || :query || '%'
+           OR titleRomaji LIKE '%' || :query || '%'
+           OR titleJa LIKE '%' || :query || '%'
+        ORDER BY title ASC
+        LIMIT 50
+    """)
+    fun searchAnime(query: String): Flow<List<AnimeEntity>>
+
+    @Query("SELECT * FROM anime WHERE animeThemesId = :animeThemesId LIMIT 1")
+    suspend fun getByAnimeThemesId(animeThemesId: Long): AnimeEntity?
+
     @Query("SELECT kitsuId FROM anime")
     suspend fun getAllKitsuIds(): List<String>
 
