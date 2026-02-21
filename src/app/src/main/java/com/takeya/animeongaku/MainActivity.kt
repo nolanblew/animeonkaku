@@ -13,6 +13,9 @@ import com.takeya.animeongaku.ui.AnimeOngakuApp
 import dagger.hilt.android.AndroidEntryPoint
 
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -21,6 +24,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
+        var keepSplashScreen = true
+        lifecycleScope.launch {
+            kotlinx.coroutines.delay(1000L)
+            keepSplashScreen = false
+        }
+        splashScreen.setKeepOnScreenCondition { keepSplashScreen }
         super.onCreate(savedInstanceState)
         pendingNavigateTo.value = intent?.getStringExtra("navigate_to")
         enableEdgeToEdge()

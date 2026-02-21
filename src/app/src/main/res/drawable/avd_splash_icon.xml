@@ -1,0 +1,90 @@
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt">
+    <aapt:attr name="android:drawable">
+        <vector
+            android:width="108dp"
+            android:height="108dp"
+            android:viewportWidth="108"
+            android:viewportHeight="108">
+            <group
+                android:name="headphone_group"
+                android:pivotX="54"
+                android:pivotY="54">
+                
+                <!-- Headphones Arc -->
+                <path android:pathData="M30,55 c0,-20 10,-35 24,-35 c14,0 24,15 24,35"
+                    android:strokeWidth="6"
+                    android:strokeLineCap="round">
+                    <aapt:attr name="android:strokeColor">
+                        <gradient
+                            android:type="linear"
+                            android:startX="30"
+                            android:startY="20"
+                            android:endX="78"
+                            android:endY="20">
+                            <item android:offset="0.0" android:color="#FF4D6D"/>
+                            <item android:offset="1.0" android:color="#4D6DFF"/>
+                        </gradient>
+                    </aapt:attr>
+                </path>
+                
+                <!-- Left Earcup -->
+                <path android:pathData="M24,45 c0,-4 8,-4 8,0 l0,20 c0,4 -8,4 -8,0 z">
+                    <aapt:attr name="android:fillColor">
+                        <gradient
+                            android:type="linear"
+                            android:startX="24"
+                            android:startY="45"
+                            android:endX="32"
+                            android:endY="65">
+                            <item android:offset="0.0" android:color="#FF4D6D"/>
+                            <item android:offset="1.0" android:color="#FF8FA3"/>
+                        </gradient>
+                    </aapt:attr>
+                </path>
+                
+                <!-- Right Earcup -->
+                <path android:pathData="M76,45 c0,-4 8,-4 8,0 l0,20 c0,4 -8,4 -8,0 z">
+                    <aapt:attr name="android:fillColor">
+                        <gradient
+                            android:type="linear"
+                            android:startX="76"
+                            android:startY="45"
+                            android:endX="84"
+                            android:endY="65">
+                            <item android:offset="0.0" android:color="#4D6DFF"/>
+                            <item android:offset="1.0" android:color="#8FB3FF"/>
+                        </gradient>
+                    </aapt:attr>
+                </path>
+                
+                <!-- Inner Play Button -->
+                <path android:pathData="M48,45 L64,54 L48,63 Z"
+                    android:fillColor="#FFFFFF"/>
+            </group>
+        </vector>
+    </aapt:attr>
+
+    <target android:name="headphone_group">
+        <aapt:attr name="android:animation">
+            <set android:ordering="together">
+                <objectAnimator
+                    android:propertyName="scaleX"
+                    android:duration="500"
+                    android:valueFrom="1.0"
+                    android:valueTo="1.2"
+                    android:valueType="floatType"
+                    android:repeatCount="1"
+                    android:repeatMode="reverse" />
+                <objectAnimator
+                    android:propertyName="scaleY"
+                    android:duration="500"
+                    android:valueFrom="1.0"
+                    android:valueTo="1.2"
+                    android:valueType="floatType"
+                    android:repeatCount="1"
+                    android:repeatMode="reverse" />
+            </set>
+        </aapt:attr>
+    </target>
+</animated-vector>
