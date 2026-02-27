@@ -10,6 +10,7 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.PlayCountDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -36,7 +37,8 @@ import javax.inject.Singleton
 @Singleton
 class MediaControllerManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val nowPlayingManager: NowPlayingManager
+    private val nowPlayingManager: NowPlayingManager,
+    private val playCountDao: PlayCountDao
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -67,6 +69,12 @@ class MediaControllerManager @Inject constructor(
             val idx = ctrl.currentMediaItemIndex
             nowPlayingManager.onTrackChanged(idx)
             _playbackState.value = _playbackState.value.copy(errorMessage = null)
+
+            // Record play count on track start
+            val themeId = mediaItem?.mediaId?.toLongOrNull()
+            if (themeId != null) {
+                scope.launch { playCountDao.incrementPlayCount(themeId) }
+            }
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {

@@ -21,11 +21,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.LibraryAdd
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -64,11 +67,16 @@ import com.takeya.animeongaku.ui.theme.Rose500
 fun AnimeDetailScreen(
     onBack: () -> Unit,
     onPlayTheme: () -> Unit,
+    onOpenArtist: (String) -> Unit = {},
     viewModel: AnimeDetailViewModel = hiltViewModel()
 ) {
     val anime by viewModel.anime.collectAsStateWithLifecycle()
     val themes by viewModel.themes.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val fetchError by viewModel.fetchError.collectAsStateWithLifecycle()
+    val isInLibrary by viewModel.isInLibrary.collectAsStateWithLifecycle()
+    val libraryThemeIds by viewModel.libraryThemeIds.collectAsStateWithLifecycle()
     val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
     val coverUrl = anime?.coverUrl ?: anime?.thumbnailUrl
 
@@ -78,11 +86,15 @@ fun AnimeDetailScreen(
 
     sheetTheme?.let { theme ->
         val info = theme.displayInfo(anime)
+        val songInLibrary = theme.id in libraryThemeIds
         ActionSheet(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = coverUrl
+                imageUrl = coverUrl,
+                showGoToArtist = !theme.artistName.isNullOrBlank(),
+                artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
+                showAddToLibrary = !songInLibrary
             ),
             onDismiss = { sheetTheme = null },
             onPlayNext = { viewModel.nowPlayingManager.playNext(theme, anime) },
@@ -91,7 +103,9 @@ fun AnimeDetailScreen(
                 val a = anime
                 viewModel.nowPlayingManager.play("Now Playing", listOf(theme), 0, animeMap = a?.let { e -> theme.animeId?.let { mapOf(it to e) } } ?: emptyMap())
             },
-            onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) }
+            onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) },
+            onGoToArtist = { theme.artistName?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
+            onAddToLibrary = { viewModel.saveSongToLibrary(theme.id) }
         )
     }
 
@@ -101,13 +115,14 @@ fun AnimeDetailScreen(
                 title = anime?.title ?: "Anime",
                 subtitle = "${themes.size} themes",
                 imageUrl = coverUrl,
-                showAddToLibrary = false
+                showAddToLibrary = !isInLibrary
             ),
             onDismiss = { showAnimeSheet = false },
             onPlayNext = { viewModel.nowPlayingManager.playNext(themes, anime?.let { a -> a.animeThemesId?.let { mapOf(it to a) } } ?: emptyMap()) },
             onAddToQueue = { viewModel.nowPlayingManager.addToQueue(themes, anime?.let { a -> a.animeThemesId?.let { mapOf(it to a) } } ?: emptyMap()) },
             onReplaceQueue = { viewModel.playAll(); onPlayTheme() },
-            onSaveToPlaylist = { pickerThemeIds = themes.map { it.id } }
+            onSaveToPlaylist = { pickerThemeIds = themes.map { it.id } },
+            onAddToLibrary = { viewModel.saveAllToLibrary() }
         )
     }
 
@@ -240,6 +255,27 @@ fun AnimeDetailScreen(
                 }
             }
 
+            // Add to Library button (when not in library)
+            if (!isInLibrary && themes.isNotEmpty()) {
+                item {
+                    Button(
+                        onClick = { viewModel.saveAllToLibrary() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Ink800,
+                            contentColor = Mist100
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Rounded.LibraryAdd, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Add All to Library")
+                    }
+                }
+            }
+
             // Section header
             item {
                 Text(
@@ -250,7 +286,18 @@ fun AnimeDetailScreen(
                 )
             }
 
-            if (themes.isEmpty()) {
+            if (isLoading) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = Rose500, modifier = Modifier.size(32.dp))
+                    }
+                }
+            } else if (themes.isEmpty()) {
                 item {
                     Box(
                         modifier = Modifier
@@ -261,7 +308,7 @@ fun AnimeDetailScreen(
                             .padding(20.dp)
                     ) {
                         Text(
-                            text = "No themes found for this anime.",
+                            text = fetchError ?: "No themes found for this anime.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = Mist200
                         )
@@ -272,6 +319,7 @@ fun AnimeDetailScreen(
                     ThemeRow(
                         theme = theme,
                         coverUrl = coverUrl,
+                        inLibrary = theme.id in libraryThemeIds,
                         onPlay = {
                             viewModel.playTheme(theme.id)
                             onPlayTheme()
@@ -289,7 +337,13 @@ fun AnimeDetailScreen(
 }
 
 @Composable
-private fun ThemeRow(theme: ThemeEntity, coverUrl: String?, onPlay: () -> Unit, onMoreOptions: () -> Unit = {}) {
+private fun ThemeRow(
+    theme: ThemeEntity,
+    coverUrl: String?,
+    inLibrary: Boolean = true,
+    onPlay: () -> Unit,
+    onMoreOptions: () -> Unit = {}
+) {
     val typeLabel = theme.themeType ?: ""
     Row(
         modifier = Modifier
@@ -321,13 +375,25 @@ private fun ThemeRow(theme: ThemeEntity, coverUrl: String?, onPlay: () -> Unit, 
         }
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = theme.title,
-                style = MaterialTheme.typography.bodyMedium,
-                color = Mist100,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = theme.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Mist100,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (inLibrary) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        Icons.Rounded.CheckCircle,
+                        contentDescription = "In library",
+                        tint = Rose500.copy(alpha = 0.7f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
             Text(
                 text = theme.artistName ?: "Unknown artist",
                 style = MaterialTheme.typography.labelSmall,

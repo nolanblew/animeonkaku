@@ -14,6 +14,8 @@ import com.takeya.animeongaku.data.local.ThemeArtistCrossRef
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
+import com.takeya.animeongaku.data.model.OnlineAnimeResult
+import com.takeya.animeongaku.data.model.OnlineArtistResult
 import com.takeya.animeongaku.data.repository.AnimeRepository
 import com.takeya.animeongaku.data.repository.UserRepository
 import com.takeya.animeongaku.media.NowPlayingManager
@@ -82,6 +84,12 @@ class SearchViewModel @Inject constructor(
     private val _onlineResults = MutableStateFlow<List<AnimeThemeEntry>>(emptyList())
     val onlineResults: StateFlow<List<AnimeThemeEntry>> = _onlineResults.asStateFlow()
 
+    private val _onlineAnime = MutableStateFlow<List<OnlineAnimeResult>>(emptyList())
+    val onlineAnime: StateFlow<List<OnlineAnimeResult>> = _onlineAnime.asStateFlow()
+
+    private val _onlineArtists = MutableStateFlow<List<OnlineArtistResult>>(emptyList())
+    val onlineArtists: StateFlow<List<OnlineArtistResult>> = _onlineArtists.asStateFlow()
+
     private val _onlineState = MutableStateFlow(OnlineSearchState.Idle)
     val onlineState: StateFlow<OnlineSearchState> = _onlineState.asStateFlow()
 
@@ -95,6 +103,8 @@ class SearchViewModel @Inject constructor(
         // Reset online search state for new query
         _onlineState.value = OnlineSearchState.Idle
         _onlineResults.value = emptyList()
+        _onlineAnime.value = emptyList()
+        _onlineArtists.value = emptyList()
         _onlineError.value = null
         onlineJob?.cancel()
     }
@@ -109,8 +119,10 @@ class SearchViewModel @Inject constructor(
             _onlineState.value = OnlineSearchState.Loading
             _onlineError.value = null
             try {
-                val results = animeRepository.searchAnimeThemes(q)
-                _onlineResults.value = results
+                val searchResult = animeRepository.searchAnimeThemes(q)
+                _onlineResults.value = searchResult.themes
+                _onlineAnime.value = searchResult.anime
+                _onlineArtists.value = searchResult.artists
                 _onlineState.value = OnlineSearchState.Done
             } catch (e: Exception) {
                 _onlineError.value = "Search failed: ${e.message}"

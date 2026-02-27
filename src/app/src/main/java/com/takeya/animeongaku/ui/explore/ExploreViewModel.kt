@@ -87,7 +87,7 @@ class ExploreViewModel @Inject constructor(
             delay(400)
             _isSearching.value = true
             try {
-                _results.value = animeRepository.searchAnimeThemes(value)
+                _results.value = animeRepository.searchAnimeThemes(value).themes
             } catch (e: Exception) {
                 _error.value = "Search failed: ${e.message}"
             } finally {

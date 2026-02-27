@@ -2,11 +2,14 @@ package com.takeya.animeongaku.ui.player
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.takeya.animeongaku.data.local.AnimeDao
+import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeDao
+import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.media.MediaControllerManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.NowPlayingState
@@ -23,7 +26,8 @@ class PlayerViewModel @Inject constructor(
     val nowPlayingManager: NowPlayingManager,
     val mediaControllerManager: MediaControllerManager,
     private val playlistDao: PlaylistDao,
-    private val themeDao: ThemeDao
+    private val themeDao: ThemeDao,
+    private val animeDao: AnimeDao
 ) : ViewModel() {
     val nowPlayingState: StateFlow<NowPlayingState> = nowPlayingManager.state
     val playbackState: StateFlow<PlaybackState> = mediaControllerManager.playbackState
@@ -32,6 +36,15 @@ class PlayerViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     suspend fun isInLibrary(themeId: Long): Boolean = themeDao.existsById(themeId)
+
+    fun saveSongToLibrary(theme: ThemeEntity, animeEntity: AnimeEntity?) {
+        viewModelScope.launch {
+            themeDao.upsertAll(listOf(theme))
+            if (animeEntity != null) {
+                animeDao.upsertAll(listOf(animeEntity))
+            }
+        }
+    }
 
     fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {
         viewModelScope.launch {

@@ -121,13 +121,19 @@ fun LibraryScreen(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.coverUrl ?: sheetAnime?.thumbnailUrl
+                imageUrl = sheetAnime?.coverUrl ?: sheetAnime?.thumbnailUrl,
+                showGoToArtist = !theme.artistName.isNullOrBlank(),
+                showGoToAnime = sheetAnime?.kitsuId != null,
+                artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
+                animeName = sheetAnime?.title
             ),
             onDismiss = { sheetTheme = null },
             onPlayNext = { viewModel.nowPlayingManager.playNext(theme, sheetAnime) },
             onAddToQueue = { viewModel.nowPlayingManager.addToQueue(theme, sheetAnime) },
             onReplaceQueue = { viewModel.nowPlayingManager.play("Now Playing", listOf(theme), 0, animeMap = sheetAnime?.let { a -> theme.animeId?.let { mapOf(it to a) } } ?: emptyMap()) },
-            onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) }
+            onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) },
+            onGoToArtist = { theme.artistName?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
+            onGoToAnime = { sheetAnime?.kitsuId?.let { onOpenAnime(it) } }
         )
     }
 

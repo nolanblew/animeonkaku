@@ -60,6 +60,8 @@ import com.takeya.animeongaku.data.local.ArtistTrackCount
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
+import com.takeya.animeongaku.data.model.OnlineAnimeResult
+import com.takeya.animeongaku.data.model.OnlineArtistResult
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
@@ -91,6 +93,8 @@ fun SearchScreen(
     val localArtists by viewModel.localArtists.collectAsStateWithLifecycle()
     val localPlaylists by viewModel.localPlaylists.collectAsStateWithLifecycle()
     val onlineResults by viewModel.onlineResults.collectAsStateWithLifecycle()
+    val onlineAnime by viewModel.onlineAnime.collectAsStateWithLifecycle()
+    val onlineArtists by viewModel.onlineArtists.collectAsStateWithLifecycle()
     val onlineState by viewModel.onlineState.collectAsStateWithLifecycle()
     val onlineError by viewModel.onlineError.collectAsStateWithLifecycle()
     val allAnime by viewModel.anime.collectAsStateWithLifecycle()
@@ -112,7 +116,11 @@ fun SearchScreen(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.coverUrl ?: sheetAnime?.thumbnailUrl
+                imageUrl = sheetAnime?.coverUrl ?: sheetAnime?.thumbnailUrl,
+                showGoToArtist = !theme.artistName.isNullOrBlank(),
+                showGoToAnime = sheetAnime?.kitsuId != null,
+                artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
+                animeName = sheetAnime?.title
             ),
             onDismiss = { sheetTheme = null },
             onPlayNext = { viewModel.nowPlayingManager.playNext(theme, sheetAnime) },
@@ -123,7 +131,9 @@ fun SearchScreen(
                     animeMap = sheetAnime?.let { a -> theme.animeId?.let { mapOf(it to a) } } ?: emptyMap()
                 )
             },
-            onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) }
+            onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) },
+            onGoToArtist = { theme.artistName?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
+            onGoToAnime = { sheetAnime?.kitsuId?.let { onOpenAnime(it) } }
         )
     }
 
@@ -139,7 +149,11 @@ fun SearchScreen(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                showAddToLibrary = true
+                showAddToLibrary = true,
+                showGoToArtist = !entry.artist.isNullOrBlank(),
+                showGoToAnime = entry.kitsuId != null,
+                artistName = entry.artist?.split(",")?.firstOrNull()?.trim(),
+                animeName = entry.animeNameEn ?: entry.animeName
             ),
             onDismiss = { sheetOnlineEntry = null },
             onPlayNext = {
@@ -160,6 +174,12 @@ fun SearchScreen(
             },
             onAddToLibrary = {
                 viewModel.addOnlineThemeToLibrary(entry)
+            },
+            onGoToArtist = {
+                entry.artist?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) }
+            },
+            onGoToAnime = {
+                entry.kitsuId?.let { onOpenAnime(it) }
             }
         )
     }
@@ -205,8 +225,9 @@ fun SearchScreen(
                 SearchBar(
                     value = textFieldValue,
                     onValueChange = {
+                        val textChanged = it.text != textFieldValue.text
                         textFieldValue = it
-                        viewModel.onQueryChange(it.text)
+                        if (textChanged) viewModel.onQueryChange(it.text)
                     }
                 )
             }
@@ -316,10 +337,50 @@ fun SearchScreen(
                     }
                 }
 
-                // Online results
+                // Online results — Anime (featured at top)
+                if (onlineAnime.isNotEmpty()) {
+                    item {
+                        SectionHeader("Anime")
+                    }
+                    item {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            contentPadding = PaddingValues(horizontal = 0.dp)
+                        ) {
+                            items(onlineAnime, key = { "online-anime-${it.animeThemesId}" }) { anime ->
+                                OnlineAnimeCard(
+                                    anime = anime,
+                                    onClick = { anime.kitsuId?.let { onOpenAnime(it) } }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Online results — Artists (featured at top)
+                if (onlineArtists.isNotEmpty()) {
+                    item {
+                        SectionHeader("Artists")
+                    }
+                    item {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            contentPadding = PaddingValues(horizontal = 0.dp)
+                        ) {
+                            items(onlineArtists, key = { "online-artist-${it.id}" }) { artist ->
+                                OnlineArtistChip(
+                                    artist = artist,
+                                    onClick = { onOpenArtist(artist.name) }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Online results — Songs
                 if (onlineResults.isNotEmpty()) {
                     item {
-                        SectionHeader("Online Results")
+                        SectionHeader("Songs")
                     }
                     items(onlineResults, key = { "online-${it.themeId}" }) { entry ->
                         OnlineResultRow(
@@ -650,5 +711,96 @@ private fun OnlineResultRow(entry: AnimeThemeEntry, onPlay: () -> Unit, onMore: 
         IconButton(onClick = onMore, modifier = Modifier.size(36.dp)) {
             Icon(Icons.Rounded.MoreVert, contentDescription = "More", tint = Mist200, modifier = Modifier.size(20.dp))
         }
+    }
+}
+
+@Composable
+private fun OnlineAnimeCard(anime: OnlineAnimeResult, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .width(100.dp)
+            .clickable { onClick() },
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(100.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Ink800)
+        ) {
+            if (!anime.coverUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = anime.coverUrl,
+                    contentDescription = null,
+                    modifier = Modifier.matchParentSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = anime.nameEn ?: anime.name,
+            style = MaterialTheme.typography.labelSmall,
+            color = Mist100,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "${anime.themeCount} themes",
+            style = MaterialTheme.typography.labelSmall,
+            color = Mist200,
+            maxLines = 1,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Composable
+private fun OnlineArtistChip(artist: OnlineArtistResult, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .width(80.dp)
+            .clickable { onClick() },
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.linearGradient(listOf(Rose500.copy(alpha = 0.3f), Ink800)),
+                    CircleShape
+                )
+                .border(1.dp, Mist200.copy(alpha = 0.15f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!artist.imageUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = artist.imageUrl,
+                    contentDescription = artist.name,
+                    modifier = Modifier.matchParentSize().clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Text(
+                    text = artist.name.take(2).uppercase(),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Mist100.copy(alpha = 0.7f)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = artist.name,
+            style = MaterialTheme.typography.labelSmall,
+            color = Mist100,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }

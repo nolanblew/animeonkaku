@@ -152,6 +152,12 @@ fun AnimeOngakuApp(
                         onPlayTheme = { isPlayerExpanded = true },
                         onOpenPlaylist = { playlistId ->
                             navController.navigate("${Routes.Playlist}/$playlistId")
+                        },
+                        onOpenAnime = { kitsuId ->
+                            navController.navigate("${Routes.AnimeDetail}/$kitsuId")
+                        },
+                        onOpenArtist = { artistName ->
+                            navController.navigate("${Routes.ArtistDetail}/${android.net.Uri.encode(artistName)}")
                         }
                     )
                 }
@@ -196,7 +202,13 @@ fun AnimeOngakuApp(
                     val playlistId = it.arguments?.getLong("playlistId") ?: return@composable
                     PlaylistDetailScreen(
                         onBack = { navController.popBackStack() },
-                        onPlayTheme = { isPlayerExpanded = true }
+                        onPlayTheme = { isPlayerExpanded = true },
+                        onOpenAnime = { kitsuId ->
+                            navController.navigate("${Routes.AnimeDetail}/$kitsuId")
+                        },
+                        onOpenArtist = { artistName ->
+                            navController.navigate("${Routes.ArtistDetail}/${android.net.Uri.encode(artistName)}")
+                        }
                     )
                 }
                 composable(
@@ -205,7 +217,10 @@ fun AnimeOngakuApp(
                 ) {
                     AnimeDetailScreen(
                         onBack = { navController.popBackStack() },
-                        onPlayTheme = { isPlayerExpanded = true }
+                        onPlayTheme = { isPlayerExpanded = true },
+                        onOpenArtist = { artistName ->
+                            navController.navigate("${Routes.ArtistDetail}/${android.net.Uri.encode(artistName)}")
+                        }
                     )
                 }
                 composable(
@@ -233,7 +248,15 @@ fun AnimeOngakuApp(
                 onCollapse = { isPlayerExpanded = false },
                 showMiniPlayer = true,
                 modifier = Modifier.align(Alignment.BottomCenter),
-                bottomPadding = padding.calculateBottomPadding()
+                bottomPadding = padding.calculateBottomPadding(),
+                onOpenAnime = { kitsuId ->
+                    isPlayerExpanded = false
+                    navController.navigate("${Routes.AnimeDetail}/$kitsuId")
+                },
+                onOpenArtist = { artistName ->
+                    isPlayerExpanded = false
+                    navController.navigate("${Routes.ArtistDetail}/${android.net.Uri.encode(artistName)}")
+                }
             )
         }
     }

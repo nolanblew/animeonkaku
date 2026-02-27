@@ -22,11 +22,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -71,9 +73,15 @@ fun ArtistDetailScreen(
     viewModel: ArtistDetailViewModel = hiltViewModel()
 ) {
     val themes by viewModel.themes.collectAsStateWithLifecycle()
+    val topSongs by viewModel.topSongs.collectAsStateWithLifecycle()
+    val allSongsSorted by viewModel.allSongsSorted.collectAsStateWithLifecycle()
     val anime by viewModel.anime.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val artistImageUrl by viewModel.artistImageUrl.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val fetchError by viewModel.fetchError.collectAsStateWithLifecycle()
+    val isInLibrary by viewModel.isInLibrary.collectAsStateWithLifecycle()
+    val libraryThemeIds by viewModel.libraryThemeIds.collectAsStateWithLifecycle()
     val artistName = viewModel.artistName
     val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
 
@@ -84,21 +92,28 @@ fun ArtistDetailScreen(
     var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }
     var showArtistSheet by remember { mutableStateOf(false) }
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
+    var showAllSongs by remember { mutableStateOf(false) }
 
     sheetTheme?.let { theme ->
         val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
         val info = theme.displayInfo(sheetAnime)
+        val songInLibrary = theme.id in libraryThemeIds
         ActionSheet(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.coverUrl ?: sheetAnime?.thumbnailUrl
+                imageUrl = sheetAnime?.coverUrl ?: sheetAnime?.thumbnailUrl,
+                showGoToAnime = sheetAnime?.kitsuId != null,
+                animeName = sheetAnime?.title,
+                showAddToLibrary = !songInLibrary
             ),
             onDismiss = { sheetTheme = null },
             onPlayNext = { viewModel.nowPlayingManager.playNext(theme, sheetAnime) },
             onAddToQueue = { viewModel.nowPlayingManager.addToQueue(theme, sheetAnime) },
             onReplaceQueue = { viewModel.nowPlayingManager.play("Now Playing", listOf(theme), 0, animeMap = sheetAnime?.let { a -> theme.animeId?.let { mapOf(it to a) } } ?: emptyMap()) },
-            onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) }
+            onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) },
+            onGoToAnime = { sheetAnime?.kitsuId?.let { onOpenAnime(it) } },
+            onAddToLibrary = { viewModel.saveSongToLibrary(theme.id) }
         )
     }
 
@@ -264,15 +279,27 @@ fun ArtistDetailScreen(
 
             // Songs section
             item {
+                val hasTopSongs = topSongs.isNotEmpty()
                 Text(
-                    text = "Songs",
+                    text = if (hasTopSongs) "Top Songs" else "Songs",
                     style = MaterialTheme.typography.titleMedium,
                     color = Mist100,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
                 )
             }
 
-            if (themes.isEmpty()) {
+            if (isLoading) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = Rose500, modifier = Modifier.size(32.dp))
+                    }
+                }
+            } else if (themes.isEmpty()) {
                 item {
                     Box(
                         modifier = Modifier
@@ -282,14 +309,19 @@ fun ArtistDetailScreen(
                             .padding(20.dp)
                     ) {
                         Text(
-                            text = "No songs found for this artist.",
+                            text = fetchError ?: "No songs found for this artist.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = Mist200
                         )
                     }
                 }
             } else {
-                itemsIndexed(themes) { index, theme ->
+                val displaySongs = if (topSongs.isNotEmpty() && !showAllSongs) {
+                    topSongs
+                } else {
+                    allSongsSorted.ifEmpty { themes }
+                }
+                itemsIndexed(displaySongs) { index, theme ->
                     val animeEntry = theme.animeId?.let { animeByThemesId[it] }
                     val imageUrl = animeEntry?.coverUrl ?: animeEntry?.thumbnailUrl
                     ArtistSongRow(
@@ -297,12 +329,28 @@ fun ArtistDetailScreen(
                         theme = theme,
                         anime = animeEntry,
                         imageUrl = imageUrl,
+                        inLibrary = theme.id in libraryThemeIds,
                         onPlay = {
                             viewModel.playTheme(theme.id)
                             onPlayTheme()
                         },
                         onMoreOptions = { sheetTheme = theme }
                     )
+                }
+
+                // See more / See less toggle
+                if (topSongs.isNotEmpty() && themes.size > topSongs.size) {
+                    item {
+                        Text(
+                            text = if (showAllSongs) "See less" else "See more",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Rose500,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .padding(horizontal = 20.dp, vertical = 8.dp)
+                                .clickable { showAllSongs = !showAllSongs }
+                        )
+                    }
                 }
             }
 
@@ -333,7 +381,15 @@ fun ArtistDetailScreen(
 }
 
 @Composable
-private fun ArtistSongRow(index: Int, theme: ThemeEntity, anime: AnimeEntity?, imageUrl: String?, onPlay: () -> Unit, onMoreOptions: () -> Unit = {}) {
+private fun ArtistSongRow(
+    index: Int,
+    theme: ThemeEntity,
+    anime: AnimeEntity?,
+    imageUrl: String?,
+    inLibrary: Boolean = true,
+    onPlay: () -> Unit,
+    onMoreOptions: () -> Unit = {}
+) {
     val info = theme.displayInfo(anime)
     Row(
         modifier = Modifier
@@ -365,13 +421,25 @@ private fun ArtistSongRow(index: Int, theme: ThemeEntity, anime: AnimeEntity?, i
         }
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = info.primaryText,
-                style = MaterialTheme.typography.bodyMedium,
-                color = Mist100,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = info.primaryText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Mist100,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (inLibrary) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        Icons.Rounded.CheckCircle,
+                        contentDescription = "In library",
+                        tint = Rose500.copy(alpha = 0.7f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
             Text(
                 text = info.secondaryText,
                 style = MaterialTheme.typography.labelSmall,

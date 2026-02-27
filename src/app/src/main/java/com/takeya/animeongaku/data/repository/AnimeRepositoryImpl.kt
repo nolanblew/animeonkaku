@@ -6,6 +6,9 @@ import com.squareup.moshi.Types
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.model.ArtistCredit
 import com.takeya.animeongaku.data.model.KitsuAnimeEntry
+import com.takeya.animeongaku.data.model.OnlineAnimeResult
+import com.takeya.animeongaku.data.model.OnlineArtistResult
+import com.takeya.animeongaku.data.model.OnlineSearchResult
 import com.takeya.animeongaku.data.remote.AnimeThemesApiResponse
 import com.takeya.animeongaku.data.remote.AnimeThemesSearchResponse
 import com.takeya.animeongaku.data.remote.ApiAnime
@@ -261,8 +264,8 @@ class AnimeRepositoryImpl @Inject constructor(
         return AnimeThemeSyncResult(themes, mappings)
     }
 
-    override suspend fun searchAnimeThemes(query: String): List<AnimeThemeEntry> {
-        if (query.isBlank()) return emptyList()
+    override suspend fun searchAnimeThemes(query: String): OnlineSearchResult {
+        if (query.isBlank()) return OnlineSearchResult(emptyList(), emptyList(), emptyList())
 
         val includes = "resources,images,animesynonyms,animethemes,animethemes.animethemeentries.videos," +
             "animethemes.animethemeentries.videos.audio,animethemes.song,animethemes.song.artists"
@@ -284,6 +287,7 @@ class AnimeRepositoryImpl @Inject constructor(
         return withContext(Dispatchers.IO) {
             val results = mutableListOf<AnimeThemeEntry>()
             val seenThemeIds = mutableSetOf<String>()
+            var searchArtists = listOf<OnlineArtistResult>()
 
             // 1) Search by anime name
             try {
@@ -310,7 +314,8 @@ class AnimeRepositoryImpl @Inject constructor(
                     .newBuilder()
                     .addQueryParameter("q", query)
                     .addQueryParameter("include[anime]", includes)
-                    .addQueryParameter("fields[search]", "anime")
+                    .addQueryParameter("include[artist]", "images")
+                    .addQueryParameter("fields[search]", "anime,artists")
                     .addQueryParameter("page[limit]", "10")
                     .build()
 
@@ -325,6 +330,27 @@ class AnimeRepositoryImpl @Inject constructor(
                             parsed?.search?.anime?.flatMap { it.toThemeEntries() }?.forEach { entry ->
                                 if (seenThemeIds.add(entry.themeId)) results.add(entry)
                             }
+                            // Parse artists from search response
+                            searchArtists = parsed?.search?.artists
+                                ?.filter { it.id != null && !it.name.isNullOrBlank() && !it.slug.isNullOrBlank() }
+                                ?.map { artist ->
+                                    val imgLink = artist.images.firstOrNull {
+                                        it.facet?.contains("Large", ignoreCase = true) == true
+                                    } ?: artist.images.firstOrNull {
+                                        it.facet?.contains("Small", ignoreCase = true) == true
+                                    } ?: artist.images.firstOrNull()
+                                    val imageUrl = imgLink?.link ?: imgLink?.path?.let { path ->
+                                        if (path.startsWith("http", ignoreCase = true)) path
+                                        else "https://i.animethemes.moe/$path"
+                                    }
+                                    OnlineArtistResult(
+                                        id = artist.id!!,
+                                        name = artist.name!!,
+                                        slug = artist.slug!!,
+                                        imageUrl = imageUrl
+                                    )
+                                }
+                                .orEmpty()
                         }
                     } else {
                         Log.w(TAG, "searchAnimeThemes /search query failed: HTTP ${response.code}")
@@ -334,7 +360,145 @@ class AnimeRepositoryImpl @Inject constructor(
                 Log.e(TAG, "searchAnimeThemes /search query exception", e)
             }
 
-            results
+            // 3) Extract distinct anime from theme results
+            val onlineAnime = results
+                .groupBy { it.animeId }
+                .map { (animeId, entries) ->
+                    val first = entries.first()
+                    OnlineAnimeResult(
+                        animeThemesId = animeId,
+                        name = first.animeName ?: "Unknown",
+                        nameEn = first.animeNameEn,
+                        coverUrl = first.coverUrl,
+                        kitsuId = first.kitsuId,
+                        themeCount = entries.size
+                    )
+                }
+
+            OnlineSearchResult(
+                themes = results,
+                anime = onlineAnime,
+                artists = searchArtists
+            )
+        }
+    }
+
+    override suspend fun fetchAnimeById(animeThemesId: Long): List<AnimeThemeEntry> {
+        val includes = "resources,images,animesynonyms,animethemes,animethemes.animethemeentries.videos," +
+            "animethemes.animethemeentries.videos.audio,animethemes.song,animethemes.song.artists"
+
+        val requestUrl = "https://api.animethemes.moe/anime/$animeThemesId".toHttpUrl()
+            .newBuilder()
+            .addQueryParameter("include", includes)
+            .build()
+
+        val request = Request.Builder().url(requestUrl).get().build()
+
+        return withContext(Dispatchers.IO) {
+            try {
+                okHttpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "fetchAnimeById failed: HTTP ${response.code}")
+                        return@withContext emptyList()
+                    }
+                    val body = response.body?.string() ?: return@withContext emptyList()
+                    // Response is { "anime": { ... } } (single object, not array)
+                    val type = Types.newParameterizedType(Map::class.java, String::class.java, Any::class.java)
+                    val mapAdapter = moshi.adapter<Map<String, Any>>(type)
+                    val raw = mapAdapter.fromJson(body) ?: return@withContext emptyList()
+                    val animeJson = raw["anime"] ?: return@withContext emptyList()
+                    val animeAdapter = moshi.adapter(ApiAnime::class.java)
+                    val anime = animeAdapter.fromJsonValue(animeJson) ?: return@withContext emptyList()
+                    anime.toThemeEntries()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "fetchAnimeById exception", e)
+                emptyList()
+            }
+        }
+    }
+
+    override suspend fun fetchArtistSlug(artistName: String): String? {
+        val requestUrl = "https://api.animethemes.moe/search".toHttpUrl()
+            .newBuilder()
+            .addQueryParameter("q", artistName)
+            .addQueryParameter("fields[search]", "artists")
+            .addQueryParameter("page[limit]", "5")
+            .build()
+
+        val request = Request.Builder().url(requestUrl).get().build()
+        val searchAdapter = moshi.adapter(AnimeThemesSearchResponse::class.java)
+
+        return withContext(Dispatchers.IO) {
+            try {
+                okHttpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@withContext null
+                    val body = response.body?.string() ?: return@withContext null
+                    val parsed = searchAdapter.fromJson(body)
+                    // Find exact name match first, then closest match
+                    val artists = parsed?.search?.artists.orEmpty()
+                    val exact = artists.firstOrNull {
+                        it.name.equals(artistName, ignoreCase = true)
+                    }
+                    val best = exact ?: artists.firstOrNull()
+                    best?.slug
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "fetchArtistSlug exception", e)
+                null
+            }
+        }
+    }
+
+    override suspend fun fetchArtistSongs(artistSlug: String): List<AnimeThemeEntry> {
+        val includes = "songs.animethemes.anime.resources,songs.animethemes.anime.images," +
+            "songs.animethemes.anime.animesynonyms," +
+            "songs.animethemes.animethemeentries.videos,songs.animethemes.animethemeentries.videos.audio," +
+            "songs.animethemes.song.artists"
+
+        val requestUrl = "https://api.animethemes.moe/artist/$artistSlug".toHttpUrl()
+            .newBuilder()
+            .addQueryParameter("include", includes)
+            .build()
+
+        val request = Request.Builder().url(requestUrl).get().build()
+
+        return withContext(Dispatchers.IO) {
+            try {
+                okHttpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "fetchArtistSongs failed: HTTP ${response.code}")
+                        return@withContext emptyList()
+                    }
+                    val body = response.body?.string() ?: return@withContext emptyList()
+                    val type = Types.newParameterizedType(Map::class.java, String::class.java, Any::class.java)
+                    val mapAdapter = moshi.adapter<Map<String, Any>>(type)
+                    val raw = mapAdapter.fromJson(body) ?: return@withContext emptyList()
+                    val artistJson = raw["artist"] ?: return@withContext emptyList()
+                    // Parse songs from artist response — each song has animethemes
+                    val artistMap = artistJson as? Map<*, *> ?: return@withContext emptyList()
+                    val songsRaw = artistMap["songs"] as? List<*> ?: return@withContext emptyList()
+
+                    val results = mutableListOf<AnimeThemeEntry>()
+                    val animeAdapter = moshi.adapter(ApiAnime::class.java)
+
+                    for (songRaw in songsRaw) {
+                        val songMap = songRaw as? Map<*, *> ?: continue
+                        val themesRaw = songMap["animethemes"] as? List<*> ?: continue
+                        for (themeRaw in themesRaw) {
+                            val themeMap = themeRaw as? Map<*, *> ?: continue
+                            val animeRaw = themeMap["anime"] ?: continue
+                            // Reconstruct anime with this single theme
+                            val anime = animeAdapter.fromJsonValue(animeRaw) ?: continue
+                            results += anime.toThemeEntries()
+                        }
+                    }
+                    results
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "fetchArtistSongs exception", e)
+                emptyList()
+            }
         }
     }
 }

@@ -18,6 +18,8 @@ import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.LibraryAdd
+import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -52,7 +54,11 @@ data class ActionSheetConfig(
     val showAddToQueue: Boolean = true,
     val showReplaceQueue: Boolean = true,
     val showSaveToPlaylist: Boolean = true,
-    val showAddToLibrary: Boolean = false
+    val showAddToLibrary: Boolean = false,
+    val showGoToArtist: Boolean = false,
+    val showGoToAnime: Boolean = false,
+    val artistName: String? = null,
+    val animeName: String? = null
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -64,7 +70,9 @@ fun ActionSheet(
     onAddToQueue: () -> Unit = {},
     onReplaceQueue: () -> Unit = {},
     onSaveToPlaylist: () -> Unit = {},
-    onAddToLibrary: () -> Unit = {}
+    onAddToLibrary: () -> Unit = {},
+    onGoToArtist: () -> Unit = {},
+    onGoToAnime: () -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -182,6 +190,22 @@ fun ActionSheet(
                     icon = { Icon(Icons.Rounded.LibraryAdd, contentDescription = null, tint = Mist100) },
                     label = "Add to library",
                     onClick = { onAddToLibrary(); onDismiss() }
+                )
+            }
+            if (config.showGoToArtist) {
+                val label = config.artistName?.let { "Go to $it" } ?: "Go to artist"
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.Person, contentDescription = null, tint = Mist100) },
+                    label = label,
+                    onClick = { onGoToArtist(); onDismiss() }
+                )
+            }
+            if (config.showGoToAnime) {
+                val label = config.animeName?.let { "Go to $it" } ?: "Go to anime"
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.Movie, contentDescription = null, tint = Mist100) },
+                    label = label,
+                    onClick = { onGoToAnime(); onDismiss() }
                 )
             }
         }

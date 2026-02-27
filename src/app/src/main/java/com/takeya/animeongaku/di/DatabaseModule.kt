@@ -6,6 +6,7 @@ import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.AppDatabase
 import com.takeya.animeongaku.data.local.ArtistDao
 import com.takeya.animeongaku.data.local.ArtistImageDao
+import com.takeya.animeongaku.data.local.PlayCountDao
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.ThemeDao
 import dagger.Module
@@ -26,7 +27,7 @@ object DatabaseModule {
         context,
         AppDatabase::class.java,
         "anime_ongaku.db"
-    ).fallbackToDestructiveMigration(true).build()
+    ).addMigrations(AppDatabase.MIGRATION_9_10).build()
 
     @Provides
     fun provideAnimeDao(database: AppDatabase): AnimeDao = database.animeDao()
@@ -42,4 +43,7 @@ object DatabaseModule {
 
     @Provides
     fun provideArtistDao(database: AppDatabase): ArtistDao = database.artistDao()
+
+    @Provides
+    fun providePlayCountDao(database: AppDatabase): PlayCountDao = database.playCountDao()
 }

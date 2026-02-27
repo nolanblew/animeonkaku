@@ -36,7 +36,9 @@ fun PlayerContainer(
     onCollapse: () -> Unit,
     showMiniPlayer: Boolean,
     modifier: Modifier = Modifier,
-    bottomPadding: Dp = 0.dp
+    bottomPadding: Dp = 0.dp,
+    onOpenAnime: (String) -> Unit = {},
+    onOpenArtist: (String) -> Unit = {}
 ) {
     if (!showMiniPlayer && !isExpanded) return
 
@@ -114,7 +116,9 @@ fun PlayerContainer(
                 onCollapse = {
                     coroutineScope.launch { offsetY.animateTo(maxOffset) }
                     onCollapse()
-                }
+                },
+                onOpenAnime = onOpenAnime,
+                onOpenArtist = onOpenArtist
             )
         }
     }

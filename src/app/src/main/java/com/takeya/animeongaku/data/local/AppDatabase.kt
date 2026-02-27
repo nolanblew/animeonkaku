@@ -2,6 +2,8 @@ package com.takeya.animeongaku.data.local
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [
@@ -10,10 +12,11 @@ import androidx.room.RoomDatabase
         PlaylistEntity::class,
         PlaylistEntryEntity::class,
         ArtistImageEntity::class,
-        ThemeArtistCrossRef::class
+        ThemeArtistCrossRef::class,
+        PlayCountEntity::class
     ],
-    version = 9,
-    exportSchema = false
+    version = 10,
+    exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun animeDao(): AnimeDao
@@ -21,4 +24,20 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun playlistDao(): PlaylistDao
     abstract fun themeDao(): ThemeDao
     abstract fun artistDao(): ArtistDao
+    abstract fun playCountDao(): PlayCountDao
+
+    companion object {
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `play_count` (
+                        `themeId` INTEGER NOT NULL,
+                        `playCount` INTEGER NOT NULL,
+                        `lastPlayedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`themeId`)
+                    )"""
+                )
+            }
+        }
+    }
 }

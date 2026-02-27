@@ -95,5 +95,13 @@ data class AnimeThemesSearchResponse(
 )
 
 data class AnimeThemesSearchData(
-    val anime: List<ApiAnime> = emptyList()
+    val anime: List<ApiAnime> = emptyList(),
+    val artists: List<ApiSearchArtist> = emptyList()
+)
+
+data class ApiSearchArtist(
+    val id: Long? = null,
+    val name: String? = null,
+    val slug: String? = null,
+    val images: List<ApiArtistImage> = emptyList()
 )

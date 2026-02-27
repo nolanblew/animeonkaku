@@ -84,6 +84,8 @@ fun PlayerScreen(
     onSwipeUpHandled: () -> Unit = {},
     onExpand: () -> Unit = {},
     onCollapse: () -> Unit = {},
+    onOpenAnime: (String) -> Unit = {},
+    onOpenArtist: (String) -> Unit = {},
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val npState by viewModel.nowPlayingState.collectAsStateWithLifecycle()
@@ -112,13 +114,25 @@ fun PlayerScreen(
         if (theme != null) {
             val animeEntity = theme.animeId?.let { npState.animeMap[it] }
             val info = theme.displayInfo(animeEntity)
+            var songInLibrary by remember { mutableStateOf(true) }
+            androidx.compose.runtime.LaunchedEffect(theme.id) {
+                songInLibrary = viewModel.isInLibrary(theme.id)
+            }
             ActionSheet(
                 config = ActionSheetConfig(
                     title = info.primaryText, subtitle = info.secondaryText, imageUrl = animeEntity?.coverUrl ?: animeEntity?.thumbnailUrl,
-                    showPlayNext = false, showAddToQueue = false, showReplaceQueue = false, showSaveToPlaylist = true, showAddToLibrary = false
+                    showPlayNext = false, showAddToQueue = false, showReplaceQueue = false, showSaveToPlaylist = true,
+                    showAddToLibrary = !songInLibrary,
+                    showGoToArtist = !theme.artistName.isNullOrBlank(),
+                    showGoToAnime = animeEntity?.kitsuId != null,
+                    artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
+                    animeName = animeEntity?.title
                 ),
                 onDismiss = { showPlayerSheet = false },
-                onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) }
+                onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) },
+                onGoToArtist = { theme.artistName?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
+                onGoToAnime = { animeEntity?.kitsuId?.let { onOpenAnime(it) } },
+                onAddToLibrary = { viewModel.saveSongToLibrary(theme, animeEntity) }
             )
         }
     }
