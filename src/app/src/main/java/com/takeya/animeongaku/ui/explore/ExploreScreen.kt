@@ -31,11 +31,16 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -54,7 +59,11 @@ fun ExploreScreen(
     onPlayTheme: (AnimeThemeEntry) -> Unit = {},
     viewModel: ExploreViewModel = hiltViewModel()
 ) {
-    val query by viewModel.query.collectAsStateWithLifecycle()
+    val queryText by viewModel.query.collectAsStateWithLifecycle()
+    var textFieldValue by remember {
+        mutableStateOf(TextFieldValue(queryText, TextRange(queryText.length)))
+    }
+    val query = textFieldValue.text
     val results by viewModel.results.collectAsStateWithLifecycle()
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
@@ -81,8 +90,11 @@ fun ExploreScreen(
 
             item {
                 SearchBar(
-                    query = query,
-                    onQueryChange = { viewModel.onQueryChange(it) }
+                    value = textFieldValue,
+                    onValueChange = {
+                        textFieldValue = it
+                        viewModel.onQueryChange(it.text)
+                    }
                 )
             }
 
@@ -139,13 +151,13 @@ fun ExploreScreen(
 
 @Composable
 private fun SearchBar(
-    query: String,
-    onQueryChange: (String) -> Unit
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit
 ) {
     val shape = RoundedCornerShape(16.dp)
     TextField(
-        value = query,
-        onValueChange = onQueryChange,
+        value = value,
+        onValueChange = onValueChange,
         modifier = Modifier
             .fillMaxWidth()
             .background(Ink800.copy(alpha = 0.5f), shape)
@@ -157,8 +169,8 @@ private fun SearchBar(
             Icon(Icons.Rounded.Search, contentDescription = null, tint = Mist200)
         },
         trailingIcon = {
-            if (query.isNotBlank()) {
-                IconButton(onClick = { onQueryChange("") }) {
+            if (value.text.isNotBlank()) {
+                IconButton(onClick = { onValueChange(TextFieldValue("")) }) {
                     Icon(Icons.Rounded.Close, contentDescription = "Clear", tint = Mist200)
                 }
             }

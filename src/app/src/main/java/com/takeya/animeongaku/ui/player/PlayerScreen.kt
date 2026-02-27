@@ -19,18 +19,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
-import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -49,10 +50,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.unit.dp
-import androidx.media3.common.Player
+import androidx.constraintlayout.compose.ExperimentalMotionApi
+import androidx.constraintlayout.compose.MotionLayout
+import androidx.constraintlayout.compose.MotionScene
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.Player
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.media.MediaControllerManager
 import com.takeya.animeongaku.media.NowPlayingState
@@ -71,8 +76,13 @@ import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.theme.Rose500
 import kotlin.math.max
 
+@OptIn(ExperimentalMotionApi::class)
 @Composable
 fun PlayerScreen(
+    progress: Float,
+    swipeUpTrigger: Boolean = false,
+    onSwipeUpHandled: () -> Unit = {},
+    onExpand: () -> Unit = {},
     onCollapse: () -> Unit = {},
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
@@ -86,12 +96,15 @@ fun PlayerScreen(
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
 
+    androidx.compose.runtime.LaunchedEffect(swipeUpTrigger) {
+        if (swipeUpTrigger) {
+            showUpNext = true
+            onSwipeUpHandled()
+        }
+    }
+
     if (showUpNext) {
-        UpNextSheet(
-            npState = npState,
-            nowPlayingManager = nowPlayingManager,
-            onDismiss = { showUpNext = false }
-        )
+        UpNextSheet(npState = npState, nowPlayingManager = nowPlayingManager, onDismiss = { showUpNext = false })
     }
 
     if (showPlayerSheet) {
@@ -101,14 +114,8 @@ fun PlayerScreen(
             val info = theme.displayInfo(animeEntity)
             ActionSheet(
                 config = ActionSheetConfig(
-                    title = info.primaryText,
-                    subtitle = info.secondaryText,
-                    imageUrl = animeEntity?.coverUrl ?: animeEntity?.thumbnailUrl,
-                    showPlayNext = false,
-                    showAddToQueue = false,
-                    showReplaceQueue = false,
-                    showSaveToPlaylist = true,
-                    showAddToLibrary = false
+                    title = info.primaryText, subtitle = info.secondaryText, imageUrl = animeEntity?.coverUrl ?: animeEntity?.thumbnailUrl,
+                    showPlayNext = false, showAddToQueue = false, showReplaceQueue = false, showSaveToPlaylist = true, showAddToLibrary = false
                 ),
                 onDismiss = { showPlayerSheet = false },
                 onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) }
@@ -118,413 +125,162 @@ fun PlayerScreen(
 
     pickerThemeIds?.let { ids ->
         PlaylistPickerSheet(
-            playlists = playlists,
-            onDismiss = { pickerThemeIds = null },
-            onSelectPlaylist = { playlistId ->
-                viewModel.addToPlaylist(playlistId, ids)
-                pickerThemeIds = null
-            },
-            onCreatePlaylist = { name ->
-                viewModel.createAndAddToPlaylist(name, ids)
-                pickerThemeIds = null
-            }
+            playlists = playlists, onDismiss = { pickerThemeIds = null },
+            onSelectPlaylist = { playlistId -> viewModel.addToPlaylist(playlistId, ids); pickerThemeIds = null },
+            onCreatePlaylist = { name -> viewModel.createAndAddToPlaylist(name, ids); pickerThemeIds = null }
         )
     }
 
-    val backgroundGradient = Brush.verticalGradient(
-        listOf(
-            Ink900,
-            Ink800,
-            Ink700
-        )
-    )
+    val currentTheme = npState.currentTheme
+    val animeEntity = currentTheme?.animeId?.let { npState.animeMap[it] }
+    val artUrl = animeEntity?.coverUrl ?: animeEntity?.thumbnailUrl
+    val trackInfo = currentTheme?.displayInfo(animeEntity)
+    val title = trackInfo?.primaryText ?: "Select a song"
+    val artist = trackInfo?.secondaryText ?: "Choose a track from your library"
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(backgroundGradient)
-    ) {
-        // Derive display info from NowPlayingManager (single source of truth)
-        val currentTheme = npState.currentTheme
-        val animeEntity = currentTheme?.animeId?.let { npState.animeMap[it] }
-        val artUrl = animeEntity?.coverUrl ?: animeEntity?.thumbnailUrl
-        val trackInfo = currentTheme?.displayInfo(animeEntity)
-        val title = trackInfo?.primaryText ?: "Select a song"
-        val artist = trackInfo?.secondaryText ?: "Choose a track from your library"
+    val motionScene = MotionScene("""{
+            ConstraintSets: {
+                start: {
+                    bg: { width: 'spread', height: 64, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'] },
+                    topBar: { width: 'spread', height: 48, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 0 },
+                    art: { width: 44, height: 44, start: ['parent', 'start', 12], top: ['parent', 'top', 10], custom: { corner: 8 } },
+                    titles: { width: 'spread', height: 'wrap', start: ['art', 'end', 12], end: ['playPause', 'start', 12], top: ['parent', 'top', 12], bottom: ['parent', 'bottom', 12] },
+                    playPause: { width: 40, height: 40, end: ['next', 'start', 12], top: ['parent', 'top', 12], bottom: ['parent', 'bottom', 12] },
+                    next: { width: 36, height: 36, end: ['parent', 'end', 12], top: ['parent', 'top', 14], bottom: ['parent', 'bottom', 14] },
+                    miniProgress: { width: 'spread', height: 2, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 1 },
+                    fullControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['titles', 'bottom', 20], alpha: 0 }
+                },
+                end: {
+                    bg: { width: 'spread', height: 'spread', start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], bottom: ['parent', 'bottom'] },
+                    topBar: { width: 'spread', height: 48, start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['parent', 'top', 16], alpha: 1 },
+                    art: { width: 'spread', height: 320, start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['topBar', 'bottom', 20], custom: { corner: 24 } },
+                    titles: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['art', 'bottom', 20] },
+                    playPause: { width: 72, height: 72, start: ['parent', 'start'], end: ['parent', 'end'], top: ['fullControls', 'top'] },
+                    next: { width: 48, height: 48, start: ['playPause', 'end', 12], top: ['playPause', 'top'], bottom: ['playPause', 'bottom'] },
+                    miniProgress: { width: 'spread', height: 2, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 0 },
+                    fullControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['titles', 'bottom', 20], alpha: 1 }
+                }
+            },
+            Transitions: { default: { from: 'start', to: 'end' } }
+        }""")
 
-        PlayerBackgroundArt(artUrl)
-        BackdropGlow()
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp)
-                .padding(top = 16.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+    MotionLayout(motionScene = motionScene, progress = progress, modifier = Modifier.fillMaxSize()) {
+        val isExpandedThreshold = progress > 0.1f
+        val backgroundGradient = Brush.verticalGradient(listOf(Ink900, if (isExpandedThreshold) Ink800 else Ink900, if (isExpandedThreshold) Ink700 else Ink900))
+        Box(
+            modifier = Modifier.layoutId("bg")
+                .background(backgroundGradient)
+                .clickable { if (progress < 0.5f) onExpand() }
+                .then(if (progress < 0.5f) { Modifier.border(0.5.dp, Mist200.copy(alpha = 0.15f), RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)).clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)) } else Modifier)
         ) {
-            PlayerTopBar(onCollapse, onMore = { showPlayerSheet = true })
-            Box(contentAlignment = Alignment.Center) {
-                AlbumArtCard(title, artUrl)
-                if (pbState.isBuffering) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(48.dp),
-                        color = Mist100.copy(alpha = 0.8f),
-                        strokeWidth = 3.dp
-                    )
+            if (isExpandedThreshold) {
+                PlayerBackgroundArt(artUrl)
+                BackdropGlow()
+            }
+        }
+
+        Row(modifier = Modifier.layoutId("topBar"), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            GlassIconButton(onClick = onCollapse) { Icon(Icons.Rounded.KeyboardArrowDown, "Collapse player", tint = Mist100) }
+            Text("NOW PLAYING", style = MaterialTheme.typography.labelMedium, color = Mist200)
+            GlassIconButton(onClick = { showPlayerSheet = true }) { Icon(Icons.Rounded.MoreVert, "More options", tint = Mist100) }
+        }
+
+        val cornerProps = motionProperties(id = "art")
+        val cornerRadius = cornerProps.value.int("corner") ?: 8
+        Box(
+            modifier = Modifier.layoutId("art").shadow(if (isExpandedThreshold) 24.dp else 0.dp, RoundedCornerShape(cornerRadius.dp)).clip(RoundedCornerShape(cornerRadius.dp)).background(Ink800, RoundedCornerShape(cornerRadius.dp)).then(if (isExpandedThreshold) Modifier.border(1.dp, Mist200.copy(alpha=0.15f), RoundedCornerShape(cornerRadius.dp)) else Modifier),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!artUrl.isNullOrBlank()) { AsyncImage(model = artUrl, contentDescription = title, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+        }
+
+        Column(modifier = Modifier.layoutId("titles"), verticalArrangement = Arrangement.spacedBy(if (isExpandedThreshold) 4.dp else 2.dp)) {
+            MarqueeText(text = title, style = if (isExpandedThreshold) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.bodyMedium, color = Mist100)
+            MarqueeText(text = artist, style = if (isExpandedThreshold) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodySmall, color = Mist200)
+        }
+
+        if (isExpandedThreshold) {
+            val containerColor by animateColorAsState(targetValue = if (pbState.isPlaying) Rose500 else Ember400, animationSpec = tween(500), label = "playColor")
+            Box(
+                modifier = Modifier.layoutId("playPause").shadow(18.dp, CircleShape).background(containerColor, CircleShape).border(1.dp, Mist100.copy(alpha = 0.6f), CircleShape).clip(CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                if (pbState.isBuffering) { CircularProgressIndicator(modifier = Modifier.size(36.dp), color = Ink900, strokeWidth = 3.dp) } else {
+                    IconButton(onClick = { if (pbState.isPlaying) controllerManager.pause() else controllerManager.play() }) { Icon(if (pbState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Play or pause", tint = Ink900, modifier = Modifier.size(40.dp)) }
                 }
             }
-            TrackInfo(title, artist)
-            pbState.errorMessage?.let { error ->
-                Text(
-                    text = error,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Rose500,
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 2
-                )
+        } else {
+            IconButton(onClick = { if (pbState.isPlaying) controllerManager.pause() else controllerManager.play() }, modifier = Modifier.layoutId("playPause").background(Rose500.copy(alpha = 0.15f), CircleShape)) {
+                Icon(if (pbState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Play or pause", tint = Mist100, modifier = Modifier.size(24.dp))
             }
-            SeekBar(pbState, controllerManager)
-            PlaybackControls(pbState, controllerManager, npState, nowPlayingManager)
-            SupportingActions(controllerManager, onUpNext = { showUpNext = true })
+        }
+
+        IconButton(onClick = { controllerManager.seekToNext() }, modifier = Modifier.layoutId("next")) {
+            Icon(Icons.Rounded.SkipNext, "Next", tint = if (isExpandedThreshold) Mist100 else Mist200, modifier = Modifier.size(if (isExpandedThreshold) 36.dp else 22.dp))
+        }
+
+        val duration = max(pbState.durationMs, 1L)
+        val posProgress = (pbState.positionMs.toFloat() / duration).coerceIn(0f, 1f)
+        LinearProgressIndicator(progress = { posProgress }, modifier = Modifier.layoutId("miniProgress"), color = Rose500, trackColor = Ink800)
+
+        Column(modifier = Modifier.layoutId("fullControls"), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            var scrubFraction by remember { mutableFloatStateOf(0f) }
+            var isScrubbing by remember { mutableStateOf(false) }
+            val rawFraction = (pbState.positionMs.toFloat() / duration).coerceIn(0f, 1f)
+            val smoothFraction by androidx.compose.animation.core.animateFloatAsState(targetValue = rawFraction, animationSpec = tween(durationMillis = 150), label = "seekSmooth")
+            val positionFraction = if (isScrubbing) scrubFraction else smoothFraction
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                val activeColor by animateColorAsState(targetValue = Rose500, animationSpec = tween(500), label = "sliderColor")
+                Slider(value = positionFraction, onValueChange = { scrubFraction = it; isScrubbing = true }, onValueChangeFinished = { controllerManager.seekTo((scrubFraction * duration).toLong()); isScrubbing = false }, colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = activeColor, activeTrackColor = activeColor, inactiveTrackColor = Ink700))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(formatTime((positionFraction * duration).toLong()), style = MaterialTheme.typography.labelMedium, color = Mist200)
+                    Text(formatTime(duration), style = MaterialTheme.typography.labelMedium, color = Mist200)
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { nowPlayingManager.toggleShuffle() }) { Icon(Icons.Rounded.Shuffle, "Shuffle", tint = if (npState.isShuffled) Rose500 else Mist200) }
+                IconButton(onClick = { controllerManager.seekToPrevious() }) { Icon(Icons.Rounded.SkipPrevious, "Previous", tint = Mist100, modifier = Modifier.size(36.dp)) }
+                Box(Modifier.size(72.dp)) // Spacer for middle play button inside MotionLayout
+                Box(Modifier.size(48.dp)) // Spacer for next button
+                IconButton(onClick = { controllerManager.toggleRepeatMode() }) {
+                    Icon(if (pbState.repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, "Repeat", tint = if (pbState.repeatMode == Player.REPEAT_MODE_OFF) Mist200 else Rose500)
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)) {
+                GlassActionPill(icon = Icons.AutoMirrored.Rounded.QueueMusic, label = "Up Next", onClick = { showUpNext = true })
+            }
         }
     }
 }
 
 @Composable
-private fun PlayerBackgroundArt(imageUrl: String?) {
+fun PlayerBackgroundArt(imageUrl: String?) {
     if (imageUrl.isNullOrBlank()) return
-    AsyncImage(
-        model = imageUrl,
-        contentDescription = null,
-        modifier = Modifier
-            .fillMaxSize(),
-        contentScale = ContentScale.Crop,
-        alpha = 0.18f
-    )
+    AsyncImage(model = imageUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = 0.18f)
 }
 
 @Composable
-private fun BackdropGlow() {
+fun BackdropGlow() {
     Canvas(modifier = Modifier.fillMaxSize()) {
         val softStroke = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round)
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(Rose500.copy(alpha = 0.35f), Color.Transparent),
-                radius = size.minDimension * 0.65f
-            ),
-            radius = size.minDimension * 0.65f,
-            center = center.copy(x = size.width * 0.8f, y = size.height * 0.2f)
-        )
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(Ember400.copy(alpha = 0.3f), Color.Transparent),
-                radius = size.minDimension * 0.7f
-            ),
-            radius = size.minDimension * 0.7f,
-            center = center.copy(x = size.width * 0.2f, y = size.height * 0.75f)
-        )
-        drawCircle(
-            color = Mist200.copy(alpha = 0.12f),
-            radius = size.minDimension * 0.55f,
-            center = center.copy(x = size.width * 0.55f, y = size.height * 0.5f),
-            style = softStroke
-        )
+        drawCircle(brush = Brush.radialGradient(listOf(Rose500.copy(alpha = 0.35f), Color.Transparent), radius = size.minDimension * 0.65f), radius = size.minDimension * 0.65f, center = center.copy(x = size.width * 0.8f, y = size.height * 0.2f))
+        drawCircle(brush = Brush.radialGradient(listOf(Ember400.copy(alpha = 0.3f), Color.Transparent), radius = size.minDimension * 0.7f), radius = size.minDimension * 0.7f, center = center.copy(x = size.width * 0.2f, y = size.height * 0.75f))
+        drawCircle(color = Mist200.copy(alpha = 0.12f), radius = size.minDimension * 0.55f, center = center.copy(x = size.width * 0.55f, y = size.height * 0.5f), style = softStroke)
     }
 }
 
 @Composable
-private fun PlayerTopBar(onCollapse: () -> Unit, onMore: () -> Unit = {}) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        GlassIconButton(onClick = onCollapse) {
-            Icon(
-                imageVector = Icons.Rounded.KeyboardArrowDown,
-                contentDescription = "Collapse player",
-                tint = Mist100
-            )
-        }
-        Text(
-            text = "NOW PLAYING",
-            style = MaterialTheme.typography.labelMedium,
-            color = Mist200
-        )
-        GlassIconButton(onClick = onMore) {
-            Icon(
-                imageVector = Icons.Rounded.MoreVert,
-                contentDescription = "More options",
-                tint = Mist100
-            )
-        }
+fun GlassIconButton(onClick: () -> Unit, content: @Composable () -> Unit) {
+    Box(modifier = Modifier.size(44.dp).background(Ink800.copy(alpha = 0.6f), CircleShape).border(1.dp, Mist200.copy(alpha = 0.3f), CircleShape), contentAlignment = Alignment.Center) {
+        IconButton(onClick = onClick) { content() }
     }
 }
 
 @Composable
-private fun AlbumArtCard(title: String, imageUrl: String?) {
-    val cardShape = RoundedCornerShape(24.dp)
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(320.dp)
-            .shadow(24.dp, cardShape)
-            .clip(cardShape)
-            .background(Ink800, cardShape)
-            .border(1.dp, Mist200.copy(alpha = 0.15f), cardShape),
-        contentAlignment = Alignment.Center
-    ) {
-        if (!imageUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = imageUrl,
-                contentDescription = title,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0f to Color.Transparent,
-                            0.7f to Color.Transparent,
-                            1f to Ink900.copy(alpha = 0.6f)
-                        )
-                    )
-            )
-        } else {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(Rose500.copy(alpha = 0.3f), Color.Transparent),
-                        radius = size.minDimension * 0.6f
-                    ),
-                    radius = size.minDimension * 0.6f,
-                    center = center
-                )
-            }
-            Text(
-                text = title.take(2).uppercase(),
-                style = MaterialTheme.typography.displayLarge,
-                color = Mist100.copy(alpha = 0.3f)
-            )
-        }
-    }
-}
-
-@Composable
-private fun TrackInfo(title: String, artist: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        MarqueeText(
-            text = title,
-            style = MaterialTheme.typography.headlineSmall,
-            color = Mist100
-        )
-        MarqueeText(
-            text = artist,
-            style = MaterialTheme.typography.bodyLarge,
-            color = Mist200
-        )
-    }
-}
-
-@Composable
-private fun SeekBar(pbState: PlaybackState, controllerManager: MediaControllerManager) {
-    val duration = max(pbState.durationMs, 1L)
-    var scrubFraction by remember { mutableFloatStateOf(0f) }
-    var isScrubbing by remember { mutableStateOf(false) }
-    val rawFraction = (pbState.positionMs.toFloat() / duration).coerceIn(0f, 1f)
-    val smoothFraction by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = rawFraction,
-        animationSpec = tween(durationMillis = 150, easing = androidx.compose.animation.core.LinearEasing),
-        label = "seekSmooth"
-    )
-    val positionFraction = if (isScrubbing) scrubFraction else smoothFraction
-
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        val activeColor by animateColorAsState(
-            targetValue = Rose500,
-            animationSpec = tween(500),
-            label = "sliderColor"
-        )
-        Slider(
-            value = positionFraction,
-            onValueChange = {
-                scrubFraction = it
-                isScrubbing = true
-            },
-            onValueChangeFinished = {
-                val newPosition = (scrubFraction * duration).toLong()
-                controllerManager.seekTo(newPosition)
-                isScrubbing = false
-            },
-            colors = androidx.compose.material3.SliderDefaults.colors(
-                thumbColor = activeColor,
-                activeTrackColor = activeColor,
-                inactiveTrackColor = Ink700
-            )
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = formatTime((positionFraction * duration).toLong()),
-                style = MaterialTheme.typography.labelMedium,
-                color = Mist200
-            )
-            Text(
-                text = formatTime(duration),
-                style = MaterialTheme.typography.labelMedium,
-                color = Mist200
-            )
-        }
-    }
-}
-
-@Composable
-private fun PlaybackControls(
-    pbState: PlaybackState,
-    controllerManager: MediaControllerManager,
-    npState: NowPlayingState,
-    nowPlayingManager: com.takeya.animeongaku.media.NowPlayingManager
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        IconButton(onClick = { nowPlayingManager.toggleShuffle() }) {
-            Icon(
-                imageVector = Icons.Rounded.Shuffle,
-                contentDescription = "Shuffle",
-                tint = if (npState.isShuffled) Rose500 else Mist200
-            )
-        }
-
-        IconButton(onClick = { controllerManager.seekToPrevious() }) {
-            Icon(
-                imageVector = Icons.Rounded.SkipPrevious,
-                contentDescription = "Previous",
-                tint = Mist100,
-                modifier = Modifier.size(36.dp)
-            )
-        }
-
-        PlayButton(isPlaying = pbState.isPlaying, isBuffering = pbState.isBuffering) {
-            if (pbState.isPlaying) {
-                controllerManager.pause()
-            } else {
-                controllerManager.play()
-            }
-        }
-
-        IconButton(onClick = { controllerManager.seekToNext() }) {
-            Icon(
-                imageVector = Icons.Rounded.SkipNext,
-                contentDescription = "Next",
-                tint = Mist100,
-                modifier = Modifier.size(36.dp)
-            )
-        }
-
-        IconButton(onClick = { controllerManager.toggleRepeatMode() }) {
-            Icon(
-                imageVector = Icons.Rounded.Repeat,
-                contentDescription = "Repeat",
-                tint = if (pbState.repeatMode == Player.REPEAT_MODE_OFF) Mist200 else Rose500
-            )
-        }
-    }
-}
-
-@Composable
-private fun PlayButton(isPlaying: Boolean, isBuffering: Boolean = false, onClick: () -> Unit) {
-    val containerColor by animateColorAsState(
-        targetValue = if (isPlaying) Rose500 else Ember400,
-        animationSpec = tween(500),
-        label = "playColor"
-    )
-
-    Box(
-        modifier = Modifier
-            .size(72.dp)
-            .shadow(18.dp, CircleShape)
-            .background(containerColor, CircleShape)
-            .border(1.dp, Mist100.copy(alpha = 0.6f), CircleShape)
-            .clip(CircleShape),
-        contentAlignment = Alignment.Center
-    ) {
-        if (isBuffering) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(36.dp),
-                color = Ink900,
-                strokeWidth = 3.dp
-            )
-        } else {
-            IconButton(onClick = onClick) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = "Play or pause",
-                    tint = Ink900,
-                    modifier = Modifier.size(40.dp)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SupportingActions(controllerManager: MediaControllerManager, onUpNext: () -> Unit = {}) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)
-    ) {
-        GlassActionPill(
-            icon = Icons.Rounded.Replay10,
-            label = "10s",
-            onClick = { controllerManager.seekBackTenSeconds() }
-        )
-        GlassActionPill(
-            icon = Icons.AutoMirrored.Rounded.QueueMusic,
-            label = "Up Next",
-            onClick = onUpNext
-        )
-    }
-}
-
-@Composable
-private fun GlassActionPill(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    onClick: () -> Unit = {}
-) {
-    Row(
-        modifier = Modifier
-            .background(Ink800.copy(alpha = 0.7f), RoundedCornerShape(24.dp))
-            .border(1.dp, Mist200.copy(alpha = 0.25f), RoundedCornerShape(24.dp))
-            .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
+fun GlassActionPill(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit = {}) {
+    Row(modifier = Modifier.background(Ink800.copy(alpha = 0.7f), RoundedCornerShape(24.dp)).border(1.dp, Mist200.copy(alpha = 0.25f), RoundedCornerShape(24.dp)).clickable { onClick() }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Icon(icon, contentDescription = null, tint = Mist100, modifier = Modifier.size(18.dp))
         Text(text = label, style = MaterialTheme.typography.labelMedium, color = Mist100)
-    }
-}
-
-@Composable
-private fun GlassIconButton(onClick: () -> Unit, content: @Composable () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(44.dp)
-            .background(Ink800.copy(alpha = 0.6f), CircleShape)
-            .border(1.dp, Mist200.copy(alpha = 0.3f), CircleShape),
-        contentAlignment = Alignment.Center
-    ) {
-        IconButton(onClick = onClick) {
-            content()
-        }
     }
 }
 

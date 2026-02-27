@@ -9,7 +9,9 @@
             <group
                 android:name="headphone_group"
                 android:pivotX="54"
-                android:pivotY="54">
+                android:pivotY="54"
+                android:scaleX="0.8"
+                android:scaleY="0.8">
                 
                 <!-- Headphones Arc -->
                 <path android:pathData="M30,55 c0,-20 10,-35 24,-35 c14,0 24,15 24,35"
@@ -71,16 +73,16 @@
                 <objectAnimator
                     android:propertyName="scaleX"
                     android:duration="500"
-                    android:valueFrom="1.0"
-                    android:valueTo="1.2"
+                    android:valueFrom="0.8"
+                    android:valueTo="1.0"
                     android:valueType="floatType"
                     android:repeatCount="1"
                     android:repeatMode="reverse" />
                 <objectAnimator
                     android:propertyName="scaleY"
                     android:duration="500"
-                    android:valueFrom="1.0"
-                    android:valueTo="1.2"
+                    android:valueFrom="0.8"
+                    android:valueTo="1.0"
                     android:valueType="floatType"
                     android:repeatCount="1"
                     android:repeatMode="reverse" />

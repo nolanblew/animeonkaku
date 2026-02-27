@@ -46,6 +46,7 @@ class SyncManager @Inject constructor(
         private const val TAG = "SyncManager"
         private const val TAG_FALLBACK = "AnimeThemesFallback"
         private const val KITSU_PLAYLIST_NAME = "Kitsu Library"
+        private const val DONE_DISPLAY_MS = 5_000L
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -65,6 +66,8 @@ class SyncManager @Inject constructor(
             return
         }
         pauseRequested = false
+        // Reset any stale state from a previous sync before starting
+        _state.value = SyncState()
         syncJob = scope.launch {
             try {
                 _state.value = SyncState(phase = SyncPhase.SyncingLibrary, isRunning = true)
@@ -154,6 +157,8 @@ class SyncManager @Inject constructor(
                     lastThemeCount = 0
                 )
             }
+            delay(DONE_DISPLAY_MS)
+            _state.value = SyncState()
             return
         }
 
@@ -368,6 +373,9 @@ class SyncManager @Inject constructor(
                 unmatchedAnime = stillUnmatched
             )
         }
+        // Auto-reset to Idle after a delay so UI clears on next visit
+        delay(DONE_DISPLAY_MS)
+        _state.value = SyncState()
     }
 
     private suspend fun updateKitsuPlaylist() {

@@ -46,7 +46,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -79,7 +81,11 @@ fun SearchScreen(
     onOpenPlaylist: (Long) -> Unit = {},
     viewModel: SearchViewModel = hiltViewModel()
 ) {
-    val query by viewModel.query.collectAsStateWithLifecycle()
+    val queryText by viewModel.query.collectAsStateWithLifecycle()
+    var textFieldValue by remember {
+        mutableStateOf(TextFieldValue(queryText, TextRange(queryText.length)))
+    }
+    val query = textFieldValue.text
     val localSongs by viewModel.localSongs.collectAsStateWithLifecycle()
     val localAnime by viewModel.localAnime.collectAsStateWithLifecycle()
     val localArtists by viewModel.localArtists.collectAsStateWithLifecycle()
@@ -197,8 +203,11 @@ fun SearchScreen(
 
             item {
                 SearchBar(
-                    query = query,
-                    onQueryChange = { viewModel.onQueryChange(it) }
+                    value = textFieldValue,
+                    onValueChange = {
+                        textFieldValue = it
+                        viewModel.onQueryChange(it.text)
+                    }
                 )
             }
 
@@ -333,11 +342,11 @@ fun SearchScreen(
 }
 
 @Composable
-private fun SearchBar(query: String, onQueryChange: (String) -> Unit) {
+private fun SearchBar(value: TextFieldValue, onValueChange: (TextFieldValue) -> Unit) {
     val shape = RoundedCornerShape(16.dp)
     TextField(
-        value = query,
-        onValueChange = onQueryChange,
+        value = value,
+        onValueChange = onValueChange,
         modifier = Modifier
             .fillMaxWidth()
             .background(Ink800.copy(alpha = 0.5f), shape)
@@ -345,8 +354,8 @@ private fun SearchBar(query: String, onQueryChange: (String) -> Unit) {
         placeholder = { Text("Songs, anime, artists…", color = Mist200) },
         leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = Mist200) },
         trailingIcon = {
-            if (query.isNotBlank()) {
-                IconButton(onClick = { onQueryChange("") }) {
+            if (value.text.isNotBlank()) {
+                IconButton(onClick = { onValueChange(TextFieldValue("")) }) {
                     Icon(Icons.Rounded.Close, contentDescription = "Clear", tint = Mist200)
                 }
             }

@@ -26,14 +26,14 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 internal fun sortThemesByType(themes: List<ThemeEntity>): List<ThemeEntity> {
     val regex = Regex("^(OP|ED)(\\d+)$", RegexOption.IGNORE_CASE)
     return themes.sortedWith(compareBy<ThemeEntity> { theme ->
-        val match = theme.themeType?.let { regex.find(it) }
-        match?.groupValues?.get(2)?.toIntOrNull() ?: Int.MAX_VALUE
-    }.thenBy { theme ->
         when {
             theme.themeType?.startsWith("OP", ignoreCase = true) == true -> 0
             theme.themeType?.startsWith("ED", ignoreCase = true) == true -> 1
             else -> 2
         }
+    }.thenBy { theme ->
+        val match = theme.themeType?.let { regex.find(it) }
+        match?.groupValues?.get(2)?.toIntOrNull() ?: Int.MAX_VALUE
     }.thenBy { it.title })
 }
 

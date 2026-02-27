@@ -165,8 +165,6 @@ fun LibraryScreen(
                 onTabSelected = { selectedTab = it.name },
                 modifier = Modifier.padding(horizontal = 20.dp)
             )
-            Spacer(modifier = Modifier.height(12.dp))
-            LibraryActions(onOpenImport, modifier = Modifier.padding(horizontal = 20.dp))
             Spacer(modifier = Modifier.height(16.dp))
 
             when (currentTab) {
@@ -177,6 +175,10 @@ fun LibraryScreen(
                             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
+                            item {
+                                LibraryActions(onOpenImport)
+                                Spacer(modifier = Modifier.height(6.dp))
+                            }
                             if (playlists.isEmpty()) {
                                 item {
                                     EmptyState(
