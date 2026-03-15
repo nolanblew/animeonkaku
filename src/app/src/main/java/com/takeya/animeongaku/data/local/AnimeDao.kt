@@ -44,6 +44,9 @@ interface AnimeDao {
     @Query("SELECT * FROM anime WHERE animeThemesId = :animeThemesId LIMIT 1")
     suspend fun getByAnimeThemesId(animeThemesId: Long): AnimeEntity?
 
+    @Query("SELECT * FROM anime WHERE kitsuId = :kitsuId LIMIT 1")
+    suspend fun getByKitsuId(kitsuId: String): AnimeEntity?
+
     @Query("SELECT kitsuId FROM anime")
     suspend fun getAllKitsuIds(): List<String>
 
@@ -52,6 +55,24 @@ interface AnimeDao {
 
     @Query("DELETE FROM anime")
     suspend fun clearAll()
+
+    @Query("DELETE FROM anime WHERE kitsuId IN (:kitsuIds)")
+    suspend fun deleteByKitsuIds(kitsuIds: List<String>)
+
+    @Query("SELECT animeThemesId FROM anime WHERE kitsuId IN (:kitsuIds) AND animeThemesId IS NOT NULL")
+    suspend fun getAnimeThemesIdsByKitsuIds(kitsuIds: List<String>): List<Long>
+
+    @Query("""
+        SELECT DISTINCT a.kitsuId FROM anime a
+        INNER JOIN themes t ON t.animeId = a.animeThemesId
+        INNER JOIN playlist_entries pe ON pe.themeId = t.id
+        INNER JOIN playlists p ON p.id = pe.playlistId
+        WHERE p.isAuto = 0
+    """)
+    suspend fun getKitsuIdsInUserPlaylists(): List<String>
+
+    @Query("UPDATE anime SET isManuallyAdded = 1 WHERE kitsuId = :kitsuId")
+    suspend fun markManuallyAdded(kitsuId: String)
 }
 
 data class AnimeWithThemeCount(

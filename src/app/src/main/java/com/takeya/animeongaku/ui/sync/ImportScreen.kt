@@ -80,6 +80,7 @@ fun ImportScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val anime by viewModel.anime.collectAsStateWithLifecycle(initialValue = emptyList())
+    val showResyncConfirmation by viewModel.showResyncConfirmation.collectAsStateWithLifecycle()
 
     // Request notification permission on Android 13+ before starting sync
     val notifPermissionLauncher = rememberLauncherForActivityResult(
@@ -89,6 +90,16 @@ fun ImportScreen(
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             notifPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+
+    if (showResyncConfirmation) {
+        ResyncConfirmationDialog(
+            onDismiss = viewModel::dismissResyncConfirmation,
+            onConfirm = {
+                requestNotifPermission()
+                viewModel.confirmForceFullSync()
+            }
+        )
     }
 
     val backgroundGradient = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
@@ -104,10 +115,7 @@ fun ImportScreen(
                 ImportTopBar(
                     onBack = onBack,
                     isLinked = uiState.isLinked,
-                    onForceResync = {
-                        requestNotifPermission()
-                        viewModel.forceFullSync()
-                    },
+                    onForceResync = viewModel::requestForceFullSync,
                     onUnlink = viewModel::unlinkAccount
                 )
             }
@@ -723,5 +731,69 @@ private fun AnimeRow(entry: AnimeEntity) {
             color = Ember400,
             fontWeight = FontWeight.Bold
         )
+    }
+}
+
+@Composable
+private fun ResyncConfirmationDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        val shape = RoundedCornerShape(20.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Ink800, shape)
+                .border(1.dp, Mist200.copy(alpha = 0.15f), shape)
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = "Re-sync entire library?",
+                style = MaterialTheme.typography.titleLarge,
+                color = Mist100,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "This will re-import your full Kitsu library and refresh all themes, " +
+                    "including new openings and endings for currently airing anime.\n\n" +
+                    "Anime removed from your Kitsu library will be removed unless they " +
+                    "were manually added or are in one of your playlists.\n\n" +
+                    "Your listening history and play counts will be preserved.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Mist200,
+                lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)
+            ) {
+                Button(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Mist200.copy(alpha = 0.12f),
+                        contentColor = Mist100
+                    )
+                ) {
+                    Text("Cancel")
+                }
+                Button(
+                    onClick = onConfirm,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Rose500,
+                        contentColor = Ink900
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Re-sync")
+                }
+            }
+        }
     }
 }

@@ -16,6 +16,7 @@ import com.takeya.animeongaku.media.NowPlayingManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -39,6 +40,21 @@ class LibraryViewModel @Inject constructor(
 ) : ViewModel() {
     val playlists = playlistDao.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _playlistCoverUrls = MutableStateFlow<Map<Long, List<String>>>(emptyMap())
+    val playlistCoverUrls: StateFlow<Map<Long, List<String>>> = _playlistCoverUrls
+
+    init {
+        viewModelScope.launch {
+            playlists.collect { playlistList ->
+                val coverMap = mutableMapOf<Long, List<String>>()
+                for (p in playlistList) {
+                    coverMap[p.playlist.id] = playlistDao.getPlaylistCoverUrls(p.playlist.id)
+                }
+                _playlistCoverUrls.value = coverMap
+            }
+        }
+    }
 
     val anime = animeDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

@@ -236,6 +236,42 @@ class UserRepositoryImpl @Inject constructor(
         return result
     }
 
+    override suspend fun getCurrentlyWatchingEntries(userId: String): List<KitsuAnimeEntry> {
+        val results = mutableListOf<KitsuAnimeEntry>()
+        var offset = 0
+        val limit = 500
+
+        while (true) {
+            val response = kitsuApi.getLibraryEntriesByStatus(
+                userId = userId,
+                status = "current",
+                limit = limit,
+                offset = offset
+            )
+            val animeById = response.included.associateBy { it.id }
+
+            val pageResults = response.data.mapNotNull { entry ->
+                val animeId = entry.animeId() ?: return@mapNotNull null
+                val anime = animeById[animeId]
+                KitsuAnimeEntry(
+                    id = animeId,
+                    title = anime?.displayTitle(),
+                    titleEn = anime?.titleEn(),
+                    titleRomaji = anime?.titleRomaji(),
+                    titleJa = anime?.titleJa(),
+                    abbreviatedTitles = anime?.abbreviatedTitles() ?: emptyList(),
+                    posterUrl = anime?.posterUrl(),
+                    coverUrl = anime?.coverUrl()
+                )
+            }
+            results.addAll(pageResults)
+
+            if (response.data.size < limit) break
+            offset += limit
+        }
+        return results
+    }
+
     override suspend fun searchKitsuAnime(query: String): List<KitsuAnimeEntry> {
         if (query.isBlank()) return emptyList()
         return try {

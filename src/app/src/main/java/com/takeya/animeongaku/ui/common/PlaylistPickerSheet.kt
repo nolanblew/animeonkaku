@@ -158,21 +158,23 @@ fun PlaylistPickerSheet(
                     .fillMaxWidth()
                     .height(300.dp)
             ) {
-                if (playlists.isEmpty()) {
-                    item {
-                        Text(
-                            text = "No playlists yet. Create one above.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Mist200,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
-                        )
-                    }
-                } else {
-                    items(playlists) { playlist ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onSelectPlaylist(playlist.playlist.id) }
+                    val visiblePlaylists = playlists.filter { !it.playlist.isAuto }
+                    
+                    if (visiblePlaylists.isEmpty()) {
+                        item {
+                            Text(
+                                text = "No manual playlists yet. Create one above.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Mist200,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
+                            )
+                        }
+                    } else {
+                        items(visiblePlaylists) { playlist ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onSelectPlaylist(playlist.playlist.id) }
                                 .padding(horizontal = 20.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(16.dp)

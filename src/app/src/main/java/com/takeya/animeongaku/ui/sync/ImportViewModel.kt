@@ -83,7 +83,19 @@ class ImportViewModel @Inject constructor(
         }
     }
 
-    fun forceFullSync() {
+    private val _showResyncConfirmation = MutableStateFlow(false)
+    val showResyncConfirmation: StateFlow<Boolean> = _showResyncConfirmation.asStateFlow()
+
+    fun requestForceFullSync() {
+        _showResyncConfirmation.value = true
+    }
+
+    fun dismissResyncConfirmation() {
+        _showResyncConfirmation.value = false
+    }
+
+    fun confirmForceFullSync() {
+        _showResyncConfirmation.value = false
         tokenStore.saveLastSyncedAt(0L)
         performSync(forceFullSync = true)
     }

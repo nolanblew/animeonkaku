@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CloudSync
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
@@ -61,6 +62,7 @@ import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.PlaylistCoverArt
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
 import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.theme.Ember400
@@ -89,6 +91,7 @@ fun LibraryScreen(
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
     val anime by viewModel.anime.collectAsStateWithLifecycle()
     val themes by viewModel.themes.collectAsStateWithLifecycle()
     val animeItems by viewModel.animeItems.collectAsStateWithLifecycle()
@@ -193,14 +196,24 @@ fun LibraryScreen(
                                     )
                                 }
                             } else {
-                                items(playlists) { playlist ->
+                                items(playlists, key = { it.playlist.id }) { item ->
+                                    val isAuto = item.playlist.isAuto
+                                    val coverUrls = playlistCoverUrls[item.playlist.id] ?: emptyList()
                                     ListRow(
-                                        title = playlist.playlist.name,
-                                        subtitle = "${playlist.trackCount} tracks",
+                                        title = item.playlist.name,
+                                        subtitle = "${item.trackCount} tracks",
                                         accent = Rose500,
-                                        onClick = { onOpenPlaylist(playlist.playlist.id) },
-                                        onRename = { playlistToRename = playlist },
-                                        onDelete = { playlistToDelete = playlist }
+                                        isAutoPlaylist = isAuto,
+                                        onClick = { onOpenPlaylist(item.playlist.id) },
+                                        onRename = if (isAuto) null else { { playlistToRename = item }},
+                                        onDelete = if (isAuto) null else { { playlistToDelete = item }},
+                                        coverContent = {
+                                            PlaylistCoverArt(
+                                                coverUrls = coverUrls,
+                                                gradientSeed = item.playlist.gradientSeed,
+                                                size = 44.dp
+                                            )
+                                        }
                                     )
                                 }
                             }
@@ -547,10 +560,12 @@ private fun ListRow(
     subtitle: String,
     accent: Color,
     imageUrl: String? = null,
+    isAutoPlaylist: Boolean = false,
     onClick: () -> Unit = {},
     onRename: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
-    onMoreOptions: (() -> Unit)? = null
+    onMoreOptions: (() -> Unit)? = null,
+    coverContent: (@Composable () -> Unit)? = null
 ) {
     val shape = RoundedCornerShape(12.dp)
     var showMenu by remember { mutableStateOf(false) }
@@ -563,30 +578,46 @@ private fun ListRow(
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(accent.copy(alpha = 0.15f))
-        ) {
-            if (!imageUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = null,
-                    modifier = Modifier.matchParentSize(),
-                    contentScale = ContentScale.Crop
-                )
+        if (coverContent != null) {
+            coverContent()
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(accent.copy(alpha = 0.15f))
+            ) {
+                if (!imageUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = imageUrl,
+                        contentDescription = null,
+                        modifier = Modifier.matchParentSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
             }
         }
         Spacer(modifier = Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                color = Mist100,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isAutoPlaylist) {
+                    Icon(
+                        imageVector = Icons.Rounded.AutoAwesome,
+                        contentDescription = "Auto Playlist",
+                        tint = Mist200,
+                        modifier = Modifier
+                            .size(16.dp)
+                            .padding(end = 4.dp)
+                    )
+                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Mist100,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.labelSmall,

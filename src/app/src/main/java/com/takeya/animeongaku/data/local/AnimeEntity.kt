@@ -13,5 +13,6 @@ data class AnimeEntity(
     val titleJa: String? = null,
     val thumbnailUrl: String?,
     val coverUrl: String?,
-    val syncedAt: Long
+    val syncedAt: Long,
+    val isManuallyAdded: Boolean = false
 )

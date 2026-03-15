@@ -196,8 +196,8 @@ class AnimeDetailViewModel @Inject constructor(
             val entries = _onlineEntries.value
             if (entries.isEmpty()) return@launch
 
-            // Save anime
-            animeDao.upsertAll(listOf(animeEntity))
+            // Save anime (marked as manually added so re-sync won't remove it)
+            animeDao.upsertAll(listOf(animeEntity.copy(isManuallyAdded = true)))
             // Save themes
             val entities = entries.map { entryToThemeEntity(it) }
             themeDao.upsertAll(entities)
@@ -213,10 +213,10 @@ class AnimeDetailViewModel @Inject constructor(
             } ?: return@launch
             val entity = entryToThemeEntity(entry)
             themeDao.upsertAll(listOf(entity))
-            // Also save the anime entity so the theme has a parent
+            // Also save the anime entity so the theme has a parent (marked as manually added)
             val animeEntity = _onlineAnime.value
             if (animeEntity != null) {
-                animeDao.upsertAll(listOf(animeEntity))
+                animeDao.upsertAll(listOf(animeEntity.copy(isManuallyAdded = true)))
             }
             // Save artist cross-refs for this entry
             if (entry.artists.isNotEmpty()) {

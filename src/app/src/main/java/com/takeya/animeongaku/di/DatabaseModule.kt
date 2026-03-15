@@ -27,7 +27,7 @@ object DatabaseModule {
         context,
         AppDatabase::class.java,
         "anime_ongaku.db"
-    ).addMigrations(AppDatabase.MIGRATION_9_10).build()
+    ).addMigrations(AppDatabase.MIGRATION_9_10, AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12).build()
 
     @Provides
     fun provideAnimeDao(database: AppDatabase): AnimeDao = database.animeDao()

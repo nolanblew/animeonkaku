@@ -6,6 +6,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -152,27 +156,34 @@ fun PlayerScreen(
     val title = trackInfo?.primaryText ?: "Select a song"
     val artist = trackInfo?.secondaryText ?: "Choose a track from your library"
 
+    val topInsetDp = WindowInsets.systemBars.asPaddingValues().calculateTopPadding().value.toInt()
+    val endTopMargin = max(16, topInsetDp + 16)
+
     val motionScene = MotionScene("""{
             ConstraintSets: {
                 start: {
                     bg: { width: 'spread', height: 64, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'] },
                     topBar: { width: 'spread', height: 48, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 0 },
                     art: { width: 44, height: 44, start: ['parent', 'start', 12], top: ['parent', 'top', 10], custom: { corner: 8 } },
-                    titles: { width: 'spread', height: 'wrap', start: ['art', 'end', 12], end: ['playPause', 'start', 12], top: ['parent', 'top', 12], bottom: ['parent', 'bottom', 12] },
-                    playPause: { width: 40, height: 40, end: ['next', 'start', 12], top: ['parent', 'top', 12], bottom: ['parent', 'bottom', 12] },
-                    next: { width: 36, height: 36, end: ['parent', 'end', 12], top: ['parent', 'top', 14], bottom: ['parent', 'bottom', 14] },
+                    titles: { width: 'spread', height: 'wrap', start: ['art', 'end', 12], end: ['playPause', 'start', 12], top: ['parent', 'top', 12], bottom: ['bg', 'bottom', 12] },
+                    playPause: { width: 40, height: 40, end: ['next', 'start', 12], top: ['parent', 'top', 12], bottom: ['bg', 'bottom', 12] },
+                    next: { width: 36, height: 36, end: ['parent', 'end', 12], top: ['parent', 'top', 14], bottom: ['bg', 'bottom', 14] },
                     miniProgress: { width: 'spread', height: 2, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 1 },
-                    fullControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['titles', 'bottom', 20], alpha: 0 }
+                    sliderControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['titles', 'bottom', 20], alpha: 0 },
+                    playbackControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['sliderControls', 'bottom', 20], alpha: 0 },
+                    upNextRow: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['playbackControls', 'bottom', 20], alpha: 0 }
                 },
                 end: {
                     bg: { width: 'spread', height: 'spread', start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], bottom: ['parent', 'bottom'] },
-                    topBar: { width: 'spread', height: 48, start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['parent', 'top', 16], alpha: 1 },
+                    topBar: { width: 'spread', height: 48, start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['parent', 'top', $endTopMargin], alpha: 1 },
                     art: { width: 'spread', height: 320, start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['topBar', 'bottom', 20], custom: { corner: 24 } },
                     titles: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['art', 'bottom', 20] },
-                    playPause: { width: 72, height: 72, start: ['parent', 'start'], end: ['parent', 'end'], top: ['fullControls', 'top'] },
-                    next: { width: 48, height: 48, start: ['playPause', 'end', 12], top: ['playPause', 'top'], bottom: ['playPause', 'bottom'] },
+                    playPause: { width: 72, height: 72, start: ['parent', 'start'], end: ['parent', 'end'], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
+                    next: { width: 48, height: 48, start: ['playPause', 'end', 12], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
                     miniProgress: { width: 'spread', height: 2, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 0 },
-                    fullControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['titles', 'bottom', 20], alpha: 1 }
+                    sliderControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['titles', 'bottom', 20], alpha: 1 },
+                    playbackControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['sliderControls', 'bottom', 20], alpha: 1 },
+                    upNextRow: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['playbackControls', 'bottom', 20], alpha: 1 }
                 }
             },
             Transitions: { default: { from: 'start', to: 'end' } }
@@ -184,7 +195,11 @@ fun PlayerScreen(
         Box(
             modifier = Modifier.layoutId("bg")
                 .background(backgroundGradient)
-                .clickable { if (progress < 0.5f) onExpand() }
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = { if (progress < 0.5f) onExpand() }
+                )
                 .then(if (progress < 0.5f) { Modifier.border(0.5.dp, Mist200.copy(alpha = 0.15f), RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)).clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)) } else Modifier)
         ) {
             if (isExpandedThreshold) {
@@ -237,32 +252,33 @@ fun PlayerScreen(
         val posProgress = (pbState.positionMs.toFloat() / duration).coerceIn(0f, 1f)
         LinearProgressIndicator(progress = { posProgress }, modifier = Modifier.layoutId("miniProgress"), color = Rose500, trackColor = Ink800)
 
-        Column(modifier = Modifier.layoutId("fullControls"), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            var scrubFraction by remember { mutableFloatStateOf(0f) }
-            var isScrubbing by remember { mutableStateOf(false) }
-            val rawFraction = (pbState.positionMs.toFloat() / duration).coerceIn(0f, 1f)
-            val smoothFraction by androidx.compose.animation.core.animateFloatAsState(targetValue = rawFraction, animationSpec = tween(durationMillis = 150), label = "seekSmooth")
-            val positionFraction = if (isScrubbing) scrubFraction else smoothFraction
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                val activeColor by animateColorAsState(targetValue = Rose500, animationSpec = tween(500), label = "sliderColor")
-                Slider(value = positionFraction, onValueChange = { scrubFraction = it; isScrubbing = true }, onValueChangeFinished = { controllerManager.seekTo((scrubFraction * duration).toLong()); isScrubbing = false }, colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = activeColor, activeTrackColor = activeColor, inactiveTrackColor = Ink700))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(formatTime((positionFraction * duration).toLong()), style = MaterialTheme.typography.labelMedium, color = Mist200)
-                    Text(formatTime(duration), style = MaterialTheme.typography.labelMedium, color = Mist200)
-                }
+        var scrubFraction by remember { mutableFloatStateOf(0f) }
+        var isScrubbing by remember { mutableStateOf(false) }
+        val rawFraction = (pbState.positionMs.toFloat() / duration).coerceIn(0f, 1f)
+        val smoothFraction by androidx.compose.animation.core.animateFloatAsState(targetValue = rawFraction, animationSpec = tween(durationMillis = 150), label = "seekSmooth")
+        val positionFraction = if (isScrubbing) scrubFraction else smoothFraction
+
+        Column(modifier = Modifier.layoutId("sliderControls"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            val activeColor by animateColorAsState(targetValue = Rose500, animationSpec = tween(500), label = "sliderColor")
+            Slider(value = positionFraction, onValueChange = { scrubFraction = it; isScrubbing = true }, onValueChangeFinished = { controllerManager.seekTo((scrubFraction * duration).toLong()); isScrubbing = false }, colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = activeColor, activeTrackColor = activeColor, inactiveTrackColor = Ink700))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(formatTime((positionFraction * duration).toLong()), style = MaterialTheme.typography.labelMedium, color = Mist200)
+                Text(formatTime(duration), style = MaterialTheme.typography.labelMedium, color = Mist200)
             }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { nowPlayingManager.toggleShuffle() }) { Icon(Icons.Rounded.Shuffle, "Shuffle", tint = if (npState.isShuffled) Rose500 else Mist200) }
-                IconButton(onClick = { controllerManager.seekToPrevious() }) { Icon(Icons.Rounded.SkipPrevious, "Previous", tint = Mist100, modifier = Modifier.size(36.dp)) }
-                Box(Modifier.size(72.dp)) // Spacer for middle play button inside MotionLayout
-                Box(Modifier.size(48.dp)) // Spacer for next button
-                IconButton(onClick = { controllerManager.toggleRepeatMode() }) {
-                    Icon(if (pbState.repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, "Repeat", tint = if (pbState.repeatMode == Player.REPEAT_MODE_OFF) Mist200 else Rose500)
-                }
+        }
+        
+        Row(modifier = Modifier.layoutId("playbackControls").fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { nowPlayingManager.toggleShuffle() }) { Icon(Icons.Rounded.Shuffle, "Shuffle", tint = if (npState.isShuffled) Rose500 else Mist200) }
+            IconButton(onClick = { controllerManager.seekToPrevious() }) { Icon(Icons.Rounded.SkipPrevious, "Previous", tint = Mist100, modifier = Modifier.size(36.dp)) }
+            Box(Modifier.size(72.dp)) // Spacer for middle play button inside MotionLayout
+            Box(Modifier.size(48.dp)) // Spacer for next button
+            IconButton(onClick = { controllerManager.toggleRepeatMode() }) {
+                Icon(if (pbState.repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, "Repeat", tint = if (pbState.repeatMode == Player.REPEAT_MODE_OFF) Mist200 else Rose500)
             }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)) {
-                GlassActionPill(icon = Icons.AutoMirrored.Rounded.QueueMusic, label = "Up Next", onClick = { showUpNext = true })
-            }
+        }
+        
+        Row(modifier = Modifier.layoutId("upNextRow").fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)) {
+            GlassActionPill(icon = Icons.AutoMirrored.Rounded.QueueMusic, label = "Up Next", onClick = { showUpNext = true })
         }
     }
 }

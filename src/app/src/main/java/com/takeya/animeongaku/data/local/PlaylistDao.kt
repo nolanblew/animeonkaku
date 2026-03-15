@@ -59,6 +59,31 @@ interface PlaylistDao {
     @Query("SELECT id FROM playlists WHERE name = :name LIMIT 1")
     suspend fun findPlaylistByName(name: String): Long?
 
+    @Query("SELECT * FROM playlists WHERE isAuto = 1 AND name = :name LIMIT 1")
+    suspend fun findAutoPlaylistByName(name: String): PlaylistEntity?
+
+    @Query("""
+        SELECT DISTINCT a.coverUrl
+        FROM playlist_entries pe
+        JOIN themes t ON t.id = pe.themeId
+        JOIN anime a ON a.animeThemesId = t.animeId
+        WHERE pe.playlistId = :playlistId
+          AND a.coverUrl IS NOT NULL AND a.coverUrl != ''
+        LIMIT 4
+    """)
+    suspend fun getPlaylistCoverUrls(playlistId: Long): List<String>
+
+    @Query("""
+        SELECT DISTINCT a.coverUrl
+        FROM playlist_entries pe
+        JOIN themes t ON t.id = pe.themeId
+        JOIN anime a ON a.animeThemesId = t.animeId
+        WHERE pe.playlistId = :playlistId
+          AND a.coverUrl IS NOT NULL AND a.coverUrl != ''
+        LIMIT 4
+    """)
+    fun observePlaylistCoverUrls(playlistId: Long): Flow<List<String>>
+
     @Query("""
         SELECT p.*, COUNT(pe.themeId) AS trackCount
         FROM playlists p

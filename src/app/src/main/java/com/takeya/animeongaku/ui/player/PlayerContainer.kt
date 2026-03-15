@@ -54,10 +54,20 @@ fun PlayerContainer(
     val offsetY = remember { Animatable(if (isExpanded) minOffset else maxOffset) }
     val coroutineScope = rememberCoroutineScope()
 
-    LaunchedEffect(isExpanded) {
+    LaunchedEffect(isExpanded, maxOffset) {
         val target = if (isExpanded) minOffset else maxOffset
         if (offsetY.targetValue != target) {
-            offsetY.animateTo(target)
+            if (isExpanded || offsetY.value == offsetY.targetValue) {
+                // Animate if we are explicitly expanding/collapsing
+                // Or if we are just adjusting for bottom padding changes, we can snap
+                if (offsetY.value != minOffset && !isExpanded) {
+                    offsetY.snapTo(target)
+                } else {
+                    offsetY.animateTo(target)
+                }
+            } else {
+                 offsetY.animateTo(target)
+            }
         }
     }
 

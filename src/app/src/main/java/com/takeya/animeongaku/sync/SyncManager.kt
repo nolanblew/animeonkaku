@@ -40,7 +40,8 @@ class SyncManager @Inject constructor(
     private val themeDao: ThemeDao,
     private val artistDao: ArtistDao,
     private val playlistDao: PlaylistDao,
-    private val tokenStore: KitsuTokenStore
+    private val tokenStore: KitsuTokenStore,
+    private val autoPlaylistManager: AutoPlaylistManager
 ) {
     companion object {
         private const val TAG = "SyncManager"
@@ -164,19 +165,28 @@ class SyncManager @Inject constructor(
 
         checkPause()
 
+        // --- Stale anime cleanup on full re-sync ---
+        var removedCount = 0
+        if (forceFullSync) {
+            removedCount = cleanupStaleAnime(entries)
+        }
+
         val now = System.currentTimeMillis()
         val entriesById = entries.associateBy { it.id }
-        val animeEntities = entries.map {
+        val animeEntities = entries.map { entry ->
+            // Preserve existing animeThemesId and isManuallyAdded if this anime is already in DB
+            val existing = animeDao.getByKitsuId(entry.id)
             AnimeEntity(
-                kitsuId = it.id,
-                animeThemesId = null,
-                title = it.title,
-                titleEn = it.titleEn,
-                titleRomaji = it.titleRomaji,
-                titleJa = it.titleJa,
-                thumbnailUrl = it.posterUrl,
-                coverUrl = it.coverUrl,
-                syncedAt = now
+                kitsuId = entry.id,
+                animeThemesId = existing?.animeThemesId,
+                title = entry.title ?: existing?.title,
+                titleEn = entry.titleEn ?: existing?.titleEn,
+                titleRomaji = entry.titleRomaji ?: existing?.titleRomaji,
+                titleJa = entry.titleJa ?: existing?.titleJa,
+                thumbnailUrl = entry.posterUrl ?: existing?.thumbnailUrl,
+                coverUrl = entry.coverUrl ?: existing?.coverUrl,
+                syncedAt = now,
+                isManuallyAdded = existing?.isManuallyAdded ?: false
             )
         }
         animeDao.upsertAll(animeEntities)
@@ -360,12 +370,14 @@ class SyncManager @Inject constructor(
         Log.d(TAG, "Sync: ${animeEntities.size} anime, $mappedCount mapped, ${allThemeEntities.size} themes")
 
         updateKitsuPlaylist()
+        autoPlaylistManager.refreshAutoPlaylists()
 
         tokenStore.saveLastSyncedAt(now)
         val label = if (isFirstSync) "Imported" else "Added"
+        val removedSuffix = if (removedCount > 0) ", removed $removedCount" else ""
         updateState {
             copy(
-                status = "$label ${animeEntities.size} anime, ${allThemeEntities.size} themes",
+                status = "$label ${animeEntities.size} anime, ${allThemeEntities.size} themes$removedSuffix",
                 phase = SyncPhase.Done,
                 isRunning = false,
                 lastSyncCount = animeEntities.size,
@@ -376,6 +388,46 @@ class SyncManager @Inject constructor(
         // Auto-reset to Idle after a delay so UI clears on next visit
         delay(DONE_DISPLAY_MS)
         _state.value = SyncState()
+    }
+
+    private suspend fun cleanupStaleAnime(freshEntries: List<KitsuAnimeEntry>): Int {
+        val freshKitsuIds = freshEntries.map { it.id }.toSet()
+        val allDbKitsuIds = animeDao.getAllKitsuIds().toSet()
+        val staleKitsuIds = allDbKitsuIds - freshKitsuIds
+        if (staleKitsuIds.isEmpty()) return 0
+
+        // Protect anime that were manually added or exist in user playlists
+        val inUserPlaylists = animeDao.getKitsuIdsInUserPlaylists().toSet()
+        val toDelete = staleKitsuIds.filter { kitsuId ->
+            val entity = animeDao.getByKitsuId(kitsuId)
+            val isManual = entity?.isManuallyAdded == true
+            val inPlaylist = kitsuId in inUserPlaylists
+            if (isManual || inPlaylist) {
+                Log.d(TAG, "Protecting stale anime kitsuId=$kitsuId (manual=$isManual, inPlaylist=$inPlaylist)")
+            }
+            !isManual && !inPlaylist
+        }
+
+        if (toDelete.isEmpty()) return 0
+
+        Log.d(TAG, "Removing ${toDelete.size} stale anime no longer on Kitsu")
+        updateState { copy(status = "Removing ${toDelete.size} stale anime…") }
+
+        // Cascade delete: get animeThemesIds -> themeIds -> delete cross-refs -> delete themes -> delete anime
+        // Process in batches to avoid SQLite variable limit
+        toDelete.chunked(100).forEach { batch ->
+            val animeThemesIds = animeDao.getAnimeThemesIdsByKitsuIds(batch)
+            if (animeThemesIds.isNotEmpty()) {
+                val themeIds = themeDao.getThemeIdsByAnimeIds(animeThemesIds)
+                if (themeIds.isNotEmpty()) {
+                    artistDao.deleteCrossRefsForThemes(themeIds)
+                }
+                themeDao.deleteByAnimeIds(animeThemesIds)
+            }
+            animeDao.deleteByKitsuIds(batch)
+        }
+
+        return toDelete.size
     }
 
     private suspend fun updateKitsuPlaylist() {

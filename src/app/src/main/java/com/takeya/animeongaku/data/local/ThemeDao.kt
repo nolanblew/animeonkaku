@@ -31,4 +31,10 @@ interface ThemeDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(themes: List<ThemeEntity>)
+
+    @Query("SELECT id FROM themes WHERE animeId IN (:animeIds)")
+    suspend fun getThemeIdsByAnimeIds(animeIds: List<Long>): List<Long>
+
+    @Query("DELETE FROM themes WHERE animeId IN (:animeIds)")
+    suspend fun deleteByAnimeIds(animeIds: List<Long>)
 }

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
@@ -67,6 +68,7 @@ import com.takeya.animeongaku.data.local.PlaylistTrack
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.PlaylistCoverArt
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
 import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.theme.Ink700
@@ -86,6 +88,7 @@ fun PlaylistDetailScreen(
 ) {
     val playlist by viewModel.playlist.collectAsStateWithLifecycle()
     val tracks by viewModel.tracks.collectAsStateWithLifecycle()
+    val coverUrls by viewModel.coverUrls.collectAsStateWithLifecycle()
     val allThemes by viewModel.allThemes.collectAsStateWithLifecycle()
     val anime by viewModel.anime.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
@@ -165,26 +168,52 @@ fun PlaylistDetailScreen(
                             tint = Mist100
                         )
                     }
-                    Text(
-                        text = playlist?.name ?: "Playlist",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Mist100,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(onClick = { showAddDialog = true }) {
-                        Icon(Icons.Rounded.Add, contentDescription = "Add tracks", tint = Mist100)
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (playlist?.isAuto == true) {
+                            Icon(
+                                imageVector = Icons.Rounded.AutoAwesome,
+                                contentDescription = "Auto Playlist",
+                                tint = Mist200,
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .padding(end = 6.dp)
+                            )
+                        }
+                        Text(
+                            text = playlist?.name ?: "Playlist",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Mist100,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (playlist?.isAuto != true) {
+                        IconButton(onClick = { showAddDialog = true }) {
+                            Icon(Icons.Rounded.Add, contentDescription = "Add tracks", tint = Mist100)
+                        }
                     }
                 }
             }
 
-            // Header with track count + play/shuffle
+            // Cover art + track count + play/shuffle
             item {
                 Column(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    PlaylistCoverArt(
+                        coverUrls = coverUrls,
+                        gradientSeed = playlist?.gradientSeed ?: 0,
+                        size = 160.dp,
+                        cornerRadius = 16.dp,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
                     Text(
                         text = "${tracks.size} tracks",
                         style = MaterialTheme.typography.labelMedium,
@@ -248,7 +277,7 @@ fun PlaylistDetailScreen(
                         artist = info.secondaryText,
                         imageUrl = imageUrl,
                         onPlay = { viewModel.playTheme(track.theme.id); onPlayTheme() },
-                        onRemove = { viewModel.removeTheme(track.theme.id) },
+                        onRemove = if (playlist?.isAuto == true) null else {{ viewModel.removeTheme(track.theme.id) }},
                         onMoreOptions = { sheetTheme = track.theme }
                     )
                 }
@@ -274,7 +303,7 @@ private fun CompactTrackRow(
     artist: String,
     imageUrl: String?,
     onPlay: () -> Unit,
-    onRemove: () -> Unit,
+    onRemove: (() -> Unit)? = null,
     onMoreOptions: (() -> Unit)? = null
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -331,10 +360,12 @@ private fun CompactTrackRow(
                     text = { Text("Play") },
                     onClick = { showMenu = false; onPlay() }
                 )
-                DropdownMenuItem(
-                    text = { Text("Remove from playlist", color = Rose500) },
-                    onClick = { showMenu = false; onRemove() }
-                )
+                if (onRemove != null) {
+                    DropdownMenuItem(
+                        text = { Text("Remove from playlist", color = Rose500) },
+                        onClick = { showMenu = false; onRemove() }
+                    )
+                }
             }
         }
     }

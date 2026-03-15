@@ -88,7 +88,7 @@ class AnimeRepositoryImpl @Inject constructor(
     }
 
     private suspend fun fetchAnimeByKitsuIds(ids: List<String>): AnimeThemesApiResponse {
-        val requestUrl = "https://api.animethemes.moe/anime".toHttpUrl()
+        val initialUrl = "https://api.animethemes.moe/anime".toHttpUrl()
             .newBuilder()
             .addQueryParameter("filter[has]", "resources")
             .addQueryParameter("filter[site]", "Kitsu")
@@ -98,26 +98,45 @@ class AnimeRepositoryImpl @Inject constructor(
                 "resources,animethemes,animethemes.animethemeentries.videos," +
                     "animethemes.animethemeentries.videos.audio,animethemes.song,animethemes.song.artists"
             )
+            .addQueryParameter("page[size]", "100")
             .build()
 
-        val request = Request.Builder()
-            .url(requestUrl)
-            .get()
-            .build()
+        return fetchAllPages(initialUrl)
+    }
 
+    private suspend fun fetchAllPages(initialUrl: okhttp3.HttpUrl): AnimeThemesApiResponse {
         val responseAdapter = moshi.adapter(AnimeThemesApiResponse::class.java)
+        val allAnime = mutableListOf<ApiAnime>()
+        var nextUrl: String? = initialUrl.toString()
 
-        return withContext(Dispatchers.IO) {
-            okHttpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    throw IOException("AnimeThemes request failed: ${response.code}")
+        while (nextUrl != null) {
+            val request = Request.Builder()
+                .url(nextUrl)
+                .get()
+                .build()
+
+            val page = withContext(Dispatchers.IO) {
+                okHttpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        throw IOException("AnimeThemes request failed: ${response.code}")
+                    }
+                    val responseBody = response.body?.string()
+                        ?: throw IOException("Empty AnimeThemes response")
+                    responseAdapter.fromJson(responseBody)
+                        ?: AnimeThemesApiResponse()
                 }
-                val responseBody = response.body?.string()
-                    ?: throw IOException("Empty AnimeThemes response")
-                responseAdapter.fromJson(responseBody)
-                    ?: AnimeThemesApiResponse()
+            }
+
+            allAnime.addAll(page.anime)
+            nextUrl = page.links?.next
+
+            if (nextUrl != null) {
+                Log.d(TAG, "Fetching next page, accumulated ${allAnime.size} anime so far")
+                kotlinx.coroutines.delay(300)
             }
         }
+
+        return AnimeThemesApiResponse(anime = allAnime)
     }
 
     override suspend fun fallbackSearchByTitle(titles: List<String>): FallbackSearchResult {
@@ -207,7 +226,7 @@ class AnimeRepositoryImpl @Inject constructor(
         val batches = externalIds.chunked(50)
         batches.forEach { batch ->
             try {
-                val requestUrl = "https://api.animethemes.moe/anime".toHttpUrl()
+                val initialUrl = "https://api.animethemes.moe/anime".toHttpUrl()
                     .newBuilder()
                     .addQueryParameter("filter[has]", "resources")
                     .addQueryParameter("filter[site]", site)
@@ -217,42 +236,27 @@ class AnimeRepositoryImpl @Inject constructor(
                         "resources,animethemes,animethemes.animethemeentries.videos," +
                             "animethemes.animethemeentries.videos.audio,animethemes.song,animethemes.song.artists"
                     )
+                    .addQueryParameter("page[size]", "100")
                     .build()
 
-                val request = Request.Builder()
-                    .url(requestUrl)
-                    .get()
-                    .build()
+                val parsed = fetchAllPages(initialUrl)
 
-                val responseAdapter = moshi.adapter(AnimeThemesApiResponse::class.java)
-
-                withContext(Dispatchers.IO) {
-                    okHttpClient.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) {
-                            Log.w(TAG_FALLBACK, "External ID lookup failed for $site: HTTP ${response.code}")
-                            return@withContext
-                        }
-                        val body = response.body?.string() ?: return@withContext
-                        val parsed = responseAdapter.fromJson(body) ?: return@withContext
-
-                        parsed.anime.forEach { anime ->
-                            if (anime.id != null) {
-                                // Find which external ID matched this anime
-                                val matchedExtId = anime.resources.firstOrNull {
-                                    it.site.equals(site, ignoreCase = true)
-                                }?.let { res ->
-                                    when (val id = res.externalId) {
-                                        is String -> id
-                                        is Number -> id.toLong().toString()
-                                        else -> null
-                                    }
-                                }
-                                if (matchedExtId != null) {
-                                    mappings[matchedExtId] = anime.id
-                                }
-                                themes += anime.toThemeEntries()
+                parsed.anime.forEach { anime ->
+                    if (anime.id != null) {
+                        // Find which external ID matched this anime
+                        val matchedExtId = anime.resources.firstOrNull {
+                            it.site.equals(site, ignoreCase = true)
+                        }?.let { res ->
+                            when (val id = res.externalId) {
+                                is String -> id
+                                is Number -> id.toLong().toString()
+                                else -> null
                             }
                         }
+                        if (matchedExtId != null) {
+                            mappings[matchedExtId] = anime.id
+                        }
+                        themes += anime.toThemeEntries()
                     }
                 }
             } catch (e: Exception) {

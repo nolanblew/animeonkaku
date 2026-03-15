@@ -4,7 +4,15 @@ import com.squareup.moshi.Json
 
 data class AnimeThemesApiResponse(
     @Json(name = "anime")
-    val anime: List<ApiAnime> = emptyList()
+    val anime: List<ApiAnime> = emptyList(),
+    val links: ApiPaginationLinks? = null
+)
+
+data class ApiPaginationLinks(
+    val first: String? = null,
+    val last: String? = null,
+    val prev: String? = null,
+    val next: String? = null
 )
 
 data class AnimeThemesArtistResponse(

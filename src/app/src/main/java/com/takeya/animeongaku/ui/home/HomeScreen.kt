@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,6 +45,7 @@ import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.PlaylistCoverArt
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
 import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.theme.Ink700
@@ -66,6 +68,7 @@ fun HomeScreen(
     val quickPicks by viewModel.quickPicks.collectAsStateWithLifecycle()
     val topSongs by viewModel.topSongs.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
     val selectedChip by viewModel.selectedChip.collectAsStateWithLifecycle()
     val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
     val animeByThemesId = remember(anime) {
@@ -175,7 +178,11 @@ fun HomeScreen(
                 }
             } else {
                 item {
-                    FeaturedPlaylistRow(playlists.take(4), onOpenPlaylist = onOpenPlaylist)
+                    FeaturedPlaylistRow(
+                        playlists = playlists.take(4),
+                        coverUrlsMap = playlistCoverUrls,
+                        onOpenPlaylist = onOpenPlaylist
+                    )
                 }
             }
 
@@ -263,12 +270,19 @@ private fun SectionHeader(title: String, action: String) {
 }
 
 @Composable
-private fun FeaturedPlaylistRow(playlists: List<PlaylistWithCount>, onOpenPlaylist: (Long) -> Unit) {
+private fun FeaturedPlaylistRow(
+    playlists: List<PlaylistWithCount>,
+    coverUrlsMap: Map<Long, List<String>>,
+    onOpenPlaylist: (Long) -> Unit
+) {
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         playlists.forEach { item ->
             FeaturedPlaylistCard(
                 title = item.playlist.name,
                 subtitle = "${item.trackCount} tracks",
+                coverUrls = coverUrlsMap[item.playlist.id] ?: emptyList(),
+                gradientSeed = item.playlist.gradientSeed,
+                isAutoPlaylist = item.playlist.isAuto,
                 onClick = { onOpenPlaylist(item.playlist.id) }
             )
         }
@@ -276,7 +290,14 @@ private fun FeaturedPlaylistRow(playlists: List<PlaylistWithCount>, onOpenPlayli
 }
 
 @Composable
-private fun FeaturedPlaylistCard(title: String, subtitle: String, onClick: () -> Unit = {}) {
+private fun FeaturedPlaylistCard(
+    title: String,
+    subtitle: String,
+    coverUrls: List<String>,
+    gradientSeed: Int,
+    isAutoPlaylist: Boolean = false,
+    onClick: () -> Unit = {}
+) {
     Column(
         modifier = Modifier
             .width(160.dp)
@@ -285,25 +306,35 @@ private fun FeaturedPlaylistCard(title: String, subtitle: String, onClick: () ->
             .clickable { onClick() }
             .padding(12.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .height(120.dp)
-                .fillMaxWidth()
-                .background(
-                    Brush.linearGradient(listOf(Rose500.copy(alpha = 0.3f), Ink800)),
-                    RoundedCornerShape(14.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = title.take(2).uppercase(),
-                style = MaterialTheme.typography.headlineLarge,
-                color = Mist100.copy(alpha = 0.6f)
-            )
-        }
+        PlaylistCoverArt(
+            coverUrls = coverUrls,
+            gradientSeed = gradientSeed,
+            size = 136.dp,
+            cornerRadius = 14.dp
+        )
         Spacer(modifier = Modifier.height(10.dp))
-        Text(text = title, color = Mist100, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Text(text = subtitle, style = MaterialTheme.typography.labelMedium, color = Mist200)
+        Text(
+            text = title,
+            color = Mist100,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text = subtitle, style = MaterialTheme.typography.labelMedium, color = Mist200)
+            if (isAutoPlaylist) {
+                Icon(
+                    imageVector = Icons.Rounded.AutoAwesome,
+                    contentDescription = "Auto Playlist",
+                    tint = Mist200,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+        }
     }
 }
 

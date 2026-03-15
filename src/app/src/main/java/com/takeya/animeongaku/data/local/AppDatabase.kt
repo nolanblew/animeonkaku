@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ThemeArtistCrossRef::class,
         PlayCountEntity::class
     ],
-    version = 10,
+    version = 12,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -37,6 +37,19 @@ abstract class AppDatabase : RoomDatabase() {
                         PRIMARY KEY(`themeId`)
                     )"""
                 )
+            }
+        }
+
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `playlists` ADD COLUMN `isAuto` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `playlists` ADD COLUMN `gradientSeed` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `anime` ADD COLUMN `isManuallyAdded` INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

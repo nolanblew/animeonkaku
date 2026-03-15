@@ -38,6 +38,21 @@ class HomeViewModel @Inject constructor(
     val playlists: StateFlow<List<PlaylistWithCount>> = playlistDao.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    private val _playlistCoverUrls = MutableStateFlow<Map<Long, List<String>>>(emptyMap())
+    val playlistCoverUrls: StateFlow<Map<Long, List<String>>> = _playlistCoverUrls
+
+    init {
+        viewModelScope.launch {
+            playlists.collect { playlistList ->
+                val coverMap = mutableMapOf<Long, List<String>>()
+                for (p in playlistList) {
+                    coverMap[p.playlist.id] = playlistDao.getPlaylistCoverUrls(p.playlist.id)
+                }
+                _playlistCoverUrls.value = coverMap
+            }
+        }
+    }
+
     private val _selectedChip = MutableStateFlow<String?>(null)
     val selectedChip: StateFlow<String?> = _selectedChip.asStateFlow()
 

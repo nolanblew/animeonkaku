@@ -154,12 +154,12 @@ class ArtistDetailViewModel @Inject constructor(
             } ?: return@launch
             val entity = entryToThemeEntity(entry)
             themeDao.upsertAll(listOf(entity))
-            // Save the anime entity so the theme has a parent
+            // Save the anime entity so the theme has a parent (marked as manually added)
             val atId = entry.animeId.toLongOrNull()
             if (atId != null) {
                 val animeEntity = _onlineAnimeMap.value[atId]
                 if (animeEntity != null) {
-                    animeDao.upsertAll(listOf(animeEntity))
+                    animeDao.upsertAll(listOf(animeEntity.copy(isManuallyAdded = true)))
                 }
             }
             // Save artist cross-refs

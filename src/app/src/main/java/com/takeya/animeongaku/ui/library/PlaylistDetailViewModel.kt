@@ -39,6 +39,9 @@ class PlaylistDetailViewModel @Inject constructor(
     val tracks = playlistDao.observePlaylistTracks(playlistId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val coverUrls: StateFlow<List<String>> = playlistDao.observePlaylistCoverUrls(playlistId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     val allThemes = themeDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
