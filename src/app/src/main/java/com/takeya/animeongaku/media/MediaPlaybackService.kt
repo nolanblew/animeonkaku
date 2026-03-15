@@ -13,6 +13,13 @@ import androidx.media3.session.MediaSessionService
 import com.takeya.animeongaku.MainActivity
 import com.takeya.animeongaku.R
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
+import androidx.media3.session.SessionResult
 import javax.inject.Inject
 
 @UnstableApi
@@ -20,9 +27,14 @@ import javax.inject.Inject
 class MediaPlaybackService : MediaSessionService() {
 
     @Inject lateinit var audioCacheProvider: AudioCacheProvider
+    @Inject lateinit var nowPlayingManager: NowPlayingManager
+    @Inject lateinit var nowPlayingPersistence: NowPlayingPersistence
+    @Inject lateinit var mediaControllerManager: MediaControllerManager
 
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaSession
+    
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun onCreate() {
         super.onCreate()
@@ -51,8 +63,31 @@ class MediaPlaybackService : MediaSessionService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        val callback = object : MediaSession.Callback {
+            override fun onPlaybackResumption(
+                mediaSession: MediaSession,
+                controller: MediaSession.ControllerInfo
+            ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+                if (nowPlayingManager.state.value.nowPlaying.isEmpty()) {
+                    // Start restore asynchronously, but we must return something immediately.
+                    // For Media3, we can just return a future that resolves when ready,
+                    // or let it start empty and update the queue later.
+                    scope.launch {
+                        val restored = nowPlayingPersistence.restore()
+                        if (restored != null) {
+                            mediaControllerManager.restore(restored, autoPlay = true)
+                        } else {
+                            player.play()
+                        }
+                    }
+                }
+                return super.onPlaybackResumption(mediaSession, controller)
+            }
+        }
+
         mediaSession = MediaSession.Builder(this, player)
             .setSessionActivity(sessionActivity)
+            .setCallback(callback)
             .build()
 
         val notificationProvider = DefaultMediaNotificationProvider(this)

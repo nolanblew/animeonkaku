@@ -438,10 +438,16 @@ class SyncManager @Inject constructor(
             val existingPlaylistId = playlistDao.findPlaylistByName(KITSU_PLAYLIST_NAME)
             val playlistId = if (existingPlaylistId != null) {
                 playlistDao.deletePlaylistEntries(existingPlaylistId)
+                playlistDao.markPlaylistAsAuto(existingPlaylistId)
                 existingPlaylistId
             } else {
                 playlistDao.insertPlaylist(
-                    PlaylistEntity(name = KITSU_PLAYLIST_NAME, createdAt = System.currentTimeMillis())
+                    PlaylistEntity(
+                        name = KITSU_PLAYLIST_NAME,
+                        createdAt = System.currentTimeMillis(),
+                        isAuto = true,
+                        gradientSeed = kotlin.random.Random.nextInt()
+                    )
                 )
             }
 

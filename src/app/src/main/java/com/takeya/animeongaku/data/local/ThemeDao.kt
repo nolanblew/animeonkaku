@@ -29,6 +29,9 @@ interface ThemeDao {
     @Query("SELECT EXISTS(SELECT 1 FROM themes WHERE id = :themeId)")
     suspend fun existsById(themeId: Long): Boolean
 
+    @Query("SELECT * FROM themes WHERE id IN (:themeIds)")
+    suspend fun getByIds(themeIds: List<Long>): List<ThemeEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(themes: List<ThemeEntity>)
 

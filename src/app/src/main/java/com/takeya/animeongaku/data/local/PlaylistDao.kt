@@ -59,6 +59,9 @@ interface PlaylistDao {
     @Query("SELECT id FROM playlists WHERE name = :name LIMIT 1")
     suspend fun findPlaylistByName(name: String): Long?
 
+    @Query("UPDATE playlists SET isAuto = 1 WHERE id = :playlistId")
+    suspend fun markPlaylistAsAuto(playlistId: Long)
+
     @Query("SELECT * FROM playlists WHERE isAuto = 1 AND name = :name LIMIT 1")
     suspend fun findAutoPlaylistByName(name: String): PlaylistEntity?
 

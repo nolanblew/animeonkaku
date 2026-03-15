@@ -58,11 +58,11 @@ class NowPlayingManagerTest {
     }
 
     @Test
-    fun `play from startIndex rotates queue so startIndex is first`() {
+    fun `play from startIndex only queues from start onward`() {
         val themes = listOf(theme(1), theme(2), theme(3))
         manager.play("ctx", themes, startIndex = 1)
         val state = manager.state.value
-        assertEquals(listOf(2L, 3L, 1L), state.nowPlaying.map { it.id })
+        assertEquals(listOf(2L, 3L), state.nowPlaying.map { it.id })
         assertEquals(0, state.currentIndex)
     }
 

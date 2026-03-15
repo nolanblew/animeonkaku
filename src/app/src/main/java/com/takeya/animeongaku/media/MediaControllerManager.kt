@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -38,12 +39,16 @@ import javax.inject.Singleton
 class MediaControllerManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val nowPlayingManager: NowPlayingManager,
-    private val playCountDao: PlayCountDao
+    private val playCountDao: PlayCountDao,
+    private val nowPlayingPersistence: NowPlayingPersistence
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private var controller: MediaController? = null
     private var lastSyncedVersion: Long = -1L
+    
+    // Store restored state that should be applied once controller connects
+    private var pendingRestoreState: Pair<RestoredQueueState, Boolean>? = null
 
     private val _playbackState = MutableStateFlow(PlaybackState())
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
@@ -89,6 +94,7 @@ class MediaControllerManager @Inject constructor(
         connectController()
         startQueueSync()
         startPositionPolling()
+        startStatePersistence()
     }
 
     private fun connectController() {
@@ -106,6 +112,12 @@ class MediaControllerManager @Inject constructor(
 
                 // Read initial state from controller
                 updatePlaybackPositionFromController(ctrl)
+                
+                // If we had a pending restore, apply it now
+                pendingRestoreState?.let { (state, autoPlay) ->
+                    pendingRestoreState = null
+                    restoreFromPersistedState(state, ctrl, autoPlay)
+                }
             },
             androidx.core.content.ContextCompat.getMainExecutor(context)
         )
@@ -125,6 +137,58 @@ class MediaControllerManager @Inject constructor(
                     }
             }
         }
+    }
+
+    private fun startStatePersistence() {
+        scope.launch {
+            // Debounce state changes by 500ms before persisting
+            @OptIn(kotlinx.coroutines.FlowPreview::class)
+            nowPlayingManager.state
+                .debounce(500L)
+                .collectLatest { state ->
+                    // Only save if there's actually a queue
+                    if (state.nowPlaying.isNotEmpty()) {
+                        val pos = controller?.currentPosition ?: _playbackState.value.positionMs
+                        val rep = controller?.repeatMode ?: Player.REPEAT_MODE_OFF
+                        nowPlayingPersistence.save(state, pos, rep)
+                    } else {
+                        nowPlayingPersistence.clear()
+                    }
+                }
+        }
+    }
+
+    /**
+     * Called to immediately load a persisted state into the controller.
+     * Can be called before or after the controller is connected.
+     */
+    fun restore(restoredState: RestoredQueueState, autoPlay: Boolean = false) {
+        // We set autoPlay inside NowPlayingManager so we know later when syncing
+        // if we should play. Alternatively, we just set a flag here.
+        // Actually, NowPlayingManager doesn't track autoPlay. We'll set the queue in NowPlayingManager,
+        // and if controller is ready, sync it immediately.
+        
+        nowPlayingManager.restoreState(restoredState.nowPlayingState)
+        
+        val ctrl = controller
+        if (ctrl == null) {
+            // Wait for connect
+            pendingRestoreState = Pair(restoredState, autoPlay)
+        } else {
+            restoreFromPersistedState(restoredState, ctrl, autoPlay)
+        }
+    }
+
+    private fun restoreFromPersistedState(restoredState: RestoredQueueState, ctrl: MediaController, autoPlay: Boolean = false) {
+        val npState = restoredState.nowPlayingState
+        val items = npState.nowPlaying.map { it.toMediaItem(npState.animeMap) }
+        
+        ctrl.setMediaItems(items, npState.currentIndex, restoredState.positionMs)
+        ctrl.repeatMode = restoredState.repeatMode
+        ctrl.playWhenReady = autoPlay
+        ctrl.prepare()
+        
+        lastSyncedVersion = npState.queueVersion
     }
 
     private fun syncQueueToController(ctrl: MediaController, npState: NowPlayingState) {

@@ -14,6 +14,10 @@ class NowPlayingManager @Inject constructor() {
     private val _state = MutableStateFlow(NowPlayingState())
     val state: StateFlow<NowPlayingState> = _state.asStateFlow()
 
+    fun restoreState(state: NowPlayingState) {
+        _state.value = state.copy(isFullReload = true)
+    }
+
     /**
      * Start playback with a new context playlist.
      * @param contextLabel Display label, e.g. "Naruto", "Quick Picks"
