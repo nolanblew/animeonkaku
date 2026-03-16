@@ -8,6 +8,7 @@ import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 
@@ -27,7 +29,9 @@ class HomeViewModel @Inject constructor(
     animeDao: AnimeDao,
     themeDao: ThemeDao,
     private val playlistDao: PlaylistDao,
-    val nowPlayingManager: NowPlayingManager
+    val nowPlayingManager: NowPlayingManager,
+    val downloadManager: DownloadManager,
+    private val downloadDao: DownloadDao
 ) : ViewModel() {
     private val allThemes: StateFlow<List<ThemeEntity>> = themeDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -102,6 +106,23 @@ class HomeViewModel @Inject constructor(
             }
             playlistDao.insertEntries(entries)
         }
+    }
+
+    val downloadedThemeIds: StateFlow<Set<Long>> = themeDao.observeDownloadedThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val downloadingThemeIds: StateFlow<Set<Long>> = downloadDao.observeDownloadingThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    fun downloadSong(theme: ThemeEntity) {
+        val animeEntry = theme.animeId?.let { id -> buildAnimeMap()[id] }
+        downloadManager.downloadSong(theme, animeEntry)
+    }
+
+    fun removeDownload(themeId: Long) {
+        downloadManager.removeDownload(themeId)
     }
 
     fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {

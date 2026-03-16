@@ -101,6 +101,8 @@ fun PlayerScreen(
     var showPlayerSheet by remember { mutableStateOf(false) }
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+    val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
 
     androidx.compose.runtime.LaunchedEffect(swipeUpTrigger) {
         if (swipeUpTrigger) {
@@ -110,7 +112,13 @@ fun PlayerScreen(
     }
 
     if (showUpNext) {
-        UpNextSheet(npState = npState, nowPlayingManager = nowPlayingManager, onDismiss = { showUpNext = false })
+        UpNextSheet(
+            npState = npState,
+            nowPlayingManager = nowPlayingManager,
+            isOffline = !isOnline,
+            downloadedThemeIds = downloadedThemeIds,
+            onDismiss = { showUpNext = false }
+        )
     }
 
     if (showPlayerSheet) {

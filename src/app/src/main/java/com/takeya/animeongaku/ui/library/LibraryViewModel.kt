@@ -10,15 +10,21 @@ import com.takeya.animeongaku.data.local.ArtistImageDao
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
+import com.takeya.animeongaku.data.local.DownloadDao
+import com.takeya.animeongaku.data.local.DownloadRequestEntity
 import com.takeya.animeongaku.data.local.ThemeDao
+import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.repository.ArtistRepository
+import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
+import com.takeya.animeongaku.network.ConnectivityMonitor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -36,8 +42,20 @@ class LibraryViewModel @Inject constructor(
     private val artistDao: ArtistDao,
     private val artistImageDao: ArtistImageDao,
     private val artistRepository: ArtistRepository,
-    val nowPlayingManager: NowPlayingManager
+    val nowPlayingManager: NowPlayingManager,
+    val downloadManager: DownloadManager,
+    private val downloadDao: DownloadDao,
+    val connectivityMonitor: ConnectivityMonitor
 ) : ViewModel() {
+    val isOnline: StateFlow<Boolean> = connectivityMonitor.isOnline
+
+    private val _showDownloadedOnly = MutableStateFlow(false)
+    val showDownloadedOnly: StateFlow<Boolean> = _showDownloadedOnly.asStateFlow()
+
+    fun toggleDownloadedOnly() {
+        _showDownloadedOnly.value = !_showDownloadedOnly.value
+    }
+
     val playlists = playlistDao.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -161,6 +179,23 @@ class LibraryViewModel @Inject constructor(
             }
             playlistDao.insertEntries(entries)
         }
+    }
+
+    val downloadedThemeIds: StateFlow<Set<Long>> = themeDao.observeDownloadedThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val downloadingThemeIds: StateFlow<Set<Long>> = downloadDao.observeDownloadingThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    fun downloadSong(theme: ThemeEntity) {
+        val anime = theme.animeId?.let { id -> anime.value.find { it.animeThemesId == id } }
+        downloadManager.downloadSong(theme, anime)
+    }
+
+    fun removeDownload(themeId: Long) {
+        downloadManager.removeDownload(themeId)
     }
 
     fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {

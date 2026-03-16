@@ -5,6 +5,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.takeya.animeongaku.data.local.AnimeDao
+import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ArtistDao
 import com.takeya.animeongaku.data.local.PlaylistDao
@@ -17,6 +18,7 @@ import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.repository.AnimeRepository
 import com.takeya.animeongaku.data.repository.UserRepository
+import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import kotlinx.coroutines.launch
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -73,7 +75,9 @@ class AnimeDetailViewModel @Inject constructor(
     private val playlistDao: PlaylistDao,
     private val animeRepository: AnimeRepository,
     private val userRepository: UserRepository,
-    val nowPlayingManager: NowPlayingManager
+    val nowPlayingManager: NowPlayingManager,
+    val downloadManager: DownloadManager,
+    private val downloadDao: DownloadDao
 ) : ViewModel() {
     private val kitsuId: String = savedStateHandle["kitsuId"] ?: ""
 
@@ -288,6 +292,30 @@ class AnimeDetailViewModel @Inject constructor(
             }
             playlistDao.insertEntries(entries)
         }
+    }
+
+    val downloadedThemeIds: StateFlow<Set<Long>> = themeDao.observeDownloadedThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val downloadingThemeIds: StateFlow<Set<Long>> = downloadDao.observeDownloadingThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    fun downloadSong(theme: ThemeEntity) {
+        downloadManager.downloadSong(theme, anime.value)
+    }
+
+    fun removeDownload(themeId: Long) {
+        downloadManager.removeDownload(themeId)
+    }
+
+    fun downloadAnime() {
+        downloadManager.downloadAnime(kitsuId)
+    }
+
+    fun removeAnimeDownload() {
+        downloadManager.removeAnimeDownload(kitsuId)
     }
 
     fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {

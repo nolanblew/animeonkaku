@@ -6,6 +6,7 @@ import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.AppDatabase
 import com.takeya.animeongaku.data.local.ArtistDao
 import com.takeya.animeongaku.data.local.ArtistImageDao
+import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.PlayCountDao
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.ThemeDao
@@ -27,7 +28,7 @@ object DatabaseModule {
         context,
         AppDatabase::class.java,
         "anime_ongaku.db"
-    ).addMigrations(AppDatabase.MIGRATION_9_10, AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12).build()
+    ).addMigrations(AppDatabase.MIGRATION_9_10, AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13).build()
 
     @Provides
     fun provideAnimeDao(database: AppDatabase): AnimeDao = database.animeDao()
@@ -46,4 +47,7 @@ object DatabaseModule {
 
     @Provides
     fun providePlayCountDao(database: AppDatabase): PlayCountDao = database.playCountDao()
+
+    @Provides
+    fun provideDownloadDao(database: AppDatabase): DownloadDao = database.downloadDao()
 }

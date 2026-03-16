@@ -77,10 +77,14 @@ fun HomeScreen(
 
     var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
+    val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
+    val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
 
     sheetTheme?.let { theme ->
         val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
         val info = theme.displayInfo(sheetAnime)
+        val isDownloaded = theme.id in downloadedThemeIds
+        val isDownloading = theme.id in downloadingThemeIds
         ActionSheet(
             config = ActionSheetConfig(
                 title = info.primaryText,
@@ -88,6 +92,9 @@ fun HomeScreen(
                 imageUrl = sheetAnime?.coverUrl ?: sheetAnime?.thumbnailUrl,
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 showGoToAnime = sheetAnime?.kitsuId != null,
+                showDownload = !isDownloaded && !isDownloading,
+                showDownloading = isDownloading,
+                showRemoveDownload = isDownloaded,
                 artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
                 animeName = sheetAnime?.title
             ),
@@ -97,7 +104,9 @@ fun HomeScreen(
             onReplaceQueue = { viewModel.nowPlayingManager.play("Now Playing", listOf(theme), 0, animeMap = sheetAnime?.let { a -> theme.animeId?.let { mapOf(it to a) } } ?: emptyMap()) },
             onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) },
             onGoToArtist = { theme.artistName?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
-            onGoToAnime = { sheetAnime?.kitsuId?.let { onOpenAnime(it) } }
+            onGoToAnime = { sheetAnime?.kitsuId?.let { onOpenAnime(it) } },
+            onDownload = { viewModel.downloadSong(theme) },
+            onRemoveDownload = { viewModel.removeDownload(theme.id) }
         )
     }
 

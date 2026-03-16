@@ -22,6 +22,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.CloudDownload
+import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.LibraryAdd
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -77,6 +79,8 @@ fun AnimeDetailScreen(
     val fetchError by viewModel.fetchError.collectAsStateWithLifecycle()
     val isInLibrary by viewModel.isInLibrary.collectAsStateWithLifecycle()
     val libraryThemeIds by viewModel.libraryThemeIds.collectAsStateWithLifecycle()
+    val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
+    val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
     val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
     val coverUrl = anime?.coverUrl ?: anime?.thumbnailUrl
 
@@ -87,6 +91,8 @@ fun AnimeDetailScreen(
     sheetTheme?.let { theme ->
         val info = theme.displayInfo(anime)
         val songInLibrary = theme.id in libraryThemeIds
+        val isDownloaded = theme.id in downloadedThemeIds
+        val isDownloading = theme.id in downloadingThemeIds
         ActionSheet(
             config = ActionSheetConfig(
                 title = info.primaryText,
@@ -94,7 +100,10 @@ fun AnimeDetailScreen(
                 imageUrl = coverUrl,
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
-                showAddToLibrary = !songInLibrary
+                showAddToLibrary = !songInLibrary,
+                showDownload = !isDownloaded && !isDownloading,
+                showDownloading = isDownloading,
+                showRemoveDownload = isDownloaded
             ),
             onDismiss = { sheetTheme = null },
             onPlayNext = { viewModel.nowPlayingManager.playNext(theme, anime) },
@@ -105,24 +114,33 @@ fun AnimeDetailScreen(
             },
             onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) },
             onGoToArtist = { theme.artistName?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
-            onAddToLibrary = { viewModel.saveSongToLibrary(theme.id) }
+            onAddToLibrary = { viewModel.saveSongToLibrary(theme.id) },
+            onDownload = { viewModel.downloadSong(theme) },
+            onRemoveDownload = { viewModel.removeDownload(theme.id) }
         )
     }
 
     if (showAnimeSheet) {
+        val allDownloaded = themes.isNotEmpty() && themes.all { it.id in downloadedThemeIds }
+        val anyDownloading = themes.any { it.id in downloadingThemeIds }
         ActionSheet(
             config = ActionSheetConfig(
                 title = anime?.title ?: "Anime",
                 subtitle = "${themes.size} themes",
                 imageUrl = coverUrl,
-                showAddToLibrary = !isInLibrary
+                showAddToLibrary = !isInLibrary,
+                showDownload = !allDownloaded && !anyDownloading && themes.isNotEmpty(),
+                showDownloading = anyDownloading && !allDownloaded,
+                showRemoveDownload = allDownloaded
             ),
             onDismiss = { showAnimeSheet = false },
             onPlayNext = { viewModel.nowPlayingManager.playNext(themes, anime?.let { a -> a.animeThemesId?.let { mapOf(it to a) } } ?: emptyMap()) },
             onAddToQueue = { viewModel.nowPlayingManager.addToQueue(themes, anime?.let { a -> a.animeThemesId?.let { mapOf(it to a) } } ?: emptyMap()) },
             onReplaceQueue = { viewModel.playAll(); onPlayTheme() },
             onSaveToPlaylist = { pickerThemeIds = themes.map { it.id } },
-            onAddToLibrary = { viewModel.saveAllToLibrary() }
+            onAddToLibrary = { viewModel.saveAllToLibrary() },
+            onDownload = { viewModel.downloadAnime() },
+            onRemoveDownload = { viewModel.removeAnimeDownload() }
         )
     }
 
@@ -320,6 +338,8 @@ fun AnimeDetailScreen(
                         theme = theme,
                         coverUrl = coverUrl,
                         inLibrary = theme.id in libraryThemeIds,
+                        isDownloaded = theme.id in downloadedThemeIds,
+                        isDownloading = theme.id in downloadingThemeIds,
                         onPlay = {
                             viewModel.playTheme(theme.id)
                             onPlayTheme()
@@ -341,6 +361,8 @@ private fun ThemeRow(
     theme: ThemeEntity,
     coverUrl: String?,
     inLibrary: Boolean = true,
+    isDownloaded: Boolean = false,
+    isDownloading: Boolean = false,
     onPlay: () -> Unit,
     onMoreOptions: () -> Unit = {}
 ) {
@@ -384,12 +406,27 @@ private fun ThemeRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
                 )
-                if (inLibrary) {
+                if (isDownloading) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        color = Rose500.copy(alpha = 0.7f),
+                        strokeWidth = 1.5.dp
+                    )
+                } else if (isDownloaded) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        Icons.Rounded.DownloadDone,
+                        contentDescription = "Downloaded",
+                        tint = Rose500.copy(alpha = 0.7f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                } else if (inLibrary) {
                     Spacer(modifier = Modifier.width(4.dp))
                     Icon(
                         Icons.Rounded.CheckCircle,
                         contentDescription = "In library",
-                        tint = Rose500.copy(alpha = 0.7f),
+                        tint = Mist200.copy(alpha = 0.5f),
                         modifier = Modifier.size(14.dp)
                     )
                 }

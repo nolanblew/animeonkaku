@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.takeya.animeongaku.data.local.AnimeDao
+import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistEntity
@@ -12,12 +13,15 @@ import com.takeya.animeongaku.data.local.PlaylistTrack
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
+import com.takeya.animeongaku.network.ConnectivityMonitor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -27,8 +31,12 @@ class PlaylistDetailViewModel @Inject constructor(
     private val playlistDao: PlaylistDao,
     private val themeDao: ThemeDao,
     animeDao: AnimeDao,
-    val nowPlayingManager: NowPlayingManager
+    val nowPlayingManager: NowPlayingManager,
+    val downloadManager: DownloadManager,
+    private val downloadDao: DownloadDao,
+    connectivityMonitor: ConnectivityMonitor
 ) : ViewModel() {
+    val isOnline: StateFlow<Boolean> = connectivityMonitor.isOnline
     private val playlistId: Long = checkNotNull(savedStateHandle["playlistId"]) {
         "playlistId is required"
     }
@@ -145,6 +153,31 @@ class PlaylistDetailViewModel @Inject constructor(
             }
             playlistDao.insertEntries(entries)
         }
+    }
+
+    val downloadedThemeIds: StateFlow<Set<Long>> = themeDao.observeDownloadedThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val downloadingThemeIds: StateFlow<Set<Long>> = downloadDao.observeDownloadingThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    fun downloadSong(theme: ThemeEntity) {
+        val animeEntry = theme.animeId?.let { id -> anime.value.find { it.animeThemesId == id } }
+        downloadManager.downloadSong(theme, animeEntry)
+    }
+
+    fun removeDownload(themeId: Long) {
+        downloadManager.removeDownload(themeId)
+    }
+
+    fun downloadPlaylist() {
+        downloadManager.downloadPlaylist(playlistId)
+    }
+
+    fun removePlaylistDownload() {
+        downloadManager.removePlaylistDownload(playlistId)
     }
 
     fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {

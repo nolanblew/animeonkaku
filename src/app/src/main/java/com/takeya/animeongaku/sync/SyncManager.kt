@@ -204,7 +204,19 @@ class SyncManager @Inject constructor(
                 )
             }
         }
-        val themeEntities = syncResult.themes.map { it.toEntity() }
+        // Preserve download state for existing themes
+        val incomingThemeIds = syncResult.themes.mapNotNull { it.themeId.toLongOrNull() }
+        val existingThemes = if (incomingThemeIds.isNotEmpty()) {
+            themeDao.getByIds(incomingThemeIds).associateBy { it.id }
+        } else emptyMap()
+
+        val themeEntities = syncResult.themes.map { entry ->
+            val existing = entry.themeId.toLongOrNull()?.let { existingThemes[it] }
+            entry.toEntity(
+                existingIsDownloaded = existing?.isDownloaded ?: false,
+                existingLocalFilePath = existing?.localFilePath
+            )
+        }
         val artistCrossRefs = syncResult.themes.flatMap { it.toCrossRefs() }
         val mappedAnimeEntities = animeEntities.map { anime ->
             val mappedId = syncResult.animeMappings[anime.kitsuId]
@@ -270,7 +282,12 @@ class SyncManager @Inject constructor(
                     }
                 }
 
-                val malThemes = malResult.themes.map { it.toEntity() }
+                val malIncomingIds = malResult.themes.mapNotNull { it.themeId.toLongOrNull() }
+                val malExisting = if (malIncomingIds.isNotEmpty()) themeDao.getByIds(malIncomingIds).associateBy { it.id } else emptyMap()
+                val malThemes = malResult.themes.map { entry ->
+                    val ex = entry.themeId.toLongOrNull()?.let { malExisting[it] }
+                    entry.toEntity(ex?.isDownloaded ?: false, ex?.localFilePath)
+                }
                 val malCrossRefs = malResult.themes.flatMap { it.toCrossRefs() }
                 if (malThemes.isNotEmpty()) {
                     themeDao.upsertAll(malThemes)
@@ -320,7 +337,12 @@ class SyncManager @Inject constructor(
                     Log.d(TAG_FALLBACK, "Title matched \"$displayName\" -> animeThemesId=${result.animeThemesId}")
                     val updatedAnime = anime.copy(animeThemesId = result.animeThemesId)
                     animeDao.upsertAll(listOf(updatedAnime))
-                    val newThemes = result.themes.map { it.toEntity() }
+                    val fbIncomingIds = result.themes.mapNotNull { it.themeId.toLongOrNull() }
+                    val fbExisting = if (fbIncomingIds.isNotEmpty()) themeDao.getByIds(fbIncomingIds).associateBy { it.id } else emptyMap()
+                    val newThemes = result.themes.map { entry ->
+                        val ex = entry.themeId.toLongOrNull()?.let { fbExisting[it] }
+                        entry.toEntity(ex?.isDownloaded ?: false, ex?.localFilePath)
+                    }
                     val newCrossRefs = result.themes.flatMap { it.toCrossRefs() }
                     themeDao.upsertAll(newThemes)
                     if (newCrossRefs.isNotEmpty()) artistDao.upsertCrossRefs(newCrossRefs)
@@ -469,7 +491,10 @@ class SyncManager @Inject constructor(
         _state.value = _state.value.transform()
     }
 
-    private fun AnimeThemeEntry.toEntity(): ThemeEntity {
+    private fun AnimeThemeEntry.toEntity(
+        existingIsDownloaded: Boolean = false,
+        existingLocalFilePath: String? = null
+    ): ThemeEntity {
         val themeId = themeId.toLongOrNull() ?: abs(themeId.hashCode()).toLong()
         val animeId = animeId.toLongOrNull()
         // Build display artist string from structured data if available
@@ -491,8 +516,8 @@ class SyncManager @Inject constructor(
             artistName = displayArtist,
             audioUrl = audioUrl,
             videoUrl = videoUrl,
-            isDownloaded = false,
-            localFilePath = null,
+            isDownloaded = existingIsDownloaded,
+            localFilePath = existingLocalFilePath,
             themeType = themeType
         )
     }

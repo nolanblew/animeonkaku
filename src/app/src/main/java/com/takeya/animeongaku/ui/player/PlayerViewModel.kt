@@ -14,10 +14,12 @@ import com.takeya.animeongaku.media.MediaControllerManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.NowPlayingState
 import com.takeya.animeongaku.media.PlaybackState
+import com.takeya.animeongaku.network.ConnectivityMonitor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -27,10 +29,17 @@ class PlayerViewModel @Inject constructor(
     val mediaControllerManager: MediaControllerManager,
     private val playlistDao: PlaylistDao,
     private val themeDao: ThemeDao,
-    private val animeDao: AnimeDao
+    private val animeDao: AnimeDao,
+    val connectivityMonitor: ConnectivityMonitor
 ) : ViewModel() {
     val nowPlayingState: StateFlow<NowPlayingState> = nowPlayingManager.state
     val playbackState: StateFlow<PlaybackState> = mediaControllerManager.playbackState
+
+    val isOnline: StateFlow<Boolean> = connectivityMonitor.isOnline
+
+    val downloadedThemeIds: StateFlow<Set<Long>> = themeDao.observeDownloadedThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
     val playlists: StateFlow<List<PlaylistWithCount>> = playlistDao.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

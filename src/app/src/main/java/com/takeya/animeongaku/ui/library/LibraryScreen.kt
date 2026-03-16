@@ -26,11 +26,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CloudSync
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,6 +50,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -82,7 +86,7 @@ private enum class LibraryTab(val label: String) {
 
 @Composable
 fun LibraryScreen(
-    onOpenImport: () -> Unit,
+    onOpenSettings: () -> Unit = {},
     onOpenPlaylist: (Long) -> Unit,
     onPlayTheme: () -> Unit,
     onOpenAnime: (String) -> Unit = {},
@@ -96,6 +100,10 @@ fun LibraryScreen(
     val themes by viewModel.themes.collectAsStateWithLifecycle()
     val animeItems by viewModel.animeItems.collectAsStateWithLifecycle()
     val artists by viewModel.artists.collectAsStateWithLifecycle()
+    val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
+    val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
+    val showDownloadedOnly by viewModel.showDownloadedOnly.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     var selectedTab by rememberSaveable {
         mutableStateOf(
             when (initialTab) {
@@ -120,6 +128,8 @@ fun LibraryScreen(
     sheetTheme?.let { theme ->
         val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
         val info = theme.displayInfo(sheetAnime)
+        val isDownloaded = theme.id in downloadedThemeIds
+        val isDownloading = theme.id in downloadingThemeIds
         ActionSheet(
             config = ActionSheetConfig(
                 title = info.primaryText,
@@ -127,6 +137,9 @@ fun LibraryScreen(
                 imageUrl = sheetAnime?.coverUrl ?: sheetAnime?.thumbnailUrl,
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 showGoToAnime = sheetAnime?.kitsuId != null,
+                showDownload = !isDownloaded && !isDownloading,
+                showDownloading = isDownloading,
+                showRemoveDownload = isDownloaded,
                 artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
                 animeName = sheetAnime?.title
             ),
@@ -136,7 +149,9 @@ fun LibraryScreen(
             onReplaceQueue = { viewModel.nowPlayingManager.play("Now Playing", listOf(theme), 0, animeMap = sheetAnime?.let { a -> theme.animeId?.let { mapOf(it to a) } } ?: emptyMap()) },
             onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) },
             onGoToArtist = { theme.artistName?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
-            onGoToAnime = { sheetAnime?.kitsuId?.let { onOpenAnime(it) } }
+            onGoToAnime = { sheetAnime?.kitsuId?.let { onOpenAnime(it) } },
+            onDownload = { viewModel.downloadSong(theme) },
+            onRemoveDownload = { viewModel.removeDownload(theme.id) }
         )
     }
 
@@ -167,7 +182,13 @@ fun LibraryScreen(
                 .fillMaxSize()
                 .padding(top = 16.dp)
         ) {
-            LibraryHeader(modifier = Modifier.padding(horizontal = 20.dp))
+            LibraryHeader(
+                modifier = Modifier.padding(horizontal = 20.dp),
+                onOpenSettings = onOpenSettings,
+                showDownloadedOnly = showDownloadedOnly,
+                onToggleDownloaded = { viewModel.toggleDownloadedOnly() },
+                hasDownloads = downloadedThemeIds.isNotEmpty()
+            )
             Spacer(modifier = Modifier.height(12.dp))
             LibraryFilters(
                 selectedTab = currentTab,
@@ -184,10 +205,6 @@ fun LibraryScreen(
                             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            item {
-                                LibraryActions(onOpenImport)
-                                Spacer(modifier = Modifier.height(6.dp))
-                            }
                             if (playlists.isEmpty()) {
                                 item {
                                     EmptyState(
@@ -229,27 +246,35 @@ fun LibraryScreen(
                 }
 
                 LibraryTab.Songs -> {
+                    val filteredThemes = if (showDownloadedOnly) {
+                        themes.filter { it.id in downloadedThemeIds }
+                    } else themes
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        if (themes.isEmpty()) {
+                        if (filteredThemes.isEmpty()) {
                             item {
                                 EmptyState(
-                                    title = if (anime.isEmpty()) "No songs yet" else "No themes mapped yet",
-                                    subtitle = if (anime.isEmpty()) "Sync your anime list to start." else "Try syncing again later."
+                                    title = if (showDownloadedOnly) "No downloads yet" else if (anime.isEmpty()) "No songs yet" else "No themes mapped yet",
+                                    subtitle = if (showDownloadedOnly) "Download songs to listen offline." else if (anime.isEmpty()) "Sync your anime list to start." else "Try syncing again later."
                                 )
                             }
                         } else {
-                            items(themes) { theme ->
+                            items(filteredThemes) { theme ->
                                 val imageUrl = animeByThemesId[theme.animeId]?.coverUrl
                                     ?: animeByThemesId[theme.animeId]?.thumbnailUrl
+                                val isDownloaded = theme.id in downloadedThemeIds
+                                val isDownloading = theme.id in downloadingThemeIds
                                 ListRow(
                                     title = theme.title,
                                     subtitle = theme.artistName ?: "Unknown artist",
                                     accent = Rose500,
                                     imageUrl = imageUrl,
+                                    isDownloaded = isDownloaded,
+                                    isDownloading = isDownloading,
+                                    isUnavailableOffline = !isOnline && !isDownloaded,
                                     onClick = {
                                         viewModel.playFromSongs(theme.id)
                                         onPlayTheme()
@@ -263,15 +288,21 @@ fun LibraryScreen(
                 }
 
                 LibraryTab.Albums -> {
-                    if (animeItems.isEmpty()) {
+                    val downloadedAnimeIds = if (showDownloadedOnly) {
+                        themes.filter { it.id in downloadedThemeIds }.mapNotNull { it.animeId }.toSet()
+                    } else null
+                    val filteredAnimeItems = if (downloadedAnimeIds != null) {
+                        animeItems.filter { it.animeThemesId in downloadedAnimeIds }
+                    } else animeItems
+                    if (filteredAnimeItems.isEmpty()) {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(horizontal = 20.dp)
                         ) {
                             item {
                                 EmptyState(
-                                    title = "No animes yet",
-                                    subtitle = "Sync your anime list to see your library."
+                                    title = if (showDownloadedOnly) "No downloaded anime" else "No animes yet",
+                                    subtitle = if (showDownloadedOnly) "Download anime to see them here." else "Sync your anime list to see your library."
                                 )
                             }
                         }
@@ -283,7 +314,7 @@ fun LibraryScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            items(animeItems) { animeItem ->
+                            items(filteredAnimeItems) { animeItem ->
                                 GridCard(
                                     title = animeItem.title,
                                     subtitle = "${animeItem.trackCount} themes",
@@ -296,15 +327,24 @@ fun LibraryScreen(
                 }
 
                 LibraryTab.Artists -> {
-                    if (artists.isEmpty()) {
+                    val downloadedArtistNames = if (showDownloadedOnly) {
+                        themes.filter { it.id in downloadedThemeIds }
+                            .mapNotNull { it.artistName }
+                            .flatMap { it.split(",").map { s -> s.trim().substringBefore(" (as ") } }
+                            .toSet()
+                    } else null
+                    val filteredArtists = if (downloadedArtistNames != null) {
+                        artists.filter { it.name in downloadedArtistNames }
+                    } else artists
+                    if (filteredArtists.isEmpty()) {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(horizontal = 20.dp)
                         ) {
                             item {
                                 EmptyState(
-                                    title = if (anime.isEmpty()) "No artists yet" else "No artists found",
-                                    subtitle = "Artists will appear once themes are mapped."
+                                    title = if (showDownloadedOnly) "No downloaded artists" else if (anime.isEmpty()) "No artists yet" else "No artists found",
+                                    subtitle = if (showDownloadedOnly) "Download songs to see artists here." else "Artists will appear once themes are mapped."
                                 )
                             }
                         }
@@ -316,7 +356,7 @@ fun LibraryScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            items(artists) { artist ->
+                            items(filteredArtists) { artist ->
                                 ArtistGridCard(
                                     name = artist.name,
                                     subtitle = "${artist.trackCount} songs",
@@ -365,14 +405,52 @@ fun LibraryScreen(
 }
 
 @Composable
-private fun LibraryHeader(modifier: Modifier = Modifier) {
-    Text(
-        text = "Library",
-        style = MaterialTheme.typography.headlineSmall,
-        fontWeight = FontWeight.Bold,
-        color = Mist100,
-        modifier = modifier.fillMaxWidth()
-    )
+private fun LibraryHeader(
+    modifier: Modifier = Modifier,
+    onOpenSettings: () -> Unit = {},
+    showDownloadedOnly: Boolean = false,
+    onToggleDownloaded: () -> Unit = {},
+    hasDownloads: Boolean = false
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = "Library",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = Mist100
+        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            if (hasDownloads) {
+                val chipBg = if (showDownloadedOnly) Rose500 else Ink700.copy(alpha = 0.6f)
+                val chipText = if (showDownloadedOnly) Mist100 else Mist200
+                Text(
+                    text = "Downloaded",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = chipText,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(chipBg)
+                        .clickable { onToggleDownloaded() }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+            }
+            IconButton(onClick = onOpenSettings) {
+                Icon(
+                    Icons.Rounded.Settings,
+                    contentDescription = "Settings",
+                    tint = Mist200,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -403,41 +481,6 @@ private fun LibraryFilters(
     }
 }
 
-@Composable
-private fun LibraryActions(onOpenImport: () -> Unit, modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(16.dp)
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(Ink800.copy(alpha = 0.65f), shape)
-            .border(1.dp, Mist200.copy(alpha = 0.12f), shape)
-            .padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Sync with Kitsu",
-                style = MaterialTheme.typography.bodyLarge,
-                color = Mist100
-            )
-            Text(
-                text = "Import your watchlist and update your library.",
-                style = MaterialTheme.typography.labelSmall,
-                color = Mist200
-            )
-        }
-        Button(
-            onClick = onOpenImport,
-            colors = ButtonDefaults.buttonColors(containerColor = Ink700),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Icon(Icons.Rounded.CloudSync, contentDescription = null, tint = Mist100, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(text = "Sync", style = MaterialTheme.typography.labelMedium)
-        }
-    }
-}
 
 @Composable
 private fun GridCard(
@@ -561,6 +604,9 @@ private fun ListRow(
     accent: Color,
     imageUrl: String? = null,
     isAutoPlaylist: Boolean = false,
+    isDownloaded: Boolean = false,
+    isDownloading: Boolean = false,
+    isUnavailableOffline: Boolean = false,
     onClick: () -> Unit = {},
     onRename: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
@@ -569,9 +615,11 @@ private fun ListRow(
 ) {
     val shape = RoundedCornerShape(12.dp)
     var showMenu by remember { mutableStateOf(false) }
+    val rowAlpha = if (isUnavailableOffline) 0.4f else 1f
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .alpha(rowAlpha)
             .background(Ink800.copy(alpha = 0.5f), shape)
             .border(1.dp, Mist200.copy(alpha = 0.1f), shape)
             .clickable { onClick() }
@@ -615,8 +663,25 @@ private fun ListRow(
                     style = MaterialTheme.typography.bodyMedium,
                     color = Mist100,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
+                if (isDownloading) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        color = Rose500.copy(alpha = 0.7f),
+                        strokeWidth = 1.5.dp
+                    )
+                } else if (isDownloaded) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        Icons.Rounded.DownloadDone,
+                        contentDescription = "Downloaded",
+                        tint = Rose500.copy(alpha = 0.7f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
             }
             Text(
                 text = subtitle,

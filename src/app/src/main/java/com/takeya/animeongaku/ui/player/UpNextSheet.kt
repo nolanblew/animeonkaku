@@ -56,6 +56,8 @@ import com.takeya.animeongaku.ui.theme.Rose500
 fun UpNextSheet(
     npState: NowPlayingState,
     nowPlayingManager: NowPlayingManager,
+    isOffline: Boolean = false,
+    downloadedThemeIds: Set<Long> = emptySet(),
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -69,6 +71,8 @@ fun UpNextSheet(
         UpNextContent(
             npState = npState,
             nowPlayingManager = nowPlayingManager,
+            isOffline = isOffline,
+            downloadedThemeIds = downloadedThemeIds,
             modifier = Modifier.fillMaxHeight(0.95f)
         )
     }
@@ -78,6 +82,8 @@ fun UpNextSheet(
 private fun UpNextContent(
     npState: NowPlayingState,
     nowPlayingManager: NowPlayingManager,
+    isOffline: Boolean = false,
+    downloadedThemeIds: Set<Long> = emptySet(),
     modifier: Modifier = Modifier
 ) {
     val history = npState.history
@@ -152,12 +158,14 @@ private fun UpNextContent(
                 }
                 itemsIndexed(history) { index, theme ->
                     val anime = theme.animeId?.let { npState.animeMap[it] }
+                    val isUnavailable = isOffline && theme.id !in downloadedThemeIds
                     QueueTrackRow(
                         theme = theme,
                         anime = anime,
                         isHistory = true,
                         isCurrent = false,
-                        onClick = { nowPlayingManager.rewindTo(index) }
+                        isUnavailable = isUnavailable,
+                        onClick = { if (!isUnavailable) nowPlayingManager.rewindTo(index) }
                     )
                 }
                 item {
@@ -202,13 +210,15 @@ private fun UpNextContent(
                 regularIndices.forEachIndexed { _, upcomingIdx ->
                     val theme = upcoming[upcomingIdx]
                     val anime = theme.animeId?.let { npState.animeMap[it] }
+                    val isUnavailable = isOffline && theme.id !in downloadedThemeIds
                     item {
                         QueueTrackRow(
                             theme = theme,
                             anime = anime,
                             isHistory = false,
                             isCurrent = false,
-                            onClick = { nowPlayingManager.skipTo(npState.currentIndex + 1 + upcomingIdx) }
+                            isUnavailable = isUnavailable,
+                            onClick = { if (!isUnavailable) nowPlayingManager.skipTo(npState.currentIndex + 1 + upcomingIdx) }
                         )
                     }
                 }
@@ -228,6 +238,7 @@ private fun UpNextContent(
                 suggestedIndices.forEachIndexed { _, upcomingIdx ->
                     val theme = upcoming[upcomingIdx]
                     val anime = theme.animeId?.let { npState.animeMap[it] }
+                    val isUnavailable = isOffline && theme.id !in downloadedThemeIds
                     item {
                         QueueTrackRow(
                             theme = theme,
@@ -235,7 +246,8 @@ private fun UpNextContent(
                             isHistory = false,
                             isCurrent = false,
                             isSuggested = true,
-                            onClick = { nowPlayingManager.skipTo(npState.currentIndex + 1 + upcomingIdx) }
+                            isUnavailable = isUnavailable,
+                            onClick = { if (!isUnavailable) nowPlayingManager.skipTo(npState.currentIndex + 1 + upcomingIdx) }
                         )
                     }
                 }
@@ -253,12 +265,14 @@ private fun UpNextContent(
                 }
                 itemsIndexed(upcoming) { index, theme ->
                     val anime = theme.animeId?.let { npState.animeMap[it] }
+                    val isUnavailable = isOffline && theme.id !in downloadedThemeIds
                     QueueTrackRow(
                         theme = theme,
                         anime = anime,
                         isHistory = false,
                         isCurrent = false,
-                        onClick = { nowPlayingManager.skipTo(npState.currentIndex + 1 + index) }
+                        isUnavailable = isUnavailable,
+                        onClick = { if (!isUnavailable) nowPlayingManager.skipTo(npState.currentIndex + 1 + index) }
                     )
                 }
             }
@@ -277,11 +291,13 @@ private fun QueueTrackRow(
     isHistory: Boolean,
     isCurrent: Boolean,
     isSuggested: Boolean = false,
+    isUnavailable: Boolean = false,
     onClick: () -> Unit
 ) {
     val info = theme.displayInfo(anime)
     val imageUrl = anime?.coverUrl ?: anime?.thumbnailUrl
     val alpha = when {
+        isUnavailable -> 0.3f
         isHistory -> 0.45f
         isCurrent -> 1f
         isSuggested -> 0.6f

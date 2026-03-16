@@ -60,6 +60,12 @@ object NetworkModule {
 
     @Provides
     @Singleton
+    fun provideOkHttpClient(@Named("base") baseClient: OkHttpClient): OkHttpClient {
+        return baseClient
+    }
+
+    @Provides
+    @Singleton
     @Named("kitsu")
     fun provideKitsuOkHttpClient(
         @Named("base") baseClient: OkHttpClient,

@@ -3,6 +3,7 @@ package com.takeya.animeongaku.media
 import android.content.Context
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
@@ -40,14 +41,18 @@ class AudioCacheProvider @Inject constructor(
             .setAllowCrossProtocolRedirects(true)
     }
 
+    private val defaultDataSourceFactory: DataSource.Factory by lazy {
+        DefaultDataSource.Factory(context, httpDataSourceFactory)
+    }
+
     /**
-     * DataSource.Factory for ExoPlayer — reads from cache first, falls back to network,
-     * and writes streamed data into the cache.
+     * DataSource.Factory for ExoPlayer — reads from cache first, falls back to
+     * DefaultDataSource which handles all URI schemes (file://, content://, http://).
      */
     val playerDataSourceFactory: DataSource.Factory by lazy {
         CacheDataSource.Factory()
             .setCache(cache)
-            .setUpstreamDataSourceFactory(httpDataSourceFactory)
+            .setUpstreamDataSourceFactory(defaultDataSourceFactory)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
     }
 

@@ -3,6 +3,7 @@ package com.takeya.animeongaku.ui.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.takeya.animeongaku.data.local.AnimeDao
+import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ArtistDao
 import com.takeya.animeongaku.data.local.ArtistTrackCount
@@ -18,6 +19,7 @@ import com.takeya.animeongaku.data.model.OnlineAnimeResult
 import com.takeya.animeongaku.data.model.OnlineArtistResult
 import com.takeya.animeongaku.data.repository.AnimeRepository
 import com.takeya.animeongaku.data.repository.UserRepository
+import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -31,6 +33,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -45,7 +48,9 @@ class SearchViewModel @Inject constructor(
     private val playlistDao: PlaylistDao,
     private val animeRepository: AnimeRepository,
     private val userRepository: UserRepository,
-    val nowPlayingManager: NowPlayingManager
+    val nowPlayingManager: NowPlayingManager,
+    val downloadManager: DownloadManager,
+    private val downloadDao: DownloadDao
 ) : ViewModel() {
 
     private val _query = MutableStateFlow("")
@@ -281,6 +286,23 @@ class SearchViewModel @Inject constructor(
             }
             playlistDao.insertEntries(entries)
         }
+    }
+
+    val downloadedThemeIds: StateFlow<Set<Long>> = themeDao.observeDownloadedThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val downloadingThemeIds: StateFlow<Set<Long>> = downloadDao.observeDownloadingThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    fun downloadSong(theme: ThemeEntity) {
+        val animeEntry = theme.animeId?.let { id -> buildAnimeMap()[id] }
+        downloadManager.downloadSong(theme, animeEntry)
+    }
+
+    fun removeDownload(themeId: Long) {
+        downloadManager.removeDownload(themeId)
     }
 
     fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {

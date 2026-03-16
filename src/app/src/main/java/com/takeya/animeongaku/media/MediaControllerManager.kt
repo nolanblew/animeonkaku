@@ -12,6 +12,7 @@ import androidx.media3.session.SessionToken
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.PlayCountDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.network.ConnectivityMonitor
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,7 +41,8 @@ class MediaControllerManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val nowPlayingManager: NowPlayingManager,
     private val playCountDao: PlayCountDao,
-    private val nowPlayingPersistence: NowPlayingPersistence
+    private val nowPlayingPersistence: NowPlayingPersistence,
+    private val connectivityMonitor: ConnectivityMonitor
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -55,9 +57,13 @@ class MediaControllerManager @Inject constructor(
 
     private val _controllerReady = MutableStateFlow(false)
 
+    private var consecutiveErrors = 0
+    private val MAX_CONSECUTIVE_ERRORS = 5
+
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _playbackState.value = _playbackState.value.copy(isPlaying = isPlaying)
+            if (isPlaying) consecutiveErrors = 0
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -83,10 +89,33 @@ class MediaControllerManager @Inject constructor(
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            consecutiveErrors++
+            val msg = if (!connectivityMonitor.isOnline.value) {
+                "You're offline. Download songs to listen without internet."
+            } else {
+                "Playback error: ${error.localizedMessage ?: "Unknown error"}"
+            }
             _playbackState.value = _playbackState.value.copy(
-                errorMessage = "Playback error: ${error.localizedMessage ?: "Unknown error"}",
+                errorMessage = msg,
                 isBuffering = false
             )
+            // Auto-skip to next track on any error (stop after too many consecutive)
+            if (consecutiveErrors < MAX_CONSECUTIVE_ERRORS) {
+                scope.launch {
+                    delay(500)
+                    try {
+                        controller?.let { ctrl ->
+                            if (ctrl.hasNextMediaItem()) {
+                                ctrl.seekToNextMediaItem()
+                                ctrl.prepare()
+                                ctrl.play()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        // Ignore — controller may be disconnected
+                    }
+                }
+            }
         }
     }
 
@@ -348,9 +377,16 @@ private fun ThemeEntity.toMediaItem(animeMap: Map<Long, AnimeEntity>): MediaItem
         else -> title
     }
 
+    // Prefer local file for downloaded songs
+    val uri = if (isDownloaded && !localFilePath.isNullOrBlank()) {
+        if (localFilePath.startsWith("/")) "file://$localFilePath" else localFilePath
+    } else {
+        audioUrl
+    }
+
     return MediaItem.Builder()
         .setMediaId(id.toString())
-        .setUri(audioUrl)
+        .setUri(uri)
         .setMediaMetadata(
             MediaMetadata.Builder()
                 .setTitle(primaryLine)

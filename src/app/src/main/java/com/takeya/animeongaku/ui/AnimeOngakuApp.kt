@@ -43,6 +43,8 @@ import com.takeya.animeongaku.ui.library.LibraryScreen
 import com.takeya.animeongaku.ui.library.PlaylistDetailScreen
 import com.takeya.animeongaku.ui.player.PlayerContainer
 import com.takeya.animeongaku.ui.search.SearchScreen
+import com.takeya.animeongaku.ui.settings.DownloadManagerScreen
+import com.takeya.animeongaku.ui.settings.SettingsScreen
 import com.takeya.animeongaku.ui.sync.ImportScreen
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Mist100
@@ -58,6 +60,8 @@ private object Routes {
     const val ArtistDetail = "artistDetail"
     const val Import = "import"
     const val Player = "player"
+    const val Settings = "settings"
+    const val DownloadManager = "downloadManager"
 }
 
 private data class BottomNavItem(
@@ -85,7 +89,7 @@ fun AnimeOngakuApp(
     androidx.compose.runtime.LaunchedEffect(navigateTo) {
         if (navigateTo != null) {
             pendingNavigateTo?.value = null
-            if (navigateTo == Routes.Player) {
+            if (navigateTo == Routes.Player || navigateTo == "player") {
                 isPlayerExpanded = true
             } else {
                 navController.navigate(navigateTo) {
@@ -181,7 +185,7 @@ fun AnimeOngakuApp(
                 ) { entry ->
                     val tab = entry.arguments?.getString("tab")
                     LibraryScreen(
-                        onOpenImport = { navController.navigate(Routes.Import) },
+                        onOpenSettings = { navController.navigate(Routes.Settings) },
                         onOpenPlaylist = { playlistId ->
                             navController.navigate("${Routes.Playlist}/$playlistId")
                         },
@@ -237,6 +241,18 @@ fun AnimeOngakuApp(
                 }
                 composable(Routes.Import) {
                     ImportScreen(
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable(Routes.Settings) {
+                    SettingsScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenImport = { navController.navigate(Routes.Import) },
+                        onOpenDownloadManager = { navController.navigate(Routes.DownloadManager) }
+                    )
+                }
+                composable(Routes.DownloadManager) {
+                    DownloadManagerScreen(
                         onBack = { navController.popBackStack() }
                     )
                 }

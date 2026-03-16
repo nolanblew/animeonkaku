@@ -40,4 +40,7 @@ interface ThemeDao {
 
     @Query("DELETE FROM themes WHERE animeId IN (:animeIds)")
     suspend fun deleteByAnimeIds(animeIds: List<Long>)
+
+    @Query("SELECT id FROM themes WHERE isDownloaded = 1")
+    fun observeDownloadedThemeIds(): Flow<List<Long>>
 }

@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Shuffle
@@ -82,6 +83,8 @@ fun ArtistDetailScreen(
     val fetchError by viewModel.fetchError.collectAsStateWithLifecycle()
     val isInLibrary by viewModel.isInLibrary.collectAsStateWithLifecycle()
     val libraryThemeIds by viewModel.libraryThemeIds.collectAsStateWithLifecycle()
+    val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
+    val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
     val artistName = viewModel.artistName
     val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
 
@@ -98,6 +101,8 @@ fun ArtistDetailScreen(
         val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
         val info = theme.displayInfo(sheetAnime)
         val songInLibrary = theme.id in libraryThemeIds
+        val isDownloaded = theme.id in downloadedThemeIds
+        val isDownloading = theme.id in downloadingThemeIds
         ActionSheet(
             config = ActionSheetConfig(
                 title = info.primaryText,
@@ -105,7 +110,10 @@ fun ArtistDetailScreen(
                 imageUrl = sheetAnime?.coverUrl ?: sheetAnime?.thumbnailUrl,
                 showGoToAnime = sheetAnime?.kitsuId != null,
                 animeName = sheetAnime?.title,
-                showAddToLibrary = !songInLibrary
+                showAddToLibrary = !songInLibrary,
+                showDownload = !isDownloaded && !isDownloading,
+                showDownloading = isDownloading,
+                showRemoveDownload = isDownloaded
             ),
             onDismiss = { sheetTheme = null },
             onPlayNext = { viewModel.nowPlayingManager.playNext(theme, sheetAnime) },
@@ -113,7 +121,9 @@ fun ArtistDetailScreen(
             onReplaceQueue = { viewModel.nowPlayingManager.play("Now Playing", listOf(theme), 0, animeMap = sheetAnime?.let { a -> theme.animeId?.let { mapOf(it to a) } } ?: emptyMap()) },
             onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) },
             onGoToAnime = { sheetAnime?.kitsuId?.let { onOpenAnime(it) } },
-            onAddToLibrary = { viewModel.saveSongToLibrary(theme.id) }
+            onAddToLibrary = { viewModel.saveSongToLibrary(theme.id) },
+            onDownload = { viewModel.downloadSong(theme) },
+            onRemoveDownload = { viewModel.removeDownload(theme.id) }
         )
     }
 
@@ -330,6 +340,8 @@ fun ArtistDetailScreen(
                         anime = animeEntry,
                         imageUrl = imageUrl,
                         inLibrary = theme.id in libraryThemeIds,
+                        isDownloaded = theme.id in downloadedThemeIds,
+                        isDownloading = theme.id in downloadingThemeIds,
                         onPlay = {
                             viewModel.playTheme(theme.id)
                             onPlayTheme()
@@ -387,6 +399,8 @@ private fun ArtistSongRow(
     anime: AnimeEntity?,
     imageUrl: String?,
     inLibrary: Boolean = true,
+    isDownloaded: Boolean = false,
+    isDownloading: Boolean = false,
     onPlay: () -> Unit,
     onMoreOptions: () -> Unit = {}
 ) {
@@ -430,12 +444,27 @@ private fun ArtistSongRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
                 )
-                if (inLibrary) {
+                if (isDownloading) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        color = Rose500.copy(alpha = 0.7f),
+                        strokeWidth = 1.5.dp
+                    )
+                } else if (isDownloaded) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        Icons.Rounded.DownloadDone,
+                        contentDescription = "Downloaded",
+                        tint = Rose500.copy(alpha = 0.7f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                } else if (inLibrary) {
                     Spacer(modifier = Modifier.width(4.dp))
                     Icon(
                         Icons.Rounded.CheckCircle,
                         contentDescription = "In library",
-                        tint = Rose500.copy(alpha = 0.7f),
+                        tint = Mist200.copy(alpha = 0.5f),
                         modifier = Modifier.size(14.dp)
                     )
                 }

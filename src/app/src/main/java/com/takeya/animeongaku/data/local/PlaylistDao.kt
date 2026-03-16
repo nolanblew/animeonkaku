@@ -56,6 +56,12 @@ interface PlaylistDao {
     @Query("UPDATE playlists SET name = :newName WHERE id = :playlistId")
     suspend fun renamePlaylist(playlistId: Long, newName: String)
 
+    @Query("SELECT * FROM playlists WHERE id = :playlistId LIMIT 1")
+    suspend fun getPlaylistById(playlistId: Long): PlaylistEntity?
+
+    @Query("SELECT themeId FROM playlist_entries WHERE playlistId = :playlistId ORDER BY orderIndex ASC")
+    suspend fun getThemeIdsInPlaylist(playlistId: Long): List<Long>
+
     @Query("SELECT id FROM playlists WHERE name = :name LIMIT 1")
     suspend fun findPlaylistByName(name: String): Long?
 

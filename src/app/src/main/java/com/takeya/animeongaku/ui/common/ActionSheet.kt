@@ -17,6 +17,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.CloudDone
+import androidx.compose.material.icons.rounded.CloudDownload
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.rounded.LibraryAdd
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Person
@@ -57,6 +60,9 @@ data class ActionSheetConfig(
     val showAddToLibrary: Boolean = false,
     val showGoToArtist: Boolean = false,
     val showGoToAnime: Boolean = false,
+    val showDownload: Boolean = false,
+    val showDownloading: Boolean = false,
+    val showRemoveDownload: Boolean = false,
     val artistName: String? = null,
     val animeName: String? = null
 )
@@ -72,7 +78,9 @@ fun ActionSheet(
     onSaveToPlaylist: () -> Unit = {},
     onAddToLibrary: () -> Unit = {},
     onGoToArtist: () -> Unit = {},
-    onGoToAnime: () -> Unit = {}
+    onGoToAnime: () -> Unit = {},
+    onDownload: () -> Unit = {},
+    onRemoveDownload: () -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -206,6 +214,32 @@ fun ActionSheet(
                     icon = { Icon(Icons.Rounded.Movie, contentDescription = null, tint = Mist100) },
                     label = label,
                     onClick = { onGoToAnime(); onDismiss() }
+                )
+            }
+            if (config.showDownloading) {
+                OptionRow(
+                    icon = {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            color = Mist200,
+                            strokeWidth = 2.dp
+                        )
+                    },
+                    label = "Downloading…",
+                    onClick = {}
+                )
+            } else if (config.showDownload) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.CloudDownload, contentDescription = null, tint = Mist100) },
+                    label = "Download",
+                    onClick = { onDownload(); onDismiss() }
+                )
+            }
+            if (config.showRemoveDownload) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.CloudDone, contentDescription = null, tint = Rose500) },
+                    label = "Remove download",
+                    onClick = { onRemoveDownload(); onDismiss() }
                 )
             }
         }

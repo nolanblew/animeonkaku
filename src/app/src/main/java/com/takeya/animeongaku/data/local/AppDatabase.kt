@@ -13,9 +13,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlaylistEntryEntity::class,
         ArtistImageEntity::class,
         ThemeArtistCrossRef::class,
-        PlayCountEntity::class
+        PlayCountEntity::class,
+        DownloadRequestEntity::class,
+        DownloadGroupEntity::class,
+        DownloadGroupThemeEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -25,6 +28,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun themeDao(): ThemeDao
     abstract fun artistDao(): ArtistDao
     abstract fun playCountDao(): PlayCountDao
+    abstract fun downloadDao(): DownloadDao
 
     companion object {
         val MIGRATION_9_10 = object : Migration(9, 10) {
@@ -50,6 +54,42 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_11_12 = object : Migration(11, 12) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `anime` ADD COLUMN `isManuallyAdded` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `download_request` (
+                        `themeId` INTEGER NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `progress` INTEGER NOT NULL DEFAULT 0,
+                        `filePath` TEXT,
+                        `imagePath` TEXT,
+                        `fileSize` INTEGER NOT NULL DEFAULT 0,
+                        `errorMessage` TEXT,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        `workManagerId` TEXT,
+                        PRIMARY KEY(`themeId`)
+                    )"""
+                )
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `download_group` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `groupType` TEXT NOT NULL,
+                        `groupId` TEXT NOT NULL,
+                        `label` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL
+                    )"""
+                )
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `download_group_theme` (
+                        `groupId` INTEGER NOT NULL,
+                        `themeId` INTEGER NOT NULL,
+                        PRIMARY KEY(`groupId`, `themeId`)
+                    )"""
+                )
             }
         }
     }

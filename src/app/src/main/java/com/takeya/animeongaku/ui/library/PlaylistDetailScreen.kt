@@ -25,12 +25,14 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -50,6 +52,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -94,15 +97,47 @@ fun PlaylistDetailScreen(
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     var showAddDialog by remember { mutableStateOf(false) }
     var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }
+    var showPlaylistSheet by remember { mutableStateOf(false) }
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
     val allPlaylists by viewModel.playlists.collectAsStateWithLifecycle()
+    val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
+    val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val animeByThemesId = remember(anime) {
         anime.mapNotNull { entry -> entry.animeThemesId?.let { id -> id to entry } }.toMap()
+    }
+
+    if (showPlaylistSheet) {
+        val allDownloaded = tracks.isNotEmpty() && tracks.all { it.theme.id in downloadedThemeIds }
+        val anyDownloading = tracks.any { it.theme.id in downloadingThemeIds }
+        ActionSheet(
+            config = ActionSheetConfig(
+                title = playlist?.name ?: "Playlist",
+                subtitle = "${tracks.size} tracks",
+                showDownload = !allDownloaded && !anyDownloading && tracks.isNotEmpty(),
+                showDownloading = anyDownloading && !allDownloaded,
+                showRemoveDownload = allDownloaded
+            ),
+            onDismiss = { showPlaylistSheet = false },
+            onPlayNext = {
+                val themes = tracks.map { it.theme }
+                viewModel.nowPlayingManager.playNext(themes, animeByThemesId)
+            },
+            onAddToQueue = {
+                val themes = tracks.map { it.theme }
+                viewModel.nowPlayingManager.addToQueue(themes, animeByThemesId)
+            },
+            onReplaceQueue = { viewModel.playAll(); onPlayTheme() },
+            onDownload = { viewModel.downloadPlaylist() },
+            onRemoveDownload = { viewModel.removePlaylistDownload() }
+        )
     }
 
     sheetTheme?.let { theme ->
         val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
         val info = theme.displayInfo(sheetAnime)
+        val isDownloaded = theme.id in downloadedThemeIds
+        val isDownloading = theme.id in downloadingThemeIds
         ActionSheet(
             config = ActionSheetConfig(
                 title = info.primaryText,
@@ -110,6 +145,9 @@ fun PlaylistDetailScreen(
                 imageUrl = sheetAnime?.coverUrl ?: sheetAnime?.thumbnailUrl,
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 showGoToAnime = sheetAnime?.kitsuId != null,
+                showDownload = !isDownloaded && !isDownloading,
+                showDownloading = isDownloading,
+                showRemoveDownload = isDownloaded,
                 artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
                 animeName = sheetAnime?.title
             ),
@@ -119,7 +157,9 @@ fun PlaylistDetailScreen(
             onReplaceQueue = { viewModel.nowPlayingManager.play("Now Playing", listOf(theme), 0, animeMap = sheetAnime?.let { a -> theme.animeId?.let { mapOf(it to a) } } ?: emptyMap()) },
             onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) },
             onGoToArtist = { theme.artistName?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
-            onGoToAnime = { sheetAnime?.kitsuId?.let { onOpenAnime(it) } }
+            onGoToAnime = { sheetAnime?.kitsuId?.let { onOpenAnime(it) } },
+            onDownload = { viewModel.downloadSong(theme) },
+            onRemoveDownload = { viewModel.removeDownload(theme.id) }
         )
     }
 
@@ -195,6 +235,9 @@ fun PlaylistDetailScreen(
                         IconButton(onClick = { showAddDialog = true }) {
                             Icon(Icons.Rounded.Add, contentDescription = "Add tracks", tint = Mist100)
                         }
+                    }
+                    IconButton(onClick = { showPlaylistSheet = true }) {
+                        Icon(Icons.Rounded.MoreVert, contentDescription = "More options", tint = Mist100)
                     }
                 }
             }
@@ -272,10 +315,15 @@ fun PlaylistDetailScreen(
                     val animeEntry = track.theme.animeId?.let { animeByThemesId[it] }
                     val imageUrl = animeEntry?.coverUrl ?: animeEntry?.thumbnailUrl
                     val info = track.theme.displayInfo(animeEntry)
+                    val tdl = track.theme.id in downloadedThemeIds
+                    val tding = track.theme.id in downloadingThemeIds
                     CompactTrackRow(
                         title = info.primaryText,
                         artist = info.secondaryText,
                         imageUrl = imageUrl,
+                        isDownloaded = tdl,
+                        isDownloading = tding,
+                        isUnavailableOffline = !isOnline && !tdl,
                         onPlay = { viewModel.playTheme(track.theme.id); onPlayTheme() },
                         onRemove = if (playlist?.isAuto == true) null else {{ viewModel.removeTheme(track.theme.id) }},
                         onMoreOptions = { sheetTheme = track.theme }
@@ -302,15 +350,20 @@ private fun CompactTrackRow(
     title: String,
     artist: String,
     imageUrl: String?,
+    isDownloaded: Boolean = false,
+    isDownloading: Boolean = false,
+    isUnavailableOffline: Boolean = false,
     onPlay: () -> Unit,
     onRemove: (() -> Unit)? = null,
     onMoreOptions: (() -> Unit)? = null
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val rowAlpha = if (isUnavailableOffline) 0.4f else 1f
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .alpha(rowAlpha)
             .clickable { onPlay() }
             .padding(horizontal = 20.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -332,14 +385,33 @@ private fun CompactTrackRow(
         }
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                color = Mist100,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = Mist100,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (isDownloading) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        color = Rose500.copy(alpha = 0.7f),
+                        strokeWidth = 1.5.dp
+                    )
+                } else if (isDownloaded) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        Icons.Rounded.DownloadDone,
+                        contentDescription = "Downloaded",
+                        tint = Rose500.copy(alpha = 0.7f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
             Text(
                 text = artist,
                 style = MaterialTheme.typography.bodySmall,
