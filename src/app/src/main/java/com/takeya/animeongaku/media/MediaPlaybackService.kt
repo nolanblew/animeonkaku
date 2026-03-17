@@ -97,9 +97,27 @@ class MediaPlaybackService : MediaSessionService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession = mediaSession
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        saveStateSynchronously()
+    }
+
     override fun onDestroy() {
+        saveStateSynchronously()
         mediaSession.release()
         player.release()
         super.onDestroy()
+    }
+
+    private fun saveStateSynchronously() {
+        val state = nowPlayingManager.state.value
+        if (state.nowPlaying.isNotEmpty()) {
+            val pos = player.currentPosition
+            val rep = player.repeatMode
+            // Use runBlocking to ensure it saves before the process is killed
+            kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                nowPlayingPersistence.save(state, pos, rep)
+            }
+        }
     }
 }
