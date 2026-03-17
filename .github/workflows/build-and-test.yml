@@ -22,6 +22,13 @@ jobs:
       run: chmod +x gradlew
       working-directory: ./src
 
+    - name: Decode google-services.json
+      working-directory: ./src/app
+      env:
+        GOOGLE_SERVICES_BASE64: ${{ secrets.GOOGLE_SERVICES_BASE64 }}
+      run: |
+        echo $GOOGLE_SERVICES_BASE64 | base64 --decode > google-services.json
+
     - name: Build Debug APK
       run: ./gradlew assembleDebug
       working-directory: ./src

@@ -69,6 +69,16 @@ To build a release locally, you need a keystore file and its credentials.
 ### 2. Automatically via GitHub Actions
 We have configured a manual GitHub Actions workflow to handle releases, which can automatically increment the version number and create a GitHub Release with the attached APK/AAB.
 
+#### Setup required (One-time):
+In your GitHub repository, navigate to **Settings > Secrets and variables > Actions** and add the following Repository Secrets:
+- `STORE_PASSWORD`: The password for your keystore.
+- `KEY_ALIAS`: The alias for your key.
+- `KEY_PASSWORD`: The password for your key.
+- `KEYSTORE_BASE64`: Your `release.keystore` file encoded in base64. 
+  *(You can generate this locally by running `base64 -w 0 src/app/release.keystore`)*
+- `GOOGLE_SERVICES_BASE64`: Your `google-services.json` file encoded in base64.
+  *(You can generate this locally by running `base64 -w 0 src/app/google-services.json`)*
+
 #### Running the workflow:
 1. Go to the **Actions** tab in your GitHub repository.
 2. Select the **Release** workflow from the left sidebar.
