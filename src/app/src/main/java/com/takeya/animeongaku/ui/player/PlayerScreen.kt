@@ -267,8 +267,21 @@ fun PlayerScreen(
         val positionFraction = if (isScrubbing) scrubFraction else smoothFraction
 
         Column(modifier = Modifier.layoutId("sliderControls"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            val activeColor by animateColorAsState(targetValue = Rose500, animationSpec = tween(500), label = "sliderColor")
-            Slider(value = positionFraction, onValueChange = { scrubFraction = it; isScrubbing = true }, onValueChangeFinished = { controllerManager.seekTo((scrubFraction * duration).toLong()); isScrubbing = false }, colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = activeColor, activeTrackColor = activeColor, inactiveTrackColor = Ink700))
+            val activeColor by animateColorAsState(targetValue = if (isExpandedThreshold) Rose500 else Color.Transparent, animationSpec = tween(500), label = "sliderColor")
+            Slider(
+                value = positionFraction, 
+                onValueChange = { scrubFraction = it; isScrubbing = true }, 
+                onValueChangeFinished = { controllerManager.seekTo((scrubFraction * duration).toLong()); isScrubbing = false }, 
+                enabled = isExpandedThreshold,
+                colors = androidx.compose.material3.SliderDefaults.colors(
+                    thumbColor = activeColor, 
+                    activeTrackColor = activeColor, 
+                    inactiveTrackColor = if (isExpandedThreshold) Ink700 else Color.Transparent,
+                    disabledThumbColor = Color.Transparent,
+                    disabledActiveTrackColor = Color.Transparent,
+                    disabledInactiveTrackColor = Color.Transparent
+                )
+            )
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(formatTime((positionFraction * duration).toLong()), style = MaterialTheme.typography.labelMedium, color = Mist200)
                 Text(formatTime(duration), style = MaterialTheme.typography.labelMedium, color = Mist200)

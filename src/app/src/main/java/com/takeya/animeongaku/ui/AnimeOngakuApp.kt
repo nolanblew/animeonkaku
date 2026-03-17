@@ -23,11 +23,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.activity.compose.BackHandler
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavType
@@ -109,39 +111,43 @@ fun AnimeOngakuApp(
         bottomItems.any { route == it.route || route.startsWith("${it.route}?") }
     } == true
 
-    Scaffold(
-        bottomBar = {
-            Column {
-                if (showBottomBar) {
-                    NavigationBar(containerColor = Color(0xFF0E0D12)) {
-                        bottomItems.forEach { item ->
-                            val selected = currentDestination?.hierarchy?.any { it.route == item.route } == true
-                            NavigationBarItem(
-                                selected = selected,
-                                onClick = {
-                                    navController.navigate(item.route) {
-                                        popUpTo(Routes.Home) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                },
-                                icon = { androidx.compose.material3.Icon(item.icon, contentDescription = item.label) },
-                                label = { Text(item.label) },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = Rose500,
-                                    selectedTextColor = Mist100,
-                                    unselectedIconColor = Mist200,
-                                    unselectedTextColor = Mist200,
-                                    indicatorColor = Ink700
+    var scaffoldPadding by remember { mutableStateOf(androidx.compose.foundation.layout.PaddingValues(0.dp)) }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            bottomBar = {
+                Column {
+                    if (showBottomBar) {
+                        NavigationBar(containerColor = Color(0xFF0E0D12)) {
+                            bottomItems.forEach { item ->
+                                val selected = currentDestination?.hierarchy?.any { it.route == item.route } == true
+                                NavigationBarItem(
+                                    selected = selected,
+                                    onClick = {
+                                        navController.navigate(item.route) {
+                                            popUpTo(Routes.Home) { saveState = true }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    },
+                                    icon = { androidx.compose.material3.Icon(item.icon, contentDescription = item.label) },
+                                    label = { Text(item.label) },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = Rose500,
+                                        selectedTextColor = Mist100,
+                                        unselectedIconColor = Mist200,
+                                        unselectedTextColor = Mist200,
+                                        indicatorColor = Ink700
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 }
             }
-        }
-    ) { padding ->
-        Box(modifier = Modifier.fillMaxSize()) {
+        ) { padding ->
+            scaffoldPadding = padding
+            Box(modifier = Modifier.fillMaxSize()) {
             NavHost(
                 navController = navController,
                 startDestination = Routes.Home,
@@ -257,23 +263,24 @@ fun AnimeOngakuApp(
                     )
                 }
             }
-
-            PlayerContainer(
-                isExpanded = isPlayerExpanded,
-                onExpand = { isPlayerExpanded = true },
-                onCollapse = { isPlayerExpanded = false },
-                showMiniPlayer = true,
-                modifier = Modifier.align(Alignment.BottomCenter),
-                bottomPadding = padding.calculateBottomPadding(),
-                onOpenAnime = { kitsuId ->
-                    isPlayerExpanded = false
-                    navController.navigate("${Routes.AnimeDetail}/$kitsuId")
-                },
-                onOpenArtist = { artistName ->
-                    isPlayerExpanded = false
-                    navController.navigate("${Routes.ArtistDetail}/${android.net.Uri.encode(artistName)}")
-                }
-            )
+            }
         }
+
+        PlayerContainer(
+            isExpanded = isPlayerExpanded,
+            onExpand = { isPlayerExpanded = true },
+            onCollapse = { isPlayerExpanded = false },
+            showMiniPlayer = true,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            bottomPadding = scaffoldPadding.calculateBottomPadding(),
+            onOpenAnime = { kitsuId ->
+                isPlayerExpanded = false
+                navController.navigate("${Routes.AnimeDetail}/$kitsuId")
+            },
+            onOpenArtist = { artistName ->
+                isPlayerExpanded = false
+                navController.navigate("${Routes.ArtistDetail}/${android.net.Uri.encode(artistName)}")
+            }
+        )
     }
 }

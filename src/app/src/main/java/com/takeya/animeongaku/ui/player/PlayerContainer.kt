@@ -12,6 +12,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -97,8 +104,20 @@ fun PlayerContainer(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .height(config.screenHeightDp.dp - bottomPadding)
+                .height(config.screenHeightDp.dp)
                 .offset { IntOffset(0, offsetY.value.roundToInt()) }
+                .clip(
+                    object : Shape {
+                        override fun createOutline(
+                            size: Size,
+                            layoutDirection: LayoutDirection,
+                            density: Density
+                        ): Outline {
+                            val currentHeight = miniPlayerHeightPx + (size.height - miniPlayerHeightPx) * progress
+                            return Outline.Rectangle(Rect(0f, 0f, size.width, currentHeight))
+                        }
+                    }
+                )
                 .draggable(
                     state = draggableState,
                     orientation = Orientation.Vertical,
