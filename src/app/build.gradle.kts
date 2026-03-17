@@ -1,3 +1,23 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Properties
+import java.io.FileInputStream
+
+fun getGitHash(): String {
+    return try {
+        val process = ProcessBuilder("git", "rev-parse", "--short", "HEAD").start()
+        process.inputStream.bufferedReader().readText().trim()
+    } catch (e: Exception) {
+        "00000"
+    }
+}
+
+fun getDevVersion(): String {
+    val df = SimpleDateFormat("yyyyMMdd-HHmm")
+    val dateStr = df.format(Date())
+    return "dev-$dateStr-${getGitHash()}"
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -17,12 +37,37 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+        
+        buildConfigField("String", "DISPLAY_VERSION", "\"1.0\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            val keystorePropertiesFile = rootProject.file("app/keystore.properties")
+            if (keystorePropertiesFile.exists()) {
+                val keystoreProperties = Properties()
+                keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+                storeFile = file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+            } else {
+                storeFile = file(System.getenv("KEYSTORE_FILE") ?: "release.keystore")
+                storePassword = System.getenv("STORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            buildConfigField("String", "DISPLAY_VERSION", "\"${getDevVersion()}\"")
+        }
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

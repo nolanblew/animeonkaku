@@ -37,4 +37,4 @@ render.experimental.xml
 google-services.json
 
 # Android Profiling
-*.hprof
+*.hprofapp/release.keystore
