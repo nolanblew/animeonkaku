@@ -236,7 +236,83 @@ fun PlayerScreen(
             modifier = Modifier.layoutId("art").shadow(if (isExpandedThreshold) 24.dp else 0.dp, RoundedCornerShape(cornerRadius.dp)).clip(RoundedCornerShape(cornerRadius.dp)).background(Ink800, RoundedCornerShape(cornerRadius.dp)).then(if (isExpandedThreshold) Modifier.border(1.dp, Mist200.copy(alpha=0.15f), RoundedCornerShape(cornerRadius.dp)) else Modifier),
             contentAlignment = Alignment.Center
         ) {
-            if (!artUrl.isNullOrBlank()) { AsyncImage(model = artUrl, contentDescription = title, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+            val playableQueue = remember(npState.nowPlaying, dislikedThemeIds, npState.unskippedIndices, npState.currentIndex, npState.playedIndices) {
+                npState.nowPlaying.mapIndexedNotNull { index, theme ->
+                    val isCurrent = index == npState.currentIndex
+                    val isPlayed = npState.playedIndices.contains(index) || index < npState.currentIndex
+                    val isUnskipped = npState.unskippedIndices.contains(index)
+                    val isNotDisliked = !dislikedThemeIds.contains(theme.id)
+                    
+                    if (isCurrent || isPlayed || isUnskipped || isNotDisliked) {
+                        index to theme
+                    } else {
+                        null
+                    }
+                }
+            }
+
+            val currentPageIndex = playableQueue.indexOfFirst { it.first == npState.currentIndex }.coerceAtLeast(0)
+
+            val pagerState = androidx.compose.foundation.pager.rememberPagerState(
+                initialPage = currentPageIndex,
+                pageCount = { playableQueue.size }
+            )
+
+            var lastQueueVersion by remember { androidx.compose.runtime.mutableLongStateOf(npState.queueVersion) }
+
+            androidx.compose.runtime.LaunchedEffect(currentPageIndex, npState.queueVersion) {
+                if (npState.queueVersion != lastQueueVersion) {
+                    pagerState.scrollToPage(currentPageIndex)
+                    lastQueueVersion = npState.queueVersion
+                } else if (pagerState.currentPage != currentPageIndex && !pagerState.isScrollInProgress) {
+                    pagerState.animateScrollToPage(currentPageIndex)
+                }
+            }
+
+            androidx.compose.runtime.LaunchedEffect(pagerState.isScrollInProgress) {
+                if (!pagerState.isScrollInProgress) {
+                    if (pagerState.currentPage != currentPageIndex) {
+                        val targetItem = playableQueue.getOrNull(pagerState.currentPage)
+                        if (targetItem != null && targetItem.first != npState.currentIndex) {
+                            if (pagerState.currentPage == currentPageIndex + 1) {
+                                controllerManager.seekToNext()
+                            } else if (pagerState.currentPage == currentPageIndex - 1) {
+                                controllerManager.seekToPrevious()
+                            } else {
+                                if (targetItem.first > npState.currentIndex) {
+                                    nowPlayingManager.skipTo(targetItem.first)
+                                } else {
+                                    nowPlayingManager.rewindTo(targetItem.first)
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Always force snap exactly to center to fix the 5% peeking issue
+                    if (kotlin.math.abs(pagerState.currentPageOffsetFraction) > 0.001f) {
+                        pagerState.animateScrollToPage(pagerState.currentPage)
+                    }
+                }
+            }
+
+            androidx.compose.foundation.pager.HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                pageSpacing = 16.dp,
+                userScrollEnabled = isExpandedThreshold,
+                flingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(
+                    state = pagerState,
+                    snapPositionalThreshold = 0.8f
+                )
+            ) { page ->
+                val theme = playableQueue.getOrNull(page)?.second
+                val anime = theme?.animeId?.let { npState.animeMap[it] }
+                val pageArtUrl = anime?.coverUrl ?: anime?.thumbnailUrl
+                val pageTitle = theme?.displayInfo(anime)?.primaryText ?: title
+                if (!pageArtUrl.isNullOrBlank()) {
+                    AsyncImage(model = pageArtUrl, contentDescription = pageTitle, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                }
+            }
         }
 
         Column(modifier = Modifier.layoutId("titles"), verticalArrangement = Arrangement.spacedBy(if (isExpandedThreshold) 4.dp else 2.dp)) {
