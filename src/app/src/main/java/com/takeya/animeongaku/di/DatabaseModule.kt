@@ -10,6 +10,7 @@ import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.PlayCountDao
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.ThemeDao
+import com.takeya.animeongaku.data.local.UserPreferenceDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -28,7 +29,7 @@ object DatabaseModule {
         context,
         AppDatabase::class.java,
         "anime_ongaku.db"
-    ).addMigrations(AppDatabase.MIGRATION_9_10, AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13).build()
+    ).addMigrations(AppDatabase.MIGRATION_9_10, AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13, AppDatabase.MIGRATION_13_14).build()
 
     @Provides
     fun provideAnimeDao(database: AppDatabase): AnimeDao = database.animeDao()
@@ -50,4 +51,7 @@ object DatabaseModule {
 
     @Provides
     fun provideDownloadDao(database: AppDatabase): DownloadDao = database.downloadDao()
+
+    @Provides
+    fun provideUserPreferenceDao(database: AppDatabase): UserPreferenceDao = database.userPreferenceDao()
 }

@@ -19,6 +19,7 @@ import com.takeya.animeongaku.data.model.OnlineAnimeResult
 import com.takeya.animeongaku.data.model.OnlineArtistResult
 import com.takeya.animeongaku.data.repository.AnimeRepository
 import com.takeya.animeongaku.data.repository.UserRepository
+import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -50,7 +51,8 @@ class SearchViewModel @Inject constructor(
     private val userRepository: UserRepository,
     val nowPlayingManager: NowPlayingManager,
     val downloadManager: DownloadManager,
-    private val downloadDao: DownloadDao
+    private val downloadDao: DownloadDao,
+    private val userPreferencesRepository: UserPreferencesRepository
 ) : ViewModel() {
 
     private val _query = MutableStateFlow("")
@@ -108,8 +110,8 @@ class SearchViewModel @Inject constructor(
         // Reset online search state for new query
         _onlineState.value = OnlineSearchState.Idle
         _onlineResults.value = emptyList()
-        _onlineAnime.value = emptyList()
-        _onlineArtists.value = emptyList()
+        _onlineAnime.value = emptyList<com.takeya.animeongaku.data.model.OnlineAnimeResult>()
+        _onlineArtists.value = emptyList<com.takeya.animeongaku.data.model.OnlineArtistResult>()
         _onlineError.value = null
         onlineJob?.cancel()
     }
@@ -295,6 +297,22 @@ class SearchViewModel @Inject constructor(
     val downloadingThemeIds: StateFlow<Set<Long>> = downloadDao.observeDownloadingThemeIds()
         .map { it.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val likedThemeIds: StateFlow<Set<Long>> = userPreferencesRepository.observeLikedThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val dislikedThemeIds: StateFlow<Set<Long>> = userPreferencesRepository.observeDislikedThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    fun toggleLike(themeId: Long) {
+        viewModelScope.launch { userPreferencesRepository.toggleLike(themeId) }
+    }
+
+    fun toggleDislike(themeId: Long) {
+        viewModelScope.launch { userPreferencesRepository.toggleDislike(themeId) }
+    }
 
     fun downloadSong(theme: ThemeEntity) {
         val animeEntry = theme.animeId?.let { id -> buildAnimeMap()[id] }

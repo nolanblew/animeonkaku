@@ -109,6 +109,8 @@ fun SearchScreen(
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
     val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
+    val likedThemeIds by viewModel.likedThemeIds.collectAsStateWithLifecycle()
+    val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
 
     // Song ActionSheet (local)
     sheetTheme?.let { theme ->
@@ -126,6 +128,9 @@ fun SearchScreen(
                 showDownload = !isDownloaded && !isDownloading,
                 showDownloading = isDownloading,
                 showRemoveDownload = isDownloaded,
+                showLike = true,
+                isLiked = theme.id in likedThemeIds,
+                showRemoveDislike = theme.id in dislikedThemeIds,
                 artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
                 animeName = sheetAnime?.title
             ),
@@ -142,7 +147,9 @@ fun SearchScreen(
             onGoToArtist = { theme.artistName?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
             onGoToAnime = { sheetAnime?.kitsuId?.let { onOpenAnime(it) } },
             onDownload = { viewModel.downloadSong(theme) },
-            onRemoveDownload = { viewModel.removeDownload(theme.id) }
+            onRemoveDownload = { viewModel.removeDownload(theme.id) },
+            onLike = { viewModel.toggleLike(theme.id) },
+            onRemoveDislike = { viewModel.toggleDislike(theme.id) }
         )
     }
 
@@ -161,6 +168,9 @@ fun SearchScreen(
                 showAddToLibrary = true,
                 showGoToArtist = !entry.artist.isNullOrBlank(),
                 showGoToAnime = entry.kitsuId != null,
+                showLike = true,
+                isLiked = entry.themeId.toLongOrNull()?.let { it in likedThemeIds } == true,
+                showRemoveDislike = entry.themeId.toLongOrNull()?.let { it in dislikedThemeIds } == true,
                 artistName = entry.artist?.split(",")?.firstOrNull()?.trim(),
                 animeName = entry.animeNameEn ?: entry.animeName
             ),
@@ -189,7 +199,9 @@ fun SearchScreen(
             },
             onGoToAnime = {
                 entry.kitsuId?.let { onOpenAnime(it) }
-            }
+            },
+            onLike = { entry.themeId.toLongOrNull()?.let { viewModel.toggleLike(it) } },
+            onRemoveDislike = { entry.themeId.toLongOrNull()?.let { viewModel.toggleDislike(it) } }
         )
     }
 

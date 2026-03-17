@@ -10,6 +10,7 @@ import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.media.MediaControllerManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.NowPlayingState
@@ -20,6 +21,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -30,6 +32,7 @@ class PlayerViewModel @Inject constructor(
     private val playlistDao: PlaylistDao,
     private val themeDao: ThemeDao,
     private val animeDao: AnimeDao,
+    private val userPreferencesRepository: UserPreferencesRepository,
     val connectivityMonitor: ConnectivityMonitor
 ) : ViewModel() {
     val nowPlayingState: StateFlow<NowPlayingState> = nowPlayingManager.state
@@ -44,7 +47,24 @@ class PlayerViewModel @Inject constructor(
     val playlists: StateFlow<List<PlaylistWithCount>> = playlistDao.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val dislikedThemeIds: StateFlow<Set<Long>> = userPreferencesRepository.observeDislikedThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val currentPreference = nowPlayingState.flatMapLatest { state ->
+        val themeId = state.currentTheme?.id
+        if (themeId != null) userPreferencesRepository.observePreference(themeId) else kotlinx.coroutines.flow.flowOf(null)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     suspend fun isInLibrary(themeId: Long): Boolean = themeDao.existsById(themeId)
+
+    fun toggleLike(themeId: Long) {
+        viewModelScope.launch { userPreferencesRepository.toggleLike(themeId) }
+    }
+
+    fun toggleDislike(themeId: Long) {
+        viewModelScope.launch { userPreferencesRepository.toggleDislike(themeId) }
+    }
 
     fun saveSongToLibrary(theme: ThemeEntity, animeEntity: AnimeEntity?) {
         viewModelScope.launch {

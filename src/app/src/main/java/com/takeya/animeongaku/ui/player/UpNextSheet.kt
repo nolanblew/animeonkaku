@@ -20,20 +20,26 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -43,6 +49,8 @@ import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.NowPlayingState
 import com.takeya.animeongaku.ui.common.MarqueeText
+import com.takeya.animeongaku.ui.common.ActionSheet
+import com.takeya.animeongaku.ui.common.ActionSheetConfig
 import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
@@ -58,6 +66,8 @@ fun UpNextSheet(
     nowPlayingManager: NowPlayingManager,
     isOffline: Boolean = false,
     downloadedThemeIds: Set<Long> = emptySet(),
+    dislikedThemeIds: Set<Long> = emptySet(),
+    viewModel: PlayerViewModel,
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -73,6 +83,8 @@ fun UpNextSheet(
             nowPlayingManager = nowPlayingManager,
             isOffline = isOffline,
             downloadedThemeIds = downloadedThemeIds,
+            dislikedThemeIds = dislikedThemeIds,
+            viewModel = viewModel,
             modifier = Modifier.fillMaxHeight(0.95f)
         )
     }
@@ -84,6 +96,8 @@ private fun UpNextContent(
     nowPlayingManager: NowPlayingManager,
     isOffline: Boolean = false,
     downloadedThemeIds: Set<Long> = emptySet(),
+    dislikedThemeIds: Set<Long> = emptySet(),
+    viewModel: PlayerViewModel,
     modifier: Modifier = Modifier
 ) {
     val history = npState.history
@@ -141,6 +155,23 @@ private fun UpNextContent(
         }
 
         Spacer(modifier = Modifier.height(8.dp))
+        
+        var selectedDislikedTheme by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Pair<Int, ThemeEntity>?>(null) }
+        selectedDislikedTheme?.let { (npIdx, t) ->
+            ActionSheet(
+                config = ActionSheetConfig(
+                    title = "Skipping because disliked",
+                    subtitle = "This song was skipped. You can unskip to play it.",
+                    isSkippedContext = true,
+                    showPlayNext = false, showAddToQueue = false, showReplaceQueue = false, showSaveToPlaylist = false,
+                    showRemoveDislike = true,
+                    showUnskip = true
+                ),
+                onDismiss = { selectedDislikedTheme = null },
+                onUnskip = { nowPlayingManager.unskip(npIdx); selectedDislikedTheme = null },
+                onRemoveDislike = { viewModel.toggleDislike(t.id); selectedDislikedTheme = null }
+            )
+        }
 
         LazyColumn(
             state = listState,
@@ -159,13 +190,16 @@ private fun UpNextContent(
                 itemsIndexed(history) { index, theme ->
                     val anime = theme.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline && theme.id !in downloadedThemeIds
+                    val isDisliked = theme.id in dislikedThemeIds
                     QueueTrackRow(
                         theme = theme,
                         anime = anime,
                         isHistory = true,
                         isCurrent = false,
                         isUnavailable = isUnavailable,
-                        onClick = { if (!isUnavailable) nowPlayingManager.rewindTo(index) }
+                        isDisliked = isDisliked,
+                        onClick = { if (!isUnavailable) nowPlayingManager.rewindTo(index) },
+                        onLongClick = if (isDisliked) { { selectedDislikedTheme = index to theme } } else null
                     )
                 }
                 item {
@@ -185,7 +219,9 @@ private fun UpNextContent(
                         anime = anime,
                         isHistory = false,
                         isCurrent = true,
-                        onClick = { }
+                        isDisliked = currentTheme.id in dislikedThemeIds,
+                        onClick = { },
+                        onLongClick = null
                     )
                 }
             }
@@ -211,6 +247,7 @@ private fun UpNextContent(
                     val theme = upcoming[upcomingIdx]
                     val anime = theme.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline && theme.id !in downloadedThemeIds
+                    val isDisliked = theme.id in dislikedThemeIds
                     item {
                         QueueTrackRow(
                             theme = theme,
@@ -218,7 +255,9 @@ private fun UpNextContent(
                             isHistory = false,
                             isCurrent = false,
                             isUnavailable = isUnavailable,
-                            onClick = { if (!isUnavailable) nowPlayingManager.skipTo(npState.currentIndex + 1 + upcomingIdx) }
+                            isDisliked = isDisliked,
+                            onClick = { if (!isUnavailable) nowPlayingManager.skipTo(npState.currentIndex + 1 + upcomingIdx) },
+                            onLongClick = if (isDisliked) { { selectedDislikedTheme = (npState.currentIndex + 1 + upcomingIdx) to theme } } else null
                         )
                     }
                 }
@@ -239,6 +278,7 @@ private fun UpNextContent(
                     val theme = upcoming[upcomingIdx]
                     val anime = theme.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline && theme.id !in downloadedThemeIds
+                    val isDisliked = theme.id in dislikedThemeIds
                     item {
                         QueueTrackRow(
                             theme = theme,
@@ -247,7 +287,9 @@ private fun UpNextContent(
                             isCurrent = false,
                             isSuggested = true,
                             isUnavailable = isUnavailable,
-                            onClick = { if (!isUnavailable) nowPlayingManager.skipTo(npState.currentIndex + 1 + upcomingIdx) }
+                            isDisliked = isDisliked,
+                            onClick = { if (!isUnavailable) nowPlayingManager.skipTo(npState.currentIndex + 1 + upcomingIdx) },
+                            onLongClick = if (isDisliked) { { selectedDislikedTheme = (npState.currentIndex + 1 + upcomingIdx) to theme } } else null
                         )
                     }
                 }
@@ -266,13 +308,16 @@ private fun UpNextContent(
                 itemsIndexed(upcoming) { index, theme ->
                     val anime = theme.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline && theme.id !in downloadedThemeIds
+                    val isDisliked = theme.id in dislikedThemeIds
                     QueueTrackRow(
                         theme = theme,
                         anime = anime,
                         isHistory = false,
                         isCurrent = false,
                         isUnavailable = isUnavailable,
-                        onClick = { if (!isUnavailable) nowPlayingManager.skipTo(npState.currentIndex + 1 + index) }
+                        isDisliked = isDisliked,
+                        onClick = { if (!isUnavailable) nowPlayingManager.skipTo(npState.currentIndex + 1 + index) },
+                        onLongClick = if (isDisliked) { { selectedDislikedTheme = (npState.currentIndex + 1 + index) to theme } } else null
                     )
                 }
             }
@@ -292,12 +337,14 @@ private fun QueueTrackRow(
     isCurrent: Boolean,
     isSuggested: Boolean = false,
     isUnavailable: Boolean = false,
-    onClick: () -> Unit
+    isDisliked: Boolean = false,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
 ) {
     val info = theme.displayInfo(anime)
     val imageUrl = anime?.coverUrl ?: anime?.thumbnailUrl
     val alpha = when {
-        isUnavailable -> 0.3f
+        isUnavailable || isDisliked -> 0.3f
         isHistory -> 0.45f
         isCurrent -> 1f
         isSuggested -> 0.6f
@@ -309,7 +356,12 @@ private fun QueueTrackRow(
             .fillMaxWidth()
             .alpha(alpha)
             .let { if (isCurrent) it.background(Rose500.copy(alpha = 0.08f)) else it }
-            .clickable { onClick() }
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { onClick() },
+                    onLongPress = { onLongClick?.invoke() }
+                )
+            }
             .padding(horizontal = 20.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -352,6 +404,10 @@ private fun QueueTrackRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = Mist200
             )
+        }
+        if (isDisliked) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(Icons.Rounded.Block, contentDescription = "Skipped", tint = Mist200, modifier = Modifier.size(16.dp))
         }
     }
 }

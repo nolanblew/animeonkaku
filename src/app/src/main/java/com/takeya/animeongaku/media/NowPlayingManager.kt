@@ -19,6 +19,20 @@ class NowPlayingManager @Inject constructor() {
     }
 
     /**
+     * Temporarily unskip a skipped song for this queue session.
+     */
+    fun unskip(index: Int) {
+        val current = _state.value
+        if (index < 0 || index >= current.nowPlaying.size) return
+        
+        _state.value = current.copy(
+            unskippedIndices = current.unskippedIndices + index,
+            queueVersion = current.queueVersion + 1,
+            isFullReload = true
+        )
+    }
+
+    /**
      * Start playback with a new context playlist.
      * @param contextLabel Display label, e.g. "Naruto", "Quick Picks"
      * @param themes Full list of songs from the context
@@ -167,10 +181,27 @@ class NowPlayingManager @Inject constructor() {
 
     /**
      * Called when the media player transitions to a new track.
-     * Updates currentIndex, history, and playedIndices.
+     * Updates currentIndex, history, and playedIndices using the themeId to find the true index.
      */
-    fun onTrackChanged(newIndex: Int) {
+    fun onTrackChangedByThemeId(themeId: Long) {
         val current = _state.value
+        val expectedNextIndex = current.currentIndex + 1
+        val newIndex = if (expectedNextIndex < current.nowPlaying.size && current.nowPlaying[expectedNextIndex].id == themeId) {
+            expectedNextIndex
+        } else {
+            // Find the closest index forward, or any index
+            var found = -1
+            for (i in expectedNextIndex until current.nowPlaying.size) {
+                if (current.nowPlaying[i].id == themeId) {
+                    found = i
+                    break
+                }
+            }
+            if (found == -1) {
+                current.nowPlaying.indexOfFirst { it.id == themeId }
+            } else found
+        }
+
         if (newIndex < 0 || newIndex >= current.nowPlaying.size) return
 
         val oldIndex = current.currentIndex
@@ -235,6 +266,7 @@ class NowPlayingManager @Inject constructor() {
             currentIndex = 0,
             history = trimmedHistory,
             playedIndices = setOf(0),
+            unskippedIndices = emptySet(),
             queueVersion = current.queueVersion + 1,
             isFullReload = true
         )
@@ -363,7 +395,8 @@ data class NowPlayingState(
     val contextLabel: String = "",
     val animeMap: Map<Long, AnimeEntity> = emptyMap(),
     val queueVersion: Long = 0,
-    val isFullReload: Boolean = true
+    val isFullReload: Boolean = true,
+    val unskippedIndices: Set<Int> = emptySet()
 ) {
     val currentTheme: ThemeEntity?
         get() = nowPlaying.getOrNull(currentIndex)

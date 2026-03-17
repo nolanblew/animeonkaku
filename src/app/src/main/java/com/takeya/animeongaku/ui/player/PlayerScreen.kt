@@ -32,6 +32,10 @@ import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material.icons.rounded.ThumbDown
+import androidx.compose.material.icons.rounded.ThumbUp
+import androidx.compose.material.icons.outlined.ThumbDown
+import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -94,6 +98,7 @@ fun PlayerScreen(
 ) {
     val npState by viewModel.nowPlayingState.collectAsStateWithLifecycle()
     val pbState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val currentPreference by viewModel.currentPreference.collectAsStateWithLifecycle()
     val nowPlayingManager = viewModel.nowPlayingManager
     val controllerManager = viewModel.mediaControllerManager
 
@@ -103,6 +108,7 @@ fun PlayerScreen(
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
+    val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
 
     androidx.compose.runtime.LaunchedEffect(swipeUpTrigger) {
         if (swipeUpTrigger) {
@@ -117,6 +123,8 @@ fun PlayerScreen(
             nowPlayingManager = nowPlayingManager,
             isOffline = !isOnline,
             downloadedThemeIds = downloadedThemeIds,
+            dislikedThemeIds = dislikedThemeIds,
+            viewModel = viewModel,
             onDismiss = { showUpNext = false }
         )
     }
@@ -298,8 +306,14 @@ fun PlayerScreen(
             }
         }
         
-        Row(modifier = Modifier.layoutId("upNextRow").fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)) {
+        Row(modifier = Modifier.layoutId("upNextRow").fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { currentTheme?.id?.let { viewModel.toggleDislike(it) } }) {
+                Icon(if (currentPreference?.isDisliked == true) Icons.Rounded.ThumbDown else Icons.Outlined.ThumbDown, "Dislike", tint = if (currentPreference?.isDisliked == true) Mist100 else Mist200)
+            }
             GlassActionPill(icon = Icons.AutoMirrored.Rounded.QueueMusic, label = "Up Next", onClick = { showUpNext = true })
+            IconButton(onClick = { currentTheme?.id?.let { viewModel.toggleLike(it) } }) {
+                Icon(if (currentPreference?.isLiked == true) Icons.Rounded.ThumbUp else Icons.Outlined.ThumbUp, "Like", tint = if (currentPreference?.isLiked == true) Mist100 else Mist200)
+            }
         }
     }
 }

@@ -23,8 +23,12 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.rounded.LibraryAdd
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.ThumbUp
+import androidx.compose.material.icons.outlined.ThumbUp
+import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -53,6 +57,7 @@ data class ActionSheetConfig(
     val title: String,
     val subtitle: String,
     val imageUrl: String? = null,
+    val isSkippedContext: Boolean = false,
     val showPlayNext: Boolean = true,
     val showAddToQueue: Boolean = true,
     val showReplaceQueue: Boolean = true,
@@ -63,6 +68,10 @@ data class ActionSheetConfig(
     val showDownload: Boolean = false,
     val showDownloading: Boolean = false,
     val showRemoveDownload: Boolean = false,
+    val showLike: Boolean = false,
+    val isLiked: Boolean = false,
+    val showRemoveDislike: Boolean = false,
+    val showUnskip: Boolean = false,
     val artistName: String? = null,
     val animeName: String? = null
 )
@@ -80,7 +89,10 @@ fun ActionSheet(
     onGoToArtist: () -> Unit = {},
     onGoToAnime: () -> Unit = {},
     onDownload: () -> Unit = {},
-    onRemoveDownload: () -> Unit = {}
+    onRemoveDownload: () -> Unit = {},
+    onLike: () -> Unit = {},
+    onRemoveDislike: () -> Unit = {},
+    onUnskip: () -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -124,14 +136,14 @@ fun ActionSheet(
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = Mist100,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = config.subtitle,
                         style = MaterialTheme.typography.bodySmall,
                         color = Mist200,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
@@ -179,6 +191,27 @@ fun ActionSheet(
             Spacer(modifier = Modifier.height(4.dp))
 
             // List items
+            if (config.showLike) {
+                OptionRow(
+                    icon = { Icon(if (config.isLiked) Icons.Rounded.ThumbUp else Icons.Outlined.ThumbUp, contentDescription = null, tint = Mist100) },
+                    label = if (config.isLiked) "Remove Like" else "Like",
+                    onClick = { onLike(); onDismiss() }
+                )
+            }
+            if (config.showUnskip) {
+                OptionRow(
+                    icon = { Icon(Icons.AutoMirrored.Rounded.Undo, contentDescription = null, tint = Mist100) },
+                    label = "Unskip",
+                    onClick = { onUnskip(); onDismiss() }
+                )
+            }
+            if (config.showRemoveDislike) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.ThumbDown, contentDescription = null, tint = Mist100) },
+                    label = if (config.isSkippedContext) "Remove Dislike" else "Remove Dislike",
+                    onClick = { onRemoveDislike(); onDismiss() }
+                )
+            }
             if (config.showAddToQueue) {
                 OptionRow(
                     icon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null, tint = Mist100) },

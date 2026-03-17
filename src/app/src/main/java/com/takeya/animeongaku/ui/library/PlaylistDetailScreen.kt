@@ -102,6 +102,8 @@ fun PlaylistDetailScreen(
     val allPlaylists by viewModel.playlists.collectAsStateWithLifecycle()
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
     val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
+    val likedThemeIds by viewModel.likedThemeIds.collectAsStateWithLifecycle()
+    val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val animeByThemesId = remember(anime) {
         anime.mapNotNull { entry -> entry.animeThemesId?.let { id -> id to entry } }.toMap()
@@ -148,6 +150,9 @@ fun PlaylistDetailScreen(
                 showDownload = !isDownloaded && !isDownloading,
                 showDownloading = isDownloading,
                 showRemoveDownload = isDownloaded,
+                showLike = true,
+                isLiked = theme.id in likedThemeIds,
+                showRemoveDislike = theme.id in dislikedThemeIds,
                 artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
                 animeName = sheetAnime?.title
             ),
@@ -159,7 +164,9 @@ fun PlaylistDetailScreen(
             onGoToArtist = { theme.artistName?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
             onGoToAnime = { sheetAnime?.kitsuId?.let { onOpenAnime(it) } },
             onDownload = { viewModel.downloadSong(theme) },
-            onRemoveDownload = { viewModel.removeDownload(theme.id) }
+            onRemoveDownload = { viewModel.removeDownload(theme.id) },
+            onLike = { viewModel.toggleLike(theme.id) },
+            onRemoveDislike = { viewModel.toggleDislike(theme.id) }
         )
     }
 

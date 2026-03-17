@@ -18,6 +18,7 @@ import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.repository.AnimeRepository
 import com.takeya.animeongaku.data.repository.UserRepository
+import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import kotlinx.coroutines.launch
@@ -77,7 +78,8 @@ class AnimeDetailViewModel @Inject constructor(
     private val userRepository: UserRepository,
     val nowPlayingManager: NowPlayingManager,
     val downloadManager: DownloadManager,
-    private val downloadDao: DownloadDao
+    private val downloadDao: DownloadDao,
+    private val userPreferencesRepository: UserPreferencesRepository
 ) : ViewModel() {
     private val kitsuId: String = savedStateHandle["kitsuId"] ?: ""
 
@@ -301,6 +303,22 @@ class AnimeDetailViewModel @Inject constructor(
     val downloadingThemeIds: StateFlow<Set<Long>> = downloadDao.observeDownloadingThemeIds()
         .map { it.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val likedThemeIds: StateFlow<Set<Long>> = userPreferencesRepository.observeLikedThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val dislikedThemeIds: StateFlow<Set<Long>> = userPreferencesRepository.observeDislikedThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    fun toggleLike(themeId: Long) {
+        viewModelScope.launch { userPreferencesRepository.toggleLike(themeId) }
+    }
+
+    fun toggleDislike(themeId: Long) {
+        viewModelScope.launch { userPreferencesRepository.toggleDislike(themeId) }
+    }
 
     fun downloadSong(theme: ThemeEntity) {
         downloadManager.downloadSong(theme, anime.value)

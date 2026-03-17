@@ -16,9 +16,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlayCountEntity::class,
         DownloadRequestEntity::class,
         DownloadGroupEntity::class,
-        DownloadGroupThemeEntity::class
+        DownloadGroupThemeEntity::class,
+        UserPreferenceEntity::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -29,6 +30,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun artistDao(): ArtistDao
     abstract fun playCountDao(): PlayCountDao
     abstract fun downloadDao(): DownloadDao
+    abstract fun userPreferenceDao(): UserPreferenceDao
 
     companion object {
         val MIGRATION_9_10 = object : Migration(9, 10) {
@@ -88,6 +90,19 @@ abstract class AppDatabase : RoomDatabase() {
                         `groupId` INTEGER NOT NULL,
                         `themeId` INTEGER NOT NULL,
                         PRIMARY KEY(`groupId`, `themeId`)
+                    )"""
+                )
+            }
+        }
+
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `user_preferences` (
+                        `themeId` INTEGER NOT NULL,
+                        `isLiked` INTEGER NOT NULL DEFAULT 0,
+                        `isDisliked` INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY(`themeId`)
                     )"""
                 )
             }

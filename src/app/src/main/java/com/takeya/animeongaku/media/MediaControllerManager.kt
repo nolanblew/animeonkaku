@@ -12,6 +12,7 @@ import androidx.media3.session.SessionToken
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.PlayCountDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.network.ConnectivityMonitor
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -41,6 +42,7 @@ class MediaControllerManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val nowPlayingManager: NowPlayingManager,
     private val playCountDao: PlayCountDao,
+    private val userPreferencesRepository: UserPreferencesRepository,
     private val nowPlayingPersistence: NowPlayingPersistence,
     private val connectivityMonitor: ConnectivityMonitor
 ) {
@@ -60,6 +62,14 @@ class MediaControllerManager @Inject constructor(
     private var consecutiveErrors = 0
     private val MAX_CONSECUTIVE_ERRORS = 5
 
+    private var cachedDislikedThemeIds: Set<Long> = emptySet()
+
+    private fun shouldIncludeInPlayer(idx: Int, theme: ThemeEntity, npState: NowPlayingState): Boolean {
+        if (idx == npState.currentIndex) return true
+        if (npState.unskippedIndices.contains(idx)) return true
+        return !cachedDislikedThemeIds.contains(theme.id)
+    }
+
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _playbackState.value = _playbackState.value.copy(isPlaying = isPlaying)
@@ -77,13 +87,14 @@ class MediaControllerManager @Inject constructor(
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             val ctrl = controller ?: return
-            val idx = ctrl.currentMediaItemIndex
-            nowPlayingManager.onTrackChanged(idx)
             _playbackState.value = _playbackState.value.copy(errorMessage = null)
 
-            // Record play count on track start
             val themeId = mediaItem?.mediaId?.toLongOrNull()
             if (themeId != null) {
+                // Determine true index in queue by original ID rather than current raw exo pos
+                nowPlayingManager.onTrackChangedByThemeId(themeId)
+                
+                // Record play count on track start
                 scope.launch { playCountDao.incrementPlayCount(themeId) }
             }
         }
@@ -157,6 +168,37 @@ class MediaControllerManager @Inject constructor(
             // Wait for controller to be ready before syncing
             _controllerReady.collectLatest { ready ->
                 if (!ready) return@collectLatest
+                
+                // Observe disliked tracking state locally to avoid async resolution timing bugs
+                // Also proactively seek to next if the *currently* playing song gets disliked.
+                scope.launch {
+                    userPreferencesRepository.observeDislikedThemeIds().collectLatest { dislikedList ->
+                        val newSet = dislikedList.toSet()
+                        val oldSet = cachedDislikedThemeIds
+                        cachedDislikedThemeIds = newSet
+
+                        val ctrl = controller ?: return@collectLatest
+                        val npState = nowPlayingManager.state.value
+                        
+                        // We must re-sync the queue around the current item in case upcoming skips changed
+                        if (npState.nowPlaying.isNotEmpty()) {
+                            syncQueueAroundCurrent(ctrl, npState)
+                            
+                            val currentTheme = npState.currentTheme
+                            val isUnskipped = npState.unskippedIndices.contains(npState.currentIndex)
+                            
+                            // If the currently playing song just became disliked (and not unskipped), auto-skip it
+                            if (currentTheme != null && newSet.contains(currentTheme.id) && !oldSet.contains(currentTheme.id) && !isUnskipped) {
+                                if (ctrl.hasNextMediaItem()) {
+                                    ctrl.seekToNext()
+                                } else {
+                                    ctrl.stop()
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Once ready, observe queue changes
                 nowPlayingManager.state
                     .distinctUntilChangedBy { it.queueVersion }
@@ -210,9 +252,16 @@ class MediaControllerManager @Inject constructor(
 
     private fun restoreFromPersistedState(restoredState: RestoredQueueState, ctrl: MediaController, autoPlay: Boolean = false) {
         val npState = restoredState.nowPlayingState
-        val items = npState.nowPlaying.map { it.toMediaItem(npState.animeMap) }
+        val mappedItems = npState.nowPlaying.mapIndexedNotNull { idx, theme ->
+            if (shouldIncludeInPlayer(idx, theme, npState)) theme.toMediaItem(npState.animeMap) else null
+        }
         
-        ctrl.setMediaItems(items, npState.currentIndex, restoredState.positionMs)
+        var exoStartIndex = 0
+        for (i in 0 until npState.currentIndex) {
+            if (shouldIncludeInPlayer(i, npState.nowPlaying[i], npState)) exoStartIndex++
+        }
+        
+        ctrl.setMediaItems(mappedItems, exoStartIndex, restoredState.positionMs)
         ctrl.repeatMode = restoredState.repeatMode
         ctrl.playWhenReady = autoPlay
         ctrl.prepare()
@@ -239,9 +288,16 @@ class MediaControllerManager @Inject constructor(
                 // Controller already has the right song — just sync surrounding queue
                 syncQueueAroundCurrent(ctrl, npState)
             } else {
-                // Full replacement
-                val items = npState.nowPlaying.map { it.toMediaItem(npState.animeMap) }
-                ctrl.setMediaItems(items, npState.currentIndex, C.TIME_UNSET)
+                // Full replacement (find valid items only)
+                val mappedItems = npState.nowPlaying.mapIndexedNotNull { idx, theme ->
+                    if (shouldIncludeInPlayer(idx, theme, npState)) theme.toMediaItem(npState.animeMap) else null
+                }
+                var exoStartIndex = 0
+                for (i in 0 until npState.currentIndex) {
+                    if (shouldIncludeInPlayer(i, npState.nowPlaying[i], npState)) exoStartIndex++
+                }
+                
+                ctrl.setMediaItems(mappedItems, exoStartIndex, C.TIME_UNSET)
                 ctrl.playWhenReady = true
                 ctrl.prepare()
             }
@@ -269,6 +325,7 @@ class MediaControllerManager @Inject constructor(
 
         // Add items before current
         val beforeItems = npState.nowPlaying.subList(0, npState.currentIndex)
+            .filterIndexed { idx, theme -> shouldIncludeInPlayer(idx, theme, npState) }
             .map { it.toMediaItem(npState.animeMap) }
         for ((i, item) in beforeItems.withIndex()) {
             ctrl.addMediaItem(i, item)
@@ -278,6 +335,9 @@ class MediaControllerManager @Inject constructor(
         if (npState.currentIndex + 1 < npState.nowPlaying.size) {
             val afterItems = npState.nowPlaying
                 .subList(npState.currentIndex + 1, npState.nowPlaying.size)
+                .filterIndexed { offset, theme -> 
+                    shouldIncludeInPlayer(npState.currentIndex + 1 + offset, theme, npState) 
+                }
                 .map { it.toMediaItem(npState.animeMap) }
             for (item in afterItems) {
                 ctrl.addMediaItem(item)

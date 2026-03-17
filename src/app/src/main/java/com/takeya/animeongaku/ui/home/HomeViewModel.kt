@@ -8,6 +8,7 @@ import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -31,7 +32,8 @@ class HomeViewModel @Inject constructor(
     private val playlistDao: PlaylistDao,
     val nowPlayingManager: NowPlayingManager,
     val downloadManager: DownloadManager,
-    private val downloadDao: DownloadDao
+    private val downloadDao: DownloadDao,
+    private val userPreferencesRepository: UserPreferencesRepository
 ) : ViewModel() {
     private val allThemes: StateFlow<List<ThemeEntity>> = themeDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -68,12 +70,14 @@ class HomeViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val quickPicks: StateFlow<List<ThemeEntity>> = themes.map { list ->
-        list.shuffled().take(6)
+    val quickPicks: StateFlow<List<ThemeEntity>> = combine(themes, userPreferencesRepository.observeLikedThemeIds()) { list, likedIds ->
+        // Favor liked songs: add a weight so they have a higher chance to appear
+        list.sortedByDescending { (if (it.id in likedIds) 2.0 else 0.0) + Math.random() }.take(6)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val topSongs: StateFlow<List<ThemeEntity>> = themes.map { list ->
-        list.shuffled().take(10)
+    val topSongs: StateFlow<List<ThemeEntity>> = combine(themes, userPreferencesRepository.observeLikedThemeIds()) { list, likedIds ->
+        // Favor liked songs
+        list.sortedByDescending { (if (it.id in likedIds) 2.0 else 0.0) + Math.random() }.take(10)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun selectChip(chip: String?) {
@@ -115,6 +119,22 @@ class HomeViewModel @Inject constructor(
     val downloadingThemeIds: StateFlow<Set<Long>> = downloadDao.observeDownloadingThemeIds()
         .map { it.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val likedThemeIds: StateFlow<Set<Long>> = userPreferencesRepository.observeLikedThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val dislikedThemeIds: StateFlow<Set<Long>> = userPreferencesRepository.observeDislikedThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    fun toggleLike(themeId: Long) {
+        viewModelScope.launch { userPreferencesRepository.toggleLike(themeId) }
+    }
+
+    fun toggleDislike(themeId: Long) {
+        viewModelScope.launch { userPreferencesRepository.toggleDislike(themeId) }
+    }
 
     fun downloadSong(theme: ThemeEntity) {
         val animeEntry = theme.animeId?.let { id -> buildAnimeMap()[id] }
