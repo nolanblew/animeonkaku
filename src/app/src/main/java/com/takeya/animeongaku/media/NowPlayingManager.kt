@@ -250,6 +250,126 @@ class NowPlayingManager @Inject constructor() {
     }
 
     /**
+     * Move an item from one index to another in the queue.
+     */
+    fun moveItem(fromIndex: Int, toIndex: Int) {
+        val current = _state.value
+        if (fromIndex < 0 || fromIndex >= current.nowPlaying.size) return
+        if (toIndex < 0 || toIndex >= current.nowPlaying.size) return
+        if (fromIndex == toIndex) return
+
+        val updated = current.nowPlaying.toMutableList()
+        val item = updated.removeAt(fromIndex)
+        updated.add(toIndex, item)
+
+        // Adjust currentIndex
+        var newCurrentIndex = current.currentIndex
+        if (fromIndex == current.currentIndex) {
+            newCurrentIndex = toIndex
+        } else if (fromIndex < current.currentIndex && toIndex >= current.currentIndex) {
+            newCurrentIndex--
+        } else if (fromIndex > current.currentIndex && toIndex <= current.currentIndex) {
+            newCurrentIndex++
+        }
+
+        // Adjust playedIndices - simple approach: if we reorder, played indices might shift.
+        // It's safer to just clear unskipped and update the version map.
+        // For playedIndices, it's mostly used for shuffling, we can update it if needed.
+        val newPlayedIndices = mutableSetOf<Int>()
+        for (idx in current.playedIndices) {
+            var newIdx = idx
+            if (idx == fromIndex) {
+                newIdx = toIndex
+            } else if (idx > fromIndex && idx <= toIndex) {
+                newIdx--
+            } else if (idx < fromIndex && idx >= toIndex) {
+                newIdx++
+            }
+            newPlayedIndices.add(newIdx)
+        }
+
+        val newUnskippedIndices = mutableSetOf<Int>()
+        for (idx in current.unskippedIndices) {
+            var newIdx = idx
+            if (idx == fromIndex) {
+                newIdx = toIndex
+            } else if (idx > fromIndex && idx <= toIndex) {
+                newIdx--
+            } else if (idx < fromIndex && idx >= toIndex) {
+                newIdx++
+            }
+            newUnskippedIndices.add(newIdx)
+        }
+
+        _state.value = current.copy(
+            nowPlaying = updated,
+            currentIndex = newCurrentIndex,
+            playedIndices = newPlayedIndices,
+            unskippedIndices = newUnskippedIndices,
+            queueVersion = current.queueVersion + 1,
+            isFullReload = true
+        )
+    }
+
+    /**
+     * Remove an item from the queue at the specified index.
+     */
+    fun removeFromQueue(index: Int) {
+        val current = _state.value
+        if (index < 0 || index >= current.nowPlaying.size) return
+        
+        // Cannot remove the currently playing item this way
+        if (index == current.currentIndex) {
+            // Ideally we'd skip to next then remove, but for now just don't allow it
+            return
+        }
+
+        val updated = current.nowPlaying.toMutableList()
+        updated.removeAt(index)
+
+        var newCurrentIndex = current.currentIndex
+        if (index < current.currentIndex) {
+            newCurrentIndex--
+        }
+
+        val newPlayedIndices = mutableSetOf<Int>()
+        for (idx in current.playedIndices) {
+            if (idx == index) continue
+            val newIdx = if (idx > index) idx - 1 else idx
+            newPlayedIndices.add(newIdx)
+        }
+
+        val newUnskippedIndices = mutableSetOf<Int>()
+        for (idx in current.unskippedIndices) {
+            if (idx == index) continue
+            val newIdx = if (idx > index) idx - 1 else idx
+            newUnskippedIndices.add(newIdx)
+        }
+
+        _state.value = current.copy(
+            nowPlaying = updated,
+            currentIndex = newCurrentIndex,
+            playedIndices = newPlayedIndices,
+            unskippedIndices = newUnskippedIndices,
+            queueVersion = current.queueVersion + 1,
+            isFullReload = true
+        )
+    }
+
+    /**
+     * Moves an item to be the next song to play.
+     */
+    fun moveToPlayNext(index: Int) {
+        val current = _state.value
+        if (index < 0 || index >= current.nowPlaying.size) return
+        if (index == current.currentIndex) return
+
+        val targetIndex = if (index > current.currentIndex) current.currentIndex + 1 else current.currentIndex
+
+        moveItem(index, targetIndex)
+    }
+
+    /**
      * Rewind to a previously played track from history.
      */
     fun rewindTo(historyIndex: Int) {

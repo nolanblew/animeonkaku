@@ -72,6 +72,7 @@ data class ActionSheetConfig(
     val isLiked: Boolean = false,
     val showRemoveDislike: Boolean = false,
     val showUnskip: Boolean = false,
+    val showRemoveFromQueue: Boolean = false,
     val artistName: String? = null,
     val animeName: String? = null
 )
@@ -92,7 +93,8 @@ fun ActionSheet(
     onRemoveDownload: () -> Unit = {},
     onLike: () -> Unit = {},
     onRemoveDislike: () -> Unit = {},
-    onUnskip: () -> Unit = {}
+    onUnskip: () -> Unit = {},
+    onRemoveFromQueue: () -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -224,6 +226,13 @@ fun ActionSheet(
                     icon = { Icon(Icons.AutoMirrored.Rounded.PlaylistPlay, contentDescription = null, tint = Mist100) },
                     label = "Replace queue",
                     onClick = { onReplaceQueue(); onDismiss() }
+                )
+            }
+            if (config.showRemoveFromQueue) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.Close, contentDescription = null, tint = Mist100) },
+                    label = "Remove from queue",
+                    onClick = { onRemoveFromQueue(); onDismiss() }
                 )
             }
             if (config.showAddToLibrary) {

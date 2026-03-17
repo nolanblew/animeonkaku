@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -52,6 +53,9 @@ import com.takeya.animeongaku.ui.common.MarqueeText
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
 import com.takeya.animeongaku.ui.common.displayInfo
+import com.takeya.animeongaku.ui.common.dragDropItem
+import com.takeya.animeongaku.ui.common.dragHandle
+import com.takeya.animeongaku.ui.common.rememberDragDropState
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
 import com.takeya.animeongaku.ui.theme.Ink900
@@ -108,9 +112,22 @@ private fun UpNextContent(
     // We'll use the history size as the scroll target
     val listState = rememberLazyListState()
 
+    val dragDropState = rememberDragDropState(listState) { fromKey, toKey ->
+        val fromQueueIdx = npState.nowPlaying.indexOfFirst { System.identityHashCode(it) == fromKey }
+        val toQueueIdx = npState.nowPlaying.indexOfFirst { System.identityHashCode(it) == toKey }
+        
+        // Only allow moving items that are in the upcoming tracks section
+        if (fromQueueIdx > npState.currentIndex && toQueueIdx > npState.currentIndex) {
+            nowPlayingManager.moveItem(fromQueueIdx, toQueueIdx)
+            true
+        } else {
+            false
+        }
+    }
+
     LaunchedEffect(history.size) {
         // Auto-scroll to keep current track visible
-        if (history.isNotEmpty()) {
+        if (history.isNotEmpty() && dragDropState.draggingItemKey == null) {
             listState.animateScrollToItem(history.size)
         }
     }
@@ -156,20 +173,26 @@ private fun UpNextContent(
 
         Spacer(modifier = Modifier.height(8.dp))
         
-        var selectedDislikedTheme by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Pair<Int, ThemeEntity>?>(null) }
-        selectedDislikedTheme?.let { (npIdx, t) ->
+        var selectedActionTheme by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Pair<Int, ThemeEntity>?>(null) }
+        selectedActionTheme?.let { (npIdx, t) ->
+            val isDisliked = t.id in dislikedThemeIds
             ActionSheet(
                 config = ActionSheetConfig(
-                    title = "Skipping because disliked",
-                    subtitle = "This song was skipped. You can unskip to play it.",
-                    isSkippedContext = true,
-                    showPlayNext = false, showAddToQueue = false, showReplaceQueue = false, showSaveToPlaylist = false,
-                    showRemoveDislike = true,
-                    showUnskip = true
+                    title = t.title,
+                    subtitle = npState.animeMap[t.animeId]?.title ?: "Unknown Anime",
+                    imageUrl = npState.animeMap[t.animeId]?.let { it.coverUrl ?: it.thumbnailUrl },
+                    isSkippedContext = isDisliked,
+                    showPlayNext = npIdx != npState.currentIndex,
+                    showAddToQueue = false, showReplaceQueue = false, showSaveToPlaylist = false,
+                    showRemoveFromQueue = npIdx != npState.currentIndex,
+                    showRemoveDislike = isDisliked,
+                    showUnskip = isDisliked
                 ),
-                onDismiss = { selectedDislikedTheme = null },
-                onUnskip = { nowPlayingManager.unskip(npIdx); selectedDislikedTheme = null },
-                onRemoveDislike = { viewModel.toggleDislike(t.id); selectedDislikedTheme = null }
+                onDismiss = { selectedActionTheme = null },
+                onPlayNext = { nowPlayingManager.moveToPlayNext(npIdx) },
+                onRemoveFromQueue = { nowPlayingManager.removeFromQueue(npIdx) },
+                onUnskip = { nowPlayingManager.unskip(npIdx) },
+                onRemoveDislike = { viewModel.toggleDislike(t.id) }
             )
         }
 
@@ -184,13 +207,19 @@ private fun UpNextContent(
                         text = "Previously played",
                         style = MaterialTheme.typography.labelMedium,
                         color = Mist200.copy(alpha = 0.6f),
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
                     )
                 }
-                itemsIndexed(history) { index, theme ->
+                itemsIndexed(
+                    items = history,
+                    key = { _, theme -> System.identityHashCode(theme) }
+                ) { index, theme ->
+                    val queueIdx = index
                     val anime = theme.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline && theme.id !in downloadedThemeIds
                     val isDisliked = theme.id in dislikedThemeIds
+                    val key = System.identityHashCode(theme)
+                    val isDragging = dragDropState.draggingItemKey == key
                     QueueTrackRow(
                         theme = theme,
                         anime = anime,
@@ -199,7 +228,10 @@ private fun UpNextContent(
                         isUnavailable = isUnavailable,
                         isDisliked = isDisliked,
                         onClick = { if (!isUnavailable) nowPlayingManager.rewindTo(index) },
-                        onLongClick = if (isDisliked) { { selectedDislikedTheme = index to theme } } else null
+                        onLongClick = { selectedActionTheme = queueIdx to theme },
+                        modifier = Modifier
+                            .then(if (isDragging) Modifier else Modifier.animateItem())
+                            .dragDropItem(dragDropState, key)
                     )
                 }
                 item {
@@ -210,9 +242,9 @@ private fun UpNextContent(
                 }
             }
 
-            // Current track
             if (currentTheme != null) {
-                item {
+                item(key = System.identityHashCode(currentTheme)) {
+                    val key = System.identityHashCode(currentTheme)
                     val anime = currentTheme.animeId?.let { npState.animeMap[it] }
                     QueueTrackRow(
                         theme = currentTheme,
@@ -221,50 +253,56 @@ private fun UpNextContent(
                         isCurrent = true,
                         isDisliked = currentTheme.id in dislikedThemeIds,
                         onClick = { },
-                        onLongClick = null
+                        onLongClick = { selectedActionTheme = npState.currentIndex to currentTheme },
+                        modifier = Modifier.dragDropItem(dragDropState, key)
                     )
                 }
             }
 
-            // Split upcoming into regular and suggested
+            // Up next / Autoplay sections
             val suggestedSet = npState.suggestedItems.toSet()
-            val regularUpcoming = upcoming.filter { it !in suggestedSet }
-            val suggestedUpcoming = upcoming.filter { it in suggestedSet }
+            val firstSuggestedIdx = upcoming.indexOfFirst { it in suggestedSet }
+            val upNextCount = if (firstSuggestedIdx == -1) upcoming.size else firstSuggestedIdx
 
-            // Up next section (user-chosen queue items)
-            if (regularUpcoming.isNotEmpty()) {
+            if (upNextCount > 0) {
                 item {
                     Text(
                         text = "Up next",
                         style = MaterialTheme.typography.labelMedium,
                         color = Mist200,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
                     )
                 }
-                // We need the original upcoming index for skipTo
-                val regularIndices = upcoming.indices.filter { upcoming[it] !in suggestedSet }
-                regularIndices.forEachIndexed { _, upcomingIdx ->
-                    val theme = upcoming[upcomingIdx]
+                items(
+                    count = upNextCount,
+                    key = { System.identityHashCode(upcoming[it]) }
+                ) { idx ->
+                    val theme = upcoming[idx]
+                    val queueIdx = npState.currentIndex + 1 + idx
                     val anime = theme.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline && theme.id !in downloadedThemeIds
                     val isDisliked = theme.id in dislikedThemeIds
-                    item {
-                        QueueTrackRow(
-                            theme = theme,
-                            anime = anime,
-                            isHistory = false,
-                            isCurrent = false,
-                            isUnavailable = isUnavailable,
-                            isDisliked = isDisliked,
-                            onClick = { if (!isUnavailable) nowPlayingManager.skipTo(npState.currentIndex + 1 + upcomingIdx) },
-                            onLongClick = if (isDisliked) { { selectedDislikedTheme = (npState.currentIndex + 1 + upcomingIdx) to theme } } else null
-                        )
-                    }
+                    val key = System.identityHashCode(theme)
+                    val isDragging = dragDropState.draggingItemKey == key
+                    QueueTrackRow(
+                        theme = theme,
+                        anime = anime,
+                        isHistory = false,
+                        isCurrent = false,
+                        isSuggested = false,
+                        isUnavailable = isUnavailable,
+                        isDisliked = isDisliked,
+                        onClick = { if (!isUnavailable) nowPlayingManager.skipTo(queueIdx) },
+                        onLongClick = { selectedActionTheme = queueIdx to theme },
+                        modifier = Modifier
+                            .then(if (isDragging) Modifier else Modifier.animateItem())
+                            .dragDropItem(dragDropState, key),
+                        dragModifier = Modifier.dragHandle(dragDropState, key)
+                    )
                 }
             }
 
-            // Autoplay / suggested section
-            if (suggestedUpcoming.isNotEmpty()) {
+            if (firstSuggestedIdx != -1) {
                 item {
                     Text(
                         text = "Autoplay",
@@ -273,51 +311,33 @@ private fun UpNextContent(
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
                     )
                 }
-                val suggestedIndices = upcoming.indices.filter { upcoming[it] in suggestedSet }
-                suggestedIndices.forEachIndexed { _, upcomingIdx ->
-                    val theme = upcoming[upcomingIdx]
+                val autoplayCount = upcoming.size - firstSuggestedIdx
+                items(
+                    count = autoplayCount,
+                    key = { System.identityHashCode(upcoming[firstSuggestedIdx + it]) }
+                ) { offset ->
+                    val idx = firstSuggestedIdx + offset
+                    val theme = upcoming[idx]
+                    val queueIdx = npState.currentIndex + 1 + idx
                     val anime = theme.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline && theme.id !in downloadedThemeIds
                     val isDisliked = theme.id in dislikedThemeIds
-                    item {
-                        QueueTrackRow(
-                            theme = theme,
-                            anime = anime,
-                            isHistory = false,
-                            isCurrent = false,
-                            isSuggested = true,
-                            isUnavailable = isUnavailable,
-                            isDisliked = isDisliked,
-                            onClick = { if (!isUnavailable) nowPlayingManager.skipTo(npState.currentIndex + 1 + upcomingIdx) },
-                            onLongClick = if (isDisliked) { { selectedDislikedTheme = (npState.currentIndex + 1 + upcomingIdx) to theme } } else null
-                        )
-                    }
-                }
-            }
-
-            // Fallback: if no suggested items, show regular "Up next" for all
-            if (upcoming.isNotEmpty() && regularUpcoming.isEmpty() && suggestedUpcoming.isEmpty()) {
-                item {
-                    Text(
-                        text = "Up next",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Mist200,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
-                    )
-                }
-                itemsIndexed(upcoming) { index, theme ->
-                    val anime = theme.animeId?.let { npState.animeMap[it] }
-                    val isUnavailable = isOffline && theme.id !in downloadedThemeIds
-                    val isDisliked = theme.id in dislikedThemeIds
+                    val key = System.identityHashCode(theme)
+                    val isDragging = dragDropState.draggingItemKey == key
                     QueueTrackRow(
                         theme = theme,
                         anime = anime,
                         isHistory = false,
                         isCurrent = false,
+                        isSuggested = theme in suggestedSet,
                         isUnavailable = isUnavailable,
                         isDisliked = isDisliked,
-                        onClick = { if (!isUnavailable) nowPlayingManager.skipTo(npState.currentIndex + 1 + index) },
-                        onLongClick = if (isDisliked) { { selectedDislikedTheme = (npState.currentIndex + 1 + index) to theme } } else null
+                        onClick = { if (!isUnavailable) nowPlayingManager.skipTo(queueIdx) },
+                        onLongClick = { selectedActionTheme = queueIdx to theme },
+                        modifier = Modifier
+                            .then(if (isDragging) Modifier else Modifier.animateItem())
+                            .dragDropItem(dragDropState, key),
+                        dragModifier = Modifier.dragHandle(dragDropState, key)
                     )
                 }
             }
@@ -339,7 +359,9 @@ private fun QueueTrackRow(
     isUnavailable: Boolean = false,
     isDisliked: Boolean = false,
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null
+    onLongClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    dragModifier: Modifier = Modifier
 ) {
     val info = theme.displayInfo(anime)
     val imageUrl = anime?.coverUrl ?: anime?.thumbnailUrl
@@ -352,7 +374,7 @@ private fun QueueTrackRow(
     }
 
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .alpha(alpha)
             .let { if (isCurrent) it.background(Rose500.copy(alpha = 0.08f)) else it }
@@ -362,7 +384,7 @@ private fun QueueTrackRow(
                     onLongPress = { onLongClick?.invoke() }
                 )
             }
-            .padding(horizontal = 20.dp, vertical = 6.dp),
+            .padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (isCurrent) {
@@ -370,15 +392,15 @@ private fun QueueTrackRow(
                 Icons.Rounded.GraphicEq,
                 contentDescription = "Now playing",
                 tint = Rose500,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(24.dp)
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(12.dp))
         }
 
         Box(
             modifier = Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(6.dp))
+                .size(48.dp)
+                .clip(RoundedCornerShape(8.dp))
                 .background(Ink800)
         ) {
             if (!imageUrl.isNullOrBlank()) {
@@ -408,6 +430,21 @@ private fun QueueTrackRow(
         if (isDisliked) {
             Spacer(modifier = Modifier.width(8.dp))
             Icon(Icons.Rounded.Block, contentDescription = "Skipped", tint = Mist200, modifier = Modifier.size(16.dp))
+        }
+
+        if (dragModifier != Modifier) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Box(
+                modifier = dragModifier.size(48.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Rounded.DragHandle,
+                    contentDescription = "Reorder",
+                    tint = Mist200,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
     }
 }

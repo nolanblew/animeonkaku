@@ -72,12 +72,18 @@ class HomeViewModel @Inject constructor(
 
     val quickPicks: StateFlow<List<ThemeEntity>> = combine(themes, userPreferencesRepository.observeLikedThemeIds()) { list, likedIds ->
         // Favor liked songs: add a weight so they have a higher chance to appear
-        list.sortedByDescending { (if (it.id in likedIds) 2.0 else 0.0) + Math.random() }.take(6)
+        list.map { it to ((if (it.id in likedIds) 2.0 else 0.0) + Math.random()) }
+            .sortedByDescending { it.second }
+            .map { it.first }
+            .take(6)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val topSongs: StateFlow<List<ThemeEntity>> = combine(themes, userPreferencesRepository.observeLikedThemeIds()) { list, likedIds ->
         // Favor liked songs
-        list.sortedByDescending { (if (it.id in likedIds) 2.0 else 0.0) + Math.random() }.take(10)
+        list.map { it to ((if (it.id in likedIds) 2.0 else 0.0) + Math.random()) }
+            .sortedByDescending { it.second }
+            .map { it.first }
+            .take(10)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun selectChip(chip: String?) {
