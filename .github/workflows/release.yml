@@ -32,7 +32,8 @@ jobs:
         cache: gradle
 
     - name: Grant execute permission for gradlew
-      run: chmod +x src/gradlew
+      run: chmod +x gradlew
+      working-directory: ./src
 
     - name: Setup Kotlin script runner
       run: sudo apt-get install -y kotlin

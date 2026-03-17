@@ -1,4 +1,4 @@
-name: PR Build
+name: Build and Test PR
 
 on:
   pull_request:
@@ -19,7 +19,7 @@ jobs:
         cache: gradle
 
     - name: Grant execute permission for gradlew
-      run: chmod +x src/gradlew
+      run: chmod +x gradlew
       working-directory: ./src
 
     - name: Build Debug APK
