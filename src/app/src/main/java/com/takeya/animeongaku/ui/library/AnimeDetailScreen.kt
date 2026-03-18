@@ -85,6 +85,7 @@ fun AnimeDetailScreen(
     val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
     val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
     val coverUrl = anime?.coverUrl ?: anime?.thumbnailUrl
+    val posterUrl = anime?.thumbnailUrl ?: anime?.coverUrl
 
     var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }
     var showAnimeSheet by remember { mutableStateOf(false) }
@@ -99,7 +100,7 @@ fun AnimeDetailScreen(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = coverUrl,
+                imageUrl = posterUrl,
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
                 showAddToLibrary = !songInLibrary,
@@ -343,7 +344,7 @@ fun AnimeDetailScreen(
                 itemsIndexed(themes) { index, theme ->
                     ThemeRow(
                         theme = theme,
-                        coverUrl = coverUrl,
+                        coverUrl = posterUrl,
                         inLibrary = theme.id in libraryThemeIds,
                         isDownloaded = theme.id in downloadedThemeIds,
                         isDownloading = theme.id in downloadingThemeIds,

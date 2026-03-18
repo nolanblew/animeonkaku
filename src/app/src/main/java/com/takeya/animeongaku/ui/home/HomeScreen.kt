@@ -92,7 +92,7 @@ fun HomeScreen(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.coverUrl ?: sheetAnime?.thumbnailUrl,
+                imageUrl = sheetAnime?.thumbnailUrl ?: sheetAnime?.coverUrl,
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 showGoToAnime = sheetAnime?.kitsuId != null,
                 showDownload = !isDownloaded && !isDownloading,
@@ -187,7 +187,7 @@ fun HomeScreen(
             } else {
                 items(quickPicks) { theme ->
                     val animeEntry = animeByThemesId[theme.animeId]
-                    val imageUrl = animeEntry?.coverUrl ?: animeEntry?.thumbnailUrl
+                    val imageUrl = animeEntry?.thumbnailUrl ?: animeEntry?.coverUrl
                     QuickPickRow(
                         theme = theme, anime = animeEntry, imageUrl = imageUrl,
                         onPlay = {
@@ -242,7 +242,7 @@ fun HomeScreen(
             } else {
                 items(topSongs) { theme ->
                     val animeEntry = animeByThemesId[theme.animeId]
-                    val imageUrl = animeEntry?.coverUrl ?: animeEntry?.thumbnailUrl
+                    val imageUrl = animeEntry?.thumbnailUrl ?: animeEntry?.coverUrl
                     QuickPickRow(
                         theme = theme, anime = animeEntry, imageUrl = imageUrl,
                         onPlay = {

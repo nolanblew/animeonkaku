@@ -140,7 +140,7 @@ fun PlayerScreen(
             }
             ActionSheet(
                 config = ActionSheetConfig(
-                    title = info.primaryText, subtitle = info.secondaryText, imageUrl = animeEntity?.coverUrl ?: animeEntity?.thumbnailUrl,
+                    title = info.primaryText, subtitle = info.secondaryText, imageUrl = animeEntity?.thumbnailUrl ?: animeEntity?.coverUrl,
                     showPlayNext = false, showAddToQueue = false, showReplaceQueue = false, showSaveToPlaylist = true,
                     showAddToLibrary = !songInLibrary,
                     showGoToArtist = !theme.artistName.isNullOrBlank(),
@@ -167,7 +167,7 @@ fun PlayerScreen(
 
     val currentTheme = npState.currentTheme
     val animeEntity = currentTheme?.animeId?.let { npState.animeMap[it] }
-    val artUrl = animeEntity?.coverUrl ?: animeEntity?.thumbnailUrl
+    val backgroundArtUrl = animeEntity?.coverUrl ?: animeEntity?.thumbnailUrl
     val trackInfo = currentTheme?.displayInfo(animeEntity)
     val title = trackInfo?.primaryText ?: "Select a song"
     val artist = trackInfo?.secondaryText ?: "Choose a track from your library"
@@ -219,7 +219,7 @@ fun PlayerScreen(
                 .then(if (progress < 0.5f) { Modifier.border(0.5.dp, Mist200.copy(alpha = 0.15f), RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)).clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)) } else Modifier)
         ) {
             if (isExpandedThreshold) {
-                PlayerBackgroundArt(artUrl)
+                PlayerBackgroundArt(backgroundArtUrl)
                 BackdropGlow()
             }
         }
@@ -307,7 +307,7 @@ fun PlayerScreen(
             ) { page ->
                 val theme = playableQueue.getOrNull(page)?.second
                 val anime = theme?.animeId?.let { npState.animeMap[it] }
-                val pageArtUrl = anime?.coverUrl ?: anime?.thumbnailUrl
+                val pageArtUrl = anime?.thumbnailUrl ?: anime?.coverUrl
                 val pageTitle = theme?.displayInfo(anime)?.primaryText ?: title
                 if (!pageArtUrl.isNullOrBlank()) {
                     AsyncImage(model = pageArtUrl, contentDescription = pageTitle, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
