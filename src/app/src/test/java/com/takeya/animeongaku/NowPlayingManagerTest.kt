@@ -70,7 +70,7 @@ class NowPlayingManagerTest {
     fun `play clears history and queue metadata`() {
         val themes = listOf(theme(1), theme(2))
         manager.play("ctx", themes)
-        manager.onTrackChanged(1)
+        manager.onTrackChangedByThemeId(2L)
         manager.play("ctx2", listOf(theme(3)))
         val state = manager.state.value
         assertTrue(state.history.isEmpty())
@@ -217,19 +217,19 @@ class NowPlayingManagerTest {
         assertEquals(a2, map[2L])
     }
 
-    // ─── onTrackChanged() ─────────────────────────────────────────────────────
+    // ─── onTrackChangedByThemeId() ──────────────────────────────────────────────────
 
     @Test
     fun `onTrackChanged updates currentIndex`() {
         manager.play("ctx", listOf(theme(1), theme(2), theme(3)))
-        manager.onTrackChanged(2)
+        manager.onTrackChangedByThemeId(3L)
         assertEquals(2, manager.state.value.currentIndex)
     }
 
     @Test
     fun `onTrackChanged moving forward adds skipped tracks to history`() {
         manager.play("ctx", listOf(theme(1), theme(2), theme(3)))
-        manager.onTrackChanged(2)
+        manager.onTrackChangedByThemeId(3L)
         val history = manager.state.value.history
         assertEquals(listOf(1L, 2L), history.map { it.id })
     }
@@ -237,14 +237,14 @@ class NowPlayingManagerTest {
     @Test
     fun `onTrackChanged to same index does not change history`() {
         manager.play("ctx", listOf(theme(1), theme(2)))
-        manager.onTrackChanged(0)
+        manager.onTrackChangedByThemeId(1L)
         assertTrue(manager.state.value.history.isEmpty())
     }
 
     @Test
     fun `onTrackChanged out of bounds is ignored`() {
         manager.play("ctx", listOf(theme(1), theme(2)))
-        manager.onTrackChanged(99)
+        manager.onTrackChangedByThemeId(99L)
         assertEquals(0, manager.state.value.currentIndex)
     }
 
@@ -252,7 +252,7 @@ class NowPlayingManagerTest {
     fun `onTrackChanged does not bump queueVersion`() {
         manager.play("ctx", listOf(theme(1), theme(2)))
         val versionAfterPlay = manager.state.value.queueVersion
-        manager.onTrackChanged(1)
+        manager.onTrackChangedByThemeId(2L)
         assertEquals(versionAfterPlay, manager.state.value.queueVersion)
     }
 
@@ -295,7 +295,7 @@ class NowPlayingManagerTest {
     @Test
     fun `rewindTo restores track from history to front of queue`() {
         manager.play("ctx", listOf(theme(1), theme(2), theme(3)))
-        manager.onTrackChanged(2) // history = [1, 2], current = 3
+        manager.onTrackChangedByThemeId(3L) // history = [1, 2], current = 3
         manager.rewindTo(0) // rewind to track 1
         val state = manager.state.value
         assertEquals(1L, state.currentTheme?.id)
@@ -312,7 +312,7 @@ class NowPlayingManagerTest {
     @Test
     fun `rewindTo marks isFullReload true`() {
         manager.play("ctx", listOf(theme(1), theme(2), theme(3)))
-        manager.onTrackChanged(2)
+        manager.onTrackChangedByThemeId(3L)
         manager.rewindTo(0)
         assertTrue(manager.state.value.isFullReload)
     }
@@ -320,7 +320,7 @@ class NowPlayingManagerTest {
     @Test
     fun `rewindTo preserves upcoming tracks after current`() {
         manager.play("ctx", listOf(theme(1), theme(2), theme(3)))
-        manager.onTrackChanged(1) // history=[1], current=2, upcoming=[3]
+        manager.onTrackChangedByThemeId(2L) // history=[1], current=2, upcoming=[3]
         manager.rewindTo(0) // rewind to 1; new queue should be [1, 2, 3]
         val state = manager.state.value
         val ids = state.nowPlaying.map { it.id }

@@ -61,6 +61,7 @@ fun HomeScreen(
     onOpenPlaylist: (Long) -> Unit = {},
     onOpenAnime: (String) -> Unit = {},
     onOpenArtist: (String) -> Unit = {},
+    onNavigateToLibrary: (String) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val themes by viewModel.themes.collectAsStateWithLifecycle()
@@ -156,7 +157,21 @@ fun HomeScreen(
             }
 
             item {
-                SectionHeader(title = "Quick picks", action = "Play all")
+                SectionHeader(
+                    title = "Quick picks", 
+                    action = "Play all",
+                    onActionClick = { 
+                        if (quickPicks.isNotEmpty()) {
+                            viewModel.nowPlayingManager.play(
+                                "Quick Picks", 
+                                quickPicks, 
+                                0, 
+                                animeMap = viewModel.anime.value.associateBy { it.animeThemesId ?: -1 }
+                            )
+                            onPlayTheme()
+                        }
+                    }
+                )
             }
 
             if (quickPicks.isEmpty()) {
@@ -185,7 +200,11 @@ fun HomeScreen(
             }
 
             item {
-                SectionHeader(title = "Your playlists", action = "See all")
+                SectionHeader(
+                    title = "Your playlists", 
+                    action = "See all",
+                    onActionClick = { onNavigateToLibrary("playlists") }
+                )
             }
 
             if (playlists.isEmpty()) {
@@ -203,7 +222,11 @@ fun HomeScreen(
             }
 
             item {
-                SectionHeader(title = "Top songs", action = "See all")
+                SectionHeader(
+                    title = "Top songs", 
+                    action = "See all",
+                    onActionClick = { onNavigateToLibrary("songs") }
+                )
             }
 
             if (topSongs.isEmpty()) {
@@ -274,14 +297,22 @@ private fun ChipRow(
 }
 
 @Composable
-private fun SectionHeader(title: String, action: String) {
+private fun SectionHeader(title: String, action: String, onActionClick: () -> Unit = {}) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.Bottom
     ) {
         Text(text = title, style = MaterialTheme.typography.titleLarge, color = Mist100)
-        Text(text = action, style = MaterialTheme.typography.labelMedium, color = Mist200)
+        Text(
+            text = action, 
+            style = MaterialTheme.typography.labelMedium, 
+            color = Mist200,
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .clickable { onActionClick() }
+                .padding(4.dp)
+        )
     }
 }
 
@@ -291,16 +322,24 @@ private fun FeaturedPlaylistRow(
     coverUrlsMap: Map<Long, List<String>>,
     onOpenPlaylist: (Long) -> Unit
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        playlists.forEach { item ->
-            FeaturedPlaylistCard(
-                title = item.playlist.name,
-                subtitle = "${item.trackCount} tracks",
-                coverUrls = coverUrlsMap[item.playlist.id] ?: emptyList(),
-                gradientSeed = item.playlist.gradientSeed,
-                isAutoPlaylist = item.playlist.isAuto,
-                onClick = { onOpenPlaylist(item.playlist.id) }
-            )
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        playlists.chunked(2).forEach { rowPlaylists ->
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                rowPlaylists.forEach { item ->
+                    FeaturedPlaylistCard(
+                        title = item.playlist.name,
+                        subtitle = "${item.trackCount} tracks",
+                        coverUrls = coverUrlsMap[item.playlist.id] ?: emptyList(),
+                        gradientSeed = item.playlist.gradientSeed,
+                        isAutoPlaylist = item.playlist.isAuto,
+                        onClick = { onOpenPlaylist(item.playlist.id) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (rowPlaylists.size == 1) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
         }
     }
 }
@@ -312,11 +351,11 @@ private fun FeaturedPlaylistCard(
     coverUrls: List<String>,
     gradientSeed: Int,
     isAutoPlaylist: Boolean = false,
-    onClick: () -> Unit = {}
+    onClick: () -> Unit = {},
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier
-            .width(160.dp)
+        modifier = modifier
             .background(Ink800.copy(alpha = 0.6f), RoundedCornerShape(18.dp))
             .border(1.dp, Mist200.copy(alpha = 0.2f), RoundedCornerShape(18.dp))
             .clickable { onClick() }

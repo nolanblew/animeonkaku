@@ -168,6 +168,13 @@ fun AnimeOngakuApp(
                         },
                         onOpenArtist = { artistName ->
                             navController.navigate("${Routes.ArtistDetail}/${android.net.Uri.encode(artistName)}")
+                        },
+                        onNavigateToLibrary = { tab ->
+                            navController.navigate("${Routes.Library}?tab=$tab") {
+                                popUpTo(Routes.Home) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
                         }
                     )
                 }

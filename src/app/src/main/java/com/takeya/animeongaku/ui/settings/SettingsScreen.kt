@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.takeya.animeongaku.BuildConfig
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
 import com.takeya.animeongaku.ui.theme.Ink900
@@ -145,7 +146,7 @@ fun SettingsScreen(
                             fontWeight = FontWeight.Medium
                         )
                         Text(
-                            "Version 1.0",
+                            "Version ${BuildConfig.DISPLAY_VERSION}",
                             style = MaterialTheme.typography.bodySmall,
                             color = Mist200
                         )
