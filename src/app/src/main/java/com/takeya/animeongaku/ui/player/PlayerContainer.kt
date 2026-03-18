@@ -29,10 +29,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -49,62 +50,57 @@ fun PlayerContainer(
 ) {
     if (!showMiniPlayer && !isExpanded) return
 
-    val config = LocalConfiguration.current
     val density = LocalDensity.current
-    val screenHeightPx = with(density) { config.screenHeightDp.dp.toPx() }
-    val miniPlayerHeightPx = with(density) { 64.dp.toPx() }
-    val bottomPaddingPx = with(density) { bottomPadding.toPx() }
-
-    val minOffset = 0f
-    val maxOffset = screenHeightPx - miniPlayerHeightPx - bottomPaddingPx
-
-    val offsetY = remember { Animatable(if (isExpanded) minOffset else maxOffset) }
-    val coroutineScope = rememberCoroutineScope()
-
-    LaunchedEffect(isExpanded, maxOffset) {
-        val target = if (isExpanded) minOffset else maxOffset
-        if (offsetY.targetValue != target) {
-            if (isExpanded || offsetY.value == offsetY.targetValue) {
-                // Animate if we are explicitly expanding/collapsing
-                // Or if we are just adjusting for bottom padding changes, we can snap
-                if (offsetY.value != minOffset && !isExpanded) {
-                    offsetY.snapTo(target)
-                } else {
-                    offsetY.animateTo(target)
-                }
-            } else {
-                 offsetY.animateTo(target)
-            }
-        }
-    }
-
-
-
-    val decay = splineBasedDecay<Float>(density)
-
-    val progress = if (maxOffset > minOffset) {
-        1f - ((offsetY.value - minOffset) / (maxOffset - minOffset)).coerceIn(0f, 1f)
-    } else 0f
 
     var swipeUpTrigger by remember { mutableStateOf(false) }
 
-    val draggableState = rememberDraggableState { delta ->
-        coroutineScope.launch {
-            if (offsetY.value <= minOffset && delta < -5f) {
-                // User is dragging up from the full screen player
-                swipeUpTrigger = true
-            } else {
-                offsetY.snapTo((offsetY.value + delta).coerceIn(minOffset, maxOffset))
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val screenHeightPx = constraints.maxHeight.toFloat()
+        val miniPlayerHeightPx = with(density) { 64.dp.toPx() }
+        val bottomPaddingPx = with(density) { bottomPadding.toPx() }
+
+        val minOffset = 0f
+        val maxOffset = screenHeightPx - miniPlayerHeightPx - bottomPaddingPx
+
+        val offsetY = remember { Animatable(if (isExpanded) minOffset else maxOffset) }
+        val coroutineScope = rememberCoroutineScope()
+
+        LaunchedEffect(isExpanded, maxOffset) {
+            val target = if (isExpanded) minOffset else maxOffset
+            if (offsetY.targetValue != target) {
+                if (isExpanded || offsetY.value == offsetY.targetValue) {
+                    if (offsetY.value != minOffset && !isExpanded) {
+                        offsetY.snapTo(target)
+                    } else {
+                        offsetY.animateTo(target)
+                    }
+                } else {
+                     offsetY.animateTo(target)
+                }
             }
         }
-    }
 
-    Box(modifier = modifier.fillMaxSize()) {
+        val decay = splineBasedDecay<Float>(density)
+
+        val progress = if (maxOffset > minOffset) {
+            1f - ((offsetY.value - minOffset) / (maxOffset - minOffset)).coerceIn(0f, 1f)
+        } else 0f
+
+        val draggableState = rememberDraggableState { delta ->
+            coroutineScope.launch {
+                if (offsetY.value <= minOffset && delta < -5f) {
+                    swipeUpTrigger = true
+                } else {
+                    offsetY.snapTo((offsetY.value + delta).coerceIn(minOffset, maxOffset))
+                }
+            }
+        }
+
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .height(config.screenHeightDp.dp)
+                .height(with(density) { constraints.maxHeight.toDp() })
                 .offset { IntOffset(0, offsetY.value.roundToInt()) }
                 .clip(
                     object : Shape {
