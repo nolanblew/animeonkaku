@@ -19,7 +19,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DownloadGroupThemeEntity::class,
         UserPreferenceEntity::class
     ],
-    version = 14,
+    version = 15,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -105,6 +105,12 @@ abstract class AppDatabase : RoomDatabase() {
                         PRIMARY KEY(`themeId`)
                     )"""
                 )
+            }
+        }
+
+        val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `anime` ADD COLUMN `watchingStatus` TEXT")
             }
         }
     }

@@ -186,7 +186,8 @@ class SyncManager @Inject constructor(
                 thumbnailUrl = entry.posterUrl ?: existing?.thumbnailUrl,
                 coverUrl = entry.coverUrl ?: existing?.coverUrl,
                 syncedAt = now,
-                isManuallyAdded = existing?.isManuallyAdded ?: false
+                isManuallyAdded = existing?.isManuallyAdded ?: false,
+                watchingStatus = entry.watchingStatus ?: existing?.watchingStatus
             )
         }
         animeDao.upsertAll(animeEntities)

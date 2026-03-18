@@ -53,18 +53,18 @@ class AutoPlaylistManager @Inject constructor(
     private suspend fun refreshCurrentlyWatching(userId: String) {
         Log.d(TAG, "Refreshing '$CURRENTLY_WATCHING_NAME' auto-playlist…")
 
-        val watchingEntries = userRepository.getCurrentlyWatchingEntries(userId)
+        val watchingEntries = animeDao.getByWatchingStatus("current")
         if (watchingEntries.isEmpty()) {
-            Log.d(TAG, "No currently watching entries found")
+            Log.d(TAG, "No currently watching entries found in local DB")
+            val existing = playlistDao.findAutoPlaylistByName(CURRENTLY_WATCHING_NAME)
+            if (existing != null) {
+                playlistDao.deletePlaylistEntries(existing.id)
+            }
             return
         }
 
         // Get Kitsu IDs of currently watching anime
-        val watchingKitsuIds = watchingEntries.map { it.id }.toSet()
-
-        // Find which of these are already in our local DB
-        val allLocalAnime = animeDao.getAllKitsuIds().toSet()
-        val localWatchingIds = watchingKitsuIds.intersect(allLocalAnime)
+        val localWatchingIds = watchingEntries.map { it.kitsuId }.toSet()
 
         if (localWatchingIds.isEmpty()) {
             Log.d(TAG, "None of the currently watching anime are in local DB yet")
