@@ -180,7 +180,7 @@ private fun UpNextContent(
                 config = ActionSheetConfig(
                     title = t.title,
                     subtitle = npState.animeMap[t.animeId]?.title ?: "Unknown Anime",
-                    imageUrl = npState.animeMap[t.animeId]?.let { it.coverUrl ?: it.thumbnailUrl },
+                    imageUrl = npState.animeMap[t.animeId]?.let { it.thumbnailUrl ?: it.coverUrl },
                     isSkippedContext = isDisliked,
                     showPlayNext = npIdx != npState.currentIndex,
                     showAddToQueue = false, showReplaceQueue = false, showSaveToPlaylist = false,
@@ -364,7 +364,7 @@ private fun QueueTrackRow(
     dragModifier: Modifier = Modifier
 ) {
     val info = theme.displayInfo(anime)
-    val imageUrl = anime?.coverUrl ?: anime?.thumbnailUrl
+    val imageUrl = anime?.thumbnailUrl ?: anime?.coverUrl
     val alpha = when {
         isUnavailable || isDisliked -> 0.3f
         isHistory -> 0.45f

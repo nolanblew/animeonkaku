@@ -700,7 +700,7 @@ private fun AnimeRow(entry: AnimeEntity) {
                 .size(44.dp)
                 .background(Color(0xFF2A2533), RoundedCornerShape(10.dp))
         ) {
-            val imageUrl = entry.coverUrl ?: entry.thumbnailUrl
+            val imageUrl = entry.thumbnailUrl ?: entry.coverUrl
             if (!imageUrl.isNullOrBlank()) {
                 AsyncImage(
                     model = imageUrl,

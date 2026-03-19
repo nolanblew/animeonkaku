@@ -453,7 +453,7 @@ data class PlaybackState(
 
 private fun ThemeEntity.toMediaItem(animeMap: Map<Long, AnimeEntity>): MediaItem {
     val anime = animeId?.let { animeMap[it] }
-    val artworkUrl = anime?.coverUrl ?: anime?.thumbnailUrl
+    val artworkUrl = anime?.thumbnailUrl ?: anime?.coverUrl
     val animeName = anime?.title
     val typeTag = themeType
 

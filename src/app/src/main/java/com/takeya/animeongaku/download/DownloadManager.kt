@@ -99,7 +99,7 @@ class DownloadManager @Inject constructor(
 
     fun downloadSong(theme: ThemeEntity, anime: AnimeEntity? = null) {
         scope.launch {
-            val imageUrl = anime?.coverUrl ?: anime?.thumbnailUrl
+            val imageUrl = anime?.thumbnailUrl ?: anime?.coverUrl
 
             // Create or find single group
             var group = downloadDao.findGroup(DownloadGroupEntity.TYPE_SINGLE, theme.id.toString())
@@ -131,7 +131,7 @@ class DownloadManager @Inject constructor(
             if (themes.isEmpty()) return@launch
 
             val label = anime.title ?: anime.titleEn ?: "Anime"
-            val imageUrl = anime.coverUrl ?: anime.thumbnailUrl
+            val imageUrl = anime.thumbnailUrl ?: anime.coverUrl
 
             // Create anime group
             var group = downloadDao.findGroup(DownloadGroupEntity.TYPE_ANIME, kitsuId)
@@ -193,7 +193,7 @@ class DownloadManager @Inject constructor(
 
             for ((i, theme) in themes.withIndex()) {
                 val anime = theme.animeId?.let { animeMap[it] }
-                val imageUrl = anime?.coverUrl ?: anime?.thumbnailUrl
+                val imageUrl = anime?.thumbnailUrl ?: anime?.coverUrl
                 enqueueDownload(theme, imageUrl)
                 if (i < themes.lastIndex) delay(BATCH_DELAY_MS)
             }

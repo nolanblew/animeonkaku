@@ -167,7 +167,7 @@ fun PlayerScreen(
 
     val currentTheme = npState.currentTheme
     val animeEntity = currentTheme?.animeId?.let { npState.animeMap[it] }
-    val backgroundArtUrl = animeEntity?.coverUrl ?: animeEntity?.thumbnailUrl
+    val backgroundArtUrl = animeEntity?.thumbnailUrl ?: animeEntity?.coverUrl
     val trackInfo = currentTheme?.displayInfo(animeEntity)
     val title = trackInfo?.primaryText ?: "Select a song"
     val artist = trackInfo?.secondaryText ?: "Choose a track from your library"

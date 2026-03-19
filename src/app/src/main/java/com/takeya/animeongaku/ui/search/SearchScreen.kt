@@ -122,7 +122,7 @@ fun SearchScreen(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.coverUrl ?: sheetAnime?.thumbnailUrl,
+                imageUrl = sheetAnime?.thumbnailUrl ?: sheetAnime?.coverUrl,
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 showGoToAnime = sheetAnime?.kitsuId != null,
                 showDownload = !isDownloaded && !isDownloading,
@@ -476,7 +476,7 @@ private fun LocalSongRow(
     onMore: () -> Unit
 ) {
     val info = theme.displayInfo(anime)
-    val imageUrl = anime?.coverUrl ?: anime?.thumbnailUrl
+    val imageUrl = anime?.thumbnailUrl ?: anime?.coverUrl
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -525,7 +525,7 @@ private fun LocalSongRow(
 
 @Composable
 private fun AnimeCard(anime: AnimeEntity, onClick: () -> Unit) {
-    val coverUrl = anime.coverUrl ?: anime.thumbnailUrl
+    val coverUrl = anime.thumbnailUrl ?: anime.coverUrl
     Column(
         modifier = Modifier
             .width(100.dp)

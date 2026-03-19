@@ -144,7 +144,7 @@ fun PlaylistDetailScreen(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.coverUrl ?: sheetAnime?.thumbnailUrl,
+                imageUrl = sheetAnime?.thumbnailUrl ?: sheetAnime?.coverUrl,
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 showGoToAnime = sheetAnime?.kitsuId != null,
                 showDownload = !isDownloaded && !isDownloading,
@@ -320,7 +320,7 @@ fun PlaylistDetailScreen(
             } else {
                 itemsIndexed(tracks) { _, track ->
                     val animeEntry = track.theme.animeId?.let { animeByThemesId[it] }
-                    val imageUrl = animeEntry?.coverUrl ?: animeEntry?.thumbnailUrl
+                    val imageUrl = animeEntry?.thumbnailUrl ?: animeEntry?.coverUrl
                     val info = track.theme.displayInfo(animeEntry)
                     val tdl = track.theme.id in downloadedThemeIds
                     val tding = track.theme.id in downloadingThemeIds

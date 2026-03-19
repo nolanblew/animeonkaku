@@ -109,7 +109,7 @@ fun ArtistDetailScreen(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.coverUrl ?: sheetAnime?.thumbnailUrl,
+                imageUrl = sheetAnime?.thumbnailUrl ?: sheetAnime?.coverUrl,
                 showGoToAnime = sheetAnime?.kitsuId != null,
                 animeName = sheetAnime?.title,
                 showAddToLibrary = !songInLibrary,
@@ -340,7 +340,7 @@ fun ArtistDetailScreen(
                 }
                 itemsIndexed(displaySongs) { index, theme ->
                     val animeEntry = theme.animeId?.let { animeByThemesId[it] }
-                    val imageUrl = animeEntry?.coverUrl ?: animeEntry?.thumbnailUrl
+                    val imageUrl = animeEntry?.thumbnailUrl ?: animeEntry?.coverUrl
                     ArtistSongRow(
                         index = index + 1,
                         theme = theme,
@@ -490,7 +490,7 @@ private fun ArtistSongRow(
 
 @Composable
 private fun AnimeRow(anime: AnimeEntity, songCount: Int, onClick: () -> Unit = {}) {
-    val coverUrl = anime.coverUrl ?: anime.thumbnailUrl
+    val coverUrl = anime.thumbnailUrl ?: anime.coverUrl
     Row(
         modifier = Modifier
             .fillMaxWidth()

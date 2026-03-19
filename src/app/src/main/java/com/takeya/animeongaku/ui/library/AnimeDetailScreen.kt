@@ -84,7 +84,7 @@ fun AnimeDetailScreen(
     val likedThemeIds by viewModel.likedThemeIds.collectAsStateWithLifecycle()
     val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
     val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
-    val coverUrl = anime?.coverUrl ?: anime?.thumbnailUrl
+    val coverUrl = anime?.thumbnailUrl ?: anime?.coverUrl
     val posterUrl = anime?.thumbnailUrl ?: anime?.coverUrl
 
     var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }
