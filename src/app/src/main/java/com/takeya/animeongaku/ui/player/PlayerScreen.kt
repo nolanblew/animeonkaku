@@ -67,6 +67,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.size.Size
+import androidx.compose.ui.platform.LocalContext
 import com.takeya.animeongaku.media.MediaControllerManager
 import com.takeya.animeongaku.media.NowPlayingState
 import com.takeya.animeongaku.media.PlaybackState
@@ -167,7 +170,7 @@ fun PlayerScreen(
 
     val currentTheme = npState.currentTheme
     val animeEntity = currentTheme?.animeId?.let { npState.animeMap[it] }
-    val backgroundArtUrl = animeEntity?.thumbnailUrl ?: animeEntity?.coverUrl
+    val backgroundArtUrl = animeEntity?.coverUrl ?: animeEntity?.thumbnailUrl
     val trackInfo = currentTheme?.displayInfo(animeEntity)
     val title = trackInfo?.primaryText ?: "Select a song"
     val artist = trackInfo?.secondaryText ?: "Choose a track from your library"
@@ -312,7 +315,16 @@ fun PlayerScreen(
                 val pageArtUrl = anime?.thumbnailUrl ?: anime?.coverUrl
                 val pageTitle = theme?.displayInfo(anime)?.primaryText ?: title
                 if (!pageArtUrl.isNullOrBlank()) {
-                    AsyncImage(model = pageArtUrl, contentDescription = pageTitle, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(pageArtUrl)
+                            .size(Size.ORIGINAL)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = pageTitle,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
                 }
             }
         }
@@ -425,7 +437,17 @@ fun PlayerScreen(
 @Composable
 fun PlayerBackgroundArt(imageUrl: String?) {
     if (imageUrl.isNullOrBlank()) return
-    AsyncImage(model = imageUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alpha = 0.18f)
+    AsyncImage(
+        model = ImageRequest.Builder(LocalContext.current)
+            .data(imageUrl)
+            .size(Size.ORIGINAL)
+            .crossfade(true)
+            .build(),
+        contentDescription = null,
+        modifier = Modifier.fillMaxSize(),
+        contentScale = ContentScale.Crop,
+        alpha = 0.18f
+    )
 }
 
 @Composable
