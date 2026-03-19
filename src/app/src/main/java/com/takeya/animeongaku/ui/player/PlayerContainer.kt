@@ -65,18 +65,28 @@ fun PlayerContainer(
         val offsetY = remember { Animatable(if (isExpanded) minOffset else maxOffset) }
         val coroutineScope = rememberCoroutineScope()
 
+        // Track previous maxOffset to detect nav bar changes
+        var prevMaxOffset by remember { mutableStateOf(maxOffset) }
+
         LaunchedEffect(isExpanded, maxOffset) {
             val target = if (isExpanded) minOffset else maxOffset
+            val navBarChanged = prevMaxOffset != maxOffset
+            prevMaxOffset = maxOffset
+
             if (offsetY.targetValue != target) {
-                if (isExpanded || offsetY.value == offsetY.targetValue) {
-                    if (offsetY.value != minOffset && !isExpanded) {
-                        offsetY.snapTo(target)
-                    } else {
-                        offsetY.animateTo(target)
-                    }
+                if (isExpanded) {
+                    // Expanding: always animate
+                    offsetY.animateTo(target)
+                } else if (navBarChanged) {
+                    // Nav bar appeared/disappeared while collapsed: snap instantly
+                    offsetY.snapTo(target)
                 } else {
-                     offsetY.animateTo(target)
+                    // Collapsing: animate
+                    offsetY.animateTo(target)
                 }
+            } else if (navBarChanged && !isExpanded) {
+                // maxOffset changed but target didn't update (already at target) — snap
+                offsetY.snapTo(target)
             }
         }
 

@@ -235,9 +235,7 @@ fun AnimeOngakuApp(
                     AnimeDetailScreen(
                         onBack = { navController.popBackStack() },
                         onPlayTheme = { isPlayerExpanded = true },
-                        onOpenArtist = { artistName ->
-                            navController.navigate("${Routes.ArtistDetail}/${android.net.Uri.encode(artistName)}")
-                        }
+                        onOpenArtist = { artistName -> navController.navigate("${Routes.ArtistDetail}/${android.net.Uri.encode(artistName)}") }
                     )
                 }
                 composable(
@@ -247,9 +245,7 @@ fun AnimeOngakuApp(
                     ArtistDetailScreen(
                         onBack = { navController.popBackStack() },
                         onPlayTheme = { isPlayerExpanded = true },
-                        onOpenAnime = { kitsuId ->
-                            navController.navigate("${Routes.AnimeDetail}/$kitsuId")
-                        }
+                        onOpenAnime = { kitsuId -> navController.navigate("${Routes.AnimeDetail}/$kitsuId") }
                     )
                 }
                 composable(Routes.Import) {

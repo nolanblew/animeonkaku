@@ -52,14 +52,18 @@ class NowPlayingManager @Inject constructor() {
     ) {
         if (themes.isEmpty()) return
 
-        val safeStart = startIndex.coerceIn(0, themes.lastIndex)
+        val safeStart = if (shuffle && startIndex == 0 && themes.size > 1) {
+            themes.indices.random()
+        } else {
+            startIndex.coerceIn(0, themes.lastIndex)
+        }
         val currentTheme = themes[safeStart]
 
         // Only queue from startIndex onward (no wrapping earlier songs to end)
-        val queueFromStart = themes.subList(safeStart, themes.size)
+        val queueFromStart = themes.subList(if (shuffle) 0 else safeStart, themes.size)
 
         val nowPlaying = if (shuffle) {
-            val others = queueFromStart.drop(1).shuffled()
+            val others = queueFromStart.filterIndexed { index, _ -> index != safeStart }.shuffled()
             listOf(currentTheme) + others
         } else {
             queueFromStart

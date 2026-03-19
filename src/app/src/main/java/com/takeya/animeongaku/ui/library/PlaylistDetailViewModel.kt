@@ -22,6 +22,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -46,16 +47,41 @@ class PlaylistDetailViewModel @Inject constructor(
     val playlist = playlistDao.observePlaylist(playlistId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    val tracks = playlistDao.observePlaylistTracks(playlistId)
+    private val anime: StateFlow<List<AnimeEntity>> = animeDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val animeList: StateFlow<List<AnimeEntity>> = anime
+
+    private val rawTracks = playlistDao.observePlaylistTracks(playlistId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val tracks: StateFlow<List<PlaylistTrack>> = combine(rawTracks, playlist, anime) { trackList, pl, animeList ->
+        if (pl?.isAuto == true && trackList.isNotEmpty()) {
+            val animeMap = animeList.mapNotNull { a -> a.animeThemesId?.let { it to a } }.toMap()
+            trackList.sortedWith(compareBy<PlaylistTrack> { track ->
+                val a = track.theme.animeId?.let { animeMap[it] }
+                a?.title?.lowercase() ?: "\uFFFF"
+            }.thenBy { track ->
+                val type = track.theme.themeType?.uppercase() ?: ""
+                when {
+                    type.startsWith("OP") -> 0
+                    type.startsWith("ED") -> 1
+                    else -> 2
+                }
+            }.thenBy { track ->
+                val type = track.theme.themeType ?: ""
+                val num = type.filter { it.isDigit() }
+                num.toIntOrNull() ?: 0
+            })
+        } else {
+            trackList
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val coverUrls: StateFlow<List<String>> = playlistDao.observePlaylistCoverUrls(playlistId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val allThemes = themeDao.observeAll()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    val anime: StateFlow<List<AnimeEntity>> = animeDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val searchQuery = MutableStateFlow("")
