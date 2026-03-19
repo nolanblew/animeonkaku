@@ -323,8 +323,39 @@ class MediaControllerManager @Inject constructor(
         }
         // Now controller has only the current item at index 0.
 
+        // Resolve the actual index in npState that matches the controller's current item
+        val controllerMediaId = ctrl.currentMediaItem?.mediaId
+        val centerIndex = if (controllerMediaId != null) {
+            val currentThemeId = npState.currentTheme?.id?.toString()
+            if (currentThemeId == controllerMediaId) {
+                npState.currentIndex
+            } else {
+                // Out of sync (e.g. track just changed but npState not yet updated)
+                // Search forward first
+                var found = -1
+                for (i in npState.currentIndex until npState.nowPlaying.size) {
+                    if (npState.nowPlaying[i].id.toString() == controllerMediaId) {
+                        found = i
+                        break
+                    }
+                }
+                // Then backward
+                if (found == -1) {
+                    for (i in npState.currentIndex - 1 downTo 0) {
+                        if (npState.nowPlaying[i].id.toString() == controllerMediaId) {
+                            found = i
+                            break
+                        }
+                    }
+                }
+                if (found != -1) found else npState.currentIndex
+            }
+        } else {
+            npState.currentIndex
+        }
+
         // Add items before current
-        val beforeItems = npState.nowPlaying.subList(0, npState.currentIndex)
+        val beforeItems = npState.nowPlaying.subList(0, centerIndex)
             .filterIndexed { idx, theme -> shouldIncludeInPlayer(idx, theme, npState) }
             .map { it.toMediaItem(npState.animeMap) }
         for ((i, item) in beforeItems.withIndex()) {
@@ -332,11 +363,11 @@ class MediaControllerManager @Inject constructor(
         }
 
         // Add items after current
-        if (npState.currentIndex + 1 < npState.nowPlaying.size) {
+        if (centerIndex + 1 < npState.nowPlaying.size) {
             val afterItems = npState.nowPlaying
-                .subList(npState.currentIndex + 1, npState.nowPlaying.size)
+                .subList(centerIndex + 1, npState.nowPlaying.size)
                 .filterIndexed { offset, theme -> 
-                    shouldIncludeInPlayer(npState.currentIndex + 1 + offset, theme, npState) 
+                    shouldIncludeInPlayer(centerIndex + 1 + offset, theme, npState) 
                 }
                 .map { it.toMediaItem(npState.animeMap) }
             for (item in afterItems) {

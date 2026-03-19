@@ -530,7 +530,7 @@ private fun AddTrackDialog(
                     ) {
                         items(themes) { theme ->
                             val animeEntry = theme.animeId?.let { animeByThemesId[it] }
-                            val imgUrl = animeEntry?.coverUrl ?: animeEntry?.thumbnailUrl
+                            val imgUrl = animeEntry?.thumbnailUrl ?: animeEntry?.coverUrl
                             val info = theme.displayInfo(animeEntry)
                             AddThemeRow(info = info, imageUrl = imgUrl, onAdd = { onAdd(theme) })
                         }

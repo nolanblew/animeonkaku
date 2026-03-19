@@ -354,10 +354,12 @@ private fun KitsuAnime.posterUrl(): String? {
 
 private fun KitsuAnime.coverUrl(): String? {
     val attributes = attributes ?: return null
-    return attributes.coverImage.bestUrl()
+    // Fall back to posterImage if coverImage doesn't exist
+    return attributes.coverImage.bestUrl() ?: attributes.posterImage.bestUrl()
 }
 
 private fun KitsuImageSet?.bestUrl(): String? {
     if (this == null) return null
+    // Prioritize highest resolution images over tiny/small
     return original ?: large ?: medium ?: small ?: tiny
 }

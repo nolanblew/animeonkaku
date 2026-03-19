@@ -270,8 +270,8 @@ fun LibraryScreen(
                             }
                         } else {
                             items(filteredThemes) { theme ->
-                                val imageUrl = animeByThemesId[theme.animeId]?.coverUrl
-                                    ?: animeByThemesId[theme.animeId]?.thumbnailUrl
+                                val imageUrl = animeByThemesId[theme.animeId]?.thumbnailUrl
+                                    ?: animeByThemesId[theme.animeId]?.coverUrl
                                 val isDownloaded = theme.id in downloadedThemeIds
                                 val isDownloading = theme.id in downloadingThemeIds
                                 ListRow(

@@ -47,7 +47,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        pendingNavigateTo.value = intent.getStringExtra("navigate_to")
+        val navigateTo = intent.getStringExtra("navigate_to")
+        if (navigateTo != null) {
+            pendingNavigateTo.value = navigateTo
+        }
     }
 }
 
