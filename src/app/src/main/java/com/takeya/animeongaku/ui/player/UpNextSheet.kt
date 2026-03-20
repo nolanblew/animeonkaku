@@ -28,18 +28,28 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetState
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.text.font.FontWeight
@@ -78,7 +88,28 @@ fun UpNextSheet(
     viewModel: PlayerViewModel,
     onDismiss: () -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // Measured height of the sheet content — used to compute the dismiss threshold.
+    var sheetHeightPx by remember { mutableIntStateOf(0) }
+
+    // Holder populated right after sheetState is created to avoid a forward-reference
+    // inside the confirmValueChange lambda (sheetState can't reference itself).
+    val sheetStateHolder = remember { mutableStateOf<SheetState?>(null) }
+
+    // Only allow the sheet to dismiss if the user dragged it down by more than 30% of its
+    // height. Anything less snaps back to the expanded position.
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { newValue: SheetValue ->
+            when {
+                newValue != SheetValue.Hidden -> true
+                else -> {
+                    val offset = runCatching { sheetStateHolder.value?.requireOffset() }.getOrNull()
+                    offset != null && (sheetHeightPx == 0 || offset > sheetHeightPx * 0.30f)
+                }
+            }
+        }
+    )
+    sheetStateHolder.value = sheetState
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -93,7 +124,9 @@ fun UpNextSheet(
             downloadedThemeIds = downloadedThemeIds,
             dislikedThemeIds = dislikedThemeIds,
             viewModel = viewModel,
-            modifier = Modifier.fillMaxHeight(0.95f)
+            modifier = Modifier
+                .fillMaxHeight(0.95f)
+                .onSizeChanged { sheetHeightPx = it.height }
         )
     }
 }
@@ -136,6 +169,17 @@ private fun UpNextContent(
         }
     }
 
+    // After the LazyColumn has consumed all the scroll it can, consume any remaining
+    // downward scroll so it doesn't propagate to the sheet's dismiss handler.
+    // Using onPostScroll (not onPreScroll) so the list itself can still scroll normally.
+    val blockSheetDismissScroll = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                return if (available.y > 0f) Offset(0f, available.y) else Offset.Zero
+            }
+        }
+    }
+
     LaunchedEffect(history.size) {
         // Auto-scroll to keep current track visible
         if (history.isNotEmpty() && dragDropState.draggingItemKey == null) {
@@ -146,13 +190,13 @@ private fun UpNextContent(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 16.dp)
     ) {
         // Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 8.dp),
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -209,7 +253,9 @@ private fun UpNextContent(
 
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .nestedScroll(blockSheetDismissScroll)
         ) {
             // History section
             if (history.isNotEmpty()) {

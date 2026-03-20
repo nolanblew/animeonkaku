@@ -74,6 +74,11 @@ class DragDropState(
     fun onDrag(offsetY: Float) {
         draggingItemKey ?: return
         absoluteDragPosY += offsetY
+        // Clamp to the viewport so dragging the finger above or below the list
+        // can't cause absoluteDragPosY to run away and produce uncontrollable scrolling.
+        val viewportStart = state.layoutInfo.viewportStartOffset.toFloat()
+        val viewportEnd = state.layoutInfo.viewportEndOffset.toFloat()
+        absoluteDragPosY = absoluteDragPosY.coerceIn(viewportStart, viewportEnd)
         checkTargetItem()
     }
 
@@ -95,7 +100,8 @@ class DragDropState(
         }
 
         if (scrollAmount != 0f) {
-            val scrollByAmount = scrollAmount * 0.15f
+            // Cap speed so the list can never scroll more than 20px per frame.
+            val scrollByAmount = (scrollAmount * 0.15f).coerceIn(-20f, 20f)
             state.scrollBy(scrollByAmount)
             checkTargetItem()
         }
