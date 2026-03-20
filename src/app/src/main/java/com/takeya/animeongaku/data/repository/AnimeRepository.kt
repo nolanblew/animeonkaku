@@ -28,7 +28,11 @@ interface AnimeRepository {
 
     suspend fun searchAnimeThemes(query: String): OnlineSearchResult
 
-    suspend fun fallbackSearchByTitle(titles: List<String>): FallbackSearchResult
+    suspend fun fallbackSearchByTitle(
+        titles: List<String>,
+        kitsuId: String = "",
+        claimedAnimeThemesIds: Set<Long> = emptySet()
+    ): FallbackSearchResult
 
     suspend fun fetchAnimeByExternalIds(
         site: String,

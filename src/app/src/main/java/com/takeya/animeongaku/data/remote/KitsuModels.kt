@@ -33,7 +33,12 @@ data class KitsuMeta(
 
 data class KitsuLibraryEntry(
     val id: String,
+    val attributes: KitsuLibraryEntryAttributes? = null,
     val relationships: KitsuRelationships? = null
+)
+
+data class KitsuLibraryEntryAttributes(
+    val status: String? = null
 )
 
 data class KitsuRelationships(

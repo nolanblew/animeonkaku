@@ -50,6 +50,12 @@ interface AnimeDao {
     @Query("SELECT * FROM anime WHERE animeThemesId IN (:animeThemesIds)")
     suspend fun getByAnimeThemesIds(animeThemesIds: List<Long>): List<AnimeEntity>
 
+    @Query("SELECT * FROM anime WHERE watchingStatus = :status")
+    fun observeByWatchingStatus(status: String): Flow<List<AnimeEntity>>
+
+    @Query("SELECT * FROM anime WHERE watchingStatus = :status")
+    suspend fun getByWatchingStatus(status: String): List<AnimeEntity>
+
     @Query("SELECT kitsuId FROM anime")
     suspend fun getAllKitsuIds(): List<String>
 
@@ -76,6 +82,25 @@ interface AnimeDao {
 
     @Query("UPDATE anime SET isManuallyAdded = 1 WHERE kitsuId = :kitsuId")
     suspend fun markManuallyAdded(kitsuId: String)
+
+    @Query("""
+        UPDATE anime SET animeThemesId = NULL
+        WHERE animeThemesId IS NOT NULL
+          AND kitsuId NOT IN (
+              SELECT kitsuId FROM (
+                  SELECT kitsuId, animeThemesId,
+                         ROW_NUMBER() OVER (PARTITION BY animeThemesId ORDER BY syncedAt ASC) AS rn
+                  FROM anime
+                  WHERE animeThemesId IS NOT NULL
+              ) WHERE rn = 1
+          )
+          AND animeThemesId IN (
+              SELECT animeThemesId FROM anime
+              WHERE animeThemesId IS NOT NULL
+              GROUP BY animeThemesId HAVING COUNT(*) > 1
+          )
+    """)
+    suspend fun clearDuplicateAnimeThemesIds(): Int
 }
 
 data class AnimeWithThemeCount(

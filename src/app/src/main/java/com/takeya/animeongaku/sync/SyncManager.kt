@@ -122,6 +122,12 @@ class SyncManager @Inject constructor(
     private suspend fun doSync(userId: String, forceFullSync: Boolean) {
         val isFirstSync = forceFullSync || tokenStore.getLastSyncedAt() == 0L
 
+        // Self-heal: clear any duplicate animeThemesId mappings left by previous syncs
+        val dupsCleaned = animeDao.clearDuplicateAnimeThemesIds()
+        if (dupsCleaned > 0) {
+            Log.w(TAG, "Cleared $dupsCleaned duplicate animeThemesId mappings from DB")
+        }
+
         updateState { copy(status = "Syncing Kitsu library…", phase = SyncPhase.SyncingLibrary) }
 
         val entries = if (isFirstSync) {
@@ -174,11 +180,12 @@ class SyncManager @Inject constructor(
         val now = System.currentTimeMillis()
         val entriesById = entries.associateBy { it.id }
         val animeEntities = entries.map { entry ->
-            // Preserve existing animeThemesId and isManuallyAdded if this anime is already in DB
+            // Preserve existing animeThemesId and isManuallyAdded if this anime is already in DB,
+            // unless we are doing a force full sync, in which case we wipe the animeThemesId to force re-mapping
             val existing = animeDao.getByKitsuId(entry.id)
             AnimeEntity(
                 kitsuId = entry.id,
-                animeThemesId = existing?.animeThemesId,
+                animeThemesId = if (forceFullSync) null else existing?.animeThemesId,
                 title = entry.title ?: existing?.title,
                 titleEn = entry.titleEn ?: existing?.titleEn,
                 titleRomaji = entry.titleRomaji ?: existing?.titleRomaji,
@@ -186,7 +193,8 @@ class SyncManager @Inject constructor(
                 thumbnailUrl = entry.posterUrl ?: existing?.thumbnailUrl,
                 coverUrl = entry.coverUrl ?: existing?.coverUrl,
                 syncedAt = now,
-                isManuallyAdded = existing?.isManuallyAdded ?: false
+                isManuallyAdded = existing?.isManuallyAdded ?: false,
+                watchingStatus = entry.watchingStatus ?: existing?.watchingStatus
             )
         }
         animeDao.upsertAll(animeEntities)
@@ -237,6 +245,11 @@ class SyncManager @Inject constructor(
         val allThemeEntities = themeEntities.toMutableList()
         var finalAnimeEntities = mappedAnimeEntities.toMutableList()
         val stillUnmatched = mutableListOf<String>()
+        // Track animeThemesIds already confirmed by Kitsu ID match to prevent
+        // fallback steps from assigning the same ID to a different anime
+        val claimedAnimeThemesIds = mappedAnimeEntities
+            .mapNotNull { it.animeThemesId }
+            .toMutableSet()
 
         if (unmappedAnime.isNotEmpty()) {
             Log.d(TAG_FALLBACK, "${unmappedAnime.size} anime unmapped after batch, trying external IDs")
@@ -273,10 +286,16 @@ class SyncManager @Inject constructor(
 
                 malResult.animeMappings.forEach { (malId, animeThemesId) ->
                     val kitsuId = malIdToKitsuId[malId] ?: return@forEach
+                    // Guard: skip if this animeThemesId is already claimed by another anime
+                    if (animeThemesId in claimedAnimeThemesIds) {
+                        Log.w(TAG_FALLBACK, "MAL skip: animeThemesId=$animeThemesId already claimed, not assigning to kitsuId=$kitsuId")
+                        return@forEach
+                    }
                     val idx = finalAnimeEntities.indexOfFirst { it.kitsuId == kitsuId }
                     if (idx >= 0) {
                         val updated = finalAnimeEntities[idx].copy(animeThemesId = animeThemesId)
                         finalAnimeEntities[idx] = updated
+                        claimedAnimeThemesIds.add(animeThemesId)
                         animeDao.upsertAll(listOf(updated))
                         Log.d(TAG_FALLBACK, "MAL matched: kitsuId=$kitsuId -> animeThemesId=$animeThemesId")
                     }
@@ -331,11 +350,21 @@ class SyncManager @Inject constructor(
                     )
                 }
 
-                val result = animeRepository.fallbackSearchByTitle(titleVariants)
+                val result = animeRepository.fallbackSearchByTitle(
+                    titleVariants, anime.kitsuId, claimedAnimeThemesIds
+                )
 
                 if (result.animeThemesId != null && result.themes.isNotEmpty()) {
+                    // Final guard: double-check the ID isn't claimed (belt-and-suspenders)
+                    if (result.animeThemesId in claimedAnimeThemesIds) {
+                        Log.w(TAG_FALLBACK, "Title search returned already-claimed animeThemesId=${result.animeThemesId} for \"$displayName\", skipping")
+                        stillUnmatched.add(displayName)
+                        updateState { copy(fallbackCurrent = index + 1) }
+                        return@forEachIndexed
+                    }
                     Log.d(TAG_FALLBACK, "Title matched \"$displayName\" -> animeThemesId=${result.animeThemesId}")
                     val updatedAnime = anime.copy(animeThemesId = result.animeThemesId)
+                    claimedAnimeThemesIds.add(result.animeThemesId)
                     animeDao.upsertAll(listOf(updatedAnime))
                     val fbIncomingIds = result.themes.mapNotNull { it.themeId.toLongOrNull() }
                     val fbExisting = if (fbIncomingIds.isNotEmpty()) themeDao.getByIds(fbIncomingIds).associateBy { it.id } else emptyMap()
@@ -364,6 +393,60 @@ class SyncManager @Inject constructor(
         }
 
         checkPause()
+
+        // --- Final deduplication safety check ---
+        // If any animeThemesId is shared by multiple anime (should never happen with
+        // the guards above, but belt-and-suspenders), null out the duplicates.
+        val idCounts = finalAnimeEntities
+            .mapNotNull { it.animeThemesId }
+            .groupingBy { it }
+            .eachCount()
+        val duplicateIds = idCounts.filter { it.value > 1 }.keys
+        if (duplicateIds.isNotEmpty()) {
+            Log.w(TAG, "DEDUP: Found ${duplicateIds.size} duplicate animeThemesIds: $duplicateIds")
+            // For each duplicate, keep only the anime whose title best matches the AnimeThemes entry.
+            // Since we can't easily re-query here, keep the first one and null the rest.
+            val seen = mutableSetOf<Long>()
+            val deduped = finalAnimeEntities.map { anime ->
+                val atId = anime.animeThemesId
+                if (atId != null && atId in duplicateIds) {
+                    if (seen.add(atId)) {
+                        anime // first occurrence: keep
+                    } else {
+                        Log.w(TAG, "DEDUP: Clearing animeThemesId=$atId from kitsuId=${anime.kitsuId} (\"${anime.title}\")")
+                        anime.copy(animeThemesId = null) // duplicate: clear
+                    }
+                } else anime
+            }
+            finalAnimeEntities = deduped.toMutableList()
+            animeDao.upsertAll(finalAnimeEntities)
+        }
+
+        // --- Artist reconciliation ---
+        // Ensure every saved theme has the necessary ThemeArtistCrossRef entries
+        // Some APIs/endpoints (like fallback title search or delta sync) might not 
+        // provide full artist list in AnimeThemeEntry, but they might have artistName string.
+        val crossRefsToReconcile = mutableListOf<ThemeArtistCrossRef>()
+        val existingThemeEntitiesForReconciliation = themeDao.getByIds(allThemeEntities.map { it.id }).associateBy { it.id }
+        
+        for (theme in allThemeEntities) {
+            val names = theme.artistName?.split(",")?.map { it.substringBefore(" (as").trim() }?.filter { it.isNotBlank() }
+            if (!names.isNullOrEmpty()) {
+                for (name in names) {
+                    crossRefsToReconcile.add(
+                        ThemeArtistCrossRef(
+                            themeId = theme.id,
+                            artistName = name
+                        )
+                    )
+                }
+            }
+        }
+        
+        if (crossRefsToReconcile.isNotEmpty()) {
+            artistDao.upsertCrossRefs(crossRefsToReconcile)
+            Log.d(TAG, "Reconciled ${crossRefsToReconcile.size} artist cross-refs")
+        }
 
         // --- Fill missing artwork ---
         val missingArtwork = finalAnimeEntities.filter { anime ->

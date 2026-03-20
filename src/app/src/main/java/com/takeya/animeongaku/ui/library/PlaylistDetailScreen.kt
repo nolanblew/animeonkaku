@@ -93,7 +93,7 @@ fun PlaylistDetailScreen(
     val tracks by viewModel.tracks.collectAsStateWithLifecycle()
     val coverUrls by viewModel.coverUrls.collectAsStateWithLifecycle()
     val allThemes by viewModel.allThemes.collectAsStateWithLifecycle()
-    val anime by viewModel.anime.collectAsStateWithLifecycle()
+    val anime by viewModel.animeList.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     var showAddDialog by remember { mutableStateOf(false) }
     var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }

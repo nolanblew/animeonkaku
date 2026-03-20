@@ -39,6 +39,12 @@ class KitsuTokenStore(
 
     fun getLastSyncedAt(): Long = prefs.getLong(KEY_LAST_SYNCED_AT, 0L)
 
+    fun saveLastStatusSyncAt(timestamp: Long) {
+        prefs.edit().putLong(KEY_LAST_STATUS_SYNC_AT, timestamp).apply()
+    }
+
+    fun getLastStatusSyncAt(): Long = prefs.getLong(KEY_LAST_STATUS_SYNC_AT, 0L)
+
     fun saveUsername(username: String) {
         prefs.edit().putString(KEY_USERNAME, username).apply()
     }
@@ -57,6 +63,7 @@ class KitsuTokenStore(
             .remove(KEY_REFRESH_TOKEN)
             .remove(KEY_EXPIRES_AT)
             .remove(KEY_LAST_SYNCED_AT)
+            .remove(KEY_LAST_STATUS_SYNC_AT)
             .remove(KEY_USERNAME)
             .remove(KEY_USER_ID)
             .apply()
@@ -67,6 +74,7 @@ class KitsuTokenStore(
         private const val KEY_REFRESH_TOKEN = "kitsu_refresh_token"
         private const val KEY_EXPIRES_AT = "kitsu_expires_at"
         private const val KEY_LAST_SYNCED_AT = "kitsu_last_synced_at"
+        private const val KEY_LAST_STATUS_SYNC_AT = "kitsu_last_status_sync_at"
         private const val KEY_USERNAME = "kitsu_username"
         private const val KEY_USER_ID = "kitsu_user_id"
     }

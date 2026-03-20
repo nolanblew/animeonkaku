@@ -38,7 +38,7 @@ class AutoPlaylistManager @Inject constructor(
         val userId = tokenStore.getUserId() ?: return
         scope.launch {
             try {
-                refreshCurrentlyWatching(userId)
+                refreshCurrentlyWatching()
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to refresh Currently Watching", e)
             }
@@ -50,40 +50,27 @@ class AutoPlaylistManager @Inject constructor(
         }
     }
 
-    private suspend fun refreshCurrentlyWatching(userId: String) {
+    private suspend fun refreshCurrentlyWatching() {
         Log.d(TAG, "Refreshing '$CURRENTLY_WATCHING_NAME' auto-playlist…")
 
-        val watchingEntries = userRepository.getCurrentlyWatchingEntries(userId)
+        val watchingEntries = animeDao.getByWatchingStatus("current")
         if (watchingEntries.isEmpty()) {
-            Log.d(TAG, "No currently watching entries found")
+            Log.d(TAG, "No currently watching entries found in local DB")
+            val existing = playlistDao.findAutoPlaylistByName(CURRENTLY_WATCHING_NAME)
+            if (existing != null) {
+                playlistDao.deletePlaylistEntries(existing.id)
+            }
             return
         }
 
-        // Get Kitsu IDs of currently watching anime
-        val watchingKitsuIds = watchingEntries.map { it.id }.toSet()
-
-        // Find which of these are already in our local DB
-        val allLocalAnime = animeDao.getAllKitsuIds().toSet()
-        val localWatchingIds = watchingKitsuIds.intersect(allLocalAnime)
-
-        if (localWatchingIds.isEmpty()) {
-            Log.d(TAG, "None of the currently watching anime are in local DB yet")
-            return
-        }
-
-        // Get themes for the locally-known anime
-        val allThemes = themeDao.getAllThemes()
-
-        // Build a set of animeThemesIds for the currently watching anime that are in our DB
         val watchingAnimeThemesIds = mutableSetOf<Long>()
-        for (kitsuId in localWatchingIds) {
-            val anime = animeDao.getByKitsuId(kitsuId)
-            if (anime?.animeThemesId != null) {
-                watchingAnimeThemesIds.add(anime.animeThemesId)
+        for (entry in watchingEntries) {
+            if (entry.animeThemesId != null) {
+                watchingAnimeThemesIds.add(entry.animeThemesId)
             }
         }
 
-        // Filter themes to only those belonging to currently watching anime
+        val allThemes = themeDao.getAllThemes()
         val watchingThemes = allThemes.filter { it.animeId in watchingAnimeThemesIds }
 
         if (watchingThemes.isEmpty()) {
@@ -91,7 +78,6 @@ class AutoPlaylistManager @Inject constructor(
             return
         }
 
-        // Find or create the auto-playlist
         val existing = playlistDao.findAutoPlaylistByName(CURRENTLY_WATCHING_NAME)
         val playlistId = if (existing != null) {
             playlistDao.deletePlaylistEntries(existing.id)
@@ -107,7 +93,6 @@ class AutoPlaylistManager @Inject constructor(
             )
         }
 
-        // Insert all themes as playlist entries
         val entries = watchingThemes.mapIndexed { index, theme ->
             PlaylistEntryEntity(
                 playlistId = playlistId,

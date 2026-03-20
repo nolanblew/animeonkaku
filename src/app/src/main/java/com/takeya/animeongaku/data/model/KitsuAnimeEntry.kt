@@ -8,5 +8,6 @@ data class KitsuAnimeEntry(
     val titleJa: String? = null,
     val abbreviatedTitles: List<String> = emptyList(),
     val posterUrl: String? = null,
-    val coverUrl: String? = null
+    val coverUrl: String? = null,
+    val watchingStatus: String? = null
 )

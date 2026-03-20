@@ -182,6 +182,7 @@ fun PlayerScreen(
                     topBar: { width: 'spread', height: 48, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 0 },
                     art: { width: 44, height: 44, start: ['parent', 'start', 12], top: ['parent', 'top', 10], custom: { corner: 8 } },
                     titles: { width: 'spread', height: 'wrap', start: ['art', 'end', 12], end: ['playPause', 'start', 12], top: ['parent', 'top', 12], bottom: ['bg', 'bottom', 12] },
+                    statusBadge: { width: 'wrap', height: 'wrap', end: ['art', 'end', 8], bottom: ['art', 'bottom', 8], alpha: 0 },
                     playPause: { width: 40, height: 40, end: ['next', 'start', 12], top: ['parent', 'top', 12], bottom: ['bg', 'bottom', 12] },
                     next: { width: 36, height: 36, end: ['parent', 'end', 12], top: ['parent', 'top', 14], bottom: ['bg', 'bottom', 14] },
                     miniProgress: { width: 'spread', height: 2, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 1 },
@@ -194,6 +195,7 @@ fun PlayerScreen(
                     topBar: { width: 'spread', height: 48, start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['parent', 'top', $endTopMargin], alpha: 1 },
                     art: { width: 'spread', height: 320, start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['topBar', 'bottom', 20], custom: { corner: 24 } },
                     titles: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['art', 'bottom', 20] },
+                    statusBadge: { width: 'wrap', height: 'wrap', end: ['art', 'end', 8], bottom: ['art', 'bottom', 8], alpha: 1 },
                     playPause: { width: 72, height: 72, start: ['parent', 'start'], end: ['parent', 'end'], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
                     next: { width: 48, height: 48, start: ['playPause', 'end', 12], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
                     miniProgress: { width: 'spread', height: 2, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 0 },
@@ -318,6 +320,32 @@ fun PlayerScreen(
         Column(modifier = Modifier.layoutId("titles"), verticalArrangement = Arrangement.spacedBy(if (isExpandedThreshold) 4.dp else 2.dp)) {
             MarqueeText(text = title, style = if (isExpandedThreshold) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.bodyMedium, color = Mist100)
             MarqueeText(text = artist, style = if (isExpandedThreshold) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodySmall, color = Mist200)
+        }
+
+        if (isExpandedThreshold && animeEntity?.watchingStatus != null) {
+            Box(
+                modifier = Modifier
+                    .layoutId("statusBadge")
+                    .background(Ink800.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
+                    .border(1.dp, Mist200.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                    .clickable { animeEntity.kitsuId.let { onOpenAnime(it) } }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                val statusText = when (animeEntity.watchingStatus) {
+                    "current" -> "Watching"
+                    "completed" -> "Completed"
+                    "on_hold" -> "On Hold"
+                    "dropped" -> "Dropped"
+                    "planned" -> "Plan to Watch"
+                    else -> animeEntity.watchingStatus.replaceFirstChar { it.uppercase() }
+                }
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Mist100
+                )
+            }
         }
 
         if (isExpandedThreshold) {

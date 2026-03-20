@@ -50,16 +50,23 @@ class AnimeRepositoryImpl @Inject constructor(
         val mappings = mutableMapOf<String, Long>()
         val batches = ids.chunked(50)
 
+        val claimedIds = mutableSetOf<Long>() // track animeThemesIds already mapped by Kitsu ID
         batches.forEachIndexed { index, batch ->
             val response = fetchAnimeByKitsuIds(batch)
             response.anime.forEach { anime ->
                 val kitsuId = anime.kitsuExternalId()
                 if (kitsuId != null && anime.id != null) {
                     mappings[kitsuId] = anime.id
+                    claimedIds.add(anime.id)
                 } else if (anime.id != null && anime.name != null) {
-                    val fallbackId = titleToId[anime.name.lowercase().trim()]
-                    if (fallbackId != null) {
-                        mappings[fallbackId] = anime.id
+                    // Only use title fallback if this animeThemesId isn't already claimed
+                    // by a confirmed Kitsu ID match, to prevent mis-association
+                    if (anime.id !in claimedIds) {
+                        val fallbackId = titleToId[anime.name.lowercase().trim()]
+                        if (fallbackId != null) {
+                            mappings[fallbackId] = anime.id
+                            claimedIds.add(anime.id)
+                        }
                     }
                 }
                 themes += anime.toThemeEntries()
@@ -139,22 +146,28 @@ class AnimeRepositoryImpl @Inject constructor(
         return AnimeThemesApiResponse(anime = allAnime)
     }
 
-    override suspend fun fallbackSearchByTitle(titles: List<String>): FallbackSearchResult {
+    override suspend fun fallbackSearchByTitle(
+        titles: List<String>,
+        kitsuId: String,
+        claimedAnimeThemesIds: Set<Long>
+    ): FallbackSearchResult {
         val uniqueTitles = titles.filter { it.isNotBlank() }.distinct()
         if (uniqueTitles.isEmpty()) return FallbackSearchResult(null, emptyList())
 
         val responseAdapter = moshi.adapter(AnimeThemesApiResponse::class.java)
-        val includes = "animethemes,animethemes.animethemeentries.videos," +
+        // Include resources so we can verify matched anime doesn't belong to a different Kitsu entry,
+        // and animesynonyms so we can check alternate names for matching.
+        val includes = "resources,animesynonyms,animethemes,animethemes.animethemeentries.videos," +
             "animethemes.animethemeentries.videos.audio,animethemes.song,animethemes.song.artists"
 
         // Search each title variant using full-text search (q=).
         // Note: filter[name] does NOT return nested song.artists from the API,
         // so we use q= which returns complete data including artists.
-        // The result matching still prefers exact name matches.
+        // Matching is strict: exact name or synonym match only.
         for ((index, title) in uniqueTitles.withIndex()) {
             Log.d(TAG_FALLBACK, "Searching for: \"$title\" (${index + 1}/${uniqueTitles.size})")
             val result = searchAnimeThemesInternal(
-                "q", title, includes, responseAdapter, title
+                "q", title, includes, responseAdapter, title, kitsuId, claimedAnimeThemesIds
             )
             if (result != null) return result
             if (index < uniqueTitles.size - 1) kotlinx.coroutines.delay(500)
@@ -169,7 +182,9 @@ class AnimeRepositoryImpl @Inject constructor(
         queryValue: String,
         includes: String,
         adapter: com.squareup.moshi.JsonAdapter<AnimeThemesApiResponse>,
-        displayTitle: String
+        displayTitle: String,
+        kitsuId: String = "",
+        claimedAnimeThemesIds: Set<Long> = emptySet()
     ): FallbackSearchResult? {
         val requestUrl = "https://api.animethemes.moe/anime".toHttpUrl()
             .newBuilder()
@@ -193,18 +208,46 @@ class AnimeRepositoryImpl @Inject constructor(
                     val body = response.body?.string() ?: return@withContext null
                     val parsed = adapter.fromJson(body) ?: return@withContext null
 
-                    // Prefer exact name match, then first result with themes
-                    val match = parsed.anime.firstOrNull {
-                        it.name.equals(displayTitle, ignoreCase = true)
-                    } ?: parsed.anime.firstOrNull { it.animethemes.isNotEmpty() }
-                    ?: parsed.anime.firstOrNull()
+                    // Collect all names (primary + synonyms) for each candidate
+                    // and require an EXACT match to prevent mis-association.
+                    // The API full-text search already does fuzzy retrieval;
+                    // our job here is to verify it's actually the right anime.
+                    val titleLower = displayTitle.lowercase().trim()
+
+                    val match = parsed.anime.firstOrNull { anime ->
+                        if (anime.id == null || anime.animethemes.isEmpty()) return@firstOrNull false
+
+                        // Guard 1: Skip if this animeThemesId is already claimed by another anime
+                        if (anime.id in claimedAnimeThemesIds) {
+                            Log.d(TAG_FALLBACK, "Skipping animeThemesId=${anime.id} (\"${anime.name}\") — already claimed")
+                            return@firstOrNull false
+                        }
+
+                        // Guard 2: If the match has a Kitsu resource pointing to a DIFFERENT
+                        // kitsuId, it belongs to another anime — skip it
+                        val matchKitsuId = anime.kitsuExternalId()
+                        if (matchKitsuId != null && kitsuId.isNotBlank() && matchKitsuId != kitsuId) {
+                            Log.d(TAG_FALLBACK, "Skipping animeThemesId=${anime.id} (\"${anime.name}\") — Kitsu resource $matchKitsuId != $kitsuId")
+                            return@firstOrNull false
+                        }
+
+                        // Check exact name match (primary name)
+                        val nameMatch = anime.name?.lowercase()?.trim() == titleLower
+
+                        // Check exact synonym match (alternate titles)
+                        val synonymMatch = anime.synonyms.any {
+                            it.text?.lowercase()?.trim() == titleLower
+                        }
+
+                        nameMatch || synonymMatch
+                    }
 
                     if (match == null || match.id == null) return@withContext null
 
                     val themes = match.toThemeEntries()
                     if (themes.isEmpty()) return@withContext null
 
-                    Log.d(TAG_FALLBACK, "Found ${themes.size} themes for \"$displayTitle\" (animeThemesId=${match.id})")
+                    Log.d(TAG_FALLBACK, "Found ${themes.size} themes for \"$displayTitle\" (animeThemesId=${match.id}, name=\"${match.name}\")")
                     FallbackSearchResult(match.id, themes)
                 }
             }

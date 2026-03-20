@@ -53,7 +53,8 @@ class UserRepositoryImpl @Inject constructor(
                     titleJa = anime?.titleJa(),
                     abbreviatedTitles = anime?.abbreviatedTitles() ?: emptyList(),
                     posterUrl = anime?.posterUrl(),
-                    coverUrl = anime?.coverUrl()
+                    coverUrl = anime?.coverUrl(),
+                    watchingStatus = entry.attributes?.status
                 )
             }
             results.addAll(pageResults)
@@ -261,7 +262,8 @@ class UserRepositoryImpl @Inject constructor(
                     titleJa = anime?.titleJa(),
                     abbreviatedTitles = anime?.abbreviatedTitles() ?: emptyList(),
                     posterUrl = anime?.posterUrl(),
-                    coverUrl = anime?.coverUrl()
+                    coverUrl = anime?.coverUrl(),
+                    watchingStatus = entry.attributes?.status ?: "current"
                 )
             }
             results.addAll(pageResults)
