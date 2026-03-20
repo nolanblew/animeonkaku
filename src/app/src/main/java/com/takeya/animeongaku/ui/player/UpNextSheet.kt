@@ -98,7 +98,7 @@ fun UpNextSheet(
     }
 }
 
-private fun historyKey(historyIdx: Int): String = "history-$historyIdx"
+private fun historyKey(themeId: Long): String = "history-$themeId"
 
 private fun queueKey(queueIdx: Int): String = "queue-$queueIdx"
 
@@ -223,13 +223,13 @@ private fun UpNextContent(
                 }
                 itemsIndexed(
                     items = history,
-                    key = { index, _ -> historyKey(index) }
+                    key = { _, theme -> historyKey(theme.id) }
                 ) { index, theme ->
                     val queueIdx = index
                     val anime = theme.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline && theme.id !in downloadedThemeIds
                     val isDisliked = theme.id in dislikedThemeIds
-                    val key = historyKey(index)
+                    val key = historyKey(theme.id)
                     val isDragging = dragDropState.draggingItemKey == key
                     QueueTrackRow(
                         theme = theme,

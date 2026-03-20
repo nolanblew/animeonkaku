@@ -38,7 +38,7 @@ fun FallbackAsyncImage(
         ImageRequest.Builder(context)
             .data(currentUrl)
             .apply { if (currentIndex == 0) size(Size.ORIGINAL) }
-            .memoryCacheKey("$currentUrl#fallback-$currentIndex")
+            .apply { if (currentIndex > 0) memoryCacheKey("$currentUrl#fallback-$currentIndex") }
             .crossfade(true)
             .build()
     }

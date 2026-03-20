@@ -236,11 +236,18 @@ class MediaControllerManager @Inject constructor(
                     .collectLatest { npState ->
                         val ctrl = controller ?: return@collectLatest
                         val theme = npState.currentTheme ?: return@collectLatest
+                        val expectedThemeId = theme.id
                         val anime = theme.animeId?.let { npState.animeMap[it] } ?: return@collectLatest
                         val urls = anime.primaryArtworkUrls()
                         if (urls.isEmpty()) return@collectLatest
 
                         val bitmap = loadSquareBitmap(imageLoader, urls) ?: return@collectLatest
+
+                        // Verify the controller is still playing the same track after the async load
+                        val currentIdx = ctrl.currentMediaItemIndex
+                        if (currentIdx < 0 || currentIdx >= ctrl.mediaItemCount) return@collectLatest
+                        val current = ctrl.getMediaItemAt(currentIdx)
+                        if (current.mediaId != expectedThemeId.toString()) return@collectLatest
 
                         val bytes = withContext(Dispatchers.IO) {
                             ByteArrayOutputStream().use { bos ->
@@ -249,14 +256,17 @@ class MediaControllerManager @Inject constructor(
                             }
                         }
 
-                        val currentIdx = ctrl.currentMediaItemIndex
-                        if (currentIdx < 0 || currentIdx >= ctrl.mediaItemCount) return@collectLatest
-                        val current = ctrl.getMediaItemAt(currentIdx)
-                        val updatedMetadata = current.mediaMetadata.buildUpon()
+                        // Re-check after compression in case track changed again
+                        val finalIdx = ctrl.currentMediaItemIndex
+                        if (finalIdx < 0 || finalIdx >= ctrl.mediaItemCount) return@collectLatest
+                        val finalItem = ctrl.getMediaItemAt(finalIdx)
+                        if (finalItem.mediaId != expectedThemeId.toString()) return@collectLatest
+
+                        val updatedMetadata = finalItem.mediaMetadata.buildUpon()
                             .setArtworkData(bytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
                             .build()
-                        val updated = current.buildUpon().setMediaMetadata(updatedMetadata).build()
-                        ctrl.replaceMediaItem(currentIdx, updated)
+                        val updated = finalItem.buildUpon().setMediaMetadata(updatedMetadata).build()
+                        ctrl.replaceMediaItem(finalIdx, updated)
                     }
             }
         }

@@ -190,7 +190,10 @@ fun PlayerScreen(
     val expandedArtist = currentTheme?.artistName ?: animeEntity?.title ?: "Choose a track from your library"
     val eyebrowAnimeName = animeEntity?.title?.takeIf { it.isNotBlank() }
     val eyebrowThemeTag = formatThemeTag(currentTheme?.themeType)
-    val upNextTheme = npState.upcomingTracks.firstOrNull()
+    val upNextTheme = npState.upcomingTracks.firstOrNull { theme ->
+        val queueIdx = npState.nowPlaying.indexOf(theme)
+        !dislikedThemeIds.contains(theme.id) || npState.unskippedIndices.contains(queueIdx)
+    }
     val upNextAnime = upNextTheme?.animeId?.let { npState.animeMap[it] }
     val upNextArtworkUrls = upNextAnime?.primaryArtworkUrls() ?: emptyList()
     val upNextAnimeName = upNextAnime?.title?.takeIf { it.isNotBlank() } ?: "Nothing queued"

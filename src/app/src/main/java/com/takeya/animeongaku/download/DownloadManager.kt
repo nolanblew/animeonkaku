@@ -155,8 +155,6 @@ class DownloadManager @Inject constructor(
 
             // Enqueue each theme with rate limiting
             for ((i, theme) in themes.withIndex()) {
-                val anime = theme.animeId?.let { animeDao.getByAnimeThemesId(it) }
-                val imageUrl = anime?.primaryArtworkUrl()
                 enqueueDownload(theme, imageUrl)
                 if (i < themes.lastIndex) delay(BATCH_DELAY_MS)
             }
