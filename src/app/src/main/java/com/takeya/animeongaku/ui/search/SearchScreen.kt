@@ -45,8 +45,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
@@ -58,6 +58,7 @@ import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ArtistTrackCount
 import com.takeya.animeongaku.data.local.PlaylistWithCount
+import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.model.OnlineAnimeResult
@@ -122,7 +123,7 @@ fun SearchScreen(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.thumbnailUrl ?: sheetAnime?.coverUrl,
+                imageUrl = sheetAnime?.primaryArtworkUrl(),
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 showGoToAnime = sheetAnime?.kitsuId != null,
                 showDownload = !isDownloaded && !isDownloading,
@@ -476,7 +477,7 @@ private fun LocalSongRow(
     onMore: () -> Unit
 ) {
     val info = theme.displayInfo(anime)
-    val imageUrl = anime?.thumbnailUrl ?: anime?.coverUrl
+    val imageUrl = anime?.primaryArtworkUrl()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -525,7 +526,7 @@ private fun LocalSongRow(
 
 @Composable
 private fun AnimeCard(anime: AnimeEntity, onClick: () -> Unit) {
-    val coverUrl = anime.thumbnailUrl ?: anime.coverUrl
+    val coverUrl = anime.primaryArtworkUrl()
     Column(
         modifier = Modifier
             .width(100.dp)

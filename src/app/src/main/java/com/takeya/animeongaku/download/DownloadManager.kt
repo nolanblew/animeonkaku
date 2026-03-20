@@ -1,8 +1,10 @@
 package com.takeya.animeongaku.download
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import android.widget.Toast
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
@@ -11,6 +13,7 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.DownloadGroupEntity
 import com.takeya.animeongaku.data.local.DownloadGroupThemeEntity
@@ -99,7 +102,7 @@ class DownloadManager @Inject constructor(
 
     fun downloadSong(theme: ThemeEntity, anime: AnimeEntity? = null) {
         scope.launch {
-            val imageUrl = anime?.thumbnailUrl ?: anime?.coverUrl
+            val imageUrl = anime?.primaryArtworkUrl()
 
             // Create or find single group
             var group = downloadDao.findGroup(DownloadGroupEntity.TYPE_SINGLE, theme.id.toString())
@@ -131,7 +134,7 @@ class DownloadManager @Inject constructor(
             if (themes.isEmpty()) return@launch
 
             val label = anime.title ?: anime.titleEn ?: "Anime"
-            val imageUrl = anime.thumbnailUrl ?: anime.coverUrl
+            val imageUrl = anime.primaryArtworkUrl()
 
             // Create anime group
             var group = downloadDao.findGroup(DownloadGroupEntity.TYPE_ANIME, kitsuId)
@@ -152,6 +155,8 @@ class DownloadManager @Inject constructor(
 
             // Enqueue each theme with rate limiting
             for ((i, theme) in themes.withIndex()) {
+                val anime = theme.animeId?.let { animeDao.getByAnimeThemesId(it) }
+                val imageUrl = anime?.primaryArtworkUrl()
                 enqueueDownload(theme, imageUrl)
                 if (i < themes.lastIndex) delay(BATCH_DELAY_MS)
             }
@@ -193,7 +198,7 @@ class DownloadManager @Inject constructor(
 
             for ((i, theme) in themes.withIndex()) {
                 val anime = theme.animeId?.let { animeMap[it] }
-                val imageUrl = anime?.thumbnailUrl ?: anime?.coverUrl
+                val imageUrl = anime?.primaryArtworkUrl()
                 enqueueDownload(theme, imageUrl)
                 if (i < themes.lastIndex) delay(BATCH_DELAY_MS)
             }

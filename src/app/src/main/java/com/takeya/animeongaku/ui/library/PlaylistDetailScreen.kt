@@ -68,6 +68,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.PlaylistTrack
+import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
@@ -144,7 +145,7 @@ fun PlaylistDetailScreen(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.thumbnailUrl ?: sheetAnime?.coverUrl,
+                imageUrl = sheetAnime?.primaryArtworkUrl(),
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 showGoToAnime = sheetAnime?.kitsuId != null,
                 showDownload = !isDownloaded && !isDownloading,
@@ -320,7 +321,7 @@ fun PlaylistDetailScreen(
             } else {
                 itemsIndexed(tracks) { _, track ->
                     val animeEntry = track.theme.animeId?.let { animeByThemesId[it] }
-                    val imageUrl = animeEntry?.thumbnailUrl ?: animeEntry?.coverUrl
+                    val imageUrl = animeEntry?.primaryArtworkUrl()
                     val info = track.theme.displayInfo(animeEntry)
                     val tdl = track.theme.id in downloadedThemeIds
                     val tding = track.theme.id in downloadingThemeIds
@@ -530,7 +531,7 @@ private fun AddTrackDialog(
                     ) {
                         items(themes) { theme ->
                             val animeEntry = theme.animeId?.let { animeByThemesId[it] }
-                            val imgUrl = animeEntry?.thumbnailUrl ?: animeEntry?.coverUrl
+                            val imgUrl = animeEntry?.primaryArtworkUrl()
                             val info = theme.displayInfo(animeEntry)
                             AddThemeRow(info = info, imageUrl = imgUrl, onAdd = { onAdd(theme) })
                         }

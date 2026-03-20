@@ -43,6 +43,7 @@ import androidx.compose.ui.draw.clip
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
 import com.takeya.animeongaku.ui.common.PlaylistCoverArt
@@ -92,7 +93,7 @@ fun HomeScreen(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.thumbnailUrl ?: sheetAnime?.coverUrl,
+                imageUrl = sheetAnime?.primaryArtworkUrl(),
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 showGoToAnime = sheetAnime?.kitsuId != null,
                 showDownload = !isDownloaded && !isDownloading,
@@ -187,7 +188,7 @@ fun HomeScreen(
             } else {
                 items(quickPicks) { theme ->
                     val animeEntry = animeByThemesId[theme.animeId]
-                    val imageUrl = animeEntry?.thumbnailUrl ?: animeEntry?.coverUrl
+                    val imageUrl = animeEntry?.primaryArtworkUrl()
                     QuickPickRow(
                         theme = theme, anime = animeEntry, imageUrl = imageUrl,
                         onPlay = {
@@ -242,7 +243,7 @@ fun HomeScreen(
             } else {
                 items(topSongs) { theme ->
                     val animeEntry = animeByThemesId[theme.animeId]
-                    val imageUrl = animeEntry?.thumbnailUrl ?: animeEntry?.coverUrl
+                    val imageUrl = animeEntry?.primaryArtworkUrl()
                     QuickPickRow(
                         theme = theme, anime = animeEntry, imageUrl = imageUrl,
                         onPlay = {

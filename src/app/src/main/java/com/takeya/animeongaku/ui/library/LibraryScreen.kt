@@ -64,6 +64,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
 import com.takeya.animeongaku.ui.common.PlaylistCoverArt
@@ -136,7 +137,7 @@ fun LibraryScreen(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.thumbnailUrl ?: sheetAnime?.coverUrl,
+                imageUrl = sheetAnime?.primaryArtworkUrl(),
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 showGoToAnime = sheetAnime?.kitsuId != null,
                 showDownload = !isDownloaded && !isDownloading,
@@ -270,8 +271,7 @@ fun LibraryScreen(
                             }
                         } else {
                             items(filteredThemes) { theme ->
-                                val imageUrl = animeByThemesId[theme.animeId]?.thumbnailUrl
-                                    ?: animeByThemesId[theme.animeId]?.coverUrl
+                                val imageUrl = animeByThemesId[theme.animeId]?.primaryArtworkUrl()
                                 val isDownloaded = theme.id in downloadedThemeIds
                                 val isDownloading = theme.id in downloadingThemeIds
                                 ListRow(

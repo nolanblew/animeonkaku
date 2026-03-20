@@ -10,6 +10,7 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.PlayCountDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
@@ -436,8 +437,8 @@ class MediaControllerManager @Inject constructor(
         }
     }
 
-    val repeatMode: Int
-        get() = controller?.repeatMode ?: Player.REPEAT_MODE_OFF
+val repeatMode: Int
+    get() = controller?.repeatMode ?: Player.REPEAT_MODE_OFF
 }
 
 data class PlaybackState(
@@ -453,7 +454,7 @@ data class PlaybackState(
 
 private fun ThemeEntity.toMediaItem(animeMap: Map<Long, AnimeEntity>): MediaItem {
     val anime = animeId?.let { animeMap[it] }
-    val artworkUrl = anime?.thumbnailUrl ?: anime?.coverUrl
+    val artworkUrl = anime?.primaryArtworkUrl()
     val animeName = anime?.title
     val typeTag = themeType
 

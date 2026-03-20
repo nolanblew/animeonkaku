@@ -65,6 +65,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.ui.theme.Ember400
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
@@ -700,7 +701,7 @@ private fun AnimeRow(entry: AnimeEntity) {
                 .size(44.dp)
                 .background(Color(0xFF2A2533), RoundedCornerShape(10.dp))
         ) {
-            val imageUrl = entry.thumbnailUrl ?: entry.coverUrl
+            val imageUrl = entry.primaryArtworkUrl()
             if (!imageUrl.isNullOrBlank()) {
                 AsyncImage(
                     model = imageUrl,

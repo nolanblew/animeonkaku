@@ -72,23 +72,23 @@ interface PlaylistDao {
     suspend fun findAutoPlaylistByName(name: String): PlaylistEntity?
 
     @Query("""
-        SELECT DISTINCT a.coverUrl
+        SELECT DISTINCT COALESCE(NULLIF(a.coverUrl, ''), NULLIF(a.thumbnailUrl, ''))
         FROM playlist_entries pe
         JOIN themes t ON t.id = pe.themeId
         JOIN anime a ON a.animeThemesId = t.animeId
         WHERE pe.playlistId = :playlistId
-          AND a.coverUrl IS NOT NULL AND a.coverUrl != ''
+          AND COALESCE(NULLIF(a.coverUrl, ''), NULLIF(a.thumbnailUrl, '')) IS NOT NULL
         LIMIT 4
     """)
     suspend fun getPlaylistCoverUrls(playlistId: Long): List<String>
 
     @Query("""
-        SELECT DISTINCT a.coverUrl
+        SELECT DISTINCT COALESCE(NULLIF(a.coverUrl, ''), NULLIF(a.thumbnailUrl, ''))
         FROM playlist_entries pe
         JOIN themes t ON t.id = pe.themeId
         JOIN anime a ON a.animeThemesId = t.animeId
         WHERE pe.playlistId = :playlistId
-          AND a.coverUrl IS NOT NULL AND a.coverUrl != ''
+          AND COALESCE(NULLIF(a.coverUrl, ''), NULLIF(a.thumbnailUrl, '')) IS NOT NULL
         LIMIT 4
     """)
     fun observePlaylistCoverUrls(playlistId: Long): Flow<List<String>>

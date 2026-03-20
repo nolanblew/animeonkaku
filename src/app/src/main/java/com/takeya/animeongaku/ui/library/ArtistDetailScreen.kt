@@ -53,6 +53,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
@@ -109,7 +110,7 @@ fun ArtistDetailScreen(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.thumbnailUrl ?: sheetAnime?.coverUrl,
+                imageUrl = sheetAnime?.primaryArtworkUrl(),
                 showGoToAnime = sheetAnime?.kitsuId != null,
                 animeName = sheetAnime?.title,
                 showAddToLibrary = !songInLibrary,
@@ -340,7 +341,7 @@ fun ArtistDetailScreen(
                 }
                 itemsIndexed(displaySongs) { index, theme ->
                     val animeEntry = theme.animeId?.let { animeByThemesId[it] }
-                    val imageUrl = animeEntry?.thumbnailUrl ?: animeEntry?.coverUrl
+                    val imageUrl = animeEntry?.primaryArtworkUrl()
                     ArtistSongRow(
                         index = index + 1,
                         theme = theme,
@@ -490,7 +491,7 @@ private fun ArtistSongRow(
 
 @Composable
 private fun AnimeRow(anime: AnimeEntity, songCount: Int, onClick: () -> Unit = {}) {
-    val coverUrl = anime.thumbnailUrl ?: anime.coverUrl
+    val coverUrl = anime.primaryArtworkUrl()
     Row(
         modifier = Modifier
             .fillMaxWidth()

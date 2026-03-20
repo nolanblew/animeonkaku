@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.NowPlayingState
@@ -180,7 +181,7 @@ private fun UpNextContent(
                 config = ActionSheetConfig(
                     title = t.title,
                     subtitle = npState.animeMap[t.animeId]?.title ?: "Unknown Anime",
-                    imageUrl = npState.animeMap[t.animeId]?.let { it.thumbnailUrl ?: it.coverUrl },
+                    imageUrl = npState.animeMap[t.animeId]?.primaryArtworkUrl(),
                     isSkippedContext = isDisliked,
                     showPlayNext = npIdx != npState.currentIndex,
                     showAddToQueue = false, showReplaceQueue = false, showSaveToPlaylist = false,
@@ -364,7 +365,7 @@ private fun QueueTrackRow(
     dragModifier: Modifier = Modifier
 ) {
     val info = theme.displayInfo(anime)
-    val imageUrl = anime?.thumbnailUrl ?: anime?.coverUrl
+    val imageUrl = anime?.primaryArtworkUrl()
     val alpha = when {
         isUnavailable || isDisliked -> 0.3f
         isHistory -> 0.45f

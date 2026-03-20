@@ -8,22 +8,25 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.unit.lerp as dpLerp
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -34,8 +37,6 @@ import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material.icons.rounded.ThumbUp
-import androidx.compose.material.icons.outlined.ThumbDown
-import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,21 +45,28 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layoutId
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.constraintlayout.compose.ExperimentalMotionApi
 import androidx.constraintlayout.compose.MotionLayout
@@ -69,7 +77,8 @@ import androidx.media3.common.Player
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Size
-import androidx.compose.ui.platform.LocalContext
+import com.takeya.animeongaku.data.local.backgroundArtworkUrl
+import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.media.MediaControllerManager
 import com.takeya.animeongaku.media.NowPlayingState
 import com.takeya.animeongaku.media.PlaybackState
@@ -99,6 +108,7 @@ fun PlayerScreen(
     onOpenArtist: (String) -> Unit = {},
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
     val npState by viewModel.nowPlayingState.collectAsStateWithLifecycle()
     val pbState by viewModel.playbackState.collectAsStateWithLifecycle()
     val currentPreference by viewModel.currentPreference.collectAsStateWithLifecycle()
@@ -113,7 +123,7 @@ fun PlayerScreen(
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
     val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
 
-    androidx.compose.runtime.LaunchedEffect(swipeUpTrigger) {
+    LaunchedEffect(swipeUpTrigger) {
         if (swipeUpTrigger) {
             showUpNext = true
             onSwipeUpHandled()
@@ -138,12 +148,12 @@ fun PlayerScreen(
             val animeEntity = theme.animeId?.let { npState.animeMap[it] }
             val info = theme.displayInfo(animeEntity)
             var songInLibrary by remember { mutableStateOf(true) }
-            androidx.compose.runtime.LaunchedEffect(theme.id) {
+            LaunchedEffect(theme.id) {
                 songInLibrary = viewModel.isInLibrary(theme.id)
             }
             ActionSheet(
                 config = ActionSheetConfig(
-                    title = info.primaryText, subtitle = info.secondaryText, imageUrl = animeEntity?.thumbnailUrl ?: animeEntity?.coverUrl,
+                    title = info.primaryText, subtitle = info.secondaryText, imageUrl = animeEntity?.primaryArtworkUrl(),
                     showPlayNext = false, showAddToQueue = false, showReplaceQueue = false, showSaveToPlaylist = true,
                     showAddToLibrary = !songInLibrary,
                     showGoToArtist = !theme.artistName.isNullOrBlank(),
@@ -170,49 +180,61 @@ fun PlayerScreen(
 
     val currentTheme = npState.currentTheme
     val animeEntity = currentTheme?.animeId?.let { npState.animeMap[it] }
-    val backgroundArtUrl = animeEntity?.coverUrl ?: animeEntity?.thumbnailUrl
+    val backgroundArtUrl = animeEntity?.backgroundArtworkUrl()
     val trackInfo = currentTheme?.displayInfo(animeEntity)
     val title = trackInfo?.primaryText ?: "Select a song"
     val artist = trackInfo?.secondaryText ?: "Choose a track from your library"
+    val expandedTitle = currentTheme?.title ?: "Select a song"
+    val expandedArtist = currentTheme?.artistName ?: animeEntity?.title ?: "Choose a track from your library"
+    val eyebrowAnimeName = animeEntity?.title?.takeIf { it.isNotBlank() }
+    val eyebrowThemeTag = formatThemeTag(currentTheme?.themeType)
+    val upNextTheme = npState.upcomingTracks.firstOrNull()
+    val upNextAnime = upNextTheme?.animeId?.let { npState.animeMap[it] }
+    val upNextArtworkUrl = upNextAnime?.primaryArtworkUrl()
+    val upNextAnimeName = upNextAnime?.title?.takeIf { it.isNotBlank() } ?: "Nothing queued"
+    val upNextThemeTag = formatThemeTag(upNextTheme?.themeType)
 
     val topInsetDp = WindowInsets.systemBars.asPaddingValues().calculateTopPadding().value.toInt()
     val endTopMargin = max(16, topInsetDp + 16)
 
     val motionScene = MotionScene("""{
             ConstraintSets: {
-                start: {
-                    bg: { width: 'spread', height: 64, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'] },
-                    topBar: { width: 'spread', height: 48, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 0 },
-                    art: { width: 44, height: 44, start: ['parent', 'start', 12], top: ['parent', 'top', 10], custom: { corner: 8 } },
-                    titles: { width: 'spread', height: 'wrap', start: ['art', 'end', 12], end: ['playPause', 'start', 12], top: ['parent', 'top', 12], bottom: ['bg', 'bottom', 12] },
-                    statusBadge: { width: 'wrap', height: 'wrap', end: ['art', 'end', 8], bottom: ['art', 'bottom', 8], alpha: 0 },
-                    playPause: { width: 40, height: 40, end: ['next', 'start', 12], top: ['parent', 'top', 12], bottom: ['bg', 'bottom', 12] },
-                    next: { width: 36, height: 36, end: ['parent', 'end', 12], top: ['parent', 'top', 14], bottom: ['bg', 'bottom', 14] },
-                    miniProgress: { width: 'spread', height: 2, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 1 },
-                    sliderControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['titles', 'bottom', 20], alpha: 0 },
-                    playbackControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['sliderControls', 'bottom', 20], alpha: 0 },
-                    upNextRow: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['playbackControls', 'bottom', 20], alpha: 0 }
-                },
-                end: {
-                    bg: { width: 'spread', height: 'spread', start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], bottom: ['parent', 'bottom'] },
-                    topBar: { width: 'spread', height: 48, start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['parent', 'top', $endTopMargin], alpha: 1 },
-                    art: { width: 'spread', height: 320, start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['topBar', 'bottom', 20], custom: { corner: 24 } },
-                    titles: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['art', 'bottom', 20] },
-                    statusBadge: { width: 'wrap', height: 'wrap', end: ['art', 'end', 8], bottom: ['art', 'bottom', 8], alpha: 1 },
-                    playPause: { width: 72, height: 72, start: ['parent', 'start'], end: ['parent', 'end'], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
-                    next: { width: 48, height: 48, start: ['playPause', 'end', 12], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
-                    miniProgress: { width: 'spread', height: 2, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 0 },
-                    sliderControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['titles', 'bottom', 20], alpha: 1 },
-                    playbackControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['sliderControls', 'bottom', 20], alpha: 1 },
-                    upNextRow: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['playbackControls', 'bottom', 20], alpha: 1 }
-                }
-            },
-            Transitions: { default: { from: 'start', to: 'end' } }
-        }""")
+                 start: {
+                     bg: { width: 'spread', height: 64, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'] },
+                     topBar: { width: 'spread', height: 48, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 0 },
+                     art: { width: 44, height: 44, start: ['parent', 'start', 12], top: ['parent', 'top', 10], custom: { corner: 8 } },
+                     titles: { width: 'spread', height: 'wrap', start: ['art', 'end', 12], end: ['playPause', 'start', 12], top: ['parent', 'top', 12], bottom: ['bg', 'bottom', 12] },
+                     statusBadge: { width: 'wrap', height: 'wrap', end: ['art', 'end', 8], bottom: ['art', 'bottom', 8], alpha: 0 },
+                     playPause: { width: 40, height: 40, end: ['next', 'start', 12], top: ['parent', 'top', 12], bottom: ['bg', 'bottom', 12] },
+                     next: { width: 36, height: 36, end: ['parent', 'end', 12], top: ['parent', 'top', 14], bottom: ['bg', 'bottom', 14] },
+                     miniProgress: { width: 'spread', height: 2, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 1 },
+                     sliderControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['titles', 'bottom', 20], alpha: 0 },
+                     playbackControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['sliderControls', 'bottom', 20], alpha: 0 },
+                     reactionRow: { width: 'spread', height: 'wrap', start: ['parent', 'start', 48], end: ['parent', 'end', 48], top: ['playbackControls', 'bottom', 14], alpha: 0 },
+                     upNextRow: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['reactionRow', 'bottom', 18], alpha: 0 }
+                 },
+                 end: {
+                     bg: { width: 'spread', height: 'spread', start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], bottom: ['parent', 'bottom'] },
+                     topBar: { width: 'spread', height: 48, start: ['parent', 'start', 16], end: ['parent', 'end', 16], top: ['parent', 'top', $endTopMargin], alpha: 1 },
+                     art: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['topBar', 'bottom', 8], custom: { corner: 24 } },
+                     titles: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['art', 'bottom', 12] },
+                     statusBadge: { width: 'wrap', height: 'wrap', end: ['art', 'end', 8], bottom: ['art', 'bottom', 8], alpha: 0 },
+                     playPause: { width: 72, height: 72, start: ['parent', 'start'], end: ['parent', 'end'], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
+                     next: { width: 48, height: 48, start: ['playPause', 'end', 12], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
+                     miniProgress: { width: 'spread', height: 2, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 0 },
+                     sliderControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 20], end: ['parent', 'end', 20], top: ['titles', 'bottom', 10], alpha: 1 },
+                     playbackControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 12], end: ['parent', 'end', 12], top: ['sliderControls', 'bottom', 8], alpha: 1 },
+                     reactionRow: { width: 'spread', height: 'wrap', start: ['parent', 'start', 72], end: ['parent', 'end', 72], top: ['playbackControls', 'bottom', 8], alpha: 1 },
+                     upNextRow: { width: 'spread', height: 'wrap', start: ['parent', 'start', 16], end: ['parent', 'end', 16], bottom: ['parent', 'bottom', 24], alpha: 1 }
+                 }
+             },
+             Transitions: { default: { from: 'start', to: 'end' } }
+         }""")
 
     MotionLayout(motionScene = motionScene, progress = progress, modifier = Modifier.fillMaxSize()) {
-        val isExpandedThreshold = progress > 0.1f
-        val backgroundGradient = Brush.verticalGradient(listOf(Ink900, if (isExpandedThreshold) Ink800 else Ink900, if (isExpandedThreshold) Ink700 else Ink900))
+        val isExpandedThreshold = progress > 0.5f
+        val isSlightlyExpanded = progress > 0.1f
+        val backgroundGradient = Brush.verticalGradient(listOf(Ink900, if (isSlightlyExpanded) Ink800 else Ink900, if (isSlightlyExpanded) Ink700 else Ink900))
         Box(
             modifier = Modifier.layoutId("bg")
                 .background(backgroundGradient)
@@ -223,25 +245,38 @@ fun PlayerScreen(
                 )
                 .then(if (progress < 0.5f) { Modifier.border(0.5.dp, Mist200.copy(alpha = 0.15f), RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)).clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)) } else Modifier)
         ) {
-            if (isExpandedThreshold) {
+            if (isSlightlyExpanded) {
                 PlayerBackgroundArt(backgroundArtUrl)
                 BackdropGlow()
             }
         }
 
         Row(modifier = Modifier.layoutId("topBar"), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            GlassIconButton(onClick = onCollapse) { Icon(Icons.Rounded.KeyboardArrowDown, "Collapse player", tint = Mist100) }
-            Text("NOW PLAYING", style = MaterialTheme.typography.labelMedium, color = Mist200)
-            GlassIconButton(onClick = { showPlayerSheet = true }) { Icon(Icons.Rounded.MoreVert, "More options", tint = Mist100) }
+            IconButton(onClick = onCollapse) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Collapse player", tint = Rose500)
+            }
+            Text(
+                text = "Now Playing",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                color = Mist100
+            )
+            IconButton(onClick = { showPlayerSheet = true }) {
+                Icon(Icons.Rounded.MoreVert, "More options", tint = Rose500)
+            }
         }
 
         val cornerProps = motionProperties(id = "art")
         val cornerRadius = cornerProps.value.int("corner") ?: 8
-        Box(
-            modifier = Modifier.layoutId("art").shadow(if (isExpandedThreshold) 24.dp else 0.dp, RoundedCornerShape(cornerRadius.dp)).clip(RoundedCornerShape(cornerRadius.dp)).background(Ink800, RoundedCornerShape(cornerRadius.dp)).then(if (isExpandedThreshold) Modifier.border(1.dp, Mist200.copy(alpha=0.15f), RoundedCornerShape(cornerRadius.dp)) else Modifier),
+        BoxWithConstraints(
+            modifier = Modifier.layoutId("art").shadow(if (isSlightlyExpanded) 24.dp else 0.dp, RoundedCornerShape(cornerRadius.dp)).clip(RoundedCornerShape(cornerRadius.dp)).background(Ink800, RoundedCornerShape(cornerRadius.dp)).then(if (isSlightlyExpanded) Modifier.border(1.dp, Mist200.copy(alpha=0.15f), RoundedCornerShape(cornerRadius.dp)) else Modifier),
             contentAlignment = Alignment.Center
         ) {
-            val playableQueue = remember(npState.nowPlaying, dislikedThemeIds, npState.unskippedIndices, npState.currentIndex, npState.playedIndices) {
+            val artSize = dpLerp(44.dp, maxWidth, progress.coerceIn(0f, 1f))
+            Box(
+                modifier = Modifier.size(artSize),
+                contentAlignment = Alignment.Center
+            ) {
+                val playableQueue = remember(npState.nowPlaying, dislikedThemeIds, npState.unskippedIndices, npState.currentIndex, npState.playedIndices) {
                 npState.nowPlaying.mapIndexedNotNull { index, theme ->
                     val isCurrent = index == npState.currentIndex
                     val isPlayed = npState.playedIndices.contains(index) || index < npState.currentIndex
@@ -254,125 +289,186 @@ fun PlayerScreen(
                         null
                     }
                 }
-            }
-
-            val currentPageIndex = playableQueue.indexOfFirst { it.first == npState.currentIndex }.coerceAtLeast(0)
-
-            val pagerState = androidx.compose.foundation.pager.rememberPagerState(
-                initialPage = currentPageIndex,
-                pageCount = { playableQueue.size }
-            )
-
-            var lastQueueVersion by remember { androidx.compose.runtime.mutableLongStateOf(npState.queueVersion) }
-
-            androidx.compose.runtime.LaunchedEffect(currentPageIndex, npState.queueVersion) {
-                if (npState.queueVersion != lastQueueVersion) {
-                    pagerState.scrollToPage(currentPageIndex)
-                    lastQueueVersion = npState.queueVersion
-                } else if (pagerState.currentPage != currentPageIndex && !pagerState.isScrollInProgress) {
-                    pagerState.animateScrollToPage(currentPageIndex)
                 }
-            }
 
-            androidx.compose.runtime.LaunchedEffect(pagerState.isScrollInProgress) {
-                if (!pagerState.isScrollInProgress) {
-                    if (pagerState.currentPage != currentPageIndex) {
-                        val targetItem = playableQueue.getOrNull(pagerState.currentPage)
-                        if (targetItem != null && targetItem.first != npState.currentIndex) {
-                            if (pagerState.currentPage == currentPageIndex + 1) {
-                                controllerManager.seekToNext()
-                            } else if (pagerState.currentPage == currentPageIndex - 1) {
-                                controllerManager.seekToPrevious()
-                            } else {
-                                if (targetItem.first > npState.currentIndex) {
-                                    nowPlayingManager.skipTo(targetItem.first)
+                val currentPageIndex = playableQueue.indexOfFirst { it.first == npState.currentIndex }.coerceAtLeast(0)
+
+                val pagerState = androidx.compose.foundation.pager.rememberPagerState(
+                    initialPage = currentPageIndex,
+                    pageCount = { playableQueue.size }
+                )
+
+                var lastQueueVersion by remember { androidx.compose.runtime.mutableLongStateOf(npState.queueVersion) }
+
+                LaunchedEffect(currentPageIndex, npState.queueVersion) {
+                    if (npState.queueVersion != lastQueueVersion) {
+                        pagerState.scrollToPage(currentPageIndex)
+                        lastQueueVersion = npState.queueVersion
+                    } else if (pagerState.currentPage != currentPageIndex && !pagerState.isScrollInProgress) {
+                        pagerState.animateScrollToPage(currentPageIndex)
+                    }
+                }
+
+                LaunchedEffect(pagerState.isScrollInProgress) {
+                    if (!pagerState.isScrollInProgress) {
+                        if (pagerState.currentPage != currentPageIndex) {
+                            val targetItem = playableQueue.getOrNull(pagerState.currentPage)
+                            if (targetItem != null && targetItem.first != npState.currentIndex) {
+                                if (pagerState.currentPage == currentPageIndex + 1) {
+                                    controllerManager.seekToNext()
+                                } else if (pagerState.currentPage == currentPageIndex - 1) {
+                                    controllerManager.seekToPrevious()
                                 } else {
-                                    nowPlayingManager.rewindTo(targetItem.first)
+                                    if (targetItem.first > npState.currentIndex) {
+                                        nowPlayingManager.skipTo(targetItem.first)
+                                    } else {
+                                        nowPlayingManager.rewindTo(targetItem.first)
+                                    }
                                 }
+                            }
+                        
+                            // Always force snap exactly to center to fix the 5% peeking issue
+                            if (kotlin.math.abs(pagerState.currentPageOffsetFraction) > 0.001f) {
+                                pagerState.animateScrollToPage(pagerState.currentPage)
                             }
                         }
                     }
-                    
-                    // Always force snap exactly to center to fix the 5% peeking issue
-                    if (kotlin.math.abs(pagerState.currentPageOffsetFraction) > 0.001f) {
-                        pagerState.animateScrollToPage(pagerState.currentPage)
+                }
+
+                androidx.compose.foundation.pager.HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    pageSpacing = 16.dp,
+                    userScrollEnabled = isSlightlyExpanded,
+                    flingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(
+                        state = pagerState,
+                        snapPositionalThreshold = 0.8f
+                    )
+                ) { page ->
+                    val theme = playableQueue.getOrNull(page)?.second
+                    val anime = theme?.animeId?.let { npState.animeMap[it] }
+                    val pageArtUrl = anime?.primaryArtworkUrl()
+                    val pageTitle = theme?.displayInfo(anime)?.primaryText ?: title
+                    if (!pageArtUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = if (isExpandedThreshold) {
+                                ImageRequest.Builder(context)
+                                    .data(pageArtUrl)
+                                    .size(Size.ORIGINAL)
+                                    .memoryCacheKey("$pageArtUrl#player-full")
+                                    .crossfade(true)
+                                    .build()
+                            } else {
+                                pageArtUrl
+                            },
+                            contentDescription = pageTitle,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
                     }
                 }
             }
-
-            androidx.compose.foundation.pager.HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxSize(),
-                pageSpacing = 16.dp,
-                userScrollEnabled = isExpandedThreshold,
-                flingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(
-                    state = pagerState,
-                    snapPositionalThreshold = 0.8f
-                )
-            ) { page ->
-                val theme = playableQueue.getOrNull(page)?.second
-                val anime = theme?.animeId?.let { npState.animeMap[it] }
-                val pageArtUrl = anime?.thumbnailUrl ?: anime?.coverUrl
-                val pageTitle = theme?.displayInfo(anime)?.primaryText ?: title
-                if (!pageArtUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(pageArtUrl)
-                            .size(Size.ORIGINAL)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = pageTitle,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                }
-            }
         }
 
-        Column(modifier = Modifier.layoutId("titles"), verticalArrangement = Arrangement.spacedBy(if (isExpandedThreshold) 4.dp else 2.dp)) {
-            MarqueeText(text = title, style = if (isExpandedThreshold) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.bodyMedium, color = Mist100)
-            MarqueeText(text = artist, style = if (isExpandedThreshold) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodySmall, color = Mist200)
-        }
-
-        if (isExpandedThreshold && animeEntity?.watchingStatus != null) {
-            Box(
-                modifier = Modifier
-                    .layoutId("statusBadge")
-                    .background(Ink800.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
-                    .border(1.dp, Mist200.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                    .clickable { animeEntity.kitsuId.let { onOpenAnime(it) } }
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                val statusText = when (animeEntity.watchingStatus) {
-                    "current" -> "Watching"
-                    "completed" -> "Completed"
-                    "on_hold" -> "On Hold"
-                    "dropped" -> "Dropped"
-                    "planned" -> "Plan to Watch"
-                    else -> animeEntity.watchingStatus.replaceFirstChar { it.uppercase() }
+        val titlesAlpha by androidx.compose.animation.core.animateFloatAsState(
+            targetValue = if (progress > 0.6f) 1f else 0f,
+            animationSpec = tween(durationMillis = 180),
+            label = "titlesAlpha"
+        )
+        Column(
+            modifier = Modifier.layoutId("titles").fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(if (isExpandedThreshold) 4.dp else 2.dp),
+            horizontalAlignment = if (isExpandedThreshold) Alignment.CenterHorizontally else Alignment.Start
+        ) {
+            if (isExpandedThreshold) {
+                if (eyebrowAnimeName != null || eyebrowThemeTag != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer { alpha = titlesAlpha },
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (eyebrowAnimeName != null) {
+                            MarqueeText(
+                                text = eyebrowAnimeName,
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                                color = Color(0xFF56E8F5),
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                        }
+                        if (eyebrowAnimeName != null && eyebrowThemeTag != null) {
+                            Text(
+                                text = "  ·  ",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = Mist200
+                            )
+                        }
+                        if (eyebrowThemeTag != null) {
+                            Text(
+                                text = eyebrowThemeTag,
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                                color = Mist200,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
                 }
-                Text(
-                    text = statusText,
-                    style = MaterialTheme.typography.labelSmall,
+                MarqueeText(
+                    text = expandedTitle,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer { alpha = titlesAlpha },
+                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold, textAlign = TextAlign.Center),
                     color = Mist100
                 )
+                MarqueeText(
+                    text = expandedArtist,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer { alpha = titlesAlpha },
+                    style = MaterialTheme.typography.bodyLarge.copy(textAlign = TextAlign.Center),
+                    color = Mist200
+                )
+            } else {
+                MarqueeText(text = title, style = MaterialTheme.typography.bodyMedium, color = Mist100)
+                MarqueeText(text = artist, style = MaterialTheme.typography.bodySmall, color = Mist200)
             }
         }
 
-        if (isExpandedThreshold) {
-            val containerColor by animateColorAsState(targetValue = if (pbState.isPlaying) Rose500 else Ember400, animationSpec = tween(500), label = "playColor")
-            Box(
-                modifier = Modifier.layoutId("playPause").shadow(18.dp, CircleShape).background(containerColor, CircleShape).border(1.dp, Mist100.copy(alpha = 0.6f), CircleShape).clip(CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                if (pbState.isBuffering) { CircularProgressIndicator(modifier = Modifier.size(36.dp), color = Ink900, strokeWidth = 3.dp) } else {
-                    IconButton(onClick = { if (pbState.isPlaying) controllerManager.pause() else controllerManager.play() }) { Icon(if (pbState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Play or pause", tint = Ink900, modifier = Modifier.size(40.dp)) }
-                }
-            }
-        } else {
-            IconButton(onClick = { if (pbState.isPlaying) controllerManager.pause() else controllerManager.play() }, modifier = Modifier.layoutId("playPause").background(Rose500.copy(alpha = 0.15f), CircleShape)) {
-                Icon(if (pbState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Play or pause", tint = Mist100, modifier = Modifier.size(24.dp))
+        val playBgColor by animateColorAsState(
+            targetValue = when {
+                isExpandedThreshold && pbState.isPlaying -> Rose500
+                isExpandedThreshold -> Ember400
+                else -> Rose500.copy(alpha = 0.15f)
+            },
+            animationSpec = tween(durationMillis = 300),
+            label = "playBgColor"
+        )
+        val playIconTint by animateColorAsState(
+            targetValue = if (isExpandedThreshold) Ink900 else Mist100,
+            animationSpec = tween(durationMillis = 300),
+            label = "playIconTint"
+        )
+        Box(
+            modifier = Modifier
+                .layoutId("playPause")
+                .shadow(if (isExpandedThreshold) 18.dp else 0.dp, CircleShape)
+                .background(playBgColor, CircleShape)
+                .clip(CircleShape)
+                .clickable { if (pbState.isPlaying) controllerManager.pause() else controllerManager.play() },
+            contentAlignment = Alignment.Center
+        ) {
+            if (pbState.isBuffering && isExpandedThreshold) {
+                CircularProgressIndicator(modifier = Modifier.size(36.dp), color = Ink900, strokeWidth = 3.dp)
+            } else {
+                Icon(
+                    if (pbState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    "Play or pause",
+                    tint = playIconTint,
+                    modifier = Modifier.size(if (isExpandedThreshold) 34.dp else 24.dp)
+                )
             }
         }
 
@@ -412,24 +508,119 @@ fun PlayerScreen(
             }
         }
         
-        Row(modifier = Modifier.layoutId("playbackControls").fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { nowPlayingManager.toggleShuffle() }) { Icon(Icons.Rounded.Shuffle, "Shuffle", tint = if (npState.isShuffled) Rose500 else Mist200) }
-            IconButton(onClick = { controllerManager.seekToPrevious() }) { Icon(Icons.Rounded.SkipPrevious, "Previous", tint = Mist100, modifier = Modifier.size(36.dp)) }
-            Box(Modifier.size(72.dp)) // Spacer for middle play button inside MotionLayout
-            Box(Modifier.size(48.dp)) // Spacer for next button
-            IconButton(onClick = { controllerManager.toggleRepeatMode() }) {
-                Icon(if (pbState.repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, "Repeat", tint = if (pbState.repeatMode == Player.REPEAT_MODE_OFF) Mist200 else Rose500)
+        Row(
+            modifier = Modifier.layoutId("playbackControls").fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = { nowPlayingManager.toggleShuffle() }, modifier = Modifier.size(52.dp)) {
+                Icon(Icons.Rounded.Shuffle, "Shuffle", tint = if (npState.isShuffled) Rose500 else Mist100, modifier = Modifier.size(24.dp))
+            }
+            IconButton(onClick = { controllerManager.seekToPrevious() }, modifier = Modifier.size(52.dp)) {
+                Icon(Icons.Rounded.SkipPrevious, "Previous", tint = Mist100, modifier = Modifier.size(34.dp))
+            }
+            Spacer(modifier = Modifier.size(84.dp))
+            Spacer(modifier = Modifier.size(52.dp))
+            IconButton(onClick = { controllerManager.toggleRepeatMode() }, modifier = Modifier.size(52.dp)) {
+                Icon(
+                    if (pbState.repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                    "Repeat",
+                    tint = if (pbState.repeatMode == Player.REPEAT_MODE_OFF) Mist100 else Rose500,
+                    modifier = Modifier.size(24.dp)
+                )
             }
         }
-        
-        Row(modifier = Modifier.layoutId("upNextRow").fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { currentTheme?.id?.let { viewModel.toggleDislike(it) } }) {
-                Icon(if (currentPreference?.isDisliked == true) Icons.Rounded.ThumbDown else Icons.Outlined.ThumbDown, "Dislike", tint = if (currentPreference?.isDisliked == true) Mist100 else Mist200)
+
+        Row(
+            modifier = Modifier.layoutId("reactionRow").fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+         ) {
+             IconButton(onClick = { currentTheme?.id?.let { viewModel.toggleDislike(it) } }) {
+                 Icon(
+                     Icons.Rounded.ThumbDown,
+                     "Dislike",
+                     tint = if (currentPreference?.isDisliked == true) Rose500 else Mist200,
+                     modifier = Modifier.size(26.dp)
+                 )
+             }
+             IconButton(onClick = { currentTheme?.id?.let { viewModel.toggleLike(it) } }) {
+                 Icon(
+                     Icons.Rounded.ThumbUp,
+                     "Like",
+                     tint = if (currentPreference?.isLiked == true) Rose500 else Mist200,
+                     modifier = Modifier.size(26.dp)
+                 )
             }
-            GlassActionPill(icon = Icons.AutoMirrored.Rounded.QueueMusic, label = "Up Next", onClick = { showUpNext = true })
-            IconButton(onClick = { currentTheme?.id?.let { viewModel.toggleLike(it) } }) {
-                Icon(if (currentPreference?.isLiked == true) Icons.Rounded.ThumbUp else Icons.Outlined.ThumbUp, "Like", tint = if (currentPreference?.isLiked == true) Mist100 else Mist200)
+        }
+
+        Row(
+            modifier = Modifier
+                .layoutId("upNextRow")
+                .fillMaxWidth()
+                .background(Ink800.copy(alpha = 0.78f), RoundedCornerShape(22.dp))
+                .border(1.dp, Mist200.copy(alpha = 0.1f), RoundedCornerShape(22.dp))
+                .clickable { showUpNext = true }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Ember400.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!upNextArtworkUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = upNextArtworkUrl,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null, tint = Mist200)
+                }
             }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    text = "UP NEXT",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = Color(0xFF56E8F5)
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(0.dp)
+                ) {
+                    MarqueeText(
+                        text = upNextAnimeName,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = Mist100,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (upNextThemeTag != null) {
+                        Text(
+                            text = "  ·  ",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Mist200
+                        )
+                        Text(
+                            text = upNextThemeTag,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium),
+                            color = Mist200,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            Icon(
+                Icons.AutoMirrored.Rounded.QueueMusic,
+                contentDescription = "Open queue",
+                tint = Mist200,
+                modifier = Modifier.size(20.dp)
+            )
         }
     }
 }
@@ -437,10 +628,12 @@ fun PlayerScreen(
 @Composable
 fun PlayerBackgroundArt(imageUrl: String?) {
     if (imageUrl.isNullOrBlank()) return
+    val context = LocalContext.current
     AsyncImage(
-        model = ImageRequest.Builder(LocalContext.current)
+        model = ImageRequest.Builder(context)
             .data(imageUrl)
             .size(Size.ORIGINAL)
+            .memoryCacheKey("$imageUrl#player-bg")
             .crossfade(true)
             .build(),
         contentDescription = null,
@@ -480,4 +673,14 @@ private fun formatTime(durationMs: Long): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return "%d:%02d".format(minutes, seconds)
+}
+
+private fun formatThemeTag(themeType: String?): String? {
+    val raw = themeType?.trim()?.takeIf { it.isNotBlank() } ?: return null
+    val match = Regex("^(OP|ED)(\\d+)$", RegexOption.IGNORE_CASE).matchEntire(raw)
+    return if (match != null) {
+        "${match.groupValues[1].uppercase()} ${match.groupValues[2]}"
+    } else {
+        raw.uppercase()
+    }
 }
