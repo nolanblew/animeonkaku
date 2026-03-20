@@ -281,19 +281,21 @@ fun PlayerScreen(
                 modifier = Modifier.size(artSize),
                 contentAlignment = Alignment.Center
             ) {
-                val playableQueue = remember(npState.nowPlaying, dislikedThemeIds, npState.unskippedIndices, npState.currentIndex, npState.playedIndices) {
-                npState.nowPlaying.mapIndexedNotNull { index, theme ->
-                    val isCurrent = index == npState.currentIndex
-                    val isPlayed = npState.playedIndices.contains(index) || index < npState.currentIndex
-                    val isUnskipped = npState.unskippedIndices.contains(index)
-                    val isNotDisliked = !dislikedThemeIds.contains(theme.id)
-                    
-                    if (isCurrent || isPlayed || isUnskipped || isNotDisliked) {
-                        index to theme
-                    } else {
-                        null
+                // Build the pager queue: exclude disliked tracks entirely so the user
+                // never sees them while swiping. This mirrors shouldIncludeInPlayer()
+                // in MediaControllerManager, keeping the pager and media player in sync.
+                val playableQueue = remember(npState.nowPlaying, dislikedThemeIds, npState.unskippedIndices, npState.currentIndex) {
+                    npState.nowPlaying.mapIndexedNotNull { index, theme ->
+                        val isCurrent = index == npState.currentIndex
+                        val isUnskipped = npState.unskippedIndices.contains(index)
+                        val isNotDisliked = !dislikedThemeIds.contains(theme.id)
+
+                        if (isCurrent || isUnskipped || isNotDisliked) {
+                            index to theme
+                        } else {
+                            null
+                        }
                     }
-                }
                 }
 
                 val currentPageIndex = playableQueue.indexOfFirst { it.first == npState.currentIndex }.coerceAtLeast(0)
@@ -331,7 +333,7 @@ fun PlayerScreen(
                                     }
                                 }
                             }
-                        
+
                             // Always force snap exactly to center to fix the 5% peeking issue
                             if (kotlin.math.abs(pagerState.currentPageOffsetFraction) > 0.001f) {
                                 pagerState.animateScrollToPage(pagerState.currentPage)
@@ -455,7 +457,7 @@ fun PlayerScreen(
                 .clickable { if (pbState.isPlaying) controllerManager.pause() else controllerManager.play() },
             contentAlignment = Alignment.Center
         ) {
-            if (pbState.isBuffering && isExpandedThreshold) {
+            if (pbState.isBuffering && !pbState.isPlaying && isExpandedThreshold) {
                 CircularProgressIndicator(modifier = Modifier.size(36.dp), color = Ink900, strokeWidth = 3.dp)
             } else {
                 Icon(

@@ -116,6 +116,10 @@ class DragDropState(
                 return
             }
             if (onMove(draggedKey, targetItem.key)) {
+                // After a move, queue indices shift so each item's key changes.
+                // The dragged item now occupies the target's former slot and inherits its key.
+                // Update draggingItemKey so we continue tracking the right item.
+                draggingItemKey = targetItem.key
                 draggingItemExpectedIndex = targetItem.index
             }
         } else if (targetItem != null && targetItem.key == draggedKey) {
