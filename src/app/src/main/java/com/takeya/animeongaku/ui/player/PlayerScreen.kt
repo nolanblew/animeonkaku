@@ -79,6 +79,8 @@ import coil.request.ImageRequest
 import coil.size.Size
 import com.takeya.animeongaku.data.local.backgroundArtworkUrl
 import com.takeya.animeongaku.data.local.primaryArtworkUrl
+import com.takeya.animeongaku.data.local.primaryArtworkUrls
+import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.media.MediaControllerManager
 import com.takeya.animeongaku.media.NowPlayingState
 import com.takeya.animeongaku.media.PlaybackState
@@ -190,7 +192,7 @@ fun PlayerScreen(
     val eyebrowThemeTag = formatThemeTag(currentTheme?.themeType)
     val upNextTheme = npState.upcomingTracks.firstOrNull()
     val upNextAnime = upNextTheme?.animeId?.let { npState.animeMap[it] }
-    val upNextArtworkUrl = upNextAnime?.primaryArtworkUrl()
+    val upNextArtworkUrls = upNextAnime?.primaryArtworkUrls() ?: emptyList()
     val upNextAnimeName = upNextAnime?.title?.takeIf { it.isNotBlank() } ?: "Nothing queued"
     val upNextThemeTag = formatThemeTag(upNextTheme?.themeType)
 
@@ -220,7 +222,7 @@ fun PlayerScreen(
                      titles: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['art', 'bottom', 12] },
                      statusBadge: { width: 'wrap', height: 'wrap', end: ['art', 'end', 8], bottom: ['art', 'bottom', 8], alpha: 0 },
                      playPause: { width: 72, height: 72, start: ['parent', 'start'], end: ['parent', 'end'], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
-                     next: { width: 48, height: 48, start: ['playPause', 'end', 12], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
+                     next: { width: 48, height: 48, top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
                      miniProgress: { width: 'spread', height: 2, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 0 },
                      sliderControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 20], end: ['parent', 'end', 20], top: ['titles', 'bottom', 10], alpha: 1 },
                      playbackControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 12], end: ['parent', 'end', 12], top: ['sliderControls', 'bottom', 8], alpha: 1 },
@@ -268,7 +270,7 @@ fun PlayerScreen(
         val cornerProps = motionProperties(id = "art")
         val cornerRadius = cornerProps.value.int("corner") ?: 8
         BoxWithConstraints(
-            modifier = Modifier.layoutId("art").shadow(if (isSlightlyExpanded) 24.dp else 0.dp, RoundedCornerShape(cornerRadius.dp)).clip(RoundedCornerShape(cornerRadius.dp)).background(Ink800, RoundedCornerShape(cornerRadius.dp)).then(if (isSlightlyExpanded) Modifier.border(1.dp, Mist200.copy(alpha=0.15f), RoundedCornerShape(cornerRadius.dp)) else Modifier),
+            modifier = Modifier.layoutId("art").shadow(if (isExpandedThreshold) 24.dp else 0.dp, RoundedCornerShape(cornerRadius.dp)).clip(RoundedCornerShape(cornerRadius.dp)).then(if (isExpandedThreshold) Modifier.background(Ink800, RoundedCornerShape(cornerRadius.dp)).border(1.dp, Mist200.copy(alpha=0.15f), RoundedCornerShape(cornerRadius.dp)) else Modifier),
             contentAlignment = Alignment.Center
         ) {
             val artSize = dpLerp(44.dp, maxWidth, progress.coerceIn(0f, 1f))
@@ -347,23 +349,13 @@ fun PlayerScreen(
                 ) { page ->
                     val theme = playableQueue.getOrNull(page)?.second
                     val anime = theme?.animeId?.let { npState.animeMap[it] }
-                    val pageArtUrl = anime?.primaryArtworkUrl()
+                    val pageArtUrls = anime?.primaryArtworkUrls() ?: emptyList()
                     val pageTitle = theme?.displayInfo(anime)?.primaryText ?: title
-                    if (!pageArtUrl.isNullOrBlank()) {
-                        AsyncImage(
-                            model = if (isExpandedThreshold) {
-                                ImageRequest.Builder(context)
-                                    .data(pageArtUrl)
-                                    .size(Size.ORIGINAL)
-                                    .memoryCacheKey("$pageArtUrl#player-full")
-                                    .crossfade(true)
-                                    .build()
-                            } else {
-                                pageArtUrl
-                            },
+                    if (pageArtUrls.isNotEmpty()) {
+                        FallbackAsyncImage(
+                            urls = pageArtUrls,
                             contentDescription = pageTitle,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
+                            modifier = Modifier.fillMaxSize()
                         )
                     }
                 }
@@ -472,10 +464,6 @@ fun PlayerScreen(
             }
         }
 
-        IconButton(onClick = { controllerManager.seekToNext() }, modifier = Modifier.layoutId("next")) {
-            Icon(Icons.Rounded.SkipNext, "Next", tint = if (isExpandedThreshold) Mist100 else Mist200, modifier = Modifier.size(if (isExpandedThreshold) 36.dp else 22.dp))
-        }
-
         val duration = max(pbState.durationMs, 1L)
         val posProgress = (pbState.positionMs.toFloat() / duration).coerceIn(0f, 1f)
         LinearProgressIndicator(progress = { posProgress }, modifier = Modifier.layoutId("miniProgress"), color = Rose500, trackColor = Ink800)
@@ -510,7 +498,7 @@ fun PlayerScreen(
         
         Row(
             modifier = Modifier.layoutId("playbackControls").fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = { nowPlayingManager.toggleShuffle() }, modifier = Modifier.size(52.dp)) {
@@ -519,8 +507,10 @@ fun PlayerScreen(
             IconButton(onClick = { controllerManager.seekToPrevious() }, modifier = Modifier.size(52.dp)) {
                 Icon(Icons.Rounded.SkipPrevious, "Previous", tint = Mist100, modifier = Modifier.size(34.dp))
             }
-            Spacer(modifier = Modifier.size(84.dp))
-            Spacer(modifier = Modifier.size(52.dp))
+            Box(modifier = Modifier.size(72.dp))
+            IconButton(onClick = { controllerManager.seekToNext() }, modifier = Modifier.layoutId("next").size(52.dp)) {
+                Icon(Icons.Rounded.SkipNext, "Next", tint = if (isExpandedThreshold) Mist100 else Mist200, modifier = Modifier.size(if (isExpandedThreshold) 36.dp else 22.dp))
+            }
             IconButton(onClick = { controllerManager.toggleRepeatMode() }, modifier = Modifier.size(52.dp)) {
                 Icon(
                     if (pbState.repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
@@ -572,12 +562,11 @@ fun PlayerScreen(
                     .background(Ember400.copy(alpha = 0.18f)),
                 contentAlignment = Alignment.Center
             ) {
-                if (!upNextArtworkUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = upNextArtworkUrl,
+                if (upNextArtworkUrls.isNotEmpty()) {
+                    FallbackAsyncImage(
+                        urls = upNextArtworkUrls,
                         contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                        modifier = Modifier.fillMaxSize()
                     )
                 } else {
                     Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null, tint = Mist200)

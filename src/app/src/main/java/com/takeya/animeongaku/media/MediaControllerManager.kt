@@ -2,6 +2,10 @@ package com.takeya.animeongaku.media
 
 import android.content.ComponentName
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
 import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -9,8 +13,12 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import coil.ImageLoader
+import coil.request.ImageRequest
+import coil.request.SuccessResult
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.primaryArtworkUrl
+import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.PlayCountDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
@@ -28,6 +36,8 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -136,6 +146,7 @@ class MediaControllerManager @Inject constructor(
         startQueueSync()
         startPositionPolling()
         startStatePersistence()
+        startArtworkInjection()
     }
 
     private fun connectController() {
@@ -209,6 +220,78 @@ class MediaControllerManager @Inject constructor(
                     }
             }
         }
+    }
+
+    /**
+     * Watches the current track and injects a pre-cropped square bitmap into the media session
+     * so Bluetooth receivers (e.g. Tesla) get a correctly-proportioned cover image.
+     */
+    private fun startArtworkInjection() {
+        val imageLoader = ImageLoader(context)
+        scope.launch {
+            _controllerReady.collectLatest { ready ->
+                if (!ready) return@collectLatest
+                nowPlayingManager.state
+                    .distinctUntilChangedBy { it.currentTheme?.id to it.currentTheme?.animeId }
+                    .collectLatest { npState ->
+                        val ctrl = controller ?: return@collectLatest
+                        val theme = npState.currentTheme ?: return@collectLatest
+                        val anime = theme.animeId?.let { npState.animeMap[it] } ?: return@collectLatest
+                        val urls = anime.primaryArtworkUrls()
+                        if (urls.isEmpty()) return@collectLatest
+
+                        val bitmap = loadSquareBitmap(imageLoader, urls) ?: return@collectLatest
+
+                        val bytes = withContext(Dispatchers.IO) {
+                            ByteArrayOutputStream().use { bos ->
+                                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, bos)
+                                bos.toByteArray()
+                            }
+                        }
+
+                        val currentIdx = ctrl.currentMediaItemIndex
+                        if (currentIdx < 0 || currentIdx >= ctrl.mediaItemCount) return@collectLatest
+                        val current = ctrl.getMediaItemAt(currentIdx)
+                        val updatedMetadata = current.mediaMetadata.buildUpon()
+                            .setArtworkData(bytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                            .build()
+                        val updated = current.buildUpon().setMediaMetadata(updatedMetadata).build()
+                        ctrl.replaceMediaItem(currentIdx, updated)
+                    }
+            }
+        }
+    }
+
+    private suspend fun loadSquareBitmap(imageLoader: ImageLoader, urls: List<String>): Bitmap? {
+        for (url in urls) {
+            val result = withContext(Dispatchers.IO) {
+                imageLoader.execute(
+                    ImageRequest.Builder(context)
+                        .data(url)
+                        .allowHardware(false)
+                        .build()
+                )
+            }
+            if (result is SuccessResult) {
+                val raw = (result.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                    ?: continue
+                return cropToSquare(raw)
+            }
+        }
+        return null
+    }
+
+    private fun cropToSquare(src: Bitmap): Bitmap {
+        val size = minOf(src.width, src.height)
+        val x = (src.width - size) / 2
+        val y = (src.height - size) / 2
+        if (x == 0 && y == 0 && src.width == src.height) return src
+        val dst = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(dst)
+        val srcRect = Rect(x, y, x + size, y + size)
+        val dstRect = Rect(0, 0, size, size)
+        canvas.drawBitmap(src, srcRect, dstRect, Paint(Paint.FILTER_BITMAP_FLAG))
+        return dst
     }
 
     private fun startStatePersistence() {

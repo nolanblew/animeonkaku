@@ -28,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -47,7 +48,9 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.primaryArtworkUrl
+import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.NowPlayingState
 import com.takeya.animeongaku.ui.common.MarqueeText
@@ -81,7 +84,7 @@ fun UpNextSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = Ink900,
-        dragHandle = null
+        dragHandle = { BottomSheetDefaults.DragHandle() }
     ) {
         UpNextContent(
             npState = npState,
@@ -94,6 +97,13 @@ fun UpNextSheet(
         )
     }
 }
+
+private fun historyKey(historyIdx: Int): String = "history-$historyIdx"
+
+private fun queueKey(queueIdx: Int): String = "queue-$queueIdx"
+
+private fun queueIndexFromKey(key: Any): Int? =
+    (key as? String)?.removePrefix("queue-")?.toIntOrNull()
 
 @Composable
 private fun UpNextContent(
@@ -114,11 +124,11 @@ private fun UpNextContent(
     val listState = rememberLazyListState()
 
     val dragDropState = rememberDragDropState(listState) { fromKey, toKey ->
-        val fromQueueIdx = npState.nowPlaying.indexOfFirst { System.identityHashCode(it) == fromKey }
-        val toQueueIdx = npState.nowPlaying.indexOfFirst { System.identityHashCode(it) == toKey }
+        val fromQueueIdx = queueIndexFromKey(fromKey)
+        val toQueueIdx = queueIndexFromKey(toKey)
         
         // Only allow moving items that are in the upcoming tracks section
-        if (fromQueueIdx > npState.currentIndex && toQueueIdx > npState.currentIndex) {
+        if (fromQueueIdx != null && toQueueIdx != null && fromQueueIdx > npState.currentIndex && toQueueIdx > npState.currentIndex) {
             nowPlayingManager.moveItem(fromQueueIdx, toQueueIdx)
             true
         } else {
@@ -213,13 +223,13 @@ private fun UpNextContent(
                 }
                 itemsIndexed(
                     items = history,
-                    key = { _, theme -> System.identityHashCode(theme) }
+                    key = { index, _ -> historyKey(index) }
                 ) { index, theme ->
                     val queueIdx = index
                     val anime = theme.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline && theme.id !in downloadedThemeIds
                     val isDisliked = theme.id in dislikedThemeIds
-                    val key = System.identityHashCode(theme)
+                    val key = historyKey(index)
                     val isDragging = dragDropState.draggingItemKey == key
                     QueueTrackRow(
                         theme = theme,
@@ -244,8 +254,8 @@ private fun UpNextContent(
             }
 
             if (currentTheme != null) {
-                item(key = System.identityHashCode(currentTheme)) {
-                    val key = System.identityHashCode(currentTheme)
+                item(key = queueKey(npState.currentIndex)) {
+                    val key = queueKey(npState.currentIndex)
                     val anime = currentTheme.animeId?.let { npState.animeMap[it] }
                     QueueTrackRow(
                         theme = currentTheme,
@@ -276,14 +286,14 @@ private fun UpNextContent(
                 }
                 items(
                     count = upNextCount,
-                    key = { System.identityHashCode(upcoming[it]) }
+                    key = { idx -> queueKey(npState.currentIndex + 1 + idx) }
                 ) { idx ->
                     val theme = upcoming[idx]
                     val queueIdx = npState.currentIndex + 1 + idx
                     val anime = theme.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline && theme.id !in downloadedThemeIds
                     val isDisliked = theme.id in dislikedThemeIds
-                    val key = System.identityHashCode(theme)
+                    val key = queueKey(queueIdx)
                     val isDragging = dragDropState.draggingItemKey == key
                     QueueTrackRow(
                         theme = theme,
@@ -315,7 +325,7 @@ private fun UpNextContent(
                 val autoplayCount = upcoming.size - firstSuggestedIdx
                 items(
                     count = autoplayCount,
-                    key = { System.identityHashCode(upcoming[firstSuggestedIdx + it]) }
+                    key = { offset -> queueKey(npState.currentIndex + 1 + firstSuggestedIdx + offset) }
                 ) { offset ->
                     val idx = firstSuggestedIdx + offset
                     val theme = upcoming[idx]
@@ -323,7 +333,7 @@ private fun UpNextContent(
                     val anime = theme.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline && theme.id !in downloadedThemeIds
                     val isDisliked = theme.id in dislikedThemeIds
-                    val key = System.identityHashCode(theme)
+                    val key = queueKey(queueIdx)
                     val isDragging = dragDropState.draggingItemKey == key
                     QueueTrackRow(
                         theme = theme,
@@ -365,7 +375,7 @@ private fun QueueTrackRow(
     dragModifier: Modifier = Modifier
 ) {
     val info = theme.displayInfo(anime)
-    val imageUrl = anime?.primaryArtworkUrl()
+    val imageUrls = anime?.primaryArtworkUrls() ?: emptyList()
     val alpha = when {
         isUnavailable || isDisliked -> 0.3f
         isHistory -> 0.45f
@@ -404,12 +414,11 @@ private fun QueueTrackRow(
                 .clip(RoundedCornerShape(8.dp))
                 .background(Ink800)
         ) {
-            if (!imageUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = imageUrl,
+            if (imageUrls.isNotEmpty()) {
+                FallbackAsyncImage(
+                    urls = imageUrls,
                     contentDescription = null,
-                    modifier = Modifier.matchParentSize(),
-                    contentScale = ContentScale.Crop
+                    modifier = Modifier.matchParentSize()
                 )
             }
         }

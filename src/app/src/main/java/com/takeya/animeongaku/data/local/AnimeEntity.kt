@@ -12,7 +12,9 @@ data class AnimeEntity(
     val titleRomaji: String? = null,
     val titleJa: String? = null,
     val thumbnailUrl: String?,
+    val thumbnailUrlLarge: String? = null,
     val coverUrl: String?,
+    val coverUrlLarge: String? = null,
     val syncedAt: Long,
     val isManuallyAdded: Boolean = false,
     val watchingStatus: String? = null

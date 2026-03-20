@@ -65,6 +65,8 @@ import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.local.primaryArtworkUrl
+import com.takeya.animeongaku.data.local.primaryArtworkUrls
+import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
 import com.takeya.animeongaku.ui.common.PlaylistCoverArt
@@ -271,14 +273,14 @@ fun LibraryScreen(
                             }
                         } else {
                             items(filteredThemes) { theme ->
-                                val imageUrl = animeByThemesId[theme.animeId]?.primaryArtworkUrl()
+                                val imageUrls = animeByThemesId[theme.animeId]?.primaryArtworkUrls() ?: emptyList()
                                 val isDownloaded = theme.id in downloadedThemeIds
                                 val isDownloading = theme.id in downloadingThemeIds
                                 ListRow(
                                     title = theme.title,
                                     subtitle = theme.artistName ?: "Unknown artist",
                                     accent = Rose500,
-                                    imageUrl = imageUrl,
+                                    imageUrls = imageUrls,
                                     isDownloaded = isDownloaded,
                                     isDownloading = isDownloading,
                                     isUnavailableOffline = !isOnline && !isDownloaded,
@@ -610,6 +612,7 @@ private fun ListRow(
     subtitle: String,
     accent: Color,
     imageUrl: String? = null,
+    imageUrls: List<String> = emptyList(),
     isAutoPlaylist: Boolean = false,
     isDownloaded: Boolean = false,
     isDownloading: Boolean = false,
@@ -642,7 +645,13 @@ private fun ListRow(
                     .clip(RoundedCornerShape(8.dp))
                     .background(accent.copy(alpha = 0.15f))
             ) {
-                if (!imageUrl.isNullOrBlank()) {
+                if (imageUrls.isNotEmpty()) {
+                    FallbackAsyncImage(
+                        urls = imageUrls,
+                        contentDescription = null,
+                        modifier = Modifier.matchParentSize()
+                    )
+                } else if (!imageUrl.isNullOrBlank()) {
                     AsyncImage(
                         model = imageUrl,
                         contentDescription = null,

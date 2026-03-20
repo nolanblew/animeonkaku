@@ -54,7 +54,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.primaryArtworkUrl
+import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
@@ -341,12 +343,12 @@ fun ArtistDetailScreen(
                 }
                 itemsIndexed(displaySongs) { index, theme ->
                     val animeEntry = theme.animeId?.let { animeByThemesId[it] }
-                    val imageUrl = animeEntry?.primaryArtworkUrl()
+                    val imageUrls = animeEntry?.primaryArtworkUrls() ?: emptyList()
                     ArtistSongRow(
                         index = index + 1,
                         theme = theme,
                         anime = animeEntry,
-                        imageUrl = imageUrl,
+                        imageUrls = imageUrls,
                         inLibrary = theme.id in libraryThemeIds,
                         isDownloaded = theme.id in downloadedThemeIds,
                         isDownloading = theme.id in downloadingThemeIds,
@@ -405,7 +407,7 @@ private fun ArtistSongRow(
     index: Int,
     theme: ThemeEntity,
     anime: AnimeEntity?,
-    imageUrl: String?,
+    imageUrls: List<String> = emptyList(),
     inLibrary: Boolean = true,
     isDownloaded: Boolean = false,
     isDownloading: Boolean = false,
@@ -432,12 +434,11 @@ private fun ArtistSongRow(
                 .clip(RoundedCornerShape(8.dp))
                 .background(Rose500.copy(alpha = 0.15f))
         ) {
-            if (!imageUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = imageUrl,
+            if (imageUrls.isNotEmpty()) {
+                FallbackAsyncImage(
+                    urls = imageUrls,
                     contentDescription = null,
-                    modifier = Modifier.matchParentSize(),
-                    contentScale = ContentScale.Crop
+                    modifier = Modifier.matchParentSize()
                 )
             }
         }
@@ -491,7 +492,7 @@ private fun ArtistSongRow(
 
 @Composable
 private fun AnimeRow(anime: AnimeEntity, songCount: Int, onClick: () -> Unit = {}) {
-    val coverUrl = anime.primaryArtworkUrl()
+    val coverUrls = anime.primaryArtworkUrls()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -505,12 +506,11 @@ private fun AnimeRow(anime: AnimeEntity, songCount: Int, onClick: () -> Unit = {
                 .clip(RoundedCornerShape(10.dp))
                 .background(Ember400.copy(alpha = 0.15f))
         ) {
-            if (!coverUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = coverUrl,
+            if (coverUrls.isNotEmpty()) {
+                FallbackAsyncImage(
+                    urls = coverUrls,
                     contentDescription = null,
-                    modifier = Modifier.matchParentSize(),
-                    contentScale = ContentScale.Crop
+                    modifier = Modifier.matchParentSize()
                 )
             }
         }

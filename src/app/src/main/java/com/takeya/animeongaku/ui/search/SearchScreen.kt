@@ -59,7 +59,9 @@ import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ArtistTrackCount
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.primaryArtworkUrl
+import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.model.OnlineAnimeResult
 import com.takeya.animeongaku.data.model.OnlineArtistResult
@@ -477,7 +479,7 @@ private fun LocalSongRow(
     onMore: () -> Unit
 ) {
     val info = theme.displayInfo(anime)
-    val imageUrl = anime?.primaryArtworkUrl()
+    val imageUrls = anime?.primaryArtworkUrls() ?: emptyList()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -492,9 +494,9 @@ private fun LocalSongRow(
                 .clip(RoundedCornerShape(8.dp))
                 .background(Ember400.copy(alpha = 0.2f))
         ) {
-            if (!imageUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = imageUrl,
+            if (imageUrls.isNotEmpty()) {
+                FallbackAsyncImage(
+                    urls = imageUrls,
                     contentDescription = null,
                     modifier = Modifier.matchParentSize(),
                     contentScale = ContentScale.Crop
@@ -526,7 +528,7 @@ private fun LocalSongRow(
 
 @Composable
 private fun AnimeCard(anime: AnimeEntity, onClick: () -> Unit) {
-    val coverUrl = anime.primaryArtworkUrl()
+    val coverUrls = anime.primaryArtworkUrls()
     Column(
         modifier = Modifier
             .width(100.dp)
@@ -539,12 +541,11 @@ private fun AnimeCard(anime: AnimeEntity, onClick: () -> Unit) {
                 .clip(RoundedCornerShape(12.dp))
                 .background(Ink800)
         ) {
-            if (!coverUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = coverUrl,
+            if (coverUrls.isNotEmpty()) {
+                FallbackAsyncImage(
+                    urls = coverUrls,
                     contentDescription = null,
-                    modifier = Modifier.matchParentSize(),
-                    contentScale = ContentScale.Crop
+                    modifier = Modifier.matchParentSize()
                 )
             }
         }

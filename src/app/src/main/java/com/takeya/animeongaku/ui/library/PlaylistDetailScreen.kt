@@ -69,7 +69,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.PlaylistTrack
 import com.takeya.animeongaku.data.local.primaryArtworkUrl
+import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
 import com.takeya.animeongaku.ui.common.PlaylistCoverArt
@@ -321,14 +323,14 @@ fun PlaylistDetailScreen(
             } else {
                 itemsIndexed(tracks) { _, track ->
                     val animeEntry = track.theme.animeId?.let { animeByThemesId[it] }
-                    val imageUrl = animeEntry?.primaryArtworkUrl()
+                    val imageUrls = animeEntry?.primaryArtworkUrls() ?: emptyList()
                     val info = track.theme.displayInfo(animeEntry)
                     val tdl = track.theme.id in downloadedThemeIds
                     val tding = track.theme.id in downloadingThemeIds
                     CompactTrackRow(
                         title = info.primaryText,
                         artist = info.secondaryText,
-                        imageUrl = imageUrl,
+                        imageUrls = imageUrls,
                         isDownloaded = tdl,
                         isDownloading = tding,
                         isUnavailableOffline = !isOnline && !tdl,
@@ -357,7 +359,7 @@ fun PlaylistDetailScreen(
 private fun CompactTrackRow(
     title: String,
     artist: String,
-    imageUrl: String?,
+    imageUrls: List<String> = emptyList(),
     isDownloaded: Boolean = false,
     isDownloading: Boolean = false,
     isUnavailableOffline: Boolean = false,
@@ -382,12 +384,11 @@ private fun CompactTrackRow(
                 .clip(RoundedCornerShape(6.dp))
                 .background(Ink800)
         ) {
-            if (!imageUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = imageUrl,
+            if (imageUrls.isNotEmpty()) {
+                FallbackAsyncImage(
+                    urls = imageUrls,
                     contentDescription = null,
-                    modifier = Modifier.matchParentSize(),
-                    contentScale = ContentScale.Crop
+                    modifier = Modifier.matchParentSize()
                 )
             }
         }
@@ -531,9 +532,9 @@ private fun AddTrackDialog(
                     ) {
                         items(themes) { theme ->
                             val animeEntry = theme.animeId?.let { animeByThemesId[it] }
-                            val imgUrl = animeEntry?.primaryArtworkUrl()
+                            val imgUrls = animeEntry?.primaryArtworkUrls() ?: emptyList()
                             val info = theme.displayInfo(animeEntry)
-                            AddThemeRow(info = info, imageUrl = imgUrl, onAdd = { onAdd(theme) })
+                            AddThemeRow(info = info, imageUrls = imgUrls, onAdd = { onAdd(theme) })
                         }
                     }
                 }
@@ -548,7 +549,7 @@ private fun AddTrackDialog(
 }
 
 @Composable
-private fun AddThemeRow(info: com.takeya.animeongaku.ui.common.ThemeDisplayInfo, imageUrl: String?, onAdd: () -> Unit) {
+private fun AddThemeRow(info: com.takeya.animeongaku.ui.common.ThemeDisplayInfo, imageUrls: List<String> = emptyList(), onAdd: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -564,12 +565,11 @@ private fun AddThemeRow(info: com.takeya.animeongaku.ui.common.ThemeDisplayInfo,
                 .clip(RoundedCornerShape(6.dp))
                 .background(Ink700)
         ) {
-            if (!imageUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = imageUrl,
+            if (imageUrls.isNotEmpty()) {
+                FallbackAsyncImage(
+                    urls = imageUrls,
                     contentDescription = null,
-                    modifier = Modifier.matchParentSize(),
-                    contentScale = ContentScale.Crop
+                    modifier = Modifier.matchParentSize()
                 )
             }
         }

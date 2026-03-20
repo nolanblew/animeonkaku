@@ -198,7 +198,9 @@ class UserRepositoryImpl @Inject constructor(
                 titleJa = anime.titleJa(),
                 abbreviatedTitles = anime.abbreviatedTitles(),
                 posterUrl = anime.posterUrl(),
-                coverUrl = anime.coverUrl()
+                posterUrlLarge = anime.posterUrlLarge(),
+                coverUrl = anime.coverUrl(),
+                coverUrlLarge = anime.coverUrlLarge()
             )
         }
     }
@@ -354,14 +356,30 @@ private fun KitsuAnime.posterUrl(): String? {
     return attributes.posterImage.bestUrl()
 }
 
+private fun KitsuAnime.posterUrlLarge(): String? {
+    val attributes = attributes ?: return null
+    return attributes.posterImage.bestUrlLarge()
+}
+
 private fun KitsuAnime.coverUrl(): String? {
     val attributes = attributes ?: return null
     // Fall back to posterImage if coverImage doesn't exist
     return attributes.coverImage.bestUrl() ?: attributes.posterImage.bestUrl()
 }
 
+private fun KitsuAnime.coverUrlLarge(): String? {
+    val attributes = attributes ?: return null
+    return attributes.coverImage.bestUrlLarge() ?: attributes.posterImage.bestUrlLarge()
+}
+
 private fun KitsuImageSet?.bestUrl(): String? {
     if (this == null) return null
     // Prioritize highest resolution images over tiny/small
     return original ?: large ?: medium ?: small ?: tiny
+}
+
+/** Best URL skipping original — used as the first fallback if original 404s. */
+private fun KitsuImageSet?.bestUrlLarge(): String? {
+    if (this == null) return null
+    return large ?: medium ?: small ?: tiny
 }
