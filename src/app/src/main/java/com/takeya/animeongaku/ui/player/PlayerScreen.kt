@@ -321,17 +321,11 @@ fun PlayerScreen(
                         if (pagerState.currentPage != currentPageIndex) {
                             val targetItem = playableQueue.getOrNull(pagerState.currentPage)
                             if (targetItem != null && targetItem.first != npState.currentIndex) {
-                                if (pagerState.currentPage == currentPageIndex + 1) {
-                                    controllerManager.seekToNext()
-                                } else if (pagerState.currentPage == currentPageIndex - 1) {
-                                    controllerManager.seekToPrevious()
-                                } else {
-                                    if (targetItem.first > npState.currentIndex) {
-                                        nowPlayingManager.skipTo(targetItem.first)
-                                    } else {
-                                        nowPlayingManager.rewindTo(targetItem.first)
-                                    }
-                                }
+                                // Always navigate by exact queue index rather than using
+                                // seekToNext/seekToPrevious, which can rewind the current
+                                // track instead of changing it (ExoPlayer's default behaviour
+                                // when played past a few seconds).
+                                nowPlayingManager.skipTo(targetItem.first)
                             }
 
                             // Always force snap exactly to center to fix the 5% peeking issue
