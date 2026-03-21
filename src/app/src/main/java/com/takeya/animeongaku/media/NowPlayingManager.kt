@@ -1,5 +1,6 @@
 package com.takeya.animeongaku.media
 
+import androidx.compose.runtime.Stable
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ThemeEntity
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -311,7 +312,7 @@ class NowPlayingManager @Inject constructor() {
             playedIndices = newPlayedIndices,
             unskippedIndices = newUnskippedIndices,
             queueVersion = current.queueVersion + 1,
-            isFullReload = true
+            isFullReload = false
         )
     }
 
@@ -506,6 +507,7 @@ class NowPlayingManager @Inject constructor() {
         get() = _state.value.nowPlaying.isNotEmpty()
 }
 
+@Stable
 data class NowPlayingState(
     val originalQueue: List<ThemeEntity> = emptyList(),
     val nowPlaying: List<ThemeEntity> = emptyList(),
@@ -525,8 +527,9 @@ data class NowPlayingState(
     val currentTheme: ThemeEntity?
         get() = nowPlaying.getOrNull(currentIndex)
 
-    val upcomingTracks: List<ThemeEntity>
-        get() = if (currentIndex + 1 < nowPlaying.size)
+    val upcomingTracks: List<ThemeEntity> by lazy {
+        if (currentIndex + 1 < nowPlaying.size)
             nowPlaying.subList(currentIndex + 1, nowPlaying.size)
         else emptyList()
+    }
 }

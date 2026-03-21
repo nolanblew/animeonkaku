@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,6 +49,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
@@ -82,6 +84,7 @@ import com.takeya.animeongaku.ui.theme.Rose500
 fun UpNextSheet(
     npState: NowPlayingState,
     nowPlayingManager: NowPlayingManager,
+    listState: LazyListState,
     isOffline: Boolean = false,
     downloadedThemeIds: Set<Long> = emptySet(),
     dislikedThemeIds: Set<Long> = emptySet(),
@@ -120,6 +123,7 @@ fun UpNextSheet(
         UpNextContent(
             npState = npState,
             nowPlayingManager = nowPlayingManager,
+            listState = listState,
             isOffline = isOffline,
             downloadedThemeIds = downloadedThemeIds,
             dislikedThemeIds = dislikedThemeIds,
@@ -142,6 +146,7 @@ private fun queueIndexFromKey(key: Any): Int? =
 private fun UpNextContent(
     npState: NowPlayingState,
     nowPlayingManager: NowPlayingManager,
+    listState: LazyListState,
     isOffline: Boolean = false,
     downloadedThemeIds: Set<Long> = emptySet(),
     dislikedThemeIds: Set<Long> = emptySet(),
@@ -152,9 +157,9 @@ private fun UpNextContent(
     val currentTheme = npState.currentTheme
     val upcoming = npState.upcomingTracks
 
-    // Build a unified list: history items + current + upcoming
-    // We'll use the history size as the scroll target
-    val listState = rememberLazyListState()
+    // Track whether this is the first render. On first render we skip the scroll animation
+    // because PlayerScreen pre-positions the list — animating would cause a visible jump.
+    var isFirstRender by remember { mutableStateOf(true) }
 
     val dragDropState = rememberDragDropState(listState) { fromKey, toKey ->
         val fromQueueIdx = queueIndexFromKey(fromKey)
@@ -169,19 +174,31 @@ private fun UpNextContent(
         }
     }
 
-    // After the LazyColumn has consumed all the scroll it can, consume any remaining
-    // downward scroll so it doesn't propagate to the sheet's dismiss handler.
-    // Using onPostScroll (not onPreScroll) so the list itself can still scroll normally.
+    // After the LazyColumn has consumed all the scroll/fling it can, consume any remaining
+    // downward movement so it doesn't propagate to the sheet's dismiss handler.
+    // Using onPostScroll/onPostFling (not onPreScroll) so the list itself still scrolls normally.
     val blockSheetDismissScroll = remember {
         object : NestedScrollConnection {
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
                 return if (available.y > 0f) Offset(0f, available.y) else Offset.Zero
             }
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                return if (available.y > 0f) Velocity(0f, available.y) else Velocity.Zero
+            }
         }
     }
 
+    val suggestedSet = remember(npState.suggestedItems) { npState.suggestedItems.toSet() }
+    val firstSuggestedIdx = remember(upcoming, suggestedSet) { upcoming.indexOfFirst { it in suggestedSet } }
+    val upNextCount = remember(firstSuggestedIdx, upcoming) { if (firstSuggestedIdx == -1) upcoming.size else firstSuggestedIdx }
+
     LaunchedEffect(history.size) {
-        // Auto-scroll to keep current track visible
+        // On first render the list is pre-positioned by PlayerScreen — skip animation to
+        // avoid a visible jump. On subsequent changes (new song plays) animate smoothly.
+        if (isFirstRender) {
+            isFirstRender = false
+            return@LaunchedEffect
+        }
         if (history.isNotEmpty() && dragDropState.draggingItemKey == null) {
             listState.animateScrollToItem(history.size)
         }
@@ -317,9 +334,6 @@ private fun UpNextContent(
             }
 
             // Up next / Autoplay sections
-            val suggestedSet = npState.suggestedItems.toSet()
-            val firstSuggestedIdx = upcoming.indexOfFirst { it in suggestedSet }
-            val upNextCount = if (firstSuggestedIdx == -1) upcoming.size else firstSuggestedIdx
 
             if (upNextCount > 0) {
                 item {
@@ -421,7 +435,7 @@ private fun QueueTrackRow(
     dragModifier: Modifier = Modifier
 ) {
     val info = theme.displayInfo(anime)
-    val imageUrls = anime?.primaryArtworkUrls() ?: emptyList()
+    val imageUrls = remember(anime) { anime?.primaryArtworkUrls() ?: emptyList() }
     val alpha = when {
         isUnavailable || isDisliked -> 0.3f
         isHistory -> 0.45f

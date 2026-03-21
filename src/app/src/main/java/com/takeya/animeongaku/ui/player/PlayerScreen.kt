@@ -44,6 +44,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -119,6 +120,19 @@ fun PlayerScreen(
 
     var showUpNext by remember { mutableStateOf(false) }
     var showPlayerSheet by remember { mutableStateOf(false) }
+
+    // Held here (not inside UpNextSheet) so the scroll position survives close/reopen.
+    // Initialized to history.size so the list opens at the current track without animation.
+    val upNextListState = rememberLazyListState(
+        initialFirstVisibleItemIndex = npState.history.size.coerceAtLeast(0)
+    )
+    // When the sheet is closed and history grows (new song plays), silently update position
+    // so the next open immediately shows the current track.
+    LaunchedEffect(npState.history.size) {
+        if (!showUpNext) {
+            upNextListState.scrollToItem(npState.history.size.coerceAtLeast(0))
+        }
+    }
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
@@ -136,6 +150,7 @@ fun PlayerScreen(
         UpNextSheet(
             npState = npState,
             nowPlayingManager = nowPlayingManager,
+            listState = upNextListState,
             isOffline = !isOnline,
             downloadedThemeIds = downloadedThemeIds,
             dislikedThemeIds = dislikedThemeIds,

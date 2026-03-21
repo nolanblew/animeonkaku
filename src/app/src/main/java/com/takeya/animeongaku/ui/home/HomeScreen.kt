@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,7 +46,8 @@ import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
-import com.takeya.animeongaku.ui.common.PlaylistCoverArt
+import com.takeya.animeongaku.ui.common.FeaturedPlaylistCard
+import com.takeya.animeongaku.ui.common.FeaturedPlaylistRow
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
 import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.theme.Ink700
@@ -187,9 +187,9 @@ fun HomeScreen(
                     )
                 }
             } else {
-                items(quickPicks) { theme ->
+                items(quickPicks, key = { "qp-${it.id}" }) { theme ->
                     val animeEntry = animeByThemesId[theme.animeId]
-                    val imageUrls = animeEntry?.primaryArtworkUrls() ?: emptyList()
+                    val imageUrls = remember(animeEntry) { animeEntry?.primaryArtworkUrls() ?: emptyList() }
                     QuickPickRow(
                         theme = theme, anime = animeEntry, imageUrls = imageUrls,
                         onPlay = {
@@ -242,9 +242,9 @@ fun HomeScreen(
                     )
                 }
             } else {
-                items(topSongs) { theme ->
+                items(topSongs, key = { "ts-${it.id}" }) { theme ->
                     val animeEntry = animeByThemesId[theme.animeId]
-                    val imageUrls = animeEntry?.primaryArtworkUrls() ?: emptyList()
+                    val imageUrls = remember(animeEntry) { animeEntry?.primaryArtworkUrls() ?: emptyList() }
                     QuickPickRow(
                         theme = theme, anime = animeEntry, imageUrls = imageUrls,
                         onPlay = {
@@ -318,82 +318,6 @@ private fun SectionHeader(title: String, action: String, onActionClick: () -> Un
     }
 }
 
-@Composable
-private fun FeaturedPlaylistRow(
-    playlists: List<PlaylistWithCount>,
-    coverUrlsMap: Map<Long, List<String>>,
-    onOpenPlaylist: (Long) -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        playlists.chunked(2).forEach { rowPlaylists ->
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                rowPlaylists.forEach { item ->
-                    FeaturedPlaylistCard(
-                        title = item.playlist.name,
-                        subtitle = "${item.trackCount} tracks",
-                        coverUrls = coverUrlsMap[item.playlist.id] ?: emptyList(),
-                        gradientSeed = item.playlist.gradientSeed,
-                        isAutoPlaylist = item.playlist.isAuto,
-                        onClick = { onOpenPlaylist(item.playlist.id) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                if (rowPlaylists.size == 1) {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun FeaturedPlaylistCard(
-    title: String,
-    subtitle: String,
-    coverUrls: List<String>,
-    gradientSeed: Int,
-    isAutoPlaylist: Boolean = false,
-    onClick: () -> Unit = {},
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .background(Ink800.copy(alpha = 0.6f), RoundedCornerShape(18.dp))
-            .border(1.dp, Mist200.copy(alpha = 0.2f), RoundedCornerShape(18.dp))
-            .clickable { onClick() }
-            .padding(12.dp)
-    ) {
-        PlaylistCoverArt(
-            coverUrls = coverUrls,
-            gradientSeed = gradientSeed,
-            size = 136.dp,
-            cornerRadius = 14.dp
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-        Text(
-            text = title,
-            color = Mist100,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(text = subtitle, style = MaterialTheme.typography.labelMedium, color = Mist200)
-            if (isAutoPlaylist) {
-                Icon(
-                    imageVector = Icons.Rounded.AutoAwesome,
-                    contentDescription = "Auto Playlist",
-                    tint = Mist200,
-                    modifier = Modifier.size(14.dp)
-                )
-            }
-        }
-    }
-}
 
 @Composable
 private fun QuickPickRow(theme: ThemeEntity, anime: AnimeEntity?, imageUrls: List<String> = emptyList(), onPlay: () -> Unit, onMoreOptions: () -> Unit = {}) {
