@@ -240,7 +240,7 @@ fun PlayerScreen(
                      titles: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['art', 'bottom', 12] },
                      statusBadge: { width: 'wrap', height: 'wrap', end: ['art', 'end', 8], bottom: ['art', 'bottom', 8], alpha: 0 },
                      playPause: { width: 72, height: 72, start: ['parent', 'start'], end: ['parent', 'end'], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
-                     next: { width: 48, height: 48, top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
+                     next: { width: 48, height: 48, start: ['playPause', 'end', 12], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
                      miniProgress: { width: 'spread', height: 2, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 0 },
                      sliderControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 20], end: ['parent', 'end', 20], top: ['titles', 'bottom', 10], alpha: 1 },
                      playbackControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 12], end: ['parent', 'end', 12], top: ['sliderControls', 'bottom', 8], alpha: 1 },
@@ -478,6 +478,23 @@ fun PlayerScreen(
             }
         }
 
+        // Next/skip button — direct child of MotionLayout so it animates independently
+        // of the playbackControls Row (which has alpha: 0 in mini player state).
+        Box(
+            modifier = Modifier
+                .layoutId("next")
+                .clip(CircleShape)
+                .clickable { controllerManager.seekToNext() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Rounded.SkipNext,
+                "Next",
+                tint = if (isExpandedThreshold) Mist100 else Mist200,
+                modifier = Modifier.size(if (isExpandedThreshold) 36.dp else 22.dp)
+            )
+        }
+
         val duration = max(pbState.durationMs, 1L)
         val posProgress = (pbState.positionMs.toFloat() / duration).coerceIn(0f, 1f)
         LinearProgressIndicator(progress = { posProgress }, modifier = Modifier.layoutId("miniProgress"), color = Rose500, trackColor = Ink800)
@@ -522,9 +539,7 @@ fun PlayerScreen(
                 Icon(Icons.Rounded.SkipPrevious, "Previous", tint = Mist100, modifier = Modifier.size(34.dp))
             }
             Box(modifier = Modifier.size(72.dp))
-            IconButton(onClick = { controllerManager.seekToNext() }, modifier = Modifier.layoutId("next").size(52.dp)) {
-                Icon(Icons.Rounded.SkipNext, "Next", tint = if (isExpandedThreshold) Mist100 else Mist200, modifier = Modifier.size(if (isExpandedThreshold) 36.dp else 22.dp))
-            }
+            Box(modifier = Modifier.size(52.dp)) // Next button spacer — actual button is a direct MotionLayout child
             IconButton(onClick = { controllerManager.toggleRepeatMode() }, modifier = Modifier.size(52.dp)) {
                 Icon(
                     if (pbState.repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
