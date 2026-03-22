@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,17 +29,29 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetState
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.text.font.FontWeight
@@ -46,7 +59,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.primaryArtworkUrl
+import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.NowPlayingState
 import com.takeya.animeongaku.ui.common.MarqueeText
@@ -68,36 +84,69 @@ import com.takeya.animeongaku.ui.theme.Rose500
 fun UpNextSheet(
     npState: NowPlayingState,
     nowPlayingManager: NowPlayingManager,
+    listState: LazyListState,
     isOffline: Boolean = false,
     downloadedThemeIds: Set<Long> = emptySet(),
     dislikedThemeIds: Set<Long> = emptySet(),
     viewModel: PlayerViewModel,
     onDismiss: () -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // Measured height of the sheet content — used to compute the dismiss threshold.
+    var sheetHeightPx by remember { mutableIntStateOf(0) }
+
+    // Holder populated right after sheetState is created to avoid a forward-reference
+    // inside the confirmValueChange lambda (sheetState can't reference itself).
+    val sheetStateHolder = remember { mutableStateOf<SheetState?>(null) }
+
+    // Only allow the sheet to dismiss if the user dragged it down by more than 30% of its
+    // height. Anything less snaps back to the expanded position.
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { newValue: SheetValue ->
+            when {
+                newValue != SheetValue.Hidden -> true
+                else -> {
+                    val offset = runCatching { sheetStateHolder.value?.requireOffset() }.getOrNull()
+                    offset != null && (sheetHeightPx == 0 || offset > sheetHeightPx * 0.30f)
+                }
+            }
+        }
+    )
+    sheetStateHolder.value = sheetState
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = Ink900,
-        dragHandle = null
+        dragHandle = { BottomSheetDefaults.DragHandle() }
     ) {
         UpNextContent(
             npState = npState,
             nowPlayingManager = nowPlayingManager,
+            listState = listState,
             isOffline = isOffline,
             downloadedThemeIds = downloadedThemeIds,
             dislikedThemeIds = dislikedThemeIds,
             viewModel = viewModel,
-            modifier = Modifier.fillMaxHeight(0.95f)
+            modifier = Modifier
+                .fillMaxHeight(0.95f)
+                .onSizeChanged { sheetHeightPx = it.height }
         )
     }
 }
+
+private fun historyKey(index: Int, themeId: Long): String = "history-$index-$themeId"
+
+private fun queueKey(queueIdx: Int): String = "queue-$queueIdx"
+
+private fun queueIndexFromKey(key: Any): Int? =
+    (key as? String)?.removePrefix("queue-")?.toIntOrNull()
 
 @Composable
 private fun UpNextContent(
     npState: NowPlayingState,
     nowPlayingManager: NowPlayingManager,
+    listState: LazyListState,
     isOffline: Boolean = false,
     downloadedThemeIds: Set<Long> = emptySet(),
     dislikedThemeIds: Set<Long> = emptySet(),
@@ -108,16 +157,16 @@ private fun UpNextContent(
     val currentTheme = npState.currentTheme
     val upcoming = npState.upcomingTracks
 
-    // Build a unified list: history items + current + upcoming
-    // We'll use the history size as the scroll target
-    val listState = rememberLazyListState()
+    // Track whether this is the first render. On first render we skip the scroll animation
+    // because PlayerScreen pre-positions the list — animating would cause a visible jump.
+    var isFirstRender by remember { mutableStateOf(true) }
 
     val dragDropState = rememberDragDropState(listState) { fromKey, toKey ->
-        val fromQueueIdx = npState.nowPlaying.indexOfFirst { System.identityHashCode(it) == fromKey }
-        val toQueueIdx = npState.nowPlaying.indexOfFirst { System.identityHashCode(it) == toKey }
+        val fromQueueIdx = queueIndexFromKey(fromKey)
+        val toQueueIdx = queueIndexFromKey(toKey)
         
         // Only allow moving items that are in the upcoming tracks section
-        if (fromQueueIdx > npState.currentIndex && toQueueIdx > npState.currentIndex) {
+        if (fromQueueIdx != null && toQueueIdx != null && fromQueueIdx > npState.currentIndex && toQueueIdx > npState.currentIndex) {
             nowPlayingManager.moveItem(fromQueueIdx, toQueueIdx)
             true
         } else {
@@ -125,8 +174,31 @@ private fun UpNextContent(
         }
     }
 
+    // After the LazyColumn has consumed all the scroll/fling it can, consume any remaining
+    // downward movement so it doesn't propagate to the sheet's dismiss handler.
+    // Using onPostScroll/onPostFling (not onPreScroll) so the list itself still scrolls normally.
+    val blockSheetDismissScroll = remember {
+        object : NestedScrollConnection {
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                return if (available.y > 0f) Offset(0f, available.y) else Offset.Zero
+            }
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                return if (available.y > 0f) Velocity(0f, available.y) else Velocity.Zero
+            }
+        }
+    }
+
+    val suggestedSet = remember(npState.suggestedItems) { npState.suggestedItems.toSet() }
+    val firstSuggestedIdx = remember(upcoming, suggestedSet) { upcoming.indexOfFirst { it in suggestedSet } }
+    val upNextCount = remember(firstSuggestedIdx, upcoming) { if (firstSuggestedIdx == -1) upcoming.size else firstSuggestedIdx }
+
     LaunchedEffect(history.size) {
-        // Auto-scroll to keep current track visible
+        // On first render the list is pre-positioned by PlayerScreen — skip animation to
+        // avoid a visible jump. On subsequent changes (new song plays) animate smoothly.
+        if (isFirstRender) {
+            isFirstRender = false
+            return@LaunchedEffect
+        }
         if (history.isNotEmpty() && dragDropState.draggingItemKey == null) {
             listState.animateScrollToItem(history.size)
         }
@@ -135,13 +207,13 @@ private fun UpNextContent(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 16.dp)
     ) {
         // Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 8.dp),
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -180,7 +252,7 @@ private fun UpNextContent(
                 config = ActionSheetConfig(
                     title = t.title,
                     subtitle = npState.animeMap[t.animeId]?.title ?: "Unknown Anime",
-                    imageUrl = npState.animeMap[t.animeId]?.let { it.coverUrl ?: it.thumbnailUrl },
+                    imageUrl = npState.animeMap[t.animeId]?.primaryArtworkUrl(),
                     isSkippedContext = isDisliked,
                     showPlayNext = npIdx != npState.currentIndex,
                     showAddToQueue = false, showReplaceQueue = false, showSaveToPlaylist = false,
@@ -198,7 +270,9 @@ private fun UpNextContent(
 
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .nestedScroll(blockSheetDismissScroll)
         ) {
             // History section
             if (history.isNotEmpty()) {
@@ -212,13 +286,13 @@ private fun UpNextContent(
                 }
                 itemsIndexed(
                     items = history,
-                    key = { _, theme -> System.identityHashCode(theme) }
+                    key = { index, theme -> historyKey(index, theme.id) }
                 ) { index, theme ->
                     val queueIdx = index
                     val anime = theme.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline && theme.id !in downloadedThemeIds
                     val isDisliked = theme.id in dislikedThemeIds
-                    val key = System.identityHashCode(theme)
+                    val key = historyKey(index, theme.id)
                     val isDragging = dragDropState.draggingItemKey == key
                     QueueTrackRow(
                         theme = theme,
@@ -243,8 +317,8 @@ private fun UpNextContent(
             }
 
             if (currentTheme != null) {
-                item(key = System.identityHashCode(currentTheme)) {
-                    val key = System.identityHashCode(currentTheme)
+                item(key = queueKey(npState.currentIndex)) {
+                    val key = queueKey(npState.currentIndex)
                     val anime = currentTheme.animeId?.let { npState.animeMap[it] }
                     QueueTrackRow(
                         theme = currentTheme,
@@ -260,9 +334,6 @@ private fun UpNextContent(
             }
 
             // Up next / Autoplay sections
-            val suggestedSet = npState.suggestedItems.toSet()
-            val firstSuggestedIdx = upcoming.indexOfFirst { it in suggestedSet }
-            val upNextCount = if (firstSuggestedIdx == -1) upcoming.size else firstSuggestedIdx
 
             if (upNextCount > 0) {
                 item {
@@ -275,14 +346,14 @@ private fun UpNextContent(
                 }
                 items(
                     count = upNextCount,
-                    key = { System.identityHashCode(upcoming[it]) }
+                    key = { idx -> queueKey(npState.currentIndex + 1 + idx) }
                 ) { idx ->
                     val theme = upcoming[idx]
                     val queueIdx = npState.currentIndex + 1 + idx
                     val anime = theme.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline && theme.id !in downloadedThemeIds
                     val isDisliked = theme.id in dislikedThemeIds
-                    val key = System.identityHashCode(theme)
+                    val key = queueKey(queueIdx)
                     val isDragging = dragDropState.draggingItemKey == key
                     QueueTrackRow(
                         theme = theme,
@@ -314,7 +385,7 @@ private fun UpNextContent(
                 val autoplayCount = upcoming.size - firstSuggestedIdx
                 items(
                     count = autoplayCount,
-                    key = { System.identityHashCode(upcoming[firstSuggestedIdx + it]) }
+                    key = { offset -> queueKey(npState.currentIndex + 1 + firstSuggestedIdx + offset) }
                 ) { offset ->
                     val idx = firstSuggestedIdx + offset
                     val theme = upcoming[idx]
@@ -322,7 +393,7 @@ private fun UpNextContent(
                     val anime = theme.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline && theme.id !in downloadedThemeIds
                     val isDisliked = theme.id in dislikedThemeIds
-                    val key = System.identityHashCode(theme)
+                    val key = queueKey(queueIdx)
                     val isDragging = dragDropState.draggingItemKey == key
                     QueueTrackRow(
                         theme = theme,
@@ -364,7 +435,7 @@ private fun QueueTrackRow(
     dragModifier: Modifier = Modifier
 ) {
     val info = theme.displayInfo(anime)
-    val imageUrl = anime?.coverUrl ?: anime?.thumbnailUrl
+    val imageUrls = remember(anime) { anime?.primaryArtworkUrls() ?: emptyList() }
     val alpha = when {
         isUnavailable || isDisliked -> 0.3f
         isHistory -> 0.45f
@@ -403,12 +474,11 @@ private fun QueueTrackRow(
                 .clip(RoundedCornerShape(8.dp))
                 .background(Ink800)
         ) {
-            if (!imageUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = imageUrl,
+            if (imageUrls.isNotEmpty()) {
+                FallbackAsyncImage(
+                    urls = imageUrls,
                     contentDescription = null,
-                    modifier = Modifier.matchParentSize(),
-                    contentScale = ContentScale.Crop
+                    modifier = Modifier.matchParentSize()
                 )
             }
         }

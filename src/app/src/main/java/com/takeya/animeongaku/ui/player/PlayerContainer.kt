@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
+val MiniPlayerHeight = 64.dp
+
 @Composable
 fun PlayerContainer(
     isExpanded: Boolean,
@@ -56,7 +58,7 @@ fun PlayerContainer(
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val screenHeightPx = constraints.maxHeight.toFloat()
-        val miniPlayerHeightPx = with(density) { 64.dp.toPx() }
+        val miniPlayerHeightPx = with(density) { MiniPlayerHeight.toPx() }
         val bottomPaddingPx = with(density) { bottomPadding.toPx() }
 
         val minOffset = 0f

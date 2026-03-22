@@ -191,7 +191,9 @@ class SyncManager @Inject constructor(
                 titleRomaji = entry.titleRomaji ?: existing?.titleRomaji,
                 titleJa = entry.titleJa ?: existing?.titleJa,
                 thumbnailUrl = entry.posterUrl ?: existing?.thumbnailUrl,
+                thumbnailUrlLarge = entry.posterUrlLarge ?: existing?.thumbnailUrlLarge,
                 coverUrl = entry.coverUrl ?: existing?.coverUrl,
+                coverUrlLarge = entry.coverUrlLarge ?: existing?.coverUrlLarge,
                 syncedAt = now,
                 isManuallyAdded = existing?.isManuallyAdded ?: false,
                 watchingStatus = entry.watchingStatus ?: existing?.watchingStatus
@@ -464,7 +466,9 @@ class SyncManager @Inject constructor(
                         titleRomaji = anime.titleRomaji ?: detail.titleRomaji,
                         titleJa = anime.titleJa ?: detail.titleJa,
                         thumbnailUrl = anime.thumbnailUrl ?: detail.posterUrl,
-                        coverUrl = anime.coverUrl ?: detail.coverUrl
+                        thumbnailUrlLarge = anime.thumbnailUrlLarge ?: detail.posterUrlLarge,
+                        coverUrl = anime.coverUrl ?: detail.coverUrl,
+                        coverUrlLarge = anime.coverUrlLarge ?: detail.coverUrlLarge
                     )
                 }
                 animeDao.upsertAll(updated)

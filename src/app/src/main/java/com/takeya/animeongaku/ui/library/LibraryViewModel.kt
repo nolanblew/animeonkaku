@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.AnimeWithThemeCount
 import com.takeya.animeongaku.data.local.ArtistDao
 import com.takeya.animeongaku.data.local.ArtistImageDao
@@ -113,7 +114,7 @@ class LibraryViewModel @Inject constructor(
                     animeThemesId = row.anime.animeThemesId,
                     title = title,
                     trackCount = row.themeCount,
-                    coverUrl = row.anime.coverUrl ?: row.anime.thumbnailUrl
+                    coverUrl = row.anime.primaryArtworkUrl()
                 )
             }.sortedBy { it.title.lowercase() }
         }

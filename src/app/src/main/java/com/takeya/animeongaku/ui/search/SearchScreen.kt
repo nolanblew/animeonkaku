@@ -45,8 +45,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
@@ -58,7 +58,10 @@ import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ArtistTrackCount
 import com.takeya.animeongaku.data.local.PlaylistWithCount
+import com.takeya.animeongaku.data.local.primaryArtworkUrl
+import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.model.OnlineAnimeResult
 import com.takeya.animeongaku.data.model.OnlineArtistResult
@@ -122,7 +125,7 @@ fun SearchScreen(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.coverUrl ?: sheetAnime?.thumbnailUrl,
+                imageUrl = sheetAnime?.primaryArtworkUrl(),
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 showGoToAnime = sheetAnime?.kitsuId != null,
                 showDownload = !isDownloaded && !isDownloading,
@@ -476,7 +479,7 @@ private fun LocalSongRow(
     onMore: () -> Unit
 ) {
     val info = theme.displayInfo(anime)
-    val imageUrl = anime?.coverUrl ?: anime?.thumbnailUrl
+    val imageUrls = anime?.primaryArtworkUrls() ?: emptyList()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -491,9 +494,9 @@ private fun LocalSongRow(
                 .clip(RoundedCornerShape(8.dp))
                 .background(Ember400.copy(alpha = 0.2f))
         ) {
-            if (!imageUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = imageUrl,
+            if (imageUrls.isNotEmpty()) {
+                FallbackAsyncImage(
+                    urls = imageUrls,
                     contentDescription = null,
                     modifier = Modifier.matchParentSize(),
                     contentScale = ContentScale.Crop
@@ -525,7 +528,7 @@ private fun LocalSongRow(
 
 @Composable
 private fun AnimeCard(anime: AnimeEntity, onClick: () -> Unit) {
-    val coverUrl = anime.coverUrl ?: anime.thumbnailUrl
+    val coverUrls = anime.primaryArtworkUrls()
     Column(
         modifier = Modifier
             .width(100.dp)
@@ -538,12 +541,11 @@ private fun AnimeCard(anime: AnimeEntity, onClick: () -> Unit) {
                 .clip(RoundedCornerShape(12.dp))
                 .background(Ink800)
         ) {
-            if (!coverUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = coverUrl,
+            if (coverUrls.isNotEmpty()) {
+                FallbackAsyncImage(
+                    urls = coverUrls,
                     contentDescription = null,
-                    modifier = Modifier.matchParentSize(),
-                    contentScale = ContentScale.Crop
+                    modifier = Modifier.matchParentSize()
                 )
             }
         }

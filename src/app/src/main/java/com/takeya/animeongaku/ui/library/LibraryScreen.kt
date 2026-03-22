@@ -64,9 +64,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.primaryArtworkUrl
+import com.takeya.animeongaku.data.local.primaryArtworkUrls
+import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.FeaturedPlaylistCard
 import com.takeya.animeongaku.ui.common.PlaylistCoverArt
+import com.takeya.animeongaku.ui.player.MiniPlayerHeight
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
 import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.theme.Ember400
@@ -136,7 +141,7 @@ fun LibraryScreen(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.coverUrl ?: sheetAnime?.thumbnailUrl,
+                imageUrl = sheetAnime?.primaryArtworkUrl(),
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 showGoToAnime = sheetAnime?.kitsuId != null,
                 showDownload = !isDownloaded && !isDownloading,
@@ -207,13 +212,15 @@ fun LibraryScreen(
             when (currentTab) {
                 LibraryTab.Playlists -> {
                     Box(modifier = Modifier.fillMaxSize()) {
-                        LazyColumn(
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             if (playlists.isEmpty()) {
-                                item {
+                                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                                     EmptyState(
                                         title = "No playlists yet",
                                         subtitle = "Tap + to create your first playlist."
@@ -223,30 +230,43 @@ fun LibraryScreen(
                                 items(playlists, key = { it.playlist.id }) { item ->
                                     val isAuto = item.playlist.isAuto
                                     val coverUrls = playlistCoverUrls[item.playlist.id] ?: emptyList()
-                                    ListRow(
-                                        title = item.playlist.name,
-                                        subtitle = "${item.trackCount} tracks",
-                                        accent = Rose500,
-                                        isAutoPlaylist = isAuto,
-                                        onClick = { onOpenPlaylist(item.playlist.id) },
-                                        onRename = if (isAuto) null else { { playlistToRename = item }},
-                                        onDelete = if (isAuto) null else { { playlistToDelete = item }},
-                                        coverContent = {
-                                            PlaylistCoverArt(
-                                                coverUrls = coverUrls,
-                                                gradientSeed = item.playlist.gradientSeed,
-                                                size = 44.dp
-                                            )
+                                    var showMenu by remember { mutableStateOf(false) }
+                                    Box {
+                                        FeaturedPlaylistCard(
+                                            title = item.playlist.name,
+                                            subtitle = "${item.trackCount} tracks",
+                                            coverUrls = coverUrls,
+                                            gradientSeed = item.playlist.gradientSeed,
+                                            isAutoPlaylist = isAuto,
+                                            onClick = { onOpenPlaylist(item.playlist.id) },
+                                            onLongClick = if (isAuto) null else { { showMenu = true } }
+                                        )
+                                        if (!isAuto) {
+                                            androidx.compose.material3.DropdownMenu(
+                                                expanded = showMenu,
+                                                onDismissRequest = { showMenu = false }
+                                            ) {
+                                                androidx.compose.material3.DropdownMenuItem(
+                                                    text = { Text("Rename") },
+                                                    onClick = { showMenu = false; playlistToRename = item }
+                                                )
+                                                androidx.compose.material3.DropdownMenuItem(
+                                                    text = { Text("Delete") },
+                                                    onClick = { showMenu = false; playlistToDelete = item }
+                                                )
+                                            }
                                         }
-                                    )
+                                    }
                                 }
                             }
-                            item { Spacer(modifier = Modifier.height(90.dp)) }
+                            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                                Spacer(modifier = Modifier.height(MiniPlayerHeight + 26.dp))
+                            }
                         }
                         NewPlaylistPill(
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
-                                .padding(20.dp),
+                                .padding(end = 20.dp, bottom = MiniPlayerHeight + 20.dp),
                             onClick = { showDialog = true }
                         )
                     }
@@ -269,16 +289,16 @@ fun LibraryScreen(
                                 )
                             }
                         } else {
-                            items(filteredThemes) { theme ->
-                                val imageUrl = animeByThemesId[theme.animeId]?.thumbnailUrl
-                                    ?: animeByThemesId[theme.animeId]?.coverUrl
+                            items(filteredThemes, key = { "song-${it.id}" }) { theme ->
+                                val animeEntry = animeByThemesId[theme.animeId]
+                                val imageUrls = remember(animeEntry) { animeEntry?.primaryArtworkUrls() ?: emptyList() }
                                 val isDownloaded = theme.id in downloadedThemeIds
                                 val isDownloading = theme.id in downloadingThemeIds
                                 ListRow(
                                     title = theme.title,
                                     subtitle = theme.artistName ?: "Unknown artist",
                                     accent = Rose500,
-                                    imageUrl = imageUrl,
+                                    imageUrls = imageUrls,
                                     isDownloaded = isDownloaded,
                                     isDownloading = isDownloading,
                                     isUnavailableOffline = !isOnline && !isDownloaded,
@@ -610,6 +630,7 @@ private fun ListRow(
     subtitle: String,
     accent: Color,
     imageUrl: String? = null,
+    imageUrls: List<String> = emptyList(),
     isAutoPlaylist: Boolean = false,
     isDownloaded: Boolean = false,
     isDownloading: Boolean = false,
@@ -642,7 +663,13 @@ private fun ListRow(
                     .clip(RoundedCornerShape(8.dp))
                     .background(accent.copy(alpha = 0.15f))
             ) {
-                if (!imageUrl.isNullOrBlank()) {
+                if (imageUrls.isNotEmpty()) {
+                    FallbackAsyncImage(
+                        urls = imageUrls,
+                        contentDescription = null,
+                        modifier = Modifier.matchParentSize()
+                    )
+                } else if (!imageUrl.isNullOrBlank()) {
                     AsyncImage(
                         model = imageUrl,
                         contentDescription = null,

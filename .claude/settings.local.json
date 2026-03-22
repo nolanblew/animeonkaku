@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep:*)",
+      "Bash(find /c/Users/nolan/repos/animeonkaku -name .cursorrules -o -name copilot-instructions*)",
+      "Bash(./gradlew assembleDebug)"
+    ]
+  }
+}
