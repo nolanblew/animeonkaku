@@ -135,6 +135,7 @@ fun PlayerScreen(
     }
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
     val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
@@ -189,7 +190,7 @@ fun PlayerScreen(
 
     pickerThemeIds?.let { ids ->
         PlaylistPickerSheet(
-            playlists = playlists, onDismiss = { pickerThemeIds = null },
+            playlists = playlists, coverUrls = playlistCoverUrls, onDismiss = { pickerThemeIds = null },
             onSelectPlaylist = { playlistId -> viewModel.addToPlaylist(playlistId, ids); pickerThemeIds = null },
             onCreatePlaylist = { name -> viewModel.createAndAddToPlaylist(name, ids); pickerThemeIds = null }
         )

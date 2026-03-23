@@ -67,6 +67,7 @@ import com.takeya.animeongaku.data.model.OnlineAnimeResult
 import com.takeya.animeongaku.data.model.OnlineArtistResult
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.PlaylistCoverArt
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
 import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.common.themeDisplayInfo
@@ -102,6 +103,7 @@ fun SearchScreen(
     val onlineError by viewModel.onlineError.collectAsStateWithLifecycle()
     val allAnime by viewModel.anime.collectAsStateWithLifecycle()
     val allPlaylists by viewModel.playlists.collectAsStateWithLifecycle()
+    val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
 
     val animeByThemesId = remember(allAnime) {
         allAnime.mapNotNull { entry -> entry.animeThemesId?.let { id -> id to entry } }.toMap()
@@ -212,6 +214,7 @@ fun SearchScreen(
     pickerThemeIds?.let { ids ->
         PlaylistPickerSheet(
             playlists = allPlaylists,
+            coverUrls = playlistCoverUrls,
             onDismiss = { pickerThemeIds = null },
             onSelectPlaylist = { playlistId ->
                 viewModel.addToPlaylist(playlistId, ids)
@@ -336,7 +339,11 @@ fun SearchScreen(
                         SectionHeader("Playlists")
                     }
                     items(localPlaylists.take(5), key = { "playlist-${it.playlist.id}" }) { playlist ->
-                        PlaylistRow(playlist = playlist, onClick = { onOpenPlaylist(playlist.playlist.id) })
+                        PlaylistRow(
+                            playlist = playlist,
+                            coverUrls = playlistCoverUrls[playlist.playlist.id] ?: emptyList(),
+                            onClick = { onOpenPlaylist(playlist.playlist.id) }
+                        )
                     }
                 }
 
@@ -601,7 +608,7 @@ private fun ArtistChip(artist: ArtistTrackCount, onClick: () -> Unit) {
 }
 
 @Composable
-private fun PlaylistRow(playlist: PlaylistWithCount, onClick: () -> Unit) {
+private fun PlaylistRow(playlist: PlaylistWithCount, coverUrls: List<String>, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -610,19 +617,12 @@ private fun PlaylistRow(playlist: PlaylistWithCount, onClick: () -> Unit) {
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Ink800),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "♫",
-                style = MaterialTheme.typography.titleMedium,
-                color = Rose500
-            )
-        }
+        PlaylistCoverArt(
+            coverUrls = coverUrls,
+            gradientSeed = playlist.playlist.gradientSeed,
+            size = 44.dp,
+            cornerRadius = 8.dp
+        )
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(

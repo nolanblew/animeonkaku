@@ -77,6 +77,7 @@ fun AnimeDetailScreen(
     val anime by viewModel.anime.collectAsStateWithLifecycle()
     val themes by viewModel.themes.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val fetchError by viewModel.fetchError.collectAsStateWithLifecycle()
     val isInLibrary by viewModel.isInLibrary.collectAsStateWithLifecycle()
@@ -156,6 +157,7 @@ fun AnimeDetailScreen(
     pickerThemeIds?.let { ids ->
         PlaylistPickerSheet(
             playlists = playlists,
+            coverUrls = playlistCoverUrls,
             onDismiss = { pickerThemeIds = null },
             onSelectPlaylist = { playlistId ->
                 viewModel.addToPlaylist(playlistId, ids)

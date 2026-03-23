@@ -44,20 +44,9 @@ class HomeViewModel @Inject constructor(
     val playlists: StateFlow<List<PlaylistWithCount>> = playlistDao.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    private val _playlistCoverUrls = MutableStateFlow<Map<Long, List<String>>>(emptyMap())
-    val playlistCoverUrls: StateFlow<Map<Long, List<String>>> = _playlistCoverUrls
-
-    init {
-        viewModelScope.launch {
-            playlists.collect { playlistList ->
-                val coverMap = mutableMapOf<Long, List<String>>()
-                for (p in playlistList) {
-                    coverMap[p.playlist.id] = playlistDao.getPlaylistCoverUrls(p.playlist.id)
-                }
-                _playlistCoverUrls.value = coverMap
-            }
-        }
-    }
+    val playlistCoverUrls: StateFlow<Map<Long, List<String>>> = playlistDao.observeAllPlaylistCoverUrls()
+        .map { rows -> rows.groupBy { it.playlistId }.mapValues { (_, list) -> list.map { it.coverUrl }.take(4) } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     private val _selectedChip = MutableStateFlow<String?>(null)
     val selectedChip: StateFlow<String?> = _selectedChip.asStateFlow()
@@ -70,19 +59,18 @@ class HomeViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val quickPicks: StateFlow<List<ThemeEntity>> = combine(themes, userPreferencesRepository.observeLikedThemeIds()) { list, likedIds ->
-        // Favor liked songs: add a weight so they have a higher chance to appear
-        list.map { it to ((if (it.id in likedIds) 2.0 else 0.0) + Math.random()) }
-            .sortedByDescending { it.second }
-            .map { it.first }
+    // Shuffle once per themes emission so the order is stable across liked/download state changes
+    private val shuffledThemes: StateFlow<List<ThemeEntity>> = themes
+        .map { it.shuffled() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val quickPicks: StateFlow<List<ThemeEntity>> = combine(shuffledThemes, userPreferencesRepository.observeLikedThemeIds()) { list, likedIds ->
+        list.sortedByDescending { if (it.id in likedIds) 1 else 0 }
             .take(6)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val topSongs: StateFlow<List<ThemeEntity>> = combine(themes, userPreferencesRepository.observeLikedThemeIds()) { list, likedIds ->
-        // Favor liked songs
-        list.map { it to ((if (it.id in likedIds) 2.0 else 0.0) + Math.random()) }
-            .sortedByDescending { it.second }
-            .map { it.first }
+    val topSongs: StateFlow<List<ThemeEntity>> = combine(shuffledThemes, userPreferencesRepository.observeLikedThemeIds()) { list, likedIds ->
+        list.sortedByDescending { if (it.id in likedIds) 1 else 0 }
             .take(10)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

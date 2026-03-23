@@ -1,6 +1,5 @@
 package com.takeya.animeongaku.ui.common
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -13,12 +12,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -41,8 +38,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.takeya.animeongaku.data.local.PlaylistWithCount
-import com.takeya.animeongaku.ui.theme.Ink700
-import com.takeya.animeongaku.ui.theme.Ink800
 import com.takeya.animeongaku.ui.theme.Ink900
 import com.takeya.animeongaku.ui.theme.Mist100
 import com.takeya.animeongaku.ui.theme.Mist200
@@ -52,6 +47,7 @@ import com.takeya.animeongaku.ui.theme.Rose500
 @Composable
 fun PlaylistPickerSheet(
     playlists: List<PlaylistWithCount>,
+    coverUrls: Map<Long, List<String>> = emptyMap(),
     onDismiss: () -> Unit,
     onSelectPlaylist: (playlistId: Long) -> Unit,
     onCreatePlaylist: (name: String) -> Unit
@@ -175,15 +171,15 @@ fun PlaylistPickerSheet(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { onSelectPlaylist(playlist.playlist.id) }
-                                .padding(horizontal = 20.dp, vertical = 12.dp),
+                                .padding(horizontal = 20.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Icon(
-                                Icons.Rounded.MusicNote,
-                                contentDescription = null,
-                                tint = Mist200,
-                                modifier = Modifier.size(24.dp)
+                            PlaylistCoverArt(
+                                coverUrls = coverUrls[playlist.playlist.id] ?: emptyList(),
+                                gradientSeed = playlist.playlist.gradientSeed,
+                                size = 44.dp,
+                                cornerRadius = 8.dp
                             )
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(

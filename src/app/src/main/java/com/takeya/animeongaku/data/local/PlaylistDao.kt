@@ -94,6 +94,18 @@ interface PlaylistDao {
     fun observePlaylistCoverUrls(playlistId: Long): Flow<List<String>>
 
     @Query("""
+        SELECT pe.playlistId,
+               COALESCE(NULLIF(a.coverUrl, ''), NULLIF(a.thumbnailUrl, '')) AS coverUrl
+        FROM playlist_entries pe
+        JOIN themes t ON t.id = pe.themeId
+        JOIN anime a ON a.animeThemesId = t.animeId
+        WHERE COALESCE(NULLIF(a.coverUrl, ''), NULLIF(a.thumbnailUrl, '')) IS NOT NULL
+        GROUP BY pe.playlistId, coverUrl
+        ORDER BY pe.playlistId
+    """)
+    fun observeAllPlaylistCoverUrls(): Flow<List<PlaylistCoverRow>>
+
+    @Query("""
         SELECT p.*, COUNT(pe.themeId) AS trackCount
         FROM playlists p
         LEFT JOIN playlist_entries pe ON p.id = pe.playlistId
@@ -104,6 +116,11 @@ interface PlaylistDao {
     """)
     fun searchPlaylists(query: String): Flow<List<PlaylistWithCount>>
 }
+
+data class PlaylistCoverRow(
+    @ColumnInfo(name = "playlistId") val playlistId: Long,
+    @ColumnInfo(name = "coverUrl") val coverUrl: String
+)
 
 data class PlaylistWithCount(
     @Embedded val playlist: PlaylistEntity,

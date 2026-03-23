@@ -81,6 +81,7 @@ fun ArtistDetailScreen(
     val allSongsSorted by viewModel.allSongsSorted.collectAsStateWithLifecycle()
     val anime by viewModel.anime.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
     val artistImageUrl by viewModel.artistImageUrl.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val fetchError by viewModel.fetchError.collectAsStateWithLifecycle()
@@ -155,6 +156,7 @@ fun ArtistDetailScreen(
     pickerThemeIds?.let { ids ->
         PlaylistPickerSheet(
             playlists = playlists,
+            coverUrls = playlistCoverUrls,
             onDismiss = { pickerThemeIds = null },
             onSelectPlaylist = { playlistId ->
                 viewModel.addToPlaylist(playlistId, ids)

@@ -62,20 +62,9 @@ class LibraryViewModel @Inject constructor(
     val playlists = playlistDao.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    private val _playlistCoverUrls = MutableStateFlow<Map<Long, List<String>>>(emptyMap())
-    val playlistCoverUrls: StateFlow<Map<Long, List<String>>> = _playlistCoverUrls
-
-    init {
-        viewModelScope.launch {
-            playlists.collect { playlistList ->
-                val coverMap = mutableMapOf<Long, List<String>>()
-                for (p in playlistList) {
-                    coverMap[p.playlist.id] = playlistDao.getPlaylistCoverUrls(p.playlist.id)
-                }
-                _playlistCoverUrls.value = coverMap
-            }
-        }
-    }
+    val playlistCoverUrls: StateFlow<Map<Long, List<String>>> = playlistDao.observeAllPlaylistCoverUrls()
+        .map { rows -> rows.groupBy { it.playlistId }.mapValues { (_, list) -> list.map { it.coverUrl }.take(4) } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     val anime = animeDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

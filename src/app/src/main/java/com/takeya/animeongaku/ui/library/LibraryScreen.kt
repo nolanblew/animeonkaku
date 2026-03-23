@@ -170,6 +170,7 @@ fun LibraryScreen(
     pickerThemeIds?.let { ids ->
         PlaylistPickerSheet(
             playlists = playlists,
+            coverUrls = playlistCoverUrls,
             onDismiss = { pickerThemeIds = null },
             onSelectPlaylist = { playlistId ->
                 viewModel.addToPlaylist(playlistId, ids)
