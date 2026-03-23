@@ -51,6 +51,56 @@ interface DownloadDao {
     @Query("SELECT COUNT(*) FROM download_request WHERE status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')")
     fun observeActiveCount(): Flow<Int>
 
+    @Query("SELECT COUNT(*) FROM download_request WHERE status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')")
+    suspend fun getActiveDownloadCount(): Int
+
+    // Batch-aware queries: only count themes in groups that still have active downloads.
+    // This excludes old completed downloads from previous sessions.
+
+    @Query("""
+        SELECT COUNT(DISTINCT dgt.themeId) FROM download_group_theme dgt
+        WHERE dgt.groupId IN (
+            SELECT DISTINCT dgt2.groupId FROM download_group_theme dgt2
+            INNER JOIN download_request dr ON dgt2.themeId = dr.themeId
+            WHERE dr.status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')
+        )
+    """)
+    suspend fun getActiveBatchTotalCount(): Int
+
+    @Query("""
+        SELECT COUNT(DISTINCT dgt.themeId) FROM download_group_theme dgt
+        INNER JOIN download_request dr ON dgt.themeId = dr.themeId
+        WHERE dr.status = '${DownloadRequestEntity.STATUS_COMPLETED}'
+        AND dgt.groupId IN (
+            SELECT DISTINCT dgt2.groupId FROM download_group_theme dgt2
+            INNER JOIN download_request dr2 ON dgt2.themeId = dr2.themeId
+            WHERE dr2.status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')
+        )
+    """)
+    suspend fun getActiveBatchCompletedCount(): Int
+
+    @Query("""
+        SELECT COUNT(DISTINCT dgt.themeId) FROM download_group_theme dgt
+        WHERE dgt.groupId IN (
+            SELECT DISTINCT dgt2.groupId FROM download_group_theme dgt2
+            INNER JOIN download_request dr ON dgt2.themeId = dr.themeId
+            WHERE dr.status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')
+        )
+    """)
+    fun observeActiveBatchTotalCount(): Flow<Int>
+
+    @Query("""
+        SELECT COUNT(DISTINCT dgt.themeId) FROM download_group_theme dgt
+        INNER JOIN download_request dr ON dgt.themeId = dr.themeId
+        WHERE dr.status = '${DownloadRequestEntity.STATUS_COMPLETED}'
+        AND dgt.groupId IN (
+            SELECT DISTINCT dgt2.groupId FROM download_group_theme dgt2
+            INNER JOIN download_request dr2 ON dgt2.themeId = dr2.themeId
+            WHERE dr2.status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')
+        )
+    """)
+    fun observeActiveBatchCompletedCount(): Flow<Int>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertDownload(download: DownloadRequestEntity)
 

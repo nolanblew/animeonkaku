@@ -132,8 +132,8 @@ fun DownloadManagerScreen(
                 item {
                     ActiveDownloadsCard(
                         activeDownloads = activeDownloads,
-                        completedCount = state.completedCount,
-                        totalCount = state.downloads.size,
+                        completedCount = state.batchCompletedCount,
+                        totalCount = state.batchTotalCount,
                         onPauseAll = { viewModel.pauseAll() },
                         onResumeAll = { viewModel.resumeAll() },
                         onCancelAll = { viewModel.cancelAll() }

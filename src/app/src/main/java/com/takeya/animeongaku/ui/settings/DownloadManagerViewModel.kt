@@ -25,7 +25,9 @@ data class DownloadManagerUiState(
     val groups: List<DownloadGroupEntity> = emptyList(),
     val downloads: List<DownloadRequestEntity> = emptyList(),
     val activeCount: Int = 0,
-    val completedCount: Int = 0
+    val completedCount: Int = 0,
+    val batchTotalCount: Int = 0,
+    val batchCompletedCount: Int = 0
 )
 
 @HiltViewModel
@@ -42,16 +44,21 @@ class DownloadManagerViewModel @Inject constructor(
         downloadDao.observeAllGroups(),
         downloadDao.observeAllDownloads(),
         downloadDao.observeActiveCount(),
-        downloadDao.observeCompletedCount()
-    ) { totalSize, groups, downloads, activeCount, completedCount ->
+        downloadDao.observeCompletedCount(),
+        downloadDao.observeActiveBatchTotalCount(),
+        downloadDao.observeActiveBatchCompletedCount()
+    ) { values ->
+        @Suppress("UNCHECKED_CAST")
         DownloadManagerUiState(
-            totalSize = totalSize,
+            totalSize = values[0] as Long,
             freeSpace = _freeSpace.value,
             totalSpace = _totalSpace.value,
-            groups = groups,
-            downloads = downloads,
-            activeCount = activeCount,
-            completedCount = completedCount
+            groups = values[1] as List<DownloadGroupEntity>,
+            downloads = values[2] as List<DownloadRequestEntity>,
+            activeCount = values[3] as Int,
+            completedCount = values[4] as Int,
+            batchTotalCount = values[5] as Int,
+            batchCompletedCount = values[6] as Int
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DownloadManagerUiState())
 

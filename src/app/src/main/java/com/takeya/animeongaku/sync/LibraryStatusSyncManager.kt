@@ -46,9 +46,17 @@ class LibraryStatusSyncManager @Inject constructor(
         }
     }
 
+    fun shouldSync(minIntervalMs: Long): Boolean {
+        val lastSyncAt = tokenStore.getLastStatusSyncAt()
+        return System.currentTimeMillis() - lastSyncAt >= minIntervalMs
+    }
+
     fun startSync(onStart: () -> Unit = {}, onComplete: (Int) -> Unit = {}) {
-        if (isRunning) return
-        
+        if (isRunning) {
+            onComplete(0)
+            return
+        }
+
         if (!connectivityMonitor.isOnline.value) {
             Log.d(TAG, "Skipping sync: Device is offline")
             onComplete(0)
@@ -61,7 +69,10 @@ class LibraryStatusSyncManager @Inject constructor(
             return
         }
 
-        val userId = tokenStore.getUserId() ?: return
+        val userId = tokenStore.getUserId() ?: run {
+            onComplete(0)
+            return
+        }
         
         syncJob = scope.launch {
             try {

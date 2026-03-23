@@ -66,6 +66,7 @@ class LibrarySyncService : Service() {
             }
             ACTION_STOP -> {
                 syncManager.cancel()
+                stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -98,10 +99,7 @@ class LibrarySyncService : Service() {
                         buildCompletionNotification(state)
                     }
                     SyncPhase.Error -> {
-                        buildNotification(
-                            state.errorMessage ?: "Sync error",
-                            0, 0, false
-                        )
+                        buildErrorNotification(state.errorMessage ?: "Sync failed")
                     }
                     SyncPhase.Idle -> null
                     else -> {
@@ -122,8 +120,9 @@ class LibrarySyncService : Service() {
 
                 // Only stop the service after sync has actually started and reached a terminal state
                 if (syncStarted && (state.phase == SyncPhase.Done || state.phase == SyncPhase.Error || state.phase == SyncPhase.Idle)) {
-                    if (state.phase != SyncPhase.Idle) {
-                        stopForeground(STOP_FOREGROUND_DETACH)
+                    when (state.phase) {
+                        SyncPhase.Done, SyncPhase.Error -> stopForeground(STOP_FOREGROUND_DETACH)
+                        else -> stopForeground(STOP_FOREGROUND_REMOVE)
                     }
                     stopSelf()
                 }
@@ -209,6 +208,26 @@ class LibrarySyncService : Service() {
         builder.addAction(0, "Stop", stopIntent)
 
         return builder.build()
+    }
+
+    private fun buildErrorNotification(message: String): Notification {
+        val contentIntent = PendingIntent.getActivity(
+            this, 0,
+            Intent(this, MainActivity::class.java).apply {
+                putExtra("navigate_to", "import")
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Sync Failed")
+            .setContentText(message)
+            .setContentIntent(contentIntent)
+            .setAutoCancel(true)
+            .setOngoing(false)
+            .build()
     }
 
     private fun buildCompletionNotification(state: SyncState): Notification {

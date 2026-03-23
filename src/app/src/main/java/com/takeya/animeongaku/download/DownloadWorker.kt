@@ -42,19 +42,29 @@ class DownloadWorker @AssistedInject constructor(
         const val KEY_AUDIO_URL = "audio_url"
         const val KEY_IMAGE_URL = "image_url"
         const val CHANNEL_ID = "downloads"
-        const val NOTIFICATION_ID = 9002
+        const val NOTIFICATION_ID = 9003
         const val PROGRESS_KEY = "download_progress"
     }
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
         createNotificationChannel()
+        val totalCount = downloadDao.getActiveBatchTotalCount()
+        val completedCount = downloadDao.getActiveBatchCompletedCount()
+
+        val text = if (totalCount <= 1) "Preparing download…"
+                   else "Downloading ${completedCount + 1} of $totalCount songs"
+
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Downloading Music")
-            .setContentText("Preparing download…")
+            .setContentText(text)
             .setOngoing(true)
             .setSilent(true)
-            .setProgress(0, 0, true)
+            .setProgress(
+                if (totalCount > 1) totalCount else 0,
+                if (totalCount > 1) completedCount else 0,
+                totalCount <= 1
+            )
             .build()
         return ForegroundInfo(
             NOTIFICATION_ID,
@@ -80,7 +90,7 @@ class DownloadWorker @AssistedInject constructor(
             setForeground(getForegroundInfo())
 
             downloadDao.updateStatus(themeId, DownloadRequestEntity.STATUS_DOWNLOADING)
-            showNotification("Downloading…", -1)
+            showAggregateNotification()
 
             val downloadsDir = File(applicationContext.filesDir, "downloads")
             if (!downloadsDir.exists()) downloadsDir.mkdirs()
@@ -131,8 +141,8 @@ class DownloadWorker @AssistedInject constructor(
 
         } catch (e: kotlinx.coroutines.CancellationException) {
             Log.d(TAG, "Download cancelled for theme $themeId")
-            cancelNotification()
             downloadDao.updateStatus(themeId, DownloadRequestEntity.STATUS_PAUSED)
+            // Don't cancel notification — other workers may still be running
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Download failed for theme $themeId", e)
@@ -185,7 +195,7 @@ class DownloadWorker @AssistedInject constructor(
                                 progress
                             )
                             setProgress(workDataOf(PROGRESS_KEY to progress))
-                            showNotification("Downloading… $progress%", progress)
+                            showAggregateNotification()
                         }
                     }
                 }
@@ -195,8 +205,14 @@ class DownloadWorker @AssistedInject constructor(
         return downloadedBytes
     }
 
-    private fun showNotification(text: String, progress: Int) {
+    private suspend fun showAggregateNotification() {
         createNotificationChannel()
+
+        val totalCount = downloadDao.getActiveBatchTotalCount()
+        val completedCount = downloadDao.getActiveBatchCompletedCount()
+
+        val text = if (totalCount <= 1) "Downloading…"
+                   else "Downloading ${completedCount + 1} of $totalCount songs"
 
         val contentIntent = PendingIntent.getActivity(
             applicationContext, 0,
@@ -216,8 +232,8 @@ class DownloadWorker @AssistedInject constructor(
             .setSilent(true)
             .setOnlyAlertOnce(true)
 
-        if (progress in 0..100) {
-            builder.setProgress(100, progress, false)
+        if (totalCount > 1) {
+            builder.setProgress(totalCount, completedCount, false)
         } else {
             builder.setProgress(0, 0, true)
         }
@@ -226,9 +242,12 @@ class DownloadWorker @AssistedInject constructor(
         nm.notify(NOTIFICATION_ID, builder.build())
     }
 
-    private fun cancelNotification() {
-        val nm = applicationContext.getSystemService(NotificationManager::class.java)
-        nm.cancel(NOTIFICATION_ID)
+    private suspend fun cancelNotification() {
+        val remaining = downloadDao.getActiveDownloadCount()
+        if (remaining == 0) {
+            val nm = applicationContext.getSystemService(NotificationManager::class.java)
+            nm.cancel(NOTIFICATION_ID)
+        }
     }
 
     private fun createNotificationChannel() {
