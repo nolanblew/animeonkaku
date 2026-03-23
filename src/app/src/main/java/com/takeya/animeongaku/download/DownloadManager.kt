@@ -153,6 +153,9 @@ class DownloadManager @Inject constructor(
             val groupThemes = themes.map { DownloadGroupThemeEntity(group.id, it.id) }
             downloadDao.insertGroupThemes(groupThemes)
 
+            // Pre-insert all download requests so the total count is immediately known
+            prepareDownloads(themes)
+
             // Enqueue each theme with rate limiting
             for ((i, theme) in themes.withIndex()) {
                 enqueueDownload(theme, imageUrl)
@@ -187,6 +190,9 @@ class DownloadManager @Inject constructor(
             // Add all themes to group
             val groupThemes = themes.map { DownloadGroupThemeEntity(group.id, it.id) }
             downloadDao.insertGroupThemes(groupThemes)
+
+            // Pre-insert all download requests so the total count is immediately known
+            prepareDownloads(themes)
 
             // Enqueue each theme, resolving cover art per anime
             val animeIds = themes.mapNotNull { it.animeId }.distinct()
@@ -351,6 +357,32 @@ class DownloadManager @Inject constructor(
     }
 
     // --- Helpers ---
+
+    /**
+     * Pre-insert download request rows for all themes so the total count
+     * is immediately known in the UI and notification before work is enqueued.
+     */
+    private suspend fun prepareDownloads(themes: List<ThemeEntity>) {
+        val isWifiOnly = downloadPreferences.wifiOnly
+        val currentNetwork = connectivityMonitor.networkType.value
+        val initialStatus = if (isWifiOnly && currentNetwork != AppNetworkType.WIFI) {
+            DownloadRequestEntity.STATUS_WAITING_FOR_WIFI
+        } else {
+            DownloadRequestEntity.STATUS_PENDING
+        }
+
+        for (theme in themes) {
+            val existing = downloadDao.getDownloadForTheme(theme.id)
+            if (existing?.status == DownloadRequestEntity.STATUS_COMPLETED) continue
+            if (existing?.status == DownloadRequestEntity.STATUS_DOWNLOADING) continue
+            downloadDao.insertDownloadIfNotExists(
+                DownloadRequestEntity(themeId = theme.id, status = initialStatus)
+            )
+            if (existing != null) {
+                downloadDao.updateStatus(theme.id, initialStatus)
+            }
+        }
+    }
 
     private suspend fun enqueueDownload(theme: ThemeEntity, imageUrl: String?) {
         // Check if already completed

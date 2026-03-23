@@ -45,10 +45,9 @@ class MainActivity : ComponentActivity() {
         autoPlaylistManager.refreshAutoPlaylists()
         
         // Cold start sync: min interval 5 minutes
-        libraryStatusSyncManager.syncIfNeeded(
-            minIntervalMs = 5 * 60 * 1000L,
-            onStart = { com.takeya.animeongaku.sync.StatusSyncService.start(this) }
-        )
+        if (libraryStatusSyncManager.shouldSync(5 * 60 * 1000L)) {
+            com.takeya.animeongaku.sync.StatusSyncService.start(this)
+        }
 
         setContent {
             AnimeOngakuTheme {
@@ -60,19 +59,17 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         // Warm resume sync: min interval 60 minutes
-        libraryStatusSyncManager.syncIfNeeded(
-            minIntervalMs = 60 * 60 * 1000L,
-            onStart = { com.takeya.animeongaku.sync.StatusSyncService.start(this) }
-        )
+        if (libraryStatusSyncManager.shouldSync(60 * 60 * 1000L)) {
+            com.takeya.animeongaku.sync.StatusSyncService.start(this)
+        }
         
         // Continuous foreground periodic sync: min interval 2 hours
         periodicSyncJob = lifecycleScope.launch {
             while (true) {
                 delay(2 * 60 * 60 * 1000L) // 2 hours
-                libraryStatusSyncManager.syncIfNeeded(
-                    minIntervalMs = 2 * 60 * 60 * 1000L,
-                    onStart = { com.takeya.animeongaku.sync.StatusSyncService.start(this@MainActivity) }
-                )
+                if (libraryStatusSyncManager.shouldSync(2 * 60 * 60 * 1000L)) {
+                    com.takeya.animeongaku.sync.StatusSyncService.start(this@MainActivity)
+                }
             }
         }
     }
