@@ -35,9 +35,6 @@ jobs:
       run: chmod +x gradlew
       working-directory: ./src
 
-    - name: Setup Kotlin script runner
-      run: sudo apt-get install -y kotlin
-
     - name: Update Version in build.gradle.kts
       working-directory: ./src
       run: |
@@ -48,7 +45,33 @@ jobs:
           sed -i 's/buildConfigField("String", "DISPLAY_VERSION", "[^"]*")/buildConfigField("String", "DISPLAY_VERSION", "\"${{ github.event.inputs.version_name }}\"")/' app/build.gradle.kts
         else
           echo "Auto-bumping version"
-          kotlin bump_version.kts
+          python3 << 'PYEOF'
+        import re
+
+        with open('app/build.gradle.kts', 'r') as f:
+            content = f.read()
+
+        m = re.search(r'versionCode = (\d+)', content)
+        if m:
+            new_code = int(m.group(1)) + 1
+            content = re.sub(r'versionCode = \d+', f'versionCode = {new_code}', content)
+            print(f'Bumped versionCode to {new_code}')
+
+        m = re.search(r'versionName = "(\d+\.\d+(?:\.\d+)?)"', content)
+        if m:
+            current = m.group(1)
+            parts = current.split('.')
+            if len(parts) == 2:
+                new_name = f'{parts[0]}.{parts[1]}.1'
+            else:
+                new_name = f'{parts[0]}.{parts[1]}.{int(parts[2])+1}'
+            content = content.replace(f'versionName = "{current}"', f'versionName = "{new_name}"')
+            content = content.replace(f'DISPLAY_VERSION", "\\"{current}\\""', f'DISPLAY_VERSION", "\\"{new_name}\\""')
+            print(f'Bumped versionName to {new_name}')
+
+        with open('app/build.gradle.kts', 'w') as f:
+            f.write(content)
+        PYEOF
         fi
 
     - name: Get Final Version
