@@ -17,7 +17,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import kotlin.math.abs
 
 private val gradientPalette = listOf(
@@ -35,13 +34,14 @@ private val gradientPalette = listOf(
 
 @Composable
 fun PlaylistCoverArt(
-    coverUrls: List<String>,
+    coverUrlGroups: List<List<String>>,
     gradientSeed: Int,
     size: Dp = 44.dp,
     cornerRadius: Dp = 8.dp,
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(cornerRadius)
+    val nonEmptyGroups = coverUrlGroups.filter { it.isNotEmpty() }
 
     Box(
         modifier = modifier
@@ -49,8 +49,8 @@ fun PlaylistCoverArt(
             .clip(shape)
     ) {
         when {
-            coverUrls.size >= 4 -> CollageGrid(coverUrls.take(4))
-            coverUrls.size >= 2 -> CollageGrid(coverUrls.take(coverUrls.size))
+            nonEmptyGroups.size >= 4 -> CollageGrid(nonEmptyGroups.take(4))
+            nonEmptyGroups.size >= 2 -> CollageGrid(nonEmptyGroups.take(nonEmptyGroups.size))
             else -> {
                 val colors = remember(gradientSeed) {
                     val index = abs(gradientSeed) % gradientPalette.size
@@ -67,18 +67,18 @@ fun PlaylistCoverArt(
 }
 
 @Composable
-private fun CollageGrid(urls: List<String>) {
-    when (urls.size) {
+private fun CollageGrid(urlGroups: List<List<String>>) {
+    when (urlGroups.size) {
         2 -> {
             Row(modifier = Modifier.fillMaxSize()) {
-                AsyncImage(
-                    model = urls[0],
+                FallbackAsyncImage(
+                    urls = urlGroups[0],
                     contentDescription = null,
                     modifier = Modifier.weight(1f).fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
-                AsyncImage(
-                    model = urls[1],
+                FallbackAsyncImage(
+                    urls = urlGroups[1],
                     contentDescription = null,
                     modifier = Modifier.weight(1f).fillMaxSize(),
                     contentScale = ContentScale.Crop
@@ -87,21 +87,21 @@ private fun CollageGrid(urls: List<String>) {
         }
         3 -> {
             Row(modifier = Modifier.fillMaxSize()) {
-                AsyncImage(
-                    model = urls[0],
+                FallbackAsyncImage(
+                    urls = urlGroups[0],
                     contentDescription = null,
                     modifier = Modifier.weight(1f).fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
                 Column(modifier = Modifier.weight(1f).fillMaxSize()) {
-                    AsyncImage(
-                        model = urls[1],
+                    FallbackAsyncImage(
+                        urls = urlGroups[1],
                         contentDescription = null,
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                         contentScale = ContentScale.Crop
                     )
-                    AsyncImage(
-                        model = urls[2],
+                    FallbackAsyncImage(
+                        urls = urlGroups[2],
                         contentDescription = null,
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                         contentScale = ContentScale.Crop
@@ -112,28 +112,28 @@ private fun CollageGrid(urls: List<String>) {
         else -> {
             Column(modifier = Modifier.fillMaxSize()) {
                 Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    AsyncImage(
-                        model = urls[0],
+                    FallbackAsyncImage(
+                        urls = urlGroups[0],
                         contentDescription = null,
                         modifier = Modifier.weight(1f).fillMaxSize(),
                         contentScale = ContentScale.Crop
                     )
-                    AsyncImage(
-                        model = urls[1],
+                    FallbackAsyncImage(
+                        urls = urlGroups[1],
                         contentDescription = null,
                         modifier = Modifier.weight(1f).fillMaxSize(),
                         contentScale = ContentScale.Crop
                     )
                 }
                 Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    AsyncImage(
-                        model = urls[2],
+                    FallbackAsyncImage(
+                        urls = urlGroups[2],
                         contentDescription = null,
                         modifier = Modifier.weight(1f).fillMaxSize(),
                         contentScale = ContentScale.Crop
                     )
-                    AsyncImage(
-                        model = urls[3],
+                    FallbackAsyncImage(
+                        urls = urlGroups[3],
                         contentDescription = null,
                         modifier = Modifier.weight(1f).fillMaxSize(),
                         contentScale = ContentScale.Crop

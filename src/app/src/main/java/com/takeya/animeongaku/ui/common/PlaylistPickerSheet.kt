@@ -47,7 +47,7 @@ import com.takeya.animeongaku.ui.theme.Rose500
 @Composable
 fun PlaylistPickerSheet(
     playlists: List<PlaylistWithCount>,
-    coverUrls: Map<Long, List<String>> = emptyMap(),
+    coverUrls: Map<Long, List<List<String>>> = emptyMap(),
     onDismiss: () -> Unit,
     onSelectPlaylist: (playlistId: Long) -> Unit,
     onCreatePlaylist: (name: String) -> Unit
@@ -176,7 +176,7 @@ fun PlaylistPickerSheet(
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             PlaylistCoverArt(
-                                coverUrls = coverUrls[playlist.playlist.id] ?: emptyList(),
+                                coverUrlGroups = coverUrls[playlist.playlist.id] ?: emptyList(),
                                 gradientSeed = playlist.playlist.gradientSeed,
                                 size = 44.dp,
                                 cornerRadius = 8.dp

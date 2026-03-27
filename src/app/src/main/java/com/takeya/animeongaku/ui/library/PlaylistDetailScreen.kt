@@ -263,7 +263,7 @@ fun PlaylistDetailScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     PlaylistCoverArt(
-                        coverUrls = coverUrls,
+                        coverUrlGroups = coverUrls,
                         gradientSeed = playlist?.gradientSeed ?: 0,
                         size = 160.dp,
                         cornerRadius = 16.dp,

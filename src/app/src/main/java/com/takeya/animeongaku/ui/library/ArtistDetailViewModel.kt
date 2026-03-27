@@ -210,8 +210,17 @@ class ArtistDetailViewModel @Inject constructor(
     val playlists: StateFlow<List<PlaylistWithCount>> = playlistDao.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val playlistCoverUrls: StateFlow<Map<Long, List<String>>> = playlistDao.observeAllPlaylistCoverUrls()
-        .map { rows -> rows.groupBy { it.playlistId }.mapValues { (_, list) -> list.map { it.coverUrl }.take(4) } }
+    val playlistCoverUrls: StateFlow<Map<Long, List<List<String>>>> = playlistDao.observeAllPlaylistCoverUrls()
+        .map { rows ->
+            rows.groupBy { it.playlistId }.mapValues { (_, list) ->
+                list.take(4).map { row ->
+                    listOfNotNull(
+                        row.coverUrl?.takeIf { it.isNotBlank() },
+                        row.thumbnailUrl?.takeIf { it.isNotBlank() }
+                    )
+                }
+            }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {

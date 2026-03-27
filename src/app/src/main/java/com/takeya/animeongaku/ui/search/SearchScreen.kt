@@ -608,7 +608,7 @@ private fun ArtistChip(artist: ArtistTrackCount, onClick: () -> Unit) {
 }
 
 @Composable
-private fun PlaylistRow(playlist: PlaylistWithCount, coverUrls: List<String>, onClick: () -> Unit) {
+private fun PlaylistRow(playlist: PlaylistWithCount, coverUrls: List<List<String>>, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -618,7 +618,7 @@ private fun PlaylistRow(playlist: PlaylistWithCount, coverUrls: List<String>, on
         verticalAlignment = Alignment.CenterVertically
     ) {
         PlaylistCoverArt(
-            coverUrls = coverUrls,
+            coverUrlGroups = coverUrls,
             gradientSeed = playlist.playlist.gradientSeed,
             size = 44.dp,
             cornerRadius = 8.dp

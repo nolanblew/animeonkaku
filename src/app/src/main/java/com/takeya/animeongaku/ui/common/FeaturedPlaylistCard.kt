@@ -33,7 +33,7 @@ import com.takeya.animeongaku.ui.theme.Mist200
 fun FeaturedPlaylistCard(
     title: String,
     subtitle: String,
-    coverUrls: List<String>,
+    coverUrls: List<List<String>>,
     gradientSeed: Int,
     isAutoPlaylist: Boolean = false,
     onClick: () -> Unit = {},
@@ -48,7 +48,7 @@ fun FeaturedPlaylistCard(
             .padding(12.dp)
     ) {
         PlaylistCoverArt(
-            coverUrls = coverUrls,
+            coverUrlGroups = coverUrls,
             gradientSeed = gradientSeed,
             size = 136.dp,
             cornerRadius = 14.dp
@@ -82,7 +82,7 @@ fun FeaturedPlaylistCard(
 @Composable
 fun FeaturedPlaylistRow(
     playlists: List<PlaylistWithCount>,
-    coverUrlsMap: Map<Long, List<String>>,
+    coverUrlsMap: Map<Long, List<List<String>>>,
     onOpenPlaylist: (Long) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

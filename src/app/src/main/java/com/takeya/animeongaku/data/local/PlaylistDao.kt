@@ -72,36 +72,39 @@ interface PlaylistDao {
     suspend fun findAutoPlaylistByName(name: String): PlaylistEntity?
 
     @Query("""
-        SELECT DISTINCT COALESCE(NULLIF(a.coverUrl, ''), NULLIF(a.thumbnailUrl, ''))
+        SELECT a.coverUrl, a.thumbnailUrl
         FROM playlist_entries pe
         JOIN themes t ON t.id = pe.themeId
         JOIN anime a ON a.animeThemesId = t.animeId
         WHERE pe.playlistId = :playlistId
-          AND COALESCE(NULLIF(a.coverUrl, ''), NULLIF(a.thumbnailUrl, '')) IS NOT NULL
+          AND (NULLIF(a.coverUrl, '') IS NOT NULL OR NULLIF(a.thumbnailUrl, '') IS NOT NULL)
+        GROUP BY a.animeThemesId
+        ORDER BY MIN(pe.orderIndex)
         LIMIT 4
     """)
-    suspend fun getPlaylistCoverUrls(playlistId: Long): List<String>
+    suspend fun getPlaylistCoverUrls(playlistId: Long): List<PlaylistSlotUrls>
 
     @Query("""
-        SELECT DISTINCT COALESCE(NULLIF(a.coverUrl, ''), NULLIF(a.thumbnailUrl, ''))
+        SELECT a.coverUrl, a.thumbnailUrl
         FROM playlist_entries pe
         JOIN themes t ON t.id = pe.themeId
         JOIN anime a ON a.animeThemesId = t.animeId
         WHERE pe.playlistId = :playlistId
-          AND COALESCE(NULLIF(a.coverUrl, ''), NULLIF(a.thumbnailUrl, '')) IS NOT NULL
+          AND (NULLIF(a.coverUrl, '') IS NOT NULL OR NULLIF(a.thumbnailUrl, '') IS NOT NULL)
+        GROUP BY a.animeThemesId
+        ORDER BY MIN(pe.orderIndex)
         LIMIT 4
     """)
-    fun observePlaylistCoverUrls(playlistId: Long): Flow<List<String>>
+    fun observePlaylistCoverUrls(playlistId: Long): Flow<List<PlaylistSlotUrls>>
 
     @Query("""
-        SELECT pe.playlistId,
-               COALESCE(NULLIF(a.coverUrl, ''), NULLIF(a.thumbnailUrl, '')) AS coverUrl
+        SELECT pe.playlistId, a.coverUrl, a.thumbnailUrl
         FROM playlist_entries pe
         JOIN themes t ON t.id = pe.themeId
         JOIN anime a ON a.animeThemesId = t.animeId
-        WHERE COALESCE(NULLIF(a.coverUrl, ''), NULLIF(a.thumbnailUrl, '')) IS NOT NULL
-        GROUP BY pe.playlistId, coverUrl
-        ORDER BY pe.playlistId
+        WHERE (NULLIF(a.coverUrl, '') IS NOT NULL OR NULLIF(a.thumbnailUrl, '') IS NOT NULL)
+        GROUP BY pe.playlistId, a.animeThemesId
+        ORDER BY pe.playlistId, MIN(pe.orderIndex)
     """)
     fun observeAllPlaylistCoverUrls(): Flow<List<PlaylistCoverRow>>
 
@@ -119,7 +122,13 @@ interface PlaylistDao {
 
 data class PlaylistCoverRow(
     @ColumnInfo(name = "playlistId") val playlistId: Long,
-    @ColumnInfo(name = "coverUrl") val coverUrl: String
+    @ColumnInfo(name = "coverUrl") val coverUrl: String?,
+    @ColumnInfo(name = "thumbnailUrl") val thumbnailUrl: String?
+)
+
+data class PlaylistSlotUrls(
+    @ColumnInfo(name = "coverUrl") val coverUrl: String?,
+    @ColumnInfo(name = "thumbnailUrl") val thumbnailUrl: String?
 )
 
 data class PlaylistWithCount(
