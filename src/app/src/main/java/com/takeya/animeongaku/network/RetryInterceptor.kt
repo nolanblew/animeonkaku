@@ -1,6 +1,8 @@
 package com.takeya.animeongaku.network
 
 import java.io.IOException
+import java.net.ConnectException
+import java.net.UnknownHostException
 import kotlin.math.min
 import kotlin.random.Random
 import okhttp3.Interceptor
@@ -26,6 +28,9 @@ class RetryInterceptor(
                 }
                 response.close()
             } catch (ioException: IOException) {
+                if (ioException is UnknownHostException || ioException is ConnectException) {
+                    throw ioException
+                }
                 lastException = ioException
                 if (!isIdempotent || attempt >= maxRetries) {
                     throw ioException

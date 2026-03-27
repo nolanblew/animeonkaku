@@ -38,7 +38,8 @@ data class KitsuLibraryEntry(
 )
 
 data class KitsuLibraryEntryAttributes(
-    val status: String? = null
+    val status: String? = null,
+    val updatedAt: String? = null
 )
 
 data class KitsuRelationships(

@@ -3,7 +3,6 @@ package com.takeya.animeongaku.sync
 import android.util.Log
 import com.takeya.animeongaku.data.auth.KitsuTokenStore
 import com.takeya.animeongaku.data.local.AnimeDao
-import com.takeya.animeongaku.data.repository.AnimeRepository
 import com.takeya.animeongaku.data.repository.UserRepository
 import com.takeya.animeongaku.download.DownloadPreferences
 import com.takeya.animeongaku.network.ConnectivityMonitor
@@ -78,49 +77,47 @@ class LibraryStatusSyncManager @Inject constructor(
             try {
                 onStart()
                 Log.d(TAG, "Starting background status sync")
-                
-                // 1. Fetch library entries (we need the ones with status)
-                // getLibraryEntries internally fetches "current,completed" by default.
-                // We want to fetch all relevant statuses.
-                val entries = userRepository.getLibraryEntries(userId)
-                
+
+                // Fetch only library entries updated since last status sync.
+                // Uses all statuses sorted by -updatedAt, stopping at old entries.
+                val lastSyncAt = tokenStore.getLastStatusSyncAt()
+                val entries = userRepository.getLibraryEntriesUpdatedSince(userId, lastSyncAt)
+
                 if (entries.isEmpty()) {
-                    Log.d(TAG, "No entries found during status sync")
+                    Log.d(TAG, "No updated entries since last status sync")
                     tokenStore.saveLastStatusSyncAt(System.currentTimeMillis())
                     onComplete(0)
                     return@launch
                 }
-                
+
+                Log.d(TAG, "Found ${entries.size} entries updated since last sync")
                 val newAnimeIds = mutableListOf<String>()
-                
-                // 2. Update statuses in local DB
                 val knownKitsuIds = animeDao.getAllKitsuIds().toSet()
-                
+                var updatedCount = 0
+
                 entries.forEach { entry ->
                     if (knownKitsuIds.contains(entry.id)) {
-                        // Update existing
                         val existing = animeDao.getByKitsuId(entry.id)
                         if (existing != null && existing.watchingStatus != entry.watchingStatus) {
                             animeDao.upsertAll(listOf(existing.copy(watchingStatus = entry.watchingStatus)))
+                            updatedCount++
                         }
                     } else {
-                        // Mark as new
                         newAnimeIds.add(entry.id)
                     }
                 }
-                
-                // 3. Rebuild auto playlists
-                autoPlaylistManager.refreshAutoPlaylists()
+
+                // Rebuild auto playlists after status updates are persisted
+                autoPlaylistManager.refreshAutoPlaylistsSuspend()
                 tokenStore.saveLastStatusSyncAt(System.currentTimeMillis())
-                
-                // 4. Trigger full sync for newly discovered anime (in background)
+
+                // Trigger full sync for newly discovered anime (in background)
                 if (newAnimeIds.isNotEmpty()) {
                     Log.d(TAG, "Discovered ${newAnimeIds.size} new anime during status sync, triggering full sync")
-                    // We can just trigger the normal syncManager for this
                     syncManager.startSync(userId, forceFullSync = false)
                 }
-                
-                Log.d(TAG, "Status sync complete. Updated statuses, ${newAnimeIds.size} new anime.")
+
+                Log.d(TAG, "Status sync complete. Updated $updatedCount statuses, ${newAnimeIds.size} new anime.")
                 onComplete(newAnimeIds.size)
             } catch (e: CancellationException) {
                 Log.d(TAG, "Status sync cancelled")

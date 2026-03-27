@@ -153,7 +153,32 @@ class SyncManager @Inject constructor(
             }
         }
 
+        // Even when no new anime were found, statuses may have changed on
+        // existing anime (e.g. current → completed).  Run a lightweight
+        // status update and refresh auto-playlists so query-driven playlists
+        // like "Currently Watching" stay accurate.
+        if (!isFirstSync) {
+            updateState { copy(status = "Checking for status changes…") }
+            val lastStatusSync = tokenStore.getLastStatusSyncAt()
+            val recentlyChanged = userRepository.getLibraryEntriesUpdatedSince(userId, lastStatusSync)
+            if (recentlyChanged.isNotEmpty()) {
+                var statusUpdated = 0
+                recentlyChanged.forEach { entry ->
+                    val existing = animeDao.getByKitsuId(entry.id)
+                    if (existing != null && existing.watchingStatus != entry.watchingStatus) {
+                        animeDao.upsertAll(listOf(existing.copy(watchingStatus = entry.watchingStatus)))
+                        statusUpdated++
+                    }
+                }
+                if (statusUpdated > 0) {
+                    Log.d(TAG, "Updated $statusUpdated watching statuses during sync")
+                }
+            }
+            tokenStore.saveLastStatusSyncAt(System.currentTimeMillis())
+        }
+
         if (entries.isEmpty() && !isFirstSync) {
+            autoPlaylistManager.refreshAutoPlaylistsSuspend()
             tokenStore.saveLastSyncedAt(System.currentTimeMillis())
             updateState {
                 copy(
@@ -479,7 +504,7 @@ class SyncManager @Inject constructor(
         Log.d(TAG, "Sync: ${animeEntities.size} anime, $mappedCount mapped, ${allThemeEntities.size} themes")
 
         updateKitsuPlaylist()
-        autoPlaylistManager.refreshAutoPlaylists()
+        autoPlaylistManager.refreshAutoPlaylistsSuspend()
 
         tokenStore.saveLastSyncedAt(now)
         val label = if (isFirstSync) "Imported" else "Added"

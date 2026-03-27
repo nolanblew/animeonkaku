@@ -134,7 +134,8 @@ class UserRepositoryImpl @Inject constructor(
                     titleJa = anime?.titleJa(),
                     abbreviatedTitles = anime?.abbreviatedTitles() ?: emptyList(),
                     posterUrl = anime?.posterUrl(),
-                    coverUrl = anime?.coverUrl()
+                    coverUrl = anime?.coverUrl(),
+                    watchingStatus = entry.attributes?.status
                 )
             }
 
@@ -237,6 +238,55 @@ class UserRepositoryImpl @Inject constructor(
             }
         }
         return result
+    }
+
+    override suspend fun getLibraryEntriesUpdatedSince(
+        userId: String,
+        sinceMillis: Long
+    ): List<KitsuAnimeEntry> {
+        val results = mutableListOf<KitsuAnimeEntry>()
+        var offset = 0
+        val limit = 500
+        val sinceIso = java.time.Instant.ofEpochMilli(sinceMillis).toString()
+
+        while (true) {
+            val response = kitsuApi.getLibraryEntriesAllStatuses(
+                userId = userId,
+                limit = limit,
+                offset = offset
+            )
+            val animeById = response.included.associateBy { it.id }
+
+            // Results are sorted by -updatedAt, so once we see an entry older
+            // than our cutoff we can stop — everything after is even older.
+            var reachedOldEntries = false
+            for (entry in response.data) {
+                val entryUpdatedAt = entry.attributes?.updatedAt
+                if (entryUpdatedAt != null && entryUpdatedAt < sinceIso) {
+                    reachedOldEntries = true
+                    break
+                }
+                val animeId = entry.animeId() ?: continue
+                val anime = animeById[animeId]
+                results.add(
+                    KitsuAnimeEntry(
+                        id = animeId,
+                        title = anime?.displayTitle(),
+                        titleEn = anime?.titleEn(),
+                        titleRomaji = anime?.titleRomaji(),
+                        titleJa = anime?.titleJa(),
+                        abbreviatedTitles = anime?.abbreviatedTitles() ?: emptyList(),
+                        posterUrl = anime?.posterUrl(),
+                        coverUrl = anime?.coverUrl(),
+                        watchingStatus = entry.attributes?.status
+                    )
+                )
+            }
+
+            if (reachedOldEntries || response.data.size < limit) break
+            offset += limit
+        }
+        return results
     }
 
     override suspend fun getCurrentlyWatchingEntries(userId: String): List<KitsuAnimeEntry> {

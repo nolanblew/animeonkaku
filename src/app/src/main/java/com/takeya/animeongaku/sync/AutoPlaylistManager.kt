@@ -37,16 +37,20 @@ class AutoPlaylistManager @Inject constructor(
     fun refreshAutoPlaylists() {
         val userId = tokenStore.getUserId() ?: return
         scope.launch {
-            try {
-                refreshCurrentlyWatching()
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to refresh Currently Watching", e)
-            }
-            try {
-                refreshLikedSongs()
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to refresh Liked Songs", e)
-            }
+            refreshAutoPlaylistsSuspend()
+        }
+    }
+
+    suspend fun refreshAutoPlaylistsSuspend() {
+        try {
+            refreshCurrentlyWatching()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to refresh Currently Watching", e)
+        }
+        try {
+            refreshLikedSongs()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to refresh Liked Songs", e)
         }
     }
 

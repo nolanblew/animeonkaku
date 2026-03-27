@@ -25,6 +25,11 @@ interface UserRepository {
         onProgress: (LibrarySyncProgress) -> Unit = {}
     ): List<KitsuAnimeEntry>
 
+    suspend fun getLibraryEntriesUpdatedSince(
+        userId: String,
+        sinceMillis: Long
+    ): List<KitsuAnimeEntry>
+
     suspend fun getCurrentlyWatchingEntries(
         userId: String
     ): List<KitsuAnimeEntry>
