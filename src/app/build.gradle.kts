@@ -39,6 +39,7 @@ android {
         versionName = "1.0.1"
         
         buildConfigField("String", "DISPLAY_VERSION", "\"1.0.1\"")
+        buildConfigField("boolean", "UPDATER_ENABLED", "false")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -65,10 +66,12 @@ android {
     buildTypes {
         debug {
             buildConfigField("String", "DISPLAY_VERSION", "\"${getDevVersion()}\"")
+            buildConfigField("boolean", "UPDATER_ENABLED", "false")
         }
         release {
             signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
+            buildConfigField("boolean", "UPDATER_ENABLED", "true")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

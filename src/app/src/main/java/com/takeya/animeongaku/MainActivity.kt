@@ -2,6 +2,7 @@ package com.takeya.animeongaku
 
 import android.content.Intent
 import android.os.Bundle
+import androidx.activity.viewModels
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -20,6 +21,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import javax.inject.Inject
+import com.takeya.animeongaku.updater.AppUpdateViewModel
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -28,6 +30,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var libraryStatusSyncManager: LibraryStatusSyncManager
 
     val pendingNavigateTo = mutableStateOf<String?>(null)
+    private val appUpdateViewModel: AppUpdateViewModel by viewModels()
     
     private var periodicSyncJob: Job? = null
 
@@ -51,7 +54,10 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             AnimeOngakuTheme {
-                AnimeOngakuApp(pendingNavigateTo = pendingNavigateTo)
+                AnimeOngakuApp(
+                    pendingNavigateTo = pendingNavigateTo,
+                    appUpdateViewModel = appUpdateViewModel
+                )
             }
         }
     }

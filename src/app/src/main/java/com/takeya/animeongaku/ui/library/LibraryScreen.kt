@@ -27,7 +27,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
-import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Delete
@@ -83,6 +82,7 @@ import com.takeya.animeongaku.ui.theme.Ink900
 import com.takeya.animeongaku.ui.theme.Mist100
 import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.theme.Rose500
+import com.takeya.animeongaku.ui.theme.Sky500
 
 private enum class LibraryTab(val label: String) {
     Playlists("Playlists"),
@@ -94,6 +94,7 @@ private enum class LibraryTab(val label: String) {
 @Composable
 fun LibraryScreen(
     onOpenSettings: () -> Unit = {},
+    hasSettingsUpdateDot: Boolean = false,
     onOpenPlaylist: (Long) -> Unit,
     onPlayTheme: () -> Unit,
     onOpenAnime: (String) -> Unit = {},
@@ -200,6 +201,7 @@ fun LibraryScreen(
             LibraryHeader(
                 modifier = Modifier.padding(horizontal = 20.dp),
                 onOpenSettings = onOpenSettings,
+                hasUpdateAvailable = hasSettingsUpdateDot,
                 showDownloadedOnly = showDownloadedOnly,
                 onToggleDownloaded = { viewModel.toggleDownloadedOnly() },
                 hasDownloads = downloadedThemeIds.isNotEmpty()
@@ -516,6 +518,7 @@ private fun SongsCollectionHeader(
 private fun LibraryHeader(
     modifier: Modifier = Modifier,
     onOpenSettings: () -> Unit = {},
+    hasUpdateAvailable: Boolean = false,
     showDownloadedOnly: Boolean = false,
     onToggleDownloaded: () -> Unit = {},
     hasDownloads: Boolean = false
@@ -549,13 +552,26 @@ private fun LibraryHeader(
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 )
             }
-            IconButton(onClick = onOpenSettings) {
-                Icon(
-                    Icons.Rounded.Settings,
-                    contentDescription = "Settings",
-                    tint = Mist200,
-                    modifier = Modifier.size(24.dp)
-                )
+            Box {
+                IconButton(onClick = onOpenSettings) {
+                    Icon(
+                        Icons.Rounded.Settings,
+                        contentDescription = "Settings",
+                        tint = Mist200,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                if (hasUpdateAvailable) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 10.dp, end = 10.dp)
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(Sky500)
+                            .border(1.dp, Ink900, CircleShape)
+                    )
+                }
             }
         }
     }
