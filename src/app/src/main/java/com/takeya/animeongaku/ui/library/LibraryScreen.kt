@@ -25,6 +25,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -274,14 +276,32 @@ fun LibraryScreen(
                 }
 
                 LibraryTab.Songs -> {
-                    val filteredThemes = if (showDownloadedOnly) {
-                        themes.filter { it.id in downloadedThemeIds }
-                    } else themes
+                    val filteredThemes = filterLibrarySongs(
+                        allSongs = themes,
+                        downloadedThemeIds = downloadedThemeIds,
+                        showDownloadedOnly = showDownloadedOnly
+                    )
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        if (filteredThemes.isNotEmpty()) {
+                            item {
+                                SongsCollectionHeader(
+                                    title = if (showDownloadedOnly) "Downloaded songs" else "All songs",
+                                    trackCount = filteredThemes.size,
+                                    onPlayAll = {
+                                        viewModel.playAllSongs(filteredThemes, showDownloadedOnly)
+                                        onPlayTheme()
+                                    },
+                                    onShuffleAll = {
+                                        viewModel.shuffleAllSongs(filteredThemes, showDownloadedOnly)
+                                        onPlayTheme()
+                                    }
+                                )
+                            }
+                        }
                         if (filteredThemes.isEmpty()) {
                             item {
                                 EmptyState(
@@ -304,7 +324,7 @@ fun LibraryScreen(
                                     isDownloading = isDownloading,
                                     isUnavailableOffline = !isOnline && !isDownloaded,
                                     onClick = {
-                                        viewModel.playFromSongs(theme.id)
+                                        viewModel.playFromSongs(theme.id, filteredThemes, showDownloadedOnly)
                                         onPlayTheme()
                                     },
                                     onMoreOptions = { sheetTheme = theme }
@@ -428,6 +448,66 @@ fun LibraryScreen(
                     playlistToDelete = null
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun SongsCollectionHeader(
+    title: String,
+    trackCount: Int,
+    onPlayAll: () -> Unit,
+    onShuffleAll: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Ink800.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+            .border(1.dp, Mist200.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = Mist100
+            )
+            Text(
+                text = "$trackCount tracks ready to queue",
+                style = MaterialTheme.typography.labelMedium,
+                color = Mist200
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Button(
+                onClick = onPlayAll,
+                colors = ButtonDefaults.buttonColors(containerColor = Rose500),
+                shape = RoundedCornerShape(24.dp),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Play", fontWeight = FontWeight.SemiBold)
+            }
+            Button(
+                onClick = onShuffleAll,
+                colors = ButtonDefaults.buttonColors(containerColor = Mist200.copy(alpha = 0.12f)),
+                shape = RoundedCornerShape(24.dp),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    Icons.Rounded.Shuffle,
+                    contentDescription = null,
+                    tint = Mist100,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Shuffle", color = Mist100, fontWeight = FontWeight.SemiBold)
+            }
         }
     }
 }

@@ -35,6 +35,19 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+internal fun filterLibrarySongs(
+    allSongs: List<ThemeEntity>,
+    downloadedThemeIds: Set<Long>,
+    showDownloadedOnly: Boolean
+): List<ThemeEntity> = if (showDownloadedOnly) {
+    allSongs.filter { it.id in downloadedThemeIds }
+} else {
+    allSongs
+}
+
+internal fun librarySongsContextLabel(showDownloadedOnly: Boolean): String =
+    if (showDownloadedOnly) "Downloaded Songs" else "All Songs"
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
@@ -166,10 +179,44 @@ class LibraryViewModel @Inject constructor(
         }.toMap()
     }
 
-    fun playFromSongs(themeId: Long) {
-        val allSongs = themes.value
-        val idx = allSongs.indexOfFirst { it.id == themeId }.coerceAtLeast(0)
-        nowPlayingManager.play("All Songs", allSongs, idx, animeMap = buildAnimeMap())
+    fun playFromSongs(
+        themeId: Long,
+        songs: List<ThemeEntity> = themes.value,
+        showDownloadedOnly: Boolean = false
+    ) {
+        if (songs.isEmpty()) return
+        val idx = songs.indexOfFirst { it.id == themeId }.coerceAtLeast(0)
+        nowPlayingManager.play(
+            contextLabel = librarySongsContextLabel(showDownloadedOnly),
+            themes = songs,
+            startIndex = idx,
+            animeMap = buildAnimeMap()
+        )
+    }
+
+    fun playAllSongs(
+        songs: List<ThemeEntity> = themes.value,
+        showDownloadedOnly: Boolean = false
+    ) {
+        if (songs.isEmpty()) return
+        nowPlayingManager.play(
+            contextLabel = librarySongsContextLabel(showDownloadedOnly),
+            themes = songs,
+            animeMap = buildAnimeMap()
+        )
+    }
+
+    fun shuffleAllSongs(
+        songs: List<ThemeEntity> = themes.value,
+        showDownloadedOnly: Boolean = false
+    ) {
+        if (songs.isEmpty()) return
+        nowPlayingManager.play(
+            contextLabel = librarySongsContextLabel(showDownloadedOnly),
+            themes = songs,
+            shuffle = true,
+            animeMap = buildAnimeMap()
+        )
     }
 
     fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {
