@@ -1,5 +1,7 @@
 package com.takeya.animeongaku.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
@@ -19,6 +21,10 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -26,11 +32,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.BackHandler
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -44,6 +52,7 @@ import com.takeya.animeongaku.ui.library.ArtistDetailScreen
 import com.takeya.animeongaku.ui.library.LibraryScreen
 import com.takeya.animeongaku.ui.library.PlaylistDetailScreen
 import com.takeya.animeongaku.ui.player.PlayerContainer
+import com.takeya.animeongaku.ui.player.MiniPlayerHeight
 import com.takeya.animeongaku.ui.search.SearchScreen
 import com.takeya.animeongaku.ui.settings.DownloadManagerScreen
 import com.takeya.animeongaku.ui.settings.SettingsScreen
@@ -52,6 +61,9 @@ import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Mist100
 import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.theme.Rose500
+import com.takeya.animeongaku.updater.AppUpdateEvent
+import com.takeya.animeongaku.updater.AppUpdateViewModel
+import kotlinx.coroutines.flow.collect
 
 private object Routes {
     const val Home = "home"
@@ -74,13 +86,18 @@ private data class BottomNavItem(
 
 @Composable
 fun AnimeOngakuApp(
-    pendingNavigateTo: androidx.compose.runtime.MutableState<String?>? = null
+    pendingNavigateTo: androidx.compose.runtime.MutableState<String?>? = null,
+    appUpdateViewModel: AppUpdateViewModel
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
+    val context = LocalContext.current
+    val updateState by appUpdateViewModel.state.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     var isPlayerExpanded by rememberSaveable { mutableStateOf(false) }
+    var dismissedUpdateTag by rememberSaveable { mutableStateOf<String?>(null) }
 
     BackHandler(enabled = isPlayerExpanded) {
         isPlayerExpanded = false
@@ -112,6 +129,49 @@ fun AnimeOngakuApp(
     } == true
 
     var scaffoldPadding by remember { mutableStateOf(androidx.compose.foundation.layout.PaddingValues(0.dp)) }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        appUpdateViewModel.events.collect { event ->
+            when (event) {
+                is AppUpdateEvent.OpenUrl -> {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(event.url)).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                        )
+                    }.onFailure {
+                        snackbarHostState.showSnackbar("Couldn't open the update link.")
+                    }
+                }
+
+                is AppUpdateEvent.ShowMessage -> {
+                    snackbarHostState.showSnackbar(event.message)
+                }
+            }
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(updateState.availableUpdate?.versionTag) {
+        val update = updateState.availableUpdate
+        if (update == null) {
+            dismissedUpdateTag = null
+            return@LaunchedEffect
+        }
+        if (dismissedUpdateTag == update.versionTag) return@LaunchedEffect
+
+        when (
+            snackbarHostState.showSnackbar(
+                message = "Update ${update.versionName} is available.",
+                actionLabel = "Download",
+                withDismissAction = true,
+                duration = SnackbarDuration.Indefinite
+            )
+        ) {
+            SnackbarResult.ActionPerformed -> appUpdateViewModel.openAvailableUpdate()
+            SnackbarResult.Dismissed -> dismissedUpdateTag = update.versionTag
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -199,6 +259,7 @@ fun AnimeOngakuApp(
                     val tab = entry.arguments?.getString("tab")
                     LibraryScreen(
                         onOpenSettings = { navController.navigate(Routes.Settings) },
+                        hasSettingsUpdateDot = updateState.availableUpdate != null,
                         onOpenPlaylist = { playlistId ->
                             navController.navigate("${Routes.Playlist}/$playlistId")
                         },
@@ -257,7 +318,13 @@ fun AnimeOngakuApp(
                     SettingsScreen(
                         onBack = { navController.popBackStack() },
                         onOpenImport = { navController.navigate(Routes.Import) },
-                        onOpenDownloadManager = { navController.navigate(Routes.DownloadManager) }
+                        onOpenDownloadManager = { navController.navigate(Routes.DownloadManager) },
+                        updaterEnabled = updateState.enabled,
+                        isCheckingForUpdates = updateState.isChecking,
+                        availableUpdate = updateState.availableUpdate,
+                        onCheckForUpdates = { appUpdateViewModel.checkForUpdates(openWhenAvailable = true) },
+                        onDownloadUpdate = { appUpdateViewModel.openAvailableUpdate() },
+                        onOpenReleasePage = { appUpdateViewModel.openReleasePage() }
                     )
                 }
                 composable(Routes.DownloadManager) {
@@ -268,6 +335,17 @@ fun AnimeOngakuApp(
             }
             }
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(
+                    start = 16.dp,
+                    end = 16.dp,
+                    bottom = scaffoldPadding.calculateBottomPadding() + MiniPlayerHeight + 24.dp
+                )
+        )
 
         PlayerContainer(
             isExpanded = isPlayerExpanded,

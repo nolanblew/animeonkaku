@@ -2,6 +2,7 @@ package com.takeya.animeongaku.ui.settings
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,7 +22,6 @@ import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Wifi
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -33,7 +33,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -47,12 +46,19 @@ import com.takeya.animeongaku.ui.theme.Ink900
 import com.takeya.animeongaku.ui.theme.Mist100
 import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.theme.Rose500
+import com.takeya.animeongaku.updater.AvailableAppUpdate
 
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit = {},
     onOpenImport: () -> Unit = {},
     onOpenDownloadManager: () -> Unit = {},
+    updaterEnabled: Boolean = false,
+    isCheckingForUpdates: Boolean = false,
+    availableUpdate: AvailableAppUpdate? = null,
+    onCheckForUpdates: () -> Unit = {},
+    onDownloadUpdate: () -> Unit = {},
+    onOpenReleasePage: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val wifiOnly by viewModel.wifiOnly.collectAsStateWithLifecycle()
@@ -121,6 +127,45 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            // --- Updates Section ---
+            SectionHeader("Updates")
+            if (updaterEnabled) {
+                SettingsRow(
+                    icon = Icons.Rounded.CloudSync,
+                    title = if (isCheckingForUpdates) "Checking for updates..." else "Check for Update",
+                    subtitle = availableUpdate?.let { "Version ${it.versionName} is available" }
+                        ?: "Check GitHub Releases for a newer build",
+                    onClick = onCheckForUpdates,
+                    enabled = !isCheckingForUpdates
+                )
+                if (availableUpdate != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    SettingsRow(
+                        icon = Icons.Rounded.Download,
+                        title = "Download ${availableUpdate.versionName}",
+                        subtitle = "Open the latest APK release",
+                        onClick = onDownloadUpdate
+                    )
+                }
+            } else {
+                SettingsRow(
+                    icon = Icons.Rounded.CloudSync,
+                    title = "App Updates",
+                    subtitle = "Automatic update checks are only enabled in release builds",
+                    onClick = {},
+                    enabled = false
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            SettingsRow(
+                icon = Icons.Rounded.Info,
+                title = "GitHub Releases",
+                subtitle = "View release notes and published builds",
+                onClick = onOpenReleasePage
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             // --- About Section ---
             SectionHeader("About")
             Column(
@@ -176,43 +221,52 @@ private fun SettingsRow(
     icon: ImageVector,
     title: String,
     subtitle: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    enabled: Boolean = true
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(Ink800)
-            .clickable(onClick = onClick)
+            .then(
+                if (enabled) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    Modifier
+                }
+            )
             .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Icon(
             icon,
             contentDescription = null,
-            tint = Mist100,
+            tint = if (enabled) Mist100 else Mist200.copy(alpha = 0.7f),
             modifier = Modifier.size(22.dp)
         )
-        Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 title,
                 style = MaterialTheme.typography.bodyLarge,
-                color = Mist100,
+                color = if (enabled) Mist100 else Mist200,
                 fontWeight = FontWeight.Medium
             )
             Text(
                 subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = Mist200
+                color = Mist200.copy(alpha = if (enabled) 1f else 0.75f)
             )
         }
-        Icon(
-            Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-            contentDescription = null,
-            tint = Mist200,
-            modifier = Modifier.size(20.dp)
-        )
+        if (enabled) {
+            Icon(
+                Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                contentDescription = null,
+                tint = Mist200,
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }
 
