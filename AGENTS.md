@@ -43,6 +43,19 @@ Compose UI → ViewModel (StateFlow) → Repository → Room DB / Retrofit APIs
 - `MediaControllerManager` — bridges `NowPlayingManager` ↔ `MediaController` (ExoPlayer); syncs track changes bidirectionally
 - `MediaPlaybackService` — foreground service providing the `MediaSession` and ExoPlayer instance
 
+### Queue Contract
+
+The queue system is intentionally more strict than a typical playlist queue. Treat these rules as invariants and update `NowPlayingManagerTest` whenever queue behavior changes:
+
+- Queue entries must have their own identity. Never treat `ThemeEntity.id` as the queue item identity when syncing UI, playback, history, or persistence.
+- `Play Next` and `Add to Queue` on an empty queue must bootstrap playback with the inserted song(s); they are not no-ops.
+- `Add to Queue` always appends to the end of the queue. This applies to single songs and multi-song inserts.
+- `Play Next` always inserts immediately after the current song. Multi-song inserts must preserve the input order within the inserted block, even while shuffle is enabled.
+- Repeated `Play Next` calls still stack newest-first at the insertion point, but a single multi-song insert must stay in-order.
+- Adding a song that already exists in the queue or history must create a distinct queue copy. The original queue entry must remain intact except for normal index shifts caused by insertions.
+- Shuffle, unshuffle, history, Up Next, and Media3 sync must all operate on queue-entry identity so duplicate songs do not overwrite, disappear, or steal each other’s playback position.
+- If queue behavior changes, cover both single-song and multi-song cases, plus duplicate-song cases where the original is already played and where it is still upcoming.
+
 **Sync pipeline:**
 1. `SyncManager` fetches anime list from Kitsu API in 50-item batches
 2. Maps Kitsu anime IDs → AnimeThemes.moe slugs to resolve audio/video URLs

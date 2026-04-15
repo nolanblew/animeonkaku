@@ -122,15 +122,20 @@ fun PlayerScreen(
     var showPlayerSheet by remember { mutableStateOf(false) }
 
     // Held here (not inside UpNextSheet) so the scroll position survives close/reopen.
-    // Initialized to history.size so the list opens at the current track without animation.
+    // Initialized so the current row opens pinned at the top without animation.
     val upNextListState = rememberLazyListState(
-        initialFirstVisibleItemIndex = npState.history.size.coerceAtLeast(0)
+        initialFirstVisibleItemIndex = upNextCurrentRowListIndex(npState.history.size)
     )
     // When the sheet is closed and history grows (new song plays), silently update position
     // so the next open immediately shows the current track.
     LaunchedEffect(npState.history.size) {
         if (!showUpNext) {
-            upNextListState.scrollToItem(npState.history.size.coerceAtLeast(0))
+            upNextListState.scrollToItem(upNextCurrentRowListIndex(npState.history.size))
+        }
+    }
+    LaunchedEffect(showUpNext) {
+        if (showUpNext) {
+            upNextListState.scrollToItem(upNextCurrentRowListIndex(npState.history.size))
         }
     }
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
@@ -206,10 +211,11 @@ fun PlayerScreen(
     val expandedArtist = currentTheme?.artistName ?: animeEntity?.title ?: "Choose a track from your library"
     val eyebrowAnimeName = animeEntity?.title?.takeIf { it.isNotBlank() }
     val eyebrowThemeTag = formatThemeTag(currentTheme?.themeType)
-    val upNextTheme = npState.upcomingTracks.firstOrNull { theme ->
-        val queueIdx = npState.nowPlaying.indexOf(theme)
-        !dislikedThemeIds.contains(theme.id) || npState.unskippedIndices.contains(queueIdx)
+    val upNextEntry = npState.upcomingEntries.firstOrNull { entry ->
+        val queueIdx = npState.indexOfQueueId(entry.queueId)
+        !dislikedThemeIds.contains(entry.theme.id) || npState.unskippedIndices.contains(queueIdx)
     }
+    val upNextTheme = upNextEntry?.theme
     val upNextAnime = upNextTheme?.animeId?.let { npState.animeMap[it] }
     val upNextArtworkUrls = upNextAnime?.primaryArtworkUrls() ?: emptyList()
     val upNextAnimeName = upNextAnime?.title?.takeIf { it.isNotBlank() } ?: "Nothing queued"

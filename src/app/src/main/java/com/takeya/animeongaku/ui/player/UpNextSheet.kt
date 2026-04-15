@@ -64,6 +64,7 @@ import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.media.NowPlayingManager
+import com.takeya.animeongaku.media.QueueEntry
 import com.takeya.animeongaku.media.NowPlayingState
 import com.takeya.animeongaku.ui.common.MarqueeText
 import com.takeya.animeongaku.ui.common.ActionSheet
@@ -78,6 +79,9 @@ import com.takeya.animeongaku.ui.theme.Ink900
 import com.takeya.animeongaku.ui.theme.Mist100
 import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.theme.Rose500
+
+internal fun upNextCurrentRowListIndex(historyCount: Int): Int =
+    if (historyCount > 0) historyCount + 2 else 0
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -135,12 +139,12 @@ fun UpNextSheet(
     }
 }
 
-private fun historyKey(index: Int, themeId: Long): String = "history-$index-$themeId"
+private fun historyKey(queueId: Long): String = "history-$queueId"
 
-private fun queueKey(queueIdx: Int): String = "queue-$queueIdx"
+private fun queueKey(queueId: Long): String = "queue-$queueId"
 
-private fun queueIndexFromKey(key: Any): Int? =
-    (key as? String)?.removePrefix("queue-")?.toIntOrNull()
+private fun queueIdFromKey(key: Any): Long? =
+    (key as? String)?.removePrefix("queue-")?.toLongOrNull()
 
 @Composable
 private fun UpNextContent(
@@ -153,17 +157,19 @@ private fun UpNextContent(
     viewModel: PlayerViewModel,
     modifier: Modifier = Modifier
 ) {
-    val history = npState.history
-    val currentTheme = npState.currentTheme
-    val upcoming = npState.upcomingTracks
+    val history = npState.historyEntries
+    val currentEntry = npState.currentEntry
+    val upcoming = npState.upcomingEntries
 
     // Track whether this is the first render. On first render we skip the scroll animation
     // because PlayerScreen pre-positions the list — animating would cause a visible jump.
     var isFirstRender by remember { mutableStateOf(true) }
 
     val dragDropState = rememberDragDropState(listState) { fromKey, toKey ->
-        val fromQueueIdx = queueIndexFromKey(fromKey)
-        val toQueueIdx = queueIndexFromKey(toKey)
+        val fromQueueId = queueIdFromKey(fromKey)
+        val toQueueId = queueIdFromKey(toKey)
+        val fromQueueIdx = fromQueueId?.let(npState::indexOfQueueId)
+        val toQueueIdx = toQueueId?.let(npState::indexOfQueueId)
         
         // Only allow moving items that are in the upcoming tracks section
         if (fromQueueIdx != null && toQueueIdx != null && fromQueueIdx > npState.currentIndex && toQueueIdx > npState.currentIndex) {
@@ -188,8 +194,8 @@ private fun UpNextContent(
         }
     }
 
-    val suggestedSet = remember(npState.suggestedItems) { npState.suggestedItems.toSet() }
-    val firstSuggestedIdx = remember(upcoming, suggestedSet) { upcoming.indexOfFirst { it in suggestedSet } }
+    val suggestedSet = remember(npState.suggestedEntryIds) { npState.suggestedEntryIds.toSet() }
+    val firstSuggestedIdx = remember(upcoming, suggestedSet) { upcoming.indexOfFirst { it.queueId in suggestedSet } }
     val upNextCount = remember(firstSuggestedIdx, upcoming) { if (firstSuggestedIdx == -1) upcoming.size else firstSuggestedIdx }
 
     LaunchedEffect(history.size) {
@@ -200,7 +206,7 @@ private fun UpNextContent(
             return@LaunchedEffect
         }
         if (history.isNotEmpty() && dragDropState.draggingItemKey == null) {
-            listState.animateScrollToItem(history.size)
+            listState.animateScrollToItem(upNextCurrentRowListIndex(history.size))
         }
     }
 
@@ -245,8 +251,10 @@ private fun UpNextContent(
 
         Spacer(modifier = Modifier.height(8.dp))
         
-        var selectedActionTheme by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Pair<Int, ThemeEntity>?>(null) }
-        selectedActionTheme?.let { (npIdx, t) ->
+        var selectedActionEntry by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<QueueEntry?>(null) }
+        selectedActionEntry?.let { entry ->
+            val npIdx = npState.indexOfQueueId(entry.queueId)
+            val t = entry.theme
             val isDisliked = t.id in dislikedThemeIds
             ActionSheet(
                 config = ActionSheetConfig(
@@ -254,16 +262,16 @@ private fun UpNextContent(
                     subtitle = npState.animeMap[t.animeId]?.title ?: "Unknown Anime",
                     imageUrl = npState.animeMap[t.animeId]?.primaryArtworkUrl(),
                     isSkippedContext = isDisliked,
-                    showPlayNext = npIdx != npState.currentIndex,
+                    showPlayNext = npIdx >= 0 && npIdx != npState.currentIndex,
                     showAddToQueue = false, showReplaceQueue = false, showSaveToPlaylist = false,
-                    showRemoveFromQueue = npIdx != npState.currentIndex,
+                    showRemoveFromQueue = npIdx >= 0 && npIdx != npState.currentIndex,
                     showRemoveDislike = isDisliked,
                     showUnskip = isDisliked
                 ),
-                onDismiss = { selectedActionTheme = null },
-                onPlayNext = { nowPlayingManager.moveToPlayNext(npIdx) },
-                onRemoveFromQueue = { nowPlayingManager.removeFromQueue(npIdx) },
-                onUnskip = { nowPlayingManager.unskip(npIdx) },
+                onDismiss = { selectedActionEntry = null },
+                onPlayNext = { if (npIdx >= 0) nowPlayingManager.moveToPlayNext(npIdx) },
+                onRemoveFromQueue = { if (npIdx >= 0) nowPlayingManager.removeFromQueue(npIdx) },
+                onUnskip = { if (npIdx >= 0) nowPlayingManager.unskip(npIdx) },
                 onRemoveDislike = { viewModel.toggleDislike(t.id) }
             )
         }
@@ -286,13 +294,13 @@ private fun UpNextContent(
                 }
                 itemsIndexed(
                     items = history,
-                    key = { index, theme -> historyKey(index, theme.id) }
-                ) { index, theme ->
-                    val queueIdx = index
+                    key = { _, entry -> historyKey(entry.queueId) }
+                ) { index, entry ->
+                    val theme = entry.theme
                     val anime = theme.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline && theme.id !in downloadedThemeIds
                     val isDisliked = theme.id in dislikedThemeIds
-                    val key = historyKey(index, theme.id)
+                    val key = historyKey(entry.queueId)
                     val isDragging = dragDropState.draggingItemKey == key
                     QueueTrackRow(
                         theme = theme,
@@ -302,7 +310,7 @@ private fun UpNextContent(
                         isUnavailable = isUnavailable,
                         isDisliked = isDisliked,
                         onClick = { if (!isUnavailable) nowPlayingManager.rewindTo(index) },
-                        onLongClick = { selectedActionTheme = queueIdx to theme },
+                        onLongClick = { selectedActionEntry = entry },
                         modifier = Modifier
                             .then(if (isDragging) Modifier else Modifier.animateItem())
                             .dragDropItem(dragDropState, key)
@@ -316,9 +324,10 @@ private fun UpNextContent(
                 }
             }
 
-            if (currentTheme != null) {
-                item(key = queueKey(npState.currentIndex)) {
-                    val key = queueKey(npState.currentIndex)
+            if (currentEntry != null) {
+                item(key = queueKey(currentEntry.queueId)) {
+                    val currentTheme = currentEntry.theme
+                    val key = queueKey(currentEntry.queueId)
                     val anime = currentTheme.animeId?.let { npState.animeMap[it] }
                     QueueTrackRow(
                         theme = currentTheme,
@@ -327,7 +336,7 @@ private fun UpNextContent(
                         isCurrent = true,
                         isDisliked = currentTheme.id in dislikedThemeIds,
                         onClick = { },
-                        onLongClick = { selectedActionTheme = npState.currentIndex to currentTheme },
+                        onLongClick = { selectedActionEntry = currentEntry },
                         modifier = Modifier.dragDropItem(dragDropState, key)
                     )
                 }
@@ -346,14 +355,15 @@ private fun UpNextContent(
                 }
                 items(
                     count = upNextCount,
-                    key = { idx -> queueKey(npState.currentIndex + 1 + idx) }
+                    key = { idx -> queueKey(upcoming[idx].queueId) }
                 ) { idx ->
-                    val theme = upcoming[idx]
-                    val queueIdx = npState.currentIndex + 1 + idx
+                    val entry = upcoming[idx]
+                    val theme = entry.theme
+                    val queueIdx = npState.indexOfQueueId(entry.queueId)
                     val anime = theme.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline && theme.id !in downloadedThemeIds
                     val isDisliked = theme.id in dislikedThemeIds
-                    val key = queueKey(queueIdx)
+                    val key = queueKey(entry.queueId)
                     val isDragging = dragDropState.draggingItemKey == key
                     QueueTrackRow(
                         theme = theme,
@@ -363,8 +373,8 @@ private fun UpNextContent(
                         isSuggested = false,
                         isUnavailable = isUnavailable,
                         isDisliked = isDisliked,
-                        onClick = { if (!isUnavailable) nowPlayingManager.skipTo(queueIdx) },
-                        onLongClick = { selectedActionTheme = queueIdx to theme },
+                        onClick = { if (!isUnavailable && queueIdx >= 0) nowPlayingManager.skipTo(queueIdx) },
+                        onLongClick = { selectedActionEntry = entry },
                         modifier = Modifier
                             .then(if (isDragging) Modifier else Modifier.animateItem())
                             .dragDropItem(dragDropState, key),
@@ -385,26 +395,27 @@ private fun UpNextContent(
                 val autoplayCount = upcoming.size - firstSuggestedIdx
                 items(
                     count = autoplayCount,
-                    key = { offset -> queueKey(npState.currentIndex + 1 + firstSuggestedIdx + offset) }
+                    key = { offset -> queueKey(upcoming[firstSuggestedIdx + offset].queueId) }
                 ) { offset ->
                     val idx = firstSuggestedIdx + offset
-                    val theme = upcoming[idx]
-                    val queueIdx = npState.currentIndex + 1 + idx
+                    val entry = upcoming[idx]
+                    val theme = entry.theme
+                    val queueIdx = npState.indexOfQueueId(entry.queueId)
                     val anime = theme.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline && theme.id !in downloadedThemeIds
                     val isDisliked = theme.id in dislikedThemeIds
-                    val key = queueKey(queueIdx)
+                    val key = queueKey(entry.queueId)
                     val isDragging = dragDropState.draggingItemKey == key
                     QueueTrackRow(
                         theme = theme,
                         anime = anime,
                         isHistory = false,
                         isCurrent = false,
-                        isSuggested = theme in suggestedSet,
+                        isSuggested = entry.queueId in suggestedSet,
                         isUnavailable = isUnavailable,
                         isDisliked = isDisliked,
-                        onClick = { if (!isUnavailable) nowPlayingManager.skipTo(queueIdx) },
-                        onLongClick = { selectedActionTheme = queueIdx to theme },
+                        onClick = { if (!isUnavailable && queueIdx >= 0) nowPlayingManager.skipTo(queueIdx) },
+                        onLongClick = { selectedActionEntry = entry },
                         modifier = Modifier
                             .then(if (isDragging) Modifier else Modifier.animateItem())
                             .dragDropItem(dragDropState, key),

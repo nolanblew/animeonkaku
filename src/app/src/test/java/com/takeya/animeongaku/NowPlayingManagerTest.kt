@@ -134,9 +134,21 @@ class NowPlayingManagerTest {
     }
 
     @Test
-    fun `playNext does nothing when queue is empty`() {
+    fun `playNext with empty queue starts queue with single song`() {
         manager.playNext(theme(1))
-        assertFalse(manager.isActive)
+        val state = manager.state.value
+        assertTrue(manager.isActive)
+        assertEquals(listOf(1L), state.nowPlaying.map { it.id })
+        assertEquals(1L, state.currentTheme?.id)
+        assertTrue(state.isFullReload)
+    }
+
+    @Test
+    fun `playNext with empty queue starts queue with multiple songs in order`() {
+        manager.playNext(listOf(theme(1), theme(2), theme(3)))
+        val state = manager.state.value
+        assertEquals(listOf(1L, 2L, 3L), state.nowPlaying.map { it.id })
+        assertEquals(1L, state.currentTheme?.id)
     }
 
     @Test
@@ -175,6 +187,24 @@ class NowPlayingManagerTest {
         assertEquals(versionBefore + 1, state.queueVersion)
     }
 
+    @Test
+    fun `playNext inserts multiple songs in order immediately after current`() {
+        manager.play("ctx", listOf(theme(1), theme(2), theme(3), theme(4)))
+        manager.playNext(listOf(theme(10), theme(11), theme(12)))
+        val ids = manager.state.value.nowPlaying.map { it.id }
+        assertEquals(listOf(1L, 10L, 11L, 12L, 2L, 3L, 4L), ids)
+    }
+
+    @Test
+    fun `playNext preserves insertion order even when queue is shuffled`() {
+        manager.play("ctx", listOf(theme(1), theme(2), theme(3), theme(4), theme(5)), shuffle = true)
+        val currentId = manager.state.value.currentTheme?.id
+        manager.playNext(listOf(theme(10), theme(11), theme(12)))
+        val state = manager.state.value
+        assertEquals(currentId, state.currentTheme?.id)
+        assertEquals(listOf(10L, 11L, 12L), state.nowPlaying.drop(1).take(3).map { it.id })
+    }
+
     // ─── addToQueue() ─────────────────────────────────────────────────────────
 
     @Test
@@ -186,9 +216,21 @@ class NowPlayingManagerTest {
     }
 
     @Test
-    fun `addToQueue does nothing when queue is empty`() {
+    fun `addToQueue with empty queue starts queue with single song`() {
         manager.addToQueue(theme(1))
-        assertFalse(manager.isActive)
+        val state = manager.state.value
+        assertTrue(manager.isActive)
+        assertEquals(listOf(1L), state.nowPlaying.map { it.id })
+        assertEquals(1L, state.currentTheme?.id)
+        assertTrue(state.isFullReload)
+    }
+
+    @Test
+    fun `addToQueue with empty queue starts queue with multiple songs in order`() {
+        manager.addToQueue(listOf(theme(1), theme(2), theme(3)))
+        val state = manager.state.value
+        assertEquals(listOf(1L, 2L, 3L), state.nowPlaying.map { it.id })
+        assertEquals(1L, state.currentTheme?.id)
     }
 
     @Test
@@ -215,6 +257,116 @@ class NowPlayingManagerTest {
         val map = manager.state.value.animeMap
         assertEquals(a1, map[1L])
         assertEquals(a2, map[2L])
+    }
+
+    @Test
+    fun `addToQueue appends multiple songs in order`() {
+        manager.play("ctx", listOf(theme(1), theme(2)))
+        manager.addToQueue(listOf(theme(10), theme(11), theme(12)))
+        val ids = manager.state.value.nowPlaying.map { it.id }
+        assertEquals(listOf(1L, 2L, 10L, 11L, 12L), ids)
+    }
+
+    @Test
+    fun `adding played song to queue appends distinct copy`() {
+        manager.play("ctx", listOf(theme(1), theme(2), theme(3)))
+        manager.skipTo(1)
+
+        val originalEntryId = manager.state.value.nowPlayingEntries.first().queueId
+        manager.addToQueue(theme(1))
+
+        val state = manager.state.value
+        val copyEntryId = state.nowPlayingEntries.last().queueId
+
+        assertEquals(listOf(1L, 2L, 3L, 1L), state.nowPlaying.map { it.id })
+        assertEquals(originalEntryId, state.historyEntries.single().queueId)
+        assertTrue(copyEntryId != originalEntryId)
+        assertEquals(1L, state.nowPlayingEntries.first().theme.id)
+    }
+
+    @Test
+    fun `adding played song to play next inserts distinct copy after current`() {
+        manager.play("ctx", listOf(theme(1), theme(2), theme(3)))
+        manager.skipTo(1)
+
+        val originalEntryId = manager.state.value.nowPlayingEntries.first().queueId
+        manager.playNext(theme(1))
+
+        val state = manager.state.value
+        val copyEntry = state.nowPlayingEntries[2]
+
+        assertEquals(listOf(1L, 2L, 1L, 3L), state.nowPlaying.map { it.id })
+        assertEquals(originalEntryId, state.historyEntries.single().queueId)
+        assertTrue(copyEntry.queueId != originalEntryId)
+        assertEquals(1L, copyEntry.theme.id)
+    }
+
+    @Test
+    fun `adding played and new songs to queue appends copies without mutating original entry`() {
+        manager.play("ctx", listOf(theme(1), theme(2), theme(3)))
+        manager.skipTo(1)
+
+        val originalEntryId = manager.state.value.nowPlayingEntries.first().queueId
+        manager.addToQueue(listOf(theme(1), theme(99)))
+
+        val state = manager.state.value
+        assertEquals(listOf(1L, 2L, 3L, 1L, 99L), state.nowPlaying.map { it.id })
+        assertEquals(originalEntryId, state.historyEntries.single().queueId)
+        assertTrue(state.nowPlayingEntries[3].queueId != originalEntryId)
+    }
+
+    @Test
+    fun `adding upcoming song to queue appends copy without changing original upcoming item`() {
+        manager.play("ctx", listOf(theme(9), theme(8), theme(1), theme(7)))
+
+        val originalEntryId = manager.state.value.nowPlayingEntries[2].queueId
+        manager.addToQueue(theme(1))
+
+        val state = manager.state.value
+        assertEquals(listOf(9L, 8L, 1L, 7L, 1L), state.nowPlaying.map { it.id })
+        assertEquals(originalEntryId, state.nowPlayingEntries[2].queueId)
+        assertTrue(state.nowPlayingEntries.last().queueId != originalEntryId)
+    }
+
+    @Test
+    fun `adding upcoming song to play next inserts copy and keeps original upcoming item`() {
+        manager.play("ctx", listOf(theme(9), theme(8), theme(1), theme(7)))
+
+        val originalEntryId = manager.state.value.nowPlayingEntries[2].queueId
+        manager.playNext(theme(1))
+
+        val state = manager.state.value
+        assertEquals(listOf(9L, 1L, 8L, 1L, 7L), state.nowPlaying.map { it.id })
+        assertEquals(originalEntryId, state.nowPlayingEntries[3].queueId)
+        assertTrue(state.nowPlayingEntries[1].queueId != originalEntryId)
+    }
+
+    @Test
+    fun `adding upcoming and new songs to play next inserts copy and preserves original order after bump`() {
+        manager.play("ctx", listOf(theme(9), theme(8), theme(1), theme(7)))
+
+        val originalEntryId = manager.state.value.nowPlayingEntries[2].queueId
+        manager.playNext(listOf(theme(1), theme(99)))
+
+        val state = manager.state.value
+        assertEquals(listOf(9L, 1L, 99L, 8L, 1L, 7L), state.nowPlaying.map { it.id })
+        assertEquals(originalEntryId, state.nowPlayingEntries[4].queueId)
+        assertTrue(state.nowPlayingEntries[1].queueId != originalEntryId)
+    }
+
+    @Test
+    fun `unshuffle keeps added copy of original song`() {
+        manager.play("ctx", listOf(theme(1), theme(2), theme(3), theme(4)))
+        manager.addToQueue(theme(2))
+
+        val originalEntryId = manager.state.value.nowPlayingEntries[1].queueId
+        manager.toggleShuffle()
+        manager.toggleShuffle()
+
+        val state = manager.state.value
+        assertEquals(listOf(1L, 2L, 3L, 4L, 2L), state.nowPlaying.map { it.id })
+        assertEquals(originalEntryId, state.nowPlayingEntries[1].queueId)
+        assertTrue(state.nowPlayingEntries.last().queueId != originalEntryId)
     }
 
     // ─── onTrackChangedByThemeId() ──────────────────────────────────────────────────
@@ -254,6 +406,21 @@ class NowPlayingManagerTest {
         val versionAfterPlay = manager.state.value.queueVersion
         manager.onTrackChangedByThemeId(2L)
         assertEquals(versionAfterPlay, manager.state.value.queueVersion)
+    }
+
+    @Test
+    fun `onTrackChangedByQueueId targets the correct duplicate queue entry`() {
+        manager.play("ctx", listOf(theme(1), theme(2)))
+        manager.addToQueue(theme(1))
+        manager.skipTo(1)
+
+        val duplicateEntryId = manager.state.value.nowPlayingEntries.last().queueId
+        manager.onTrackChangedByQueueId(duplicateEntryId)
+
+        val state = manager.state.value
+        assertEquals(2, state.currentIndex)
+        assertEquals(duplicateEntryId, state.currentEntry?.queueId)
+        assertEquals(listOf(1L, 2L), state.history.map { it.id })
     }
 
     // ─── skipTo() ─────────────────────────────────────────────────────────────
@@ -359,6 +526,16 @@ class NowPlayingManagerTest {
         val state = manager.state.value
         // 99 should still be right after current (index 1)
         assertEquals(99L, state.nowPlaying[1].id)
+    }
+
+    @Test
+    fun `moveToPlayNext marks moved item as play next so shuffle preserves it`() {
+        manager.play("ctx", listOf(theme(1), theme(2), theme(3), theme(4)))
+        manager.moveToPlayNext(3)
+        manager.toggleShuffle()
+
+        val state = manager.state.value
+        assertEquals(4L, state.nowPlaying[1].id)
     }
 
     @Test
