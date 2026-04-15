@@ -41,7 +41,7 @@ class NowPlayingManagerTest {
         manager = NowPlayingManager()
     }
 
-    // ─── play() ───────────────────────────────────────────────────────────────
+    // â”€â”€â”€ play() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @Test
     fun `play with empty list does nothing`() {
@@ -123,7 +123,7 @@ class NowPlayingManagerTest {
         assertEquals(2L, manager.currentTheme?.id)
     }
 
-    // ─── playNext() ───────────────────────────────────────────────────────────
+    // â”€â”€â”€ playNext() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @Test
     fun `playNext inserts song immediately after current`() {
@@ -205,7 +205,7 @@ class NowPlayingManagerTest {
         assertEquals(listOf(10L, 11L, 12L), state.nowPlaying.drop(1).take(3).map { it.id })
     }
 
-    // ─── addToQueue() ─────────────────────────────────────────────────────────
+    // â”€â”€â”€ addToQueue() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @Test
     fun `addToQueue appends song to end of queue`() {
@@ -369,7 +369,41 @@ class NowPlayingManagerTest {
         assertTrue(state.nowPlayingEntries.last().queueId != originalEntryId)
     }
 
-    // ─── onTrackChangedByThemeId() ──────────────────────────────────────────────────
+    @Test
+    fun `unshuffle from added song outside original context keeps original queue after current`() {
+        manager.play("ctx", listOf(theme(1), theme(2), theme(3), theme(4)))
+        manager.addToQueue(theme(99))
+        manager.toggleShuffle()
+
+        val addedIndex = manager.state.value.nowPlayingEntries.indexOfFirst { it.theme.id == 99L }
+        manager.skipTo(addedIndex)
+        manager.toggleShuffle()
+
+        val state = manager.state.value
+        assertEquals(listOf(99L, 1L, 2L, 3L, 4L), state.nowPlaying.map { it.id })
+    }
+
+    @Test
+    fun `unshuffle from added copy of original song does not duplicate original slot`() {
+        manager.play("ctx", listOf(theme(1), theme(2), theme(3), theme(4)))
+        manager.addToQueue(theme(2))
+
+        val originalEntryId = manager.state.value.nowPlayingEntries.first { it.theme.id == 2L }.queueId
+        val copyEntryId = manager.state.value.nowPlayingEntries.last { it.theme.id == 2L }.queueId
+        manager.toggleShuffle()
+
+        val copyIndex = manager.state.value.nowPlayingEntries.indexOfFirst { it.queueId == copyEntryId }
+
+        manager.skipTo(copyIndex)
+        manager.toggleShuffle()
+
+        val state = manager.state.value
+        assertEquals(listOf(2L, 3L, 4L), state.nowPlaying.map { it.id })
+        assertEquals(copyEntryId, state.currentEntry?.queueId)
+        assertTrue(state.currentEntry?.queueId != originalEntryId)
+    }
+
+    // â”€â”€â”€ onTrackChangedByThemeId() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @Test
     fun `onTrackChanged updates currentIndex`() {
@@ -423,7 +457,7 @@ class NowPlayingManagerTest {
         assertEquals(listOf(1L, 2L), state.history.map { it.id })
     }
 
-    // ─── skipTo() ─────────────────────────────────────────────────────────────
+    // â”€â”€â”€ skipTo() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @Test
     fun `skipTo moves currentIndex and marks isFullReload`() {
@@ -457,7 +491,7 @@ class NowPlayingManagerTest {
         assertEquals(v + 1, manager.state.value.queueVersion)
     }
 
-    // ─── rewindTo() ───────────────────────────────────────────────────────────
+    // â”€â”€â”€ rewindTo() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @Test
     fun `rewindTo restores track from history to front of queue`() {
@@ -494,7 +528,7 @@ class NowPlayingManagerTest {
         assertTrue(ids.contains(3L))
     }
 
-    // ─── toggleShuffle() / setShuffled() ──────────────────────────────────────
+    // â”€â”€â”€ toggleShuffle() / setShuffled() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @Test
     fun `toggleShuffle shuffles upcoming tracks and sets isShuffled`() {
@@ -554,7 +588,7 @@ class NowPlayingManagerTest {
         assertFalse(manager.state.value.isFullReload)
     }
 
-    // ─── upcomingTracks ───────────────────────────────────────────────────────
+    // â”€â”€â”€ upcomingTracks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @Test
     fun `upcomingTracks returns tracks after currentIndex`() {
@@ -568,7 +602,7 @@ class NowPlayingManagerTest {
         assertTrue(manager.state.value.upcomingTracks.isEmpty())
     }
 
-    // ─── isActive / currentTheme ──────────────────────────────────────────────
+    // â”€â”€â”€ isActive / currentTheme â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @Test
     fun `isActive is false before any play call`() {

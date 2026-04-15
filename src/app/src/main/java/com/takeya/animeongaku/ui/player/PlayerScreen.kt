@@ -121,8 +121,8 @@ fun PlayerScreen(
     var showUpNext by remember { mutableStateOf(false) }
     var showPlayerSheet by remember { mutableStateOf(false) }
 
-    // Held here (not inside UpNextSheet) so the scroll position survives close/reopen.
-    // Initialized so the current row opens pinned at the top without animation.
+    // Held here (not inside UpNextSheet) so reopening can immediately jump the current row back to
+    // the top without showing a scroll animation.
     val upNextListState = rememberLazyListState(
         initialFirstVisibleItemIndex = upNextCurrentRowListIndex(npState.history.size)
     )
@@ -412,7 +412,7 @@ fun PlayerScreen(
                         }
                         if (eyebrowAnimeName != null && eyebrowThemeTag != null) {
                             Text(
-                                text = "  ·  ",
+                                text = "  Â·  ",
                                 style = MaterialTheme.typography.labelLarge,
                                 color = Mist200
                             )
@@ -485,7 +485,7 @@ fun PlayerScreen(
             }
         }
 
-        // Next/skip button — direct child of MotionLayout so it animates independently
+        // Next/skip button â€” direct child of MotionLayout so it animates independently
         // of the playbackControls Row (which has alpha: 0 in mini player state).
         Box(
             modifier = Modifier
@@ -546,7 +546,7 @@ fun PlayerScreen(
                 Icon(Icons.Rounded.SkipPrevious, "Previous", tint = Mist100, modifier = Modifier.size(34.dp))
             }
             Box(modifier = Modifier.size(72.dp))
-            Box(modifier = Modifier.size(52.dp)) // Next button spacer — actual button is a direct MotionLayout child
+            Box(modifier = Modifier.size(52.dp)) // Next button spacer â€” actual button is a direct MotionLayout child
             IconButton(onClick = { controllerManager.toggleRepeatMode() }, modifier = Modifier.size(52.dp)) {
                 Icon(
                     if (pbState.repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
@@ -626,7 +626,7 @@ fun PlayerScreen(
                     )
                     if (upNextThemeTag != null) {
                         Text(
-                            text = "  ·  ",
+                            text = "  Â·  ",
                             style = MaterialTheme.typography.titleMedium,
                             color = Mist200
                         )

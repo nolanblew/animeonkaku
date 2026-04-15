@@ -507,16 +507,21 @@ class NowPlayingManager @Inject constructor() {
     private fun unshuffle(current: NowPlayingState) {
         val currentEntry = current.currentEntry ?: return
 
-        // Find where the current track is in the original queue
-        val originalIdx = current.originalQueueEntries.indexOfFirst { it.queueId == currentEntry.queueId }
-            .takeIf { it >= 0 }
-            ?: current.originalQueueEntries.indexOfFirst { it.theme.id == currentEntry.theme.id }.takeIf { it >= 0 }
+        // Prefer the exact queue entry; if the current item is a copy of an original song, fall back
+        // to that original slot so we can restore the remaining original context without duplicating it.
+        val originalQueueEntry = current.originalQueueEntries.firstOrNull { it.queueId == currentEntry.queueId }
+        val fallbackOriginalEntry = current.originalQueueEntries.firstOrNull { it.theme.id == currentEntry.theme.id }
 
-        // Only restore songs from current onward in original order (no wrapping)
-        val restored = if (originalIdx != null) {
+        // Only restore songs from current onward in original order. If the current song was added to
+        // the queue and was never part of the original context, keep the full original queue behind it.
+        val restored = if (originalQueueEntry != null) {
+            val originalIdx = current.originalQueueEntries.indexOf(originalQueueEntry)
+            current.originalQueueEntries.subList(originalIdx, current.originalQueueEntries.size)
+        } else if (fallbackOriginalEntry != null) {
+            val originalIdx = current.originalQueueEntries.indexOf(fallbackOriginalEntry)
             current.originalQueueEntries.subList(originalIdx, current.originalQueueEntries.size)
         } else {
-            emptyList()
+            current.originalQueueEntries
         }
 
         // Re-inject play-next items right after current
@@ -525,11 +530,10 @@ class NowPlayingManager @Inject constructor() {
             .subList((current.currentIndex + 1).coerceAtMost(current.nowPlayingEntries.size), current.nowPlayingEntries.size)
             .filter { it.queueId in playNextIds }
 
-        val restoredUpcoming = when {
-            restored.isEmpty() -> emptyList()
-            restored.first().queueId == currentEntry.queueId -> restored.drop(1)
-            else -> restored
-        }.filter { it.queueId !in playNextIds }
+        val restoredUpcoming = restored
+            .filter { it.queueId != currentEntry.queueId }
+            .filter { it.queueId != fallbackOriginalEntry?.queueId }
+            .filter { it.queueId !in playNextIds }
 
         // Add any "add to queue" items to the end, including copies of songs already in the
         // original context. Queue-entry identity keeps these independent.
