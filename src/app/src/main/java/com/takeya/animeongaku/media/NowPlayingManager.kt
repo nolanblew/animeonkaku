@@ -14,8 +14,10 @@ class NowPlayingManager @Inject constructor() {
 
     private val _state = MutableStateFlow(NowPlayingState())
     val state: StateFlow<NowPlayingState> = _state.asStateFlow()
+    private var nextQueueEntryId: Long = 1L
 
     fun restoreState(state: NowPlayingState) {
+        nextQueueEntryId = state.maxQueueEntryId + 1L
         _state.value = state.copy(isFullReload = true)
     }
 
@@ -53,42 +55,47 @@ class NowPlayingManager @Inject constructor() {
     ) {
         if (themes.isEmpty()) return
 
+        val originalEntries = createQueueEntries(themes)
         val safeStart = if (shuffle && startIndex == 0 && themes.size > 1) {
-            themes.indices.random()
+            originalEntries.indices.random()
         } else {
-            startIndex.coerceIn(0, themes.lastIndex)
+            startIndex.coerceIn(0, originalEntries.lastIndex)
         }
-        val currentTheme = themes[safeStart]
+        val currentEntry = originalEntries[safeStart]
 
         // Only queue from startIndex onward (no wrapping earlier songs to end)
-        val queueFromStart = themes.subList(if (shuffle) 0 else safeStart, themes.size)
+        val queueFromStart = originalEntries.subList(if (shuffle) 0 else safeStart, originalEntries.size)
 
-        val nowPlaying = if (shuffle) {
+        val nowPlayingEntries = if (shuffle) {
             val others = queueFromStart.filterIndexed { index, _ -> index != safeStart }.shuffled()
-            listOf(currentTheme) + others
+            listOf(currentEntry) + others
         } else {
             queueFromStart
         }
 
         // Track which items are "suggested" (auto-added, not user-chosen)
-        val suggestedItems = if (suggestedFrom != null && !shuffle) {
+        val suggestedEntryIds = if (suggestedFrom != null && !shuffle) {
             // suggestedFrom is relative to the original themes list;
-            // in nowPlaying, the tapped song is at index 0, so suggested starts
+            // in nowPlayingEntries, the tapped song is at index 0, so suggested starts
             // at (suggestedFrom - safeStart) but we only care about items after the tapped one
             val suggestedStartInQueue = (suggestedFrom - safeStart).coerceAtLeast(1)
-            if (suggestedStartInQueue < nowPlaying.size) {
-                nowPlaying.subList(suggestedStartInQueue, nowPlaying.size).toList()
-            } else emptyList()
-        } else emptyList()
+            if (suggestedStartInQueue < nowPlayingEntries.size) {
+                nowPlayingEntries.subList(suggestedStartInQueue, nowPlayingEntries.size).map { it.queueId }
+            } else {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
 
         _state.value = NowPlayingState(
-            originalQueue = themes,
-            nowPlaying = nowPlaying,
+            originalQueueEntries = originalEntries,
+            nowPlayingEntries = nowPlayingEntries,
             currentIndex = 0,
-            history = emptyList(),
-            playNextItems = emptyList(),
-            addedToQueueItems = emptyList(),
-            suggestedItems = suggestedItems,
+            historyEntries = emptyList(),
+            playNextEntryIds = emptyList(),
+            addedToQueueEntryIds = emptyList(),
+            suggestedEntryIds = suggestedEntryIds,
             playedIndices = setOf(0),
             isShuffled = shuffle,
             contextLabel = contextLabel,
@@ -103,20 +110,30 @@ class NowPlayingManager @Inject constructor() {
      * Clears any suggested items from the queue.
      */
     fun playNext(themes: List<ThemeEntity>, animeMap: Map<Long, AnimeEntity> = emptyMap()) {
+        if (themes.isEmpty()) return
+
         val current = _state.value
-        if (current.nowPlaying.isEmpty()) return
+        val insertedEntries = createQueueEntries(themes)
+        if (current.nowPlayingEntries.isEmpty()) {
+            _state.value = createStandaloneQueueState(
+                contextLabel = current.contextLabel.ifBlank { "Queue" },
+                entries = insertedEntries,
+                animeMap = current.animeMap + animeMap
+            )
+            return
+        }
 
         val queueAfterSuggestionRemoval = removeSuggestedItems(current)
 
         val insertPos = queueAfterSuggestionRemoval.currentIndex + 1
-        val updated = queueAfterSuggestionRemoval.nowPlaying.toMutableList().apply {
-            addAll(insertPos, themes)
+        val updated = queueAfterSuggestionRemoval.nowPlayingEntries.toMutableList().apply {
+            addAll(insertPos, insertedEntries)
         }
 
         _state.value = queueAfterSuggestionRemoval.copy(
-            nowPlaying = updated,
-            playNextItems = themes + queueAfterSuggestionRemoval.playNextItems,
-            suggestedItems = emptyList(),
+            nowPlayingEntries = updated,
+            playNextEntryIds = insertedEntries.map { it.queueId } + queueAfterSuggestionRemoval.playNextEntryIds,
+            suggestedEntryIds = emptyList(),
             animeMap = queueAfterSuggestionRemoval.animeMap + animeMap,
             queueVersion = queueAfterSuggestionRemoval.queueVersion + 1,
             isFullReload = false
@@ -134,17 +151,27 @@ class NowPlayingManager @Inject constructor() {
      * Clears any suggested items from the queue.
      */
     fun addToQueue(themes: List<ThemeEntity>, animeMap: Map<Long, AnimeEntity> = emptyMap()) {
+        if (themes.isEmpty()) return
+
         val current = _state.value
-        if (current.nowPlaying.isEmpty()) return
+        val appendedEntries = createQueueEntries(themes)
+        if (current.nowPlayingEntries.isEmpty()) {
+            _state.value = createStandaloneQueueState(
+                contextLabel = current.contextLabel.ifBlank { "Queue" },
+                entries = appendedEntries,
+                animeMap = current.animeMap + animeMap
+            )
+            return
+        }
 
         val queueAfterSuggestionRemoval = removeSuggestedItems(current)
 
-        val updated = queueAfterSuggestionRemoval.nowPlaying + themes
+        val updated = queueAfterSuggestionRemoval.nowPlayingEntries + appendedEntries
 
         _state.value = queueAfterSuggestionRemoval.copy(
-            nowPlaying = updated,
-            addedToQueueItems = queueAfterSuggestionRemoval.addedToQueueItems + themes,
-            suggestedItems = emptyList(),
+            nowPlayingEntries = updated,
+            addedToQueueEntryIds = queueAfterSuggestionRemoval.addedToQueueEntryIds + appendedEntries.map { it.queueId },
+            suggestedEntryIds = emptyList(),
             animeMap = queueAfterSuggestionRemoval.animeMap + animeMap,
             queueVersion = queueAfterSuggestionRemoval.queueVersion + 1,
             isFullReload = false
@@ -161,70 +188,77 @@ class NowPlayingManager @Inject constructor() {
      * Remove suggested items from the queue, preserving current index.
      */
     private fun removeSuggestedItems(current: NowPlayingState): NowPlayingState {
-        if (current.suggestedItems.isEmpty()) return current
+        if (current.suggestedEntryIds.isEmpty()) return current
 
-        // Build a set of suggested item identities (use list index pairs to handle duplicates)
-        val suggestedIdentities = current.suggestedItems.toMutableList()
-        val updatedQueue = mutableListOf<ThemeEntity>()
-        var newCurrentIndex = current.currentIndex
-
-        for ((i, theme) in current.nowPlaying.withIndex()) {
-            val isSuggested = i > current.currentIndex && suggestedIdentities.remove(theme)
-            if (isSuggested) {
-                // Skip this item
-            } else {
-                updatedQueue.add(theme)
-            }
+        val suggestedIds = current.suggestedEntryIds.toSet()
+        val updatedQueue = current.nowPlayingEntries.filterIndexed { index, entry ->
+            index <= current.currentIndex || entry.queueId !in suggestedIds
         }
 
         return current.copy(
-            nowPlaying = updatedQueue,
-            currentIndex = newCurrentIndex.coerceAtMost(updatedQueue.lastIndex.coerceAtLeast(0)),
-            suggestedItems = emptyList()
+            nowPlayingEntries = updatedQueue,
+            currentIndex = current.currentIndex.coerceAtMost(updatedQueue.lastIndex.coerceAtLeast(0)),
+            suggestedEntryIds = emptyList()
         )
     }
 
     /**
      * Called when the media player transitions to a new track.
-     * Updates currentIndex, history, and playedIndices using the themeId to find the true index.
+     * Updates currentIndex, history, and playedIndices using the queue entry id.
      */
-    fun onTrackChangedByThemeId(themeId: Long) {
+    fun onTrackChangedByQueueId(queueId: Long) {
         val current = _state.value
         val expectedNextIndex = current.currentIndex + 1
-        val newIndex = if (expectedNextIndex < current.nowPlaying.size && current.nowPlaying[expectedNextIndex].id == themeId) {
+        val newIndex = if (
+            expectedNextIndex < current.nowPlayingEntries.size &&
+            current.nowPlayingEntries[expectedNextIndex].queueId == queueId
+        ) {
             expectedNextIndex
         } else {
             // Find the closest index forward, or any index
             var found = -1
-            for (i in expectedNextIndex until current.nowPlaying.size) {
-                if (current.nowPlaying[i].id == themeId) {
+            for (i in expectedNextIndex until current.nowPlayingEntries.size) {
+                if (current.nowPlayingEntries[i].queueId == queueId) {
                     found = i
                     break
                 }
             }
             if (found == -1) {
-                current.nowPlaying.indexOfFirst { it.id == themeId }
+                current.nowPlayingEntries.indexOfFirst { it.queueId == queueId }
             } else found
         }
 
-        if (newIndex < 0 || newIndex >= current.nowPlaying.size) return
+        if (newIndex < 0 || newIndex >= current.nowPlayingEntries.size) return
 
         val oldIndex = current.currentIndex
-        val newHistory = if (newIndex > oldIndex && oldIndex >= 0 && oldIndex < current.nowPlaying.size) {
-            current.history + current.nowPlaying.subList(oldIndex, newIndex)
+        val newHistory = if (newIndex > oldIndex && oldIndex >= 0 && oldIndex < current.nowPlayingEntries.size) {
+            current.historyEntries + current.nowPlayingEntries.subList(oldIndex, newIndex)
         } else if (newIndex < oldIndex) {
-            val rewindTrack = current.nowPlaying[newIndex]
-            val histIdx = current.history.indexOfLast { it.id == rewindTrack.id }
-            if (histIdx >= 0) current.history.subList(0, histIdx) else current.history
+            val rewindTrack = current.nowPlayingEntries[newIndex]
+            val histIdx = current.historyEntries.indexOfLast { it.queueId == rewindTrack.queueId }
+            if (histIdx >= 0) current.historyEntries.subList(0, histIdx) else current.historyEntries
         } else {
-            current.history
+            current.historyEntries
         }
 
         _state.value = current.copy(
             currentIndex = newIndex,
-            history = newHistory,
+            historyEntries = newHistory,
             playedIndices = current.playedIndices + newIndex
         )
+    }
+
+    fun onTrackChangedByThemeId(themeId: Long) {
+        val current = _state.value
+        val expectedNextIndex = current.currentIndex + 1
+        val expectedEntry = current.nowPlayingEntries.getOrNull(expectedNextIndex)
+        if (expectedEntry?.theme?.id == themeId) {
+            onTrackChangedByQueueId(expectedEntry.queueId)
+            return
+        }
+
+        val fallbackEntry = current.nowPlayingEntries.firstOrNull { it.theme.id == themeId } ?: return
+        onTrackChangedByQueueId(fallbackEntry.queueId)
     }
 
     /**
@@ -232,12 +266,12 @@ class NowPlayingManager @Inject constructor() {
      */
     fun skipTo(index: Int) {
         val current = _state.value
-        if (index < 0 || index >= current.nowPlaying.size) return
+        if (index < 0 || index >= current.nowPlayingEntries.size) return
 
         val newHistory = if (index > current.currentIndex) {
-            current.history + current.nowPlaying.subList(current.currentIndex, index)
+            current.historyEntries + current.nowPlayingEntries.subList(current.currentIndex, index)
         } else {
-            current.history
+            current.historyEntries
         }
 
         // Mark all skipped-over indices as played
@@ -247,7 +281,7 @@ class NowPlayingManager @Inject constructor() {
 
         _state.value = current.copy(
             currentIndex = index,
-            history = newHistory,
+            historyEntries = newHistory,
             playedIndices = current.playedIndices + skippedIndices + index,
             queueVersion = current.queueVersion + 1,
             isFullReload = true
@@ -259,11 +293,11 @@ class NowPlayingManager @Inject constructor() {
      */
     fun moveItem(fromIndex: Int, toIndex: Int) {
         val current = _state.value
-        if (fromIndex < 0 || fromIndex >= current.nowPlaying.size) return
-        if (toIndex < 0 || toIndex >= current.nowPlaying.size) return
+        if (fromIndex < 0 || fromIndex >= current.nowPlayingEntries.size) return
+        if (toIndex < 0 || toIndex >= current.nowPlayingEntries.size) return
         if (fromIndex == toIndex) return
 
-        val updated = current.nowPlaying.toMutableList()
+        val updated = current.nowPlayingEntries.toMutableList()
         val item = updated.removeAt(fromIndex)
         updated.add(toIndex, item)
 
@@ -307,7 +341,7 @@ class NowPlayingManager @Inject constructor() {
         }
 
         _state.value = current.copy(
-            nowPlaying = updated,
+            nowPlayingEntries = updated,
             currentIndex = newCurrentIndex,
             playedIndices = newPlayedIndices,
             unskippedIndices = newUnskippedIndices,
@@ -321,7 +355,7 @@ class NowPlayingManager @Inject constructor() {
      */
     fun removeFromQueue(index: Int) {
         val current = _state.value
-        if (index < 0 || index >= current.nowPlaying.size) return
+        if (index < 0 || index >= current.nowPlayingEntries.size) return
         
         // Cannot remove the currently playing item this way
         if (index == current.currentIndex) {
@@ -329,7 +363,8 @@ class NowPlayingManager @Inject constructor() {
             return
         }
 
-        val updated = current.nowPlaying.toMutableList()
+        val removedEntry = current.nowPlayingEntries[index]
+        val updated = current.nowPlayingEntries.toMutableList()
         updated.removeAt(index)
 
         var newCurrentIndex = current.currentIndex
@@ -352,8 +387,12 @@ class NowPlayingManager @Inject constructor() {
         }
 
         _state.value = current.copy(
-            nowPlaying = updated,
+            nowPlayingEntries = updated,
             currentIndex = newCurrentIndex,
+            historyEntries = current.historyEntries.filter { it.queueId != removedEntry.queueId },
+            playNextEntryIds = current.playNextEntryIds.filter { it != removedEntry.queueId },
+            addedToQueueEntryIds = current.addedToQueueEntryIds.filter { it != removedEntry.queueId },
+            suggestedEntryIds = current.suggestedEntryIds.filter { it != removedEntry.queueId },
             playedIndices = newPlayedIndices,
             unskippedIndices = newUnskippedIndices,
             queueVersion = current.queueVersion + 1,
@@ -366,12 +405,18 @@ class NowPlayingManager @Inject constructor() {
      */
     fun moveToPlayNext(index: Int) {
         val current = _state.value
-        if (index < 0 || index >= current.nowPlaying.size) return
+        if (index < 0 || index >= current.nowPlayingEntries.size) return
         if (index == current.currentIndex) return
+
+        val entryId = current.nowPlayingEntries[index].queueId
 
         val targetIndex = if (index > current.currentIndex) current.currentIndex + 1 else current.currentIndex
 
         moveItem(index, targetIndex)
+        val updated = _state.value
+        _state.value = updated.copy(
+            playNextEntryIds = listOf(entryId) + updated.playNextEntryIds.filter { it != entryId }
+        )
     }
 
     /**
@@ -379,17 +424,17 @@ class NowPlayingManager @Inject constructor() {
      */
     fun rewindTo(historyIndex: Int) {
         val current = _state.value
-        if (historyIndex < 0 || historyIndex >= current.history.size) return
+        if (historyIndex < 0 || historyIndex >= current.historyEntries.size) return
 
-        val restoredTracks = current.history.subList(historyIndex, current.history.size)
-        val trimmedHistory = current.history.subList(0, historyIndex)
+        val restoredTracks = current.historyEntries.subList(historyIndex, current.historyEntries.size)
+        val trimmedHistory = current.historyEntries.subList(0, historyIndex)
 
-        val newNowPlaying = restoredTracks + current.nowPlaying.subList(current.currentIndex, current.nowPlaying.size)
+        val newNowPlaying = restoredTracks + current.nowPlayingEntries.subList(current.currentIndex, current.nowPlayingEntries.size)
 
         _state.value = current.copy(
-            nowPlaying = newNowPlaying,
+            nowPlayingEntries = newNowPlaying,
             currentIndex = 0,
-            history = trimmedHistory,
+            historyEntries = trimmedHistory,
             playedIndices = setOf(0),
             unskippedIndices = emptySet(),
             queueVersion = current.queueVersion + 1,
@@ -421,44 +466,36 @@ class NowPlayingManager @Inject constructor() {
     }
 
     private fun shuffle(current: NowPlayingState) {
-        val currentTheme = current.nowPlaying.getOrNull(current.currentIndex) ?: return
+        val currentEntry = current.currentEntry ?: return
 
         // Collect all unplayed items from the current queue (excluding current track)
-        val unplayed = mutableListOf<ThemeEntity>()
-        for ((i, theme) in current.nowPlaying.withIndex()) {
+        val unplayed = mutableListOf<QueueEntry>()
+        for ((i, entry) in current.nowPlayingEntries.withIndex()) {
             if (i == current.currentIndex) continue
             if (i !in current.playedIndices) {
-                unplayed.add(theme)
+                unplayed.add(entry)
             }
         }
 
         // Also pull in songs from originalQueue that were never in nowPlaying
         // (e.g., songs before the start index that were excluded by play()).
-        // Use count-based matching to handle playlists with duplicate songs.
-        val nowPlayingIdCounts = mutableMapOf<Long, Int>()
-        for (theme in current.nowPlaying) {
-            nowPlayingIdCounts[theme.id] = (nowPlayingIdCounts[theme.id] ?: 0) + 1
-        }
-        val remainingCounts = nowPlayingIdCounts.toMutableMap()
-        for (theme in current.originalQueue) {
-            val count = remainingCounts[theme.id] ?: 0
-            if (count > 0) {
-                remainingCounts[theme.id] = count - 1
-            } else {
-                unplayed.add(theme)
+        val nowPlayingIds = current.nowPlayingEntries.map { it.queueId }.toSet()
+        for (entry in current.originalQueueEntries) {
+            if (entry.queueId !in nowPlayingIds) {
+                unplayed.add(entry)
             }
         }
 
         // Identify play-next items that should stay right after current
-        val playNextIds = current.playNextItems.map { it.id }.toSet()
-        val playNextUnplayed = unplayed.filter { it.id in playNextIds }
-        val shuffleable = unplayed.filter { it.id !in playNextIds }
+        val playNextIds = current.playNextEntryIds.toSet()
+        val playNextUnplayed = unplayed.filter { it.queueId in playNextIds }
+        val shuffleable = unplayed.filter { it.queueId !in playNextIds }
 
         // Rebuild: current + playNext items + shuffled unplayed
-        val newNowPlaying = listOf(currentTheme) + playNextUnplayed + shuffleable.shuffled()
+        val newNowPlaying = listOf(currentEntry) + playNextUnplayed + shuffleable.shuffled()
 
         _state.value = current.copy(
-            nowPlaying = newNowPlaying,
+            nowPlayingEntries = newNowPlaying,
             currentIndex = 0,
             playedIndices = setOf(0),
             isShuffled = true,
@@ -468,30 +505,45 @@ class NowPlayingManager @Inject constructor() {
     }
 
     private fun unshuffle(current: NowPlayingState) {
-        val currentTheme = current.nowPlaying.getOrNull(current.currentIndex) ?: return
+        val currentEntry = current.currentEntry ?: return
 
-        // Find where the current track is in the original queue
-        val originalIdx = current.originalQueue.indexOfFirst { it.id == currentTheme.id }
-        if (originalIdx == -1) return
+        // Prefer the exact queue entry; if the current item is a copy of an original song, fall back
+        // to that original slot so we can restore the remaining original context without duplicating it.
+        val originalQueueEntry = current.originalQueueEntries.firstOrNull { it.queueId == currentEntry.queueId }
+        val fallbackOriginalEntry = current.originalQueueEntries.firstOrNull { it.theme.id == currentEntry.theme.id }
 
-        // Only restore songs from current onward in original order (no wrapping)
-        val restored = current.originalQueue.subList(originalIdx, current.originalQueue.size)
+        // Only restore songs from current onward in original order. If the current song was added to
+        // the queue and was never part of the original context, keep the full original queue behind it.
+        val restored = if (originalQueueEntry != null) {
+            val originalIdx = current.originalQueueEntries.indexOf(originalQueueEntry)
+            current.originalQueueEntries.subList(originalIdx, current.originalQueueEntries.size)
+        } else if (fallbackOriginalEntry != null) {
+            val originalIdx = current.originalQueueEntries.indexOf(fallbackOriginalEntry)
+            current.originalQueueEntries.subList(originalIdx, current.originalQueueEntries.size)
+        } else {
+            current.originalQueueEntries
+        }
 
         // Re-inject play-next items right after current
-        val playNextIds = current.playNextItems.map { it.id }.toSet()
-        val upcomingPlayNext = current.nowPlaying
-            .subList((current.currentIndex + 1).coerceAtMost(current.nowPlaying.size), current.nowPlaying.size)
-            .filter { it.id in playNextIds }
+        val playNextIds = current.playNextEntryIds.toSet()
+        val upcomingPlayNext = current.nowPlayingEntries
+            .subList((current.currentIndex + 1).coerceAtMost(current.nowPlayingEntries.size), current.nowPlayingEntries.size)
+            .filter { it.queueId in playNextIds }
 
-        // Add any "add to queue" items that aren't in the original to the end
-        val originalIds = current.originalQueue.map { it.id }.toSet()
-        val extraItems = current.addedToQueueItems.filter { it.id !in originalIds }
+        val restoredUpcoming = restored
+            .filter { it.queueId != currentEntry.queueId }
+            .filter { it.queueId != fallbackOriginalEntry?.queueId }
+            .filter { it.queueId !in playNextIds }
 
-        val newNowPlaying = listOf(restored.first()) + upcomingPlayNext +
-                restored.drop(1).filter { it.id !in playNextIds } + extraItems
+        // Add any "add to queue" items to the end, including copies of songs already in the
+        // original context. Queue-entry identity keeps these independent.
+        val appendedEntryIds = (upcomingPlayNext + restoredUpcoming + listOf(currentEntry)).map { it.queueId }.toSet()
+        val extraItems = current.addedToQueueEntries.filter { it.queueId !in appendedEntryIds }
+
+        val newNowPlaying = listOf(currentEntry) + upcomingPlayNext + restoredUpcoming + extraItems
 
         _state.value = current.copy(
-            nowPlaying = newNowPlaying,
+            nowPlayingEntries = newNowPlaying,
             currentIndex = 0,
             playedIndices = setOf(0),
             isShuffled = false,
@@ -504,18 +556,49 @@ class NowPlayingManager @Inject constructor() {
         get() = _state.value.let { s -> s.nowPlaying.getOrNull(s.currentIndex) }
 
     val isActive: Boolean
-        get() = _state.value.nowPlaying.isNotEmpty()
+        get() = _state.value.nowPlayingEntries.isNotEmpty()
+
+    private fun createQueueEntries(themes: List<ThemeEntity>): List<QueueEntry> =
+        themes.map { theme ->
+            QueueEntry(queueId = nextQueueEntryId++, theme = theme)
+        }
+
+    private fun createStandaloneQueueState(
+        contextLabel: String,
+        entries: List<QueueEntry>,
+        animeMap: Map<Long, AnimeEntity>
+    ): NowPlayingState = NowPlayingState(
+        originalQueueEntries = entries,
+        nowPlayingEntries = entries,
+        currentIndex = 0,
+        historyEntries = emptyList(),
+        playNextEntryIds = emptyList(),
+        addedToQueueEntryIds = emptyList(),
+        suggestedEntryIds = emptyList(),
+        playedIndices = setOf(0),
+        isShuffled = false,
+        contextLabel = contextLabel,
+        animeMap = animeMap,
+        queueVersion = _state.value.queueVersion + 1,
+        isFullReload = true
+    )
 }
 
 @Stable
+data class QueueEntry(
+    val queueId: Long,
+    val theme: ThemeEntity
+)
+
+@Stable
 data class NowPlayingState(
-    val originalQueue: List<ThemeEntity> = emptyList(),
-    val nowPlaying: List<ThemeEntity> = emptyList(),
+    val originalQueueEntries: List<QueueEntry> = emptyList(),
+    val nowPlayingEntries: List<QueueEntry> = emptyList(),
     val currentIndex: Int = 0,
-    val history: List<ThemeEntity> = emptyList(),
-    val playNextItems: List<ThemeEntity> = emptyList(),
-    val addedToQueueItems: List<ThemeEntity> = emptyList(),
-    val suggestedItems: List<ThemeEntity> = emptyList(),
+    val historyEntries: List<QueueEntry> = emptyList(),
+    val playNextEntryIds: List<Long> = emptyList(),
+    val addedToQueueEntryIds: List<Long> = emptyList(),
+    val suggestedEntryIds: List<Long> = emptyList(),
     val playedIndices: Set<Int> = emptySet(),
     val isShuffled: Boolean = false,
     val contextLabel: String = "",
@@ -524,12 +607,47 @@ data class NowPlayingState(
     val isFullReload: Boolean = true,
     val unskippedIndices: Set<Int> = emptySet()
 ) {
+    private val entriesById: Map<Long, QueueEntry> by lazy {
+        buildMap {
+            originalQueueEntries.forEach { put(it.queueId, it) }
+            nowPlayingEntries.forEach { put(it.queueId, it) }
+            historyEntries.forEach { put(it.queueId, it) }
+        }
+    }
+
+    val originalQueue: List<ThemeEntity> by lazy { originalQueueEntries.map { it.theme } }
+    val nowPlaying: List<ThemeEntity> by lazy { nowPlayingEntries.map { it.theme } }
+    val history: List<ThemeEntity> by lazy { historyEntries.map { it.theme } }
+    val playNextEntries: List<QueueEntry> by lazy { playNextEntryIds.mapNotNull(entriesById::get) }
+    val playNextItems: List<ThemeEntity> by lazy { playNextEntries.map { it.theme } }
+    val addedToQueueEntries: List<QueueEntry> by lazy { addedToQueueEntryIds.mapNotNull(entriesById::get) }
+    val addedToQueueItems: List<ThemeEntity> by lazy { addedToQueueEntries.map { it.theme } }
+    val suggestedEntries: List<QueueEntry> by lazy { suggestedEntryIds.mapNotNull(entriesById::get) }
+    val suggestedItems: List<ThemeEntity> by lazy { suggestedEntries.map { it.theme } }
+    val currentEntry: QueueEntry?
+        get() = nowPlayingEntries.getOrNull(currentIndex)
     val currentTheme: ThemeEntity?
-        get() = nowPlaying.getOrNull(currentIndex)
+        get() = currentEntry?.theme
+
+    val upcomingEntries: List<QueueEntry> by lazy {
+        if (currentIndex + 1 < nowPlayingEntries.size) {
+            nowPlayingEntries.subList(currentIndex + 1, nowPlayingEntries.size)
+        } else {
+            emptyList()
+        }
+    }
 
     val upcomingTracks: List<ThemeEntity> by lazy {
-        if (currentIndex + 1 < nowPlaying.size)
-            nowPlaying.subList(currentIndex + 1, nowPlaying.size)
-        else emptyList()
+        if (currentIndex + 1 < nowPlayingEntries.size) {
+            upcomingEntries.map { it.theme }
+        } else {
+            emptyList()
+        }
     }
+
+    val maxQueueEntryId: Long by lazy {
+        (originalQueueEntries + nowPlayingEntries + historyEntries).maxOfOrNull { it.queueId } ?: 0L
+    }
+
+    fun indexOfQueueId(queueId: Long): Int = nowPlayingEntries.indexOfFirst { it.queueId == queueId }
 }

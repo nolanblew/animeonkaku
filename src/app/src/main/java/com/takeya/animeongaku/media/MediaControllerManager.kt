@@ -97,16 +97,22 @@ class MediaControllerManager @Inject constructor(
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            val ctrl = controller ?: return
+            controller ?: return
             _playbackState.value = _playbackState.value.copy(errorMessage = null)
 
-            val themeId = mediaItem?.mediaId?.toLongOrNull()
-            if (themeId != null) {
-                // Determine true index in queue by original ID rather than current raw exo pos
-                nowPlayingManager.onTrackChangedByThemeId(themeId)
+            val queueEntryId = mediaItem?.mediaId?.toLongOrNull()
+            if (queueEntryId != null) {
+                val themeId = nowPlayingManager.state.value.nowPlayingEntries
+                    .firstOrNull { it.queueId == queueEntryId }
+                    ?.theme
+                    ?.id
+
+                nowPlayingManager.onTrackChangedByQueueId(queueEntryId)
                 
                 // Record play count on track start
-                scope.launch { playCountDao.incrementPlayCount(themeId) }
+                if (themeId != null) {
+                    scope.launch { playCountDao.incrementPlayCount(themeId) }
+                }
             }
         }
 
@@ -232,11 +238,12 @@ class MediaControllerManager @Inject constructor(
             _controllerReady.collectLatest { ready ->
                 if (!ready) return@collectLatest
                 nowPlayingManager.state
-                    .distinctUntilChangedBy { it.currentTheme?.id to it.currentTheme?.animeId }
+                    .distinctUntilChangedBy { it.currentEntry?.queueId to it.currentTheme?.animeId }
                     .collectLatest { npState ->
                         val ctrl = controller ?: return@collectLatest
+                        val currentEntry = npState.currentEntry ?: return@collectLatest
                         val theme = npState.currentTheme ?: return@collectLatest
-                        val expectedThemeId = theme.id
+                        val expectedQueueId = currentEntry.queueId.toString()
                         val anime = theme.animeId?.let { npState.animeMap[it] } ?: return@collectLatest
                         val urls = anime.primaryArtworkUrls()
                         if (urls.isEmpty()) return@collectLatest
@@ -247,7 +254,7 @@ class MediaControllerManager @Inject constructor(
                         val currentIdx = ctrl.currentMediaItemIndex
                         if (currentIdx < 0 || currentIdx >= ctrl.mediaItemCount) return@collectLatest
                         val current = ctrl.getMediaItemAt(currentIdx)
-                        if (current.mediaId != expectedThemeId.toString()) return@collectLatest
+                        if (current.mediaId != expectedQueueId) return@collectLatest
 
                         val bytes = withContext(Dispatchers.IO) {
                             ByteArrayOutputStream().use { bos ->
@@ -260,7 +267,7 @@ class MediaControllerManager @Inject constructor(
                         val finalIdx = ctrl.currentMediaItemIndex
                         if (finalIdx < 0 || finalIdx >= ctrl.mediaItemCount) return@collectLatest
                         val finalItem = ctrl.getMediaItemAt(finalIdx)
-                        if (finalItem.mediaId != expectedThemeId.toString()) return@collectLatest
+                        if (finalItem.mediaId != expectedQueueId) return@collectLatest
 
                         val updatedMetadata = finalItem.mediaMetadata.buildUpon()
                             .setArtworkData(bytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
@@ -346,13 +353,17 @@ class MediaControllerManager @Inject constructor(
 
     private fun restoreFromPersistedState(restoredState: RestoredQueueState, ctrl: MediaController, autoPlay: Boolean = false) {
         val npState = restoredState.nowPlayingState
-        val mappedItems = npState.nowPlaying.mapIndexedNotNull { idx, theme ->
-            if (shouldIncludeInPlayer(idx, theme, npState)) theme.toMediaItem(npState.animeMap) else null
+        val mappedItems = npState.nowPlayingEntries.mapIndexedNotNull { idx, entry ->
+            if (shouldIncludeInPlayer(idx, entry.theme, npState)) {
+                entry.toMediaItem(npState.animeMap)
+            } else {
+                null
+            }
         }
         
         var exoStartIndex = 0
         for (i in 0 until npState.currentIndex) {
-            if (shouldIncludeInPlayer(i, npState.nowPlaying[i], npState)) exoStartIndex++
+            if (shouldIncludeInPlayer(i, npState.nowPlayingEntries[i].theme, npState)) exoStartIndex++
         }
         
         ctrl.setMediaItems(mappedItems, exoStartIndex, restoredState.positionMs)
@@ -376,19 +387,23 @@ class MediaControllerManager @Inject constructor(
         if (npState.isFullReload) {
             // Check if the controller is already playing the correct track
             val controllerMediaId = ctrl.currentMediaItem?.mediaId
-            val expectedMediaId = npState.currentTheme?.id?.toString()
+            val expectedMediaId = npState.currentEntry?.queueId?.toString()
 
             if (controllerMediaId != null && controllerMediaId == expectedMediaId) {
                 // Controller already has the right song — just sync surrounding queue
                 syncQueueAroundCurrent(ctrl, npState)
             } else {
                 // Full replacement (find valid items only)
-                val mappedItems = npState.nowPlaying.mapIndexedNotNull { idx, theme ->
-                    if (shouldIncludeInPlayer(idx, theme, npState)) theme.toMediaItem(npState.animeMap) else null
+                val mappedItems = npState.nowPlayingEntries.mapIndexedNotNull { idx, entry ->
+                    if (shouldIncludeInPlayer(idx, entry.theme, npState)) {
+                        entry.toMediaItem(npState.animeMap)
+                    } else {
+                        null
+                    }
                 }
                 var exoStartIndex = 0
                 for (i in 0 until npState.currentIndex) {
-                    if (shouldIncludeInPlayer(i, npState.nowPlaying[i], npState)) exoStartIndex++
+                    if (shouldIncludeInPlayer(i, npState.nowPlayingEntries[i].theme, npState)) exoStartIndex++
                 }
                 
                 ctrl.setMediaItems(mappedItems, exoStartIndex, C.TIME_UNSET)
@@ -420,15 +435,15 @@ class MediaControllerManager @Inject constructor(
         // Resolve the actual index in npState that matches the controller's current item
         val controllerMediaId = ctrl.currentMediaItem?.mediaId
         val centerIndex = if (controllerMediaId != null) {
-            val currentThemeId = npState.currentTheme?.id?.toString()
-            if (currentThemeId == controllerMediaId) {
+            val currentQueueId = npState.currentEntry?.queueId?.toString()
+            if (currentQueueId == controllerMediaId) {
                 npState.currentIndex
             } else {
                 // Out of sync (e.g. track just changed but npState not yet updated)
                 // Search forward first
                 var found = -1
-                for (i in npState.currentIndex until npState.nowPlaying.size) {
-                    if (npState.nowPlaying[i].id.toString() == controllerMediaId) {
+                for (i in npState.currentIndex until npState.nowPlayingEntries.size) {
+                    if (npState.nowPlayingEntries[i].queueId.toString() == controllerMediaId) {
                         found = i
                         break
                     }
@@ -436,7 +451,7 @@ class MediaControllerManager @Inject constructor(
                 // Then backward
                 if (found == -1) {
                     for (i in npState.currentIndex - 1 downTo 0) {
-                        if (npState.nowPlaying[i].id.toString() == controllerMediaId) {
+                        if (npState.nowPlayingEntries[i].queueId.toString() == controllerMediaId) {
                             found = i
                             break
                         }
@@ -449,19 +464,19 @@ class MediaControllerManager @Inject constructor(
         }
 
         // Add items before current
-        val beforeItems = npState.nowPlaying.subList(0, centerIndex)
-            .filterIndexed { idx, theme -> shouldIncludeInPlayer(idx, theme, npState) }
+        val beforeItems = npState.nowPlayingEntries.subList(0, centerIndex)
+            .filterIndexed { idx, entry -> shouldIncludeInPlayer(idx, entry.theme, npState) }
             .map { it.toMediaItem(npState.animeMap) }
         for ((i, item) in beforeItems.withIndex()) {
             ctrl.addMediaItem(i, item)
         }
 
         // Add items after current
-        if (centerIndex + 1 < npState.nowPlaying.size) {
-            val afterItems = npState.nowPlaying
-                .subList(centerIndex + 1, npState.nowPlaying.size)
-                .filterIndexed { offset, theme -> 
-                    shouldIncludeInPlayer(centerIndex + 1 + offset, theme, npState) 
+        if (centerIndex + 1 < npState.nowPlayingEntries.size) {
+            val afterItems = npState.nowPlayingEntries
+                .subList(centerIndex + 1, npState.nowPlayingEntries.size)
+                .filterIndexed { offset, entry -> 
+                    shouldIncludeInPlayer(centerIndex + 1 + offset, entry.theme, npState) 
                 }
                 .map { it.toMediaItem(npState.animeMap) }
             for (item in afterItems) {
@@ -545,7 +560,10 @@ data class PlaybackState(
     val repeatMode: Int = Player.REPEAT_MODE_OFF
 )
 
-private fun ThemeEntity.toMediaItem(animeMap: Map<Long, AnimeEntity>): MediaItem {
+private fun QueueEntry.toMediaItem(animeMap: Map<Long, AnimeEntity>): MediaItem =
+    theme.toMediaItem(queueId.toString(), animeMap)
+
+private fun ThemeEntity.toMediaItem(mediaId: String, animeMap: Map<Long, AnimeEntity>): MediaItem {
     val anime = animeId?.let { animeMap[it] }
     val artworkUrl = anime?.primaryArtworkUrl()
     val animeName = anime?.title
@@ -570,7 +588,7 @@ private fun ThemeEntity.toMediaItem(animeMap: Map<Long, AnimeEntity>): MediaItem
     }
 
     return MediaItem.Builder()
-        .setMediaId(id.toString())
+        .setMediaId(mediaId)
         .setUri(uri)
         .setMediaMetadata(
             MediaMetadata.Builder()

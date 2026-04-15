@@ -16,21 +16,33 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @JsonClass(generateAdapter = true)
+data class PersistedQueueEntry(
+    val queueId: Long = 0L,
+    val themeId: Long = 0L
+)
+
+@JsonClass(generateAdapter = true)
 data class PersistedNowPlayingState(
-    val originalQueueIds: List<Long>,
-    val nowPlayingIds: List<Long>,
-    val currentIndex: Int,
-    val historyIds: List<Long>,
-    val playNextItemIds: List<Long>,
-    val addedToQueueItemIds: List<Long>,
-    val suggestedItemIds: List<Long>,
-    val playedIndices: Set<Int>,
-    val isShuffled: Boolean,
-    val contextLabel: String,
-    val animeMapKeys: List<Long>,
-    val queueVersion: Long,
-    val positionMs: Long,
-    val repeatMode: Int
+    val originalQueueIds: List<Long> = emptyList(),
+    val nowPlayingIds: List<Long> = emptyList(),
+    val currentIndex: Int = 0,
+    val historyIds: List<Long> = emptyList(),
+    val playNextItemIds: List<Long> = emptyList(),
+    val addedToQueueItemIds: List<Long> = emptyList(),
+    val suggestedItemIds: List<Long> = emptyList(),
+    val originalQueueEntries: List<PersistedQueueEntry> = emptyList(),
+    val nowPlayingEntries: List<PersistedQueueEntry> = emptyList(),
+    val historyEntries: List<PersistedQueueEntry> = emptyList(),
+    val playNextEntryIds: List<Long> = emptyList(),
+    val addedToQueueEntryIds: List<Long> = emptyList(),
+    val suggestedEntryIds: List<Long> = emptyList(),
+    val playedIndices: Set<Int> = emptySet(),
+    val isShuffled: Boolean = false,
+    val contextLabel: String = "",
+    val animeMapKeys: List<Long> = emptyList(),
+    val queueVersion: Long = 0L,
+    val positionMs: Long = 0L,
+    val repeatMode: Int = 0
 )
 
 data class RestoredQueueState(
@@ -52,13 +64,19 @@ class NowPlayingPersistence @Inject constructor(
 
     suspend fun save(state: NowPlayingState, positionMs: Long, repeatMode: Int) = withContext(Dispatchers.IO) {
         val persisted = PersistedNowPlayingState(
-            originalQueueIds = state.originalQueue.map { it.id },
-            nowPlayingIds = state.nowPlaying.map { it.id },
+            originalQueueIds = state.originalQueueEntries.map { it.theme.id },
+            nowPlayingIds = state.nowPlayingEntries.map { it.theme.id },
             currentIndex = state.currentIndex,
-            historyIds = state.history.map { it.id },
-            playNextItemIds = state.playNextItems.map { it.id },
-            addedToQueueItemIds = state.addedToQueueItems.map { it.id },
-            suggestedItemIds = state.suggestedItems.map { it.id },
+            historyIds = state.historyEntries.map { it.theme.id },
+            playNextItemIds = state.playNextEntries.map { it.theme.id },
+            addedToQueueItemIds = state.addedToQueueEntries.map { it.theme.id },
+            suggestedItemIds = state.suggestedEntries.map { it.theme.id },
+            originalQueueEntries = state.originalQueueEntries.map { PersistedQueueEntry(it.queueId, it.theme.id) },
+            nowPlayingEntries = state.nowPlayingEntries.map { PersistedQueueEntry(it.queueId, it.theme.id) },
+            historyEntries = state.historyEntries.map { PersistedQueueEntry(it.queueId, it.theme.id) },
+            playNextEntryIds = state.playNextEntryIds,
+            addedToQueueEntryIds = state.addedToQueueEntryIds,
+            suggestedEntryIds = state.suggestedEntryIds,
             playedIndices = state.playedIndices,
             isShuffled = state.isShuffled,
             contextLabel = state.contextLabel,
@@ -95,26 +113,94 @@ class NowPlayingPersistence @Inject constructor(
                 addAll(persisted.playNextItemIds)
                 addAll(persisted.addedToQueueItemIds)
                 addAll(persisted.suggestedItemIds)
+                addAll(persisted.originalQueueEntries.map { it.themeId })
+                addAll(persisted.nowPlayingEntries.map { it.themeId })
+                addAll(persisted.historyEntries.map { it.themeId })
             }.toList()
 
             if (allThemeIds.isEmpty()) return@withContext null
 
             val themes = themeDao.getByIds(allThemeIds).associateBy { it.id }
             
-            // Map IDs back to entities, dropping any that were deleted from DB
-            fun mapThemes(ids: List<Long>) = ids.mapNotNull { themes[it] }
-            
-            val nowPlaying = mapThemes(persisted.nowPlayingIds)
-            if (nowPlaying.isEmpty()) return@withContext null // Everything deleted
+            var nextFallbackQueueId = (
+                persisted.originalQueueEntries +
+                    persisted.nowPlayingEntries +
+                    persisted.historyEntries
+                ).maxOfOrNull { it.queueId }?.plus(1L) ?: 1L
 
-            val originalQueue = mapThemes(persisted.originalQueueIds)
-            val history = mapThemes(persisted.historyIds)
-            val playNextItems = mapThemes(persisted.playNextItemIds)
-            val addedToQueueItems = mapThemes(persisted.addedToQueueItemIds)
-            val suggestedItems = mapThemes(persisted.suggestedItemIds)
+            fun newFallbackEntry(themeId: Long): QueueEntry? =
+                themes[themeId]?.let { theme ->
+                    QueueEntry(queueId = nextFallbackQueueId++, theme = theme)
+                }
+
+            fun mapPersistedEntries(entries: List<PersistedQueueEntry>): List<QueueEntry> =
+                entries.mapNotNull { persistedEntry ->
+                    themes[persistedEntry.themeId]?.let { theme ->
+                        QueueEntry(queueId = persistedEntry.queueId, theme = theme)
+                    }
+                }
+
+            fun consumeByThemeId(ids: List<Long>, preferredEntries: List<QueueEntry>): List<QueueEntry> {
+                val available = preferredEntries
+                    .groupBy { it.theme.id }
+                    .mapValues { (_, value) -> value.toMutableList() }
+                    .toMutableMap()
+
+                return ids.mapNotNull { themeId ->
+                    val reused = available[themeId]?.removeFirstOrNull()
+                    reused ?: newFallbackEntry(themeId)
+                }
+            }
+
+            fun resolveEntryIds(legacyIds: List<Long>, preferredEntries: List<QueueEntry>): List<Long> {
+                val available = preferredEntries
+                    .groupBy { it.theme.id }
+                    .mapValues { (_, value) -> value.toMutableList() }
+                    .toMutableMap()
+
+                return legacyIds.mapNotNull { themeId ->
+                    available[themeId]?.removeFirstOrNull()?.queueId
+                }
+            }
+
+            val originalQueueEntries = if (persisted.originalQueueEntries.isNotEmpty()) {
+                mapPersistedEntries(persisted.originalQueueEntries)
+            } else {
+                consumeByThemeId(persisted.originalQueueIds, emptyList())
+            }
+
+            val nowPlayingEntries = if (persisted.nowPlayingEntries.isNotEmpty()) {
+                mapPersistedEntries(persisted.nowPlayingEntries)
+            } else {
+                consumeByThemeId(persisted.nowPlayingIds, originalQueueEntries)
+            }
+            if (nowPlayingEntries.isEmpty()) return@withContext null // Everything deleted
+
+            val historyEntries = if (persisted.historyEntries.isNotEmpty()) {
+                mapPersistedEntries(persisted.historyEntries)
+            } else {
+                consumeByThemeId(persisted.historyIds, nowPlayingEntries)
+            }
+
+            val preferredQueueEntries = nowPlayingEntries + historyEntries + originalQueueEntries
+            val playNextEntryIds = if (persisted.playNextEntryIds.isNotEmpty()) {
+                persisted.playNextEntryIds
+            } else {
+                resolveEntryIds(persisted.playNextItemIds, preferredQueueEntries)
+            }
+            val addedToQueueEntryIds = if (persisted.addedToQueueEntryIds.isNotEmpty()) {
+                persisted.addedToQueueEntryIds
+            } else {
+                resolveEntryIds(persisted.addedToQueueItemIds, preferredQueueEntries)
+            }
+            val suggestedEntryIds = if (persisted.suggestedEntryIds.isNotEmpty()) {
+                persisted.suggestedEntryIds
+            } else {
+                resolveEntryIds(persisted.suggestedItemIds, preferredQueueEntries)
+            }
 
             // Adjust currentIndex in case songs before it were deleted
-            val safeIndex = persisted.currentIndex.coerceIn(0, nowPlaying.lastIndex)
+            val safeIndex = persisted.currentIndex.coerceIn(0, nowPlayingEntries.lastIndex)
 
             // Load anime map
             val animeEntities = if (persisted.animeMapKeys.isNotEmpty()) {
@@ -123,14 +209,14 @@ class NowPlayingPersistence @Inject constructor(
             val animeMap = animeEntities.associateBy { it.animeThemesId!! }
 
             val restoredState = NowPlayingState(
-                originalQueue = originalQueue,
-                nowPlaying = nowPlaying,
+                originalQueueEntries = originalQueueEntries,
+                nowPlayingEntries = nowPlayingEntries,
                 currentIndex = safeIndex,
-                history = history,
-                playNextItems = playNextItems,
-                addedToQueueItems = addedToQueueItems,
-                suggestedItems = suggestedItems,
-                playedIndices = persisted.playedIndices.filter { it <= nowPlaying.lastIndex }.toSet(),
+                historyEntries = historyEntries,
+                playNextEntryIds = playNextEntryIds,
+                addedToQueueEntryIds = addedToQueueEntryIds,
+                suggestedEntryIds = suggestedEntryIds,
+                playedIndices = persisted.playedIndices.filter { it <= nowPlayingEntries.lastIndex }.toSet(),
                 isShuffled = persisted.isShuffled,
                 contextLabel = persisted.contextLabel,
                 animeMap = animeMap,
@@ -138,7 +224,7 @@ class NowPlayingPersistence @Inject constructor(
                 isFullReload = true
             )
 
-            Log.d("NowPlayingPersistence", "Restored queue state, size: ${nowPlaying.size}")
+            Log.d("NowPlayingPersistence", "Restored queue state, size: ${nowPlayingEntries.size}")
             RestoredQueueState(restoredState, persisted.positionMs, persisted.repeatMode)
         } catch (e: Exception) {
             Log.e("NowPlayingPersistence", "Failed to restore queue state", e)
