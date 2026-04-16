@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.takeya.animeongaku.download.DownloadManager
+import com.takeya.animeongaku.work.DynamicPlaylistWorkScheduler
 import com.takeya.animeongaku.download.DownloadPreferences
 import com.takeya.animeongaku.media.NowPlayingPersistence
 import com.takeya.animeongaku.media.MediaControllerManager
@@ -26,6 +27,7 @@ class AnimeOngakuApp : Application(), Configuration.Provider {
     @Inject lateinit var nowPlayingManager: NowPlayingManager
     @Inject lateinit var downloadManager: DownloadManager
     @Inject lateinit var downloadPreferences: DownloadPreferences
+    @Inject lateinit var dynamicPlaylistWorkScheduler: DynamicPlaylistWorkScheduler
     
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -36,6 +38,7 @@ class AnimeOngakuApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        dynamicPlaylistWorkScheduler.schedule()
         preCacheManager.start()
         
         // Silent restore on app startup

@@ -20,7 +20,8 @@ interface KitsuApi {
         @Path("id") userId: String,
         @Query("filter[status]") status: String = "current,completed",
         @Query("include") include: String = "anime",
-        @Query("fields[anime]") fields: String = "canonicalTitle,titles,abbreviatedTitles,posterImage,coverImage",
+        @Query("fields[anime]") fields: String = "canonicalTitle,titles,abbreviatedTitles,posterImage,coverImage,subtype,startDate,endDate,episodeCount,ageRating,averageRating,slug",
+        @Query("fields[libraryEntries]") entryFields: String = "status,updatedAt,ratingTwenty,anime",
         @Query("sort") sort: String = "-updatedAt",
         @Query("page[limit]") limit: Int = 500,
         @Query("page[offset]") offset: Int = 0
@@ -30,8 +31,8 @@ interface KitsuApi {
     suspend fun getLibraryEntriesAllStatuses(
         @Path("id") userId: String,
         @Query("include") include: String = "anime",
-        @Query("fields[anime]") fields: String = "canonicalTitle,titles,abbreviatedTitles,posterImage,coverImage",
-        @Query("fields[libraryEntries]") entryFields: String = "status,updatedAt,anime",
+        @Query("fields[anime]") fields: String = "canonicalTitle,titles,abbreviatedTitles,posterImage,coverImage,subtype,startDate,endDate,episodeCount,ageRating,averageRating,slug",
+        @Query("fields[libraryEntries]") entryFields: String = "status,updatedAt,ratingTwenty,anime",
         @Query("sort") sort: String = "-updatedAt",
         @Query("page[limit]") limit: Int = 500,
         @Query("page[offset]") offset: Int = 0
@@ -42,7 +43,7 @@ interface KitsuApi {
         @Path("id") userId: String,
         @Query("filter[status]") status: String,
         @Query("include") include: String = "anime",
-        @Query("fields[anime]") fields: String = "canonicalTitle,titles,abbreviatedTitles,posterImage,coverImage",
+        @Query("fields[anime]") fields: String = "canonicalTitle,titles,abbreviatedTitles,posterImage,coverImage,subtype,startDate,endDate,episodeCount,ageRating,averageRating,slug",
         @Query("sort") sort: String = "-updatedAt",
         @Query("page[limit]") limit: Int = 500,
         @Query("page[offset]") offset: Int = 0
@@ -51,14 +52,14 @@ interface KitsuApi {
     @GET("anime")
     suspend fun getAnimeByIds(
         @Query("filter[id]") ids: String,
-        @Query("fields[anime]") fields: String = "canonicalTitle,titles,abbreviatedTitles,posterImage,coverImage",
+        @Query("fields[anime]") fields: String = "canonicalTitle,titles,abbreviatedTitles,posterImage,coverImage,subtype,startDate,endDate,episodeCount,ageRating,averageRating,slug",
         @Query("page[limit]") limit: Int = 20
     ): KitsuAnimeResponse
 
     @GET("anime")
     suspend fun searchAnime(
         @Query("filter[text]") query: String,
-        @Query("fields[anime]") fields: String = "canonicalTitle,titles,abbreviatedTitles,posterImage,coverImage",
+        @Query("fields[anime]") fields: String = "canonicalTitle,titles,abbreviatedTitles,posterImage,coverImage,subtype,startDate,endDate,episodeCount,ageRating,averageRating,slug",
         @Query("page[limit]") limit: Int = 5
     ): KitsuAnimeResponse
 
@@ -69,4 +70,13 @@ interface KitsuApi {
         @Query("fields[anime]") fields: String = "canonicalTitle,titles",
         @Query("page[limit]") limit: Int = 20
     ): KitsuAnimeWithMappingsResponse
+
+    @GET("anime")
+    suspend fun getAnimeWithCategories(
+        @Query("filter[id]") ids: String,
+        @Query("include") include: String = "categories",
+        @Query("fields[anime]") animeFields: String = "canonicalTitle,slug",
+        @Query("fields[categories]") categoryFields: String = "slug,title",
+        @Query("page[limit]") limit: Int = 20
+    ): KitsuAnimeWithCategoriesResponse
 }

@@ -99,6 +99,7 @@ fun LibraryScreen(
     onPlayTheme: () -> Unit,
     onOpenAnime: (String) -> Unit = {},
     onOpenArtist: (String) -> Unit = {},
+    onNewSmartPlaylist: () -> Unit = {},
     initialTab: String? = null,
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
@@ -268,12 +269,16 @@ fun LibraryScreen(
                                 Spacer(modifier = Modifier.height(MiniPlayerHeight + 26.dp))
                             }
                         }
-                        NewPlaylistPill(
+                        Column(
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
                                 .padding(end = 20.dp, bottom = MiniPlayerHeight + 20.dp),
-                            onClick = { showDialog = true }
-                        )
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalAlignment = Alignment.End
+                        ) {
+                            NewSmartPlaylistPill(onClick = onNewSmartPlaylist)
+                            NewPlaylistPill(onClick = { showDialog = true })
+                        }
                     }
                 }
 
@@ -868,6 +873,24 @@ private fun NewPlaylistPill(
         Icon(imageVector = Icons.Rounded.Add, contentDescription = null, tint = Color.Black)
         Spacer(modifier = Modifier.width(8.dp))
         Text(text = "New playlist", color = Color.Black, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun NewSmartPlaylistPill(
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = modifier
+            .background(Rose500, RoundedCornerShape(24.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(imageVector = Icons.Rounded.AutoAwesome, contentDescription = null, tint = Color.White)
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(text = "New Smart Playlist", color = Color.White, fontWeight = FontWeight.SemiBold)
     }
 }
 

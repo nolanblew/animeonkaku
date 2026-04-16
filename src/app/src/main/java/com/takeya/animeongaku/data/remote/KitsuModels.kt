@@ -39,7 +39,8 @@ data class KitsuLibraryEntry(
 
 data class KitsuLibraryEntryAttributes(
     val status: String? = null,
-    val updatedAt: String? = null
+    val updatedAt: String? = null,
+    val ratingTwenty: Int? = null
 )
 
 data class KitsuRelationships(
@@ -57,12 +58,14 @@ data class KitsuRelationshipData(
 
 data class KitsuAnime(
     val id: String,
+    val type: String? = null,
     val attributes: KitsuAnimeAttributes? = null,
     val relationships: KitsuAnimeRelationships? = null
 )
 
 data class KitsuAnimeRelationships(
-    val mappings: KitsuRelatedListData? = null
+    val mappings: KitsuRelatedListData? = null,
+    val categories: KitsuRelatedListData? = null
 )
 
 data class KitsuRelatedListData(
@@ -75,7 +78,14 @@ data class KitsuAnimeAttributes(
     val titles: Map<String, String>? = null,
     val abbreviatedTitles: List<String>? = null,
     val posterImage: KitsuImageSet? = null,
-    val coverImage: KitsuImageSet? = null
+    val coverImage: KitsuImageSet? = null,
+    val subtype: String? = null,
+    val startDate: String? = null,
+    val endDate: String? = null,
+    val episodeCount: Int? = null,
+    @field:Json(name = "ageRating") val ageRating: String? = null,
+    @field:Json(name = "averageRating") val averageRating: String? = null,
+    val slug: String? = null
 )
 
 data class KitsuAnimeWithMappingsResponse(
@@ -102,4 +112,25 @@ data class KitsuImageSet(
     val medium: String? = null,
     val large: String? = null,
     val original: String? = null
+)
+
+data class KitsuCategory(
+    val id: String,
+    val type: String? = null,
+    val attributes: KitsuCategoryAttributes? = null,
+    val relationships: KitsuCategoryRelationships? = null
+)
+
+data class KitsuCategoryAttributes(
+    val slug: String? = null,
+    val title: String? = null
+)
+
+data class KitsuCategoryRelationships(
+    val anime: KitsuRelatedData? = null
+)
+
+data class KitsuAnimeWithCategoriesResponse(
+    val data: List<KitsuAnime> = emptyList(),
+    val included: List<KitsuCategory> = emptyList()
 )

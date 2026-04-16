@@ -17,5 +17,14 @@ data class AnimeEntity(
     val coverUrlLarge: String? = null,
     val syncedAt: Long,
     val isManuallyAdded: Boolean = false,
-    val watchingStatus: String? = null
+    val watchingStatus: String? = null,
+    val subtype: String? = null,
+    val startDate: String? = null,
+    val endDate: String? = null,
+    val episodeCount: Int? = null,
+    val ageRating: String? = null,
+    val averageRating: Double? = null,
+    val userRating: Double? = null,
+    val libraryUpdatedAt: Long? = null,
+    val slug: String? = null
 )

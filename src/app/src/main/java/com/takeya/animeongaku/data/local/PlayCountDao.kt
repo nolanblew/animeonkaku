@@ -40,4 +40,7 @@ interface PlayCountDao {
 
     @Query("SELECT * FROM play_count WHERE themeId IN (:themeIds)")
     fun observePlayCounts(themeIds: List<Long>): Flow<List<PlayCountEntity>>
+
+    @Query("SELECT * FROM play_count")
+    suspend fun getAllPlayCounts(): List<PlayCountEntity>
 }
