@@ -88,13 +88,16 @@ internal fun upNextCurrentRowListIndex(historyCount: Int): Int =
 fun UpNextSheet(
     npState: NowPlayingState,
     nowPlayingManager: NowPlayingManager,
-    listState: LazyListState,
     isOffline: Boolean = false,
     downloadedThemeIds: Set<Long> = emptySet(),
     dislikedThemeIds: Set<Long> = emptySet(),
     viewModel: PlayerViewModel,
     onDismiss: () -> Unit
 ) {
+    // State is owned by the sheet so every open starts fresh — the first-frame
+    // LaunchedEffect in UpNextContent can deterministically position the now-playing
+    // row at the top before anything is painted.
+    val listState = rememberLazyListState()
     // Measured height of the sheet content — used to compute the dismiss threshold.
     var sheetHeightPx by remember { mutableIntStateOf(0) }
 
@@ -161,9 +164,11 @@ private fun UpNextContent(
     val currentEntry = npState.currentEntry
     val upcoming = npState.upcomingEntries
 
-    // Track whether this is the first render. On first render we skip the scroll animation
-    // because PlayerScreen pre-positions the list — animating would cause a visible jump.
-    var isFirstRender by remember { mutableStateOf(true) }
+    // On first composition, jump to the now-playing row without animation so the user
+    // never sees history first. Subsequent history.size changes animate smoothly below.
+    LaunchedEffect(Unit) {
+        listState.scrollToItem(upNextCurrentRowListIndex(history.size))
+    }
 
     val dragDropState = rememberDragDropState(listState) { fromKey, toKey ->
         val fromQueueId = queueIdFromKey(fromKey)
@@ -199,12 +204,6 @@ private fun UpNextContent(
     val upNextCount = remember(firstSuggestedIdx, upcoming) { if (firstSuggestedIdx == -1) upcoming.size else firstSuggestedIdx }
 
     LaunchedEffect(history.size) {
-        // On first render the list is pre-positioned by PlayerScreen — skip animation to
-        // avoid a visible jump. On subsequent changes (new song plays) animate smoothly.
-        if (isFirstRender) {
-            isFirstRender = false
-            return@LaunchedEffect
-        }
         if (history.isNotEmpty() && dragDropState.draggingItemKey == null) {
             listState.animateScrollToItem(upNextCurrentRowListIndex(history.size))
         }
