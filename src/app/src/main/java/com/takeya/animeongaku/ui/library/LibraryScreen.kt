@@ -1,5 +1,10 @@
 package com.takeya.animeongaku.ui.library
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -127,6 +132,7 @@ fun LibraryScreen(
     }
     val currentTab = LibraryTab.valueOf(selectedTab)
     var showDialog by remember { mutableStateOf(false) }
+    var showCreatePlaylistMenu by remember { mutableStateOf(false) }
     var playlistToRename by remember { mutableStateOf<PlaylistWithCount?>(null) }
     var playlistToDelete by remember { mutableStateOf<PlaylistWithCount?>(null) }
     val animeByThemesId = remember(anime) {
@@ -276,8 +282,41 @@ fun LibraryScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             horizontalAlignment = Alignment.End
                         ) {
-                            NewSmartPlaylistPill(onClick = onNewSmartPlaylist)
-                            NewPlaylistPill(onClick = { showDialog = true })
+                            AnimatedVisibility(
+                                visible = showCreatePlaylistMenu,
+                                enter = fadeIn() + scaleIn(),
+                                exit = fadeOut() + scaleOut()
+                            ) {
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    horizontalAlignment = Alignment.End
+                                ) {
+                                    PlaylistCreationOptionPill(
+                                        label = "Standard Playlist",
+                                        icon = Icons.Rounded.Add,
+                                        backgroundColor = Color.White,
+                                        contentColor = Color.Black,
+                                        onClick = {
+                                            showCreatePlaylistMenu = false
+                                            showDialog = true
+                                        }
+                                    )
+                                    PlaylistCreationOptionPill(
+                                        label = "Smart Playlist",
+                                        icon = Icons.Rounded.AutoAwesome,
+                                        backgroundColor = Rose500,
+                                        contentColor = Color.White,
+                                        onClick = {
+                                            showCreatePlaylistMenu = false
+                                            onNewSmartPlaylist()
+                                        }
+                                    )
+                                }
+                            }
+                            NewPlaylistPill(
+                                expanded = showCreatePlaylistMenu,
+                                onClick = { showCreatePlaylistMenu = !showCreatePlaylistMenu }
+                            )
                         }
                     }
                 }
@@ -861,36 +900,45 @@ private fun ListRow(
 @Composable
 private fun NewPlaylistPill(
     modifier: Modifier = Modifier,
+    expanded: Boolean = false,
     onClick: () -> Unit
 ) {
     Row(
         modifier = modifier
-            .background(Color.White, RoundedCornerShape(24.dp))
+            .background(if (expanded) Mist100 else Color.White, RoundedCornerShape(24.dp))
             .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(imageVector = Icons.Rounded.Add, contentDescription = null, tint = Color.Black)
         Spacer(modifier = Modifier.width(8.dp))
-        Text(text = "New playlist", color = Color.Black, fontWeight = FontWeight.SemiBold)
+        Text(
+            text = if (expanded) "Close playlist menu" else "New playlist",
+            color = Color.Black,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }
 
 @Composable
-private fun NewSmartPlaylistPill(
+private fun PlaylistCreationOptionPill(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    backgroundColor: Color,
+    contentColor: Color,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     Row(
         modifier = modifier
-            .background(Rose500, RoundedCornerShape(24.dp))
+            .background(backgroundColor, RoundedCornerShape(24.dp))
             .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(imageVector = Icons.Rounded.AutoAwesome, contentDescription = null, tint = Color.White)
+        Icon(imageVector = icon, contentDescription = null, tint = contentColor)
         Spacer(modifier = Modifier.width(8.dp))
-        Text(text = "New Smart Playlist", color = Color.White, fontWeight = FontWeight.SemiBold)
+        Text(text = label, color = contentColor, fontWeight = FontWeight.SemiBold)
     }
 }
 

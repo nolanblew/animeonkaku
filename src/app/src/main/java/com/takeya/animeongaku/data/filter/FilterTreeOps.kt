@@ -19,26 +19,26 @@ fun FilterNode.replaceAt(path: NodePath, replacement: FilterNode): FilterNode {
     }
 }
 
-/** Insert [child] into the operator node at [parentPath]. */
-fun FilterNode.insertAt(parentPath: NodePath, child: FilterNode): FilterNode {
+/** Insert [nodeToInsert] into the operator node at [parentPath]. */
+fun FilterNode.insertAt(parentPath: NodePath, nodeToInsert: FilterNode): FilterNode {
     if (parentPath.isEmpty()) {
         return when (this) {
-            is FilterNode.And -> FilterNode.And(children + child)
-            is FilterNode.Or -> FilterNode.Or(children + child)
+            is FilterNode.And -> FilterNode.And(children + nodeToInsert)
+            is FilterNode.Or -> FilterNode.Or(children + nodeToInsert)
             is FilterNode.Not -> this // Not takes only one child
-            else -> FilterNode.And(listOf(this, child))
+            else -> FilterNode.And(listOf(this, nodeToInsert))
         }
     }
     val idx = parentPath.first()
     val rest = parentPath.drop(1)
     return when (this) {
         is FilterNode.And -> FilterNode.And(children.mapIndexed { i, c ->
-            if (i == idx) c.insertAt(rest, child) else c
+            if (i == idx) c.insertAt(rest, nodeToInsert) else c
         })
         is FilterNode.Or -> FilterNode.Or(children.mapIndexed { i, c ->
-            if (i == idx) c.insertAt(rest, child) else c
+            if (i == idx) c.insertAt(rest, nodeToInsert) else c
         })
-        is FilterNode.Not -> FilterNode.Not(child.insertAt(rest, child))
+        is FilterNode.Not -> if (idx == 0) FilterNode.Not(child.insertAt(rest, nodeToInsert)) else this
         else -> this
     }
 }

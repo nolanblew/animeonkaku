@@ -202,6 +202,8 @@ class SyncManager @Inject constructor(
             tokenStore.saveLastStatusSyncAt(System.currentTimeMillis())
         }
 
+        backfillMissingGenres()
+
         if (entries.isEmpty() && !isFirstSync) {
             autoPlaylistManager.refreshAutoPlaylistsSuspend()
             dynamicPlaylistManager.refreshAllAutoSuspend()
@@ -261,24 +263,7 @@ class SyncManager @Inject constructor(
         }
         animeDao.upsertAll(animeEntities)
 
-        // Fetch and persist genre cross-refs in background
-        try {
-            val kitsuIds = entries.map { it.id }
-            val categoryData = userRepository.getAnimeCategoryData(kitsuIds)
-            if (categoryData.isNotEmpty()) {
-                val genres = categoryData.values.flatten().distinctBy { it.slug }.map { g ->
-                    GenreEntity(slug = g.slug, displayName = g.displayName, source = g.source)
-                }
-                genreDao.upsertGenres(genres)
-                val crossRefs = categoryData.flatMap { (kitsuId, genres) ->
-                    genres.map { g -> AnimeGenreCrossRef(kitsuId = kitsuId, slug = g.slug) }
-                }
-                genreDao.upsertCrossRefs(crossRefs)
-                Log.d(TAG, "Persisted ${genres.size} genres and ${crossRefs.size} cross-refs")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to fetch/persist genre data", e)
-        }
+        backfillMissingGenres()
 
         checkPause()
 
@@ -617,6 +602,56 @@ class SyncManager @Inject constructor(
         }
 
         return toDelete.size
+    }
+
+    private suspend fun backfillMissingGenres() {
+        try {
+            val libraryKitsuIds = animeDao.getAllKitsuIds()
+                .filter { it.isNotBlank() }
+                .distinct()
+            if (libraryKitsuIds.isEmpty()) return
+
+            val kitsuIdsWithGenres = genreDao.getAllCrossRefs()
+                .mapTo(mutableSetOf()) { it.kitsuId }
+            val kitsuIdsMissingGenres = libraryKitsuIds.filter { it !in kitsuIdsWithGenres }
+            if (kitsuIdsMissingGenres.isEmpty()) return
+
+            val categoryData = userRepository.getAnimeCategoryData(kitsuIdsMissingGenres)
+            if (categoryData.isEmpty()) {
+                Log.d(TAG, "Genre backfill found no category data for ${kitsuIdsMissingGenres.size} anime")
+                return
+            }
+
+            val genres = categoryData.values
+                .flatten()
+                .distinctBy { it.slug }
+                .map { genre ->
+                    GenreEntity(
+                        slug = genre.slug,
+                        displayName = genre.displayName,
+                        source = genre.source
+                    )
+                }
+            val crossRefs = categoryData.flatMap { (kitsuId, genresForAnime) ->
+                genresForAnime.map { genre ->
+                    AnimeGenreCrossRef(kitsuId = kitsuId, slug = genre.slug)
+                }
+            }
+
+            if (genres.isNotEmpty()) {
+                genreDao.upsertGenres(genres)
+            }
+            if (crossRefs.isNotEmpty()) {
+                genreDao.upsertCrossRefs(crossRefs)
+            }
+
+            Log.d(
+                TAG,
+                "Backfilled ${genres.size} genres and ${crossRefs.size} cross-refs for ${kitsuIdsMissingGenres.size} anime"
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to backfill genre data", e)
+        }
     }
 
     private suspend fun updateKitsuPlaylist() {
