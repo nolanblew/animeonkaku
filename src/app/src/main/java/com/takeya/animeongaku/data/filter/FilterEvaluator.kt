@@ -27,13 +27,17 @@ class FilterEvaluator @Inject constructor(
         private const val TAG = "FilterEvaluator"
     }
 
-    /** Returns ordered list of themeIds matching the filter. */
-    suspend fun evaluate(filter: FilterNode): List<Long> = withContext(Dispatchers.IO) {
+    /** Returns ordered list of themeIds matching the filter, using the provided sort spec. */
+    suspend fun evaluate(
+        filter: FilterNode,
+        sort: SortSpec = SortSpec.DEFAULT
+    ): List<Long> = withContext(Dispatchers.IO) {
         val start = System.currentTimeMillis()
         val ctx = loadContext()
+        val comparator = buildComparator(sort, ctx)
         val result = ctx.themes
             .filter { theme -> matches(filter, theme, ctx) }
-            .sortedWith(defaultOrder(ctx))
+            .sortedWith(comparator)
             .map { it.id }
         Log.d(TAG, "Evaluated filter in ${System.currentTimeMillis() - start}ms -> ${result.size} tracks")
         result
@@ -155,28 +159,8 @@ class FilterEvaluator @Inject constructor(
         }
     }
 
-    private fun defaultOrder(ctx: EvaluationContext): Comparator<ThemeEntity> =
-        Comparator { a, b ->
-            val animeA = a.animeId?.let { ctx.animeByThemesId[it] }
-            val animeB = b.animeId?.let { ctx.animeByThemesId[it] }
-            val titleCmp = (animeA?.title ?: "").compareTo(animeB?.title ?: "", ignoreCase = true)
-            if (titleCmp != 0) return@Comparator titleCmp
-            val typeRankA = themeTypeRank(a.themeType)
-            val typeRankB = themeTypeRank(b.themeType)
-            if (typeRankA != typeRankB) return@Comparator typeRankA - typeRankB
-            // Compare sequence numbers parsed from themeType string
-            val seqA = a.themeType?.filter { it.isDigit() }?.toIntOrNull() ?: 0
-            val seqB = b.themeType?.filter { it.isDigit() }?.toIntOrNull() ?: 0
-            seqA - seqB
-        }
-
-    private fun themeTypeRank(themeType: String?): Int = when {
-        themeType == null -> 4
-        themeType.uppercase().startsWith("OP") -> 0
-        themeType.uppercase().startsWith("IN") -> 1
-        themeType.uppercase().startsWith("ED") -> 3
-        else -> 2
-    }
+    private fun buildComparator(sort: SortSpec, ctx: EvaluationContext): Comparator<ThemeEntity> =
+        buildThemeComparator(sort, ctx)
 
     private fun monthToSeason(month: Int): Season? = when (month) {
         1, 2, 3 -> Season.WINTER

@@ -4,6 +4,7 @@ import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
 import com.takeya.animeongaku.data.filter.FilterEvaluator
 import com.takeya.animeongaku.data.filter.FilterNode
+import com.takeya.animeongaku.data.filter.SortSpec
 import com.takeya.animeongaku.data.local.DynamicPlaylistSpecDao
 import com.takeya.animeongaku.data.local.DynamicPlaylistSpecEntity
 import com.takeya.animeongaku.data.local.PlaylistDao
@@ -30,6 +31,10 @@ class DynamicPlaylistRepository @Inject constructor(
         moshi.adapter(FilterNode::class.java)
     }
 
+    private val sortAdapter: JsonAdapter<SortSpec> by lazy {
+        moshi.adapter(SortSpec::class.java)
+    }
+
     private fun serializeFilter(filter: FilterNode): String {
         return filterAdapter.toJson(filter)
     }
@@ -38,12 +43,23 @@ class DynamicPlaylistRepository @Inject constructor(
         return filterAdapter.fromJson(filterJson)
     }
 
+    private fun serializeSort(sort: SortSpec): String = sortAdapter.toJson(sort)
+
+    /** Decode a stored sort spec, falling back to [SortSpec.DEFAULT] on null or parse failure. */
+    private fun deserializeSortOrDefault(sortJson: String?): SortSpec {
+        if (sortJson == null) return SortSpec.DEFAULT
+        return runCatching { sortAdapter.fromJson(sortJson) }
+            .getOrNull()
+            ?: SortSpec.DEFAULT
+    }
+
     /** Create a new dynamic playlist. Returns the new playlist ID. */
     suspend fun createDynamic(
         name: String,
         filter: FilterNode,
         mode: String,
-        createdMode: String
+        createdMode: String,
+        sort: SortSpec = SortSpec.DEFAULT
     ): Long = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val id = playlistDao.insertPlaylist(
@@ -62,17 +78,26 @@ class DynamicPlaylistRepository @Inject constructor(
                 createdMode = createdMode,
                 lastEvaluatedAt = 0L,
                 lastResultCount = 0,
-                schemaVersion = 1
+                schemaVersion = 1,
+                sortJson = serializeSort(sort)
             )
         )
         refreshOne(id)
         id
     }
 
-    /** Update the filter on an existing dynamic playlist (re-evaluates immediately). */
-    suspend fun updateDynamic(playlistId: Long, filter: FilterNode) = withContext(Dispatchers.IO) {
+    /** Update the filter (and optionally sort) on an existing dynamic playlist. Re-evaluates immediately. */
+    suspend fun updateDynamic(
+        playlistId: Long,
+        filter: FilterNode,
+        sort: SortSpec? = null
+    ) = withContext(Dispatchers.IO) {
         val existing = specDao.getById(playlistId) ?: return@withContext
-        specDao.upsert(existing.copy(filterJson = serializeFilter(filter)))
+        val updated = existing.copy(
+            filterJson = serializeFilter(filter),
+            sortJson = sort?.let(::serializeSort) ?: existing.sortJson
+        )
+        specDao.upsert(updated)
         refreshOne(playlistId)
     }
 
@@ -87,7 +112,8 @@ class DynamicPlaylistRepository @Inject constructor(
         val filter = runCatching { deserializeFilter(spec.filterJson) }
             .getOrElse { return@withContext }
             ?: return@withContext
-        val themeIds = evaluator.evaluate(filter)
+        val sort = deserializeSortOrDefault(spec.sortJson)
+        val themeIds = evaluator.evaluate(filter, sort)
         playlistDao.deletePlaylistEntries(playlistId)
         val entries = themeIds.mapIndexed { index, themeId ->
             PlaylistEntryEntity(
@@ -104,15 +130,23 @@ class DynamicPlaylistRepository @Inject constructor(
     fun observeSpec(playlistId: Long): Flow<DynamicPlaylistSpecEntity?> =
         specDao.observeById(playlistId)
 
+    /** Decode a persisted spec's sort spec, falling back to the default. */
+    fun decodeSort(entity: DynamicPlaylistSpecEntity): SortSpec =
+        deserializeSortOrDefault(entity.sortJson)
+
     /** Count how many themes match the filter (for live preview). */
     suspend fun previewCount(filter: FilterNode): Int = withContext(Dispatchers.IO) {
         evaluator.count(filter)
     }
 
-    /** Get up to [limit] tracks matching the filter (for live preview). */
-    suspend fun previewTracks(filter: FilterNode, limit: Int = 20): List<PlaylistTrack> =
+    /** Get up to [limit] tracks matching the filter, ordered by [sort] (for live preview). */
+    suspend fun previewTracks(
+        filter: FilterNode,
+        sort: SortSpec = SortSpec.DEFAULT,
+        limit: Int = 20
+    ): List<PlaylistTrack> =
         withContext(Dispatchers.IO) {
-            val themeIds = evaluator.evaluate(filter).take(limit)
+            val themeIds = evaluator.evaluate(filter, sort).take(limit)
             if (themeIds.isEmpty()) return@withContext emptyList()
             val themes = themeDao.getByIds(themeIds)
             val themeById = themes.associateBy { it.id }
