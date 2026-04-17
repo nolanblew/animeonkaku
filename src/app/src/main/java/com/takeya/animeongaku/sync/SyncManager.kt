@@ -170,13 +170,33 @@ class SyncManager @Inject constructor(
                 var statusUpdated = 0
                 recentlyChanged.forEach { entry ->
                     val existing = animeDao.getByKitsuId(entry.id)
-                    if (existing != null && existing.watchingStatus != entry.watchingStatus) {
-                        animeDao.upsertAll(listOf(existing.copy(watchingStatus = entry.watchingStatus)))
-                        statusUpdated++
+                    if (existing != null) {
+                        val updated = existing.copy(
+                            watchingStatus = entry.watchingStatus ?: existing.watchingStatus,
+                            userRating = entry.userRating ?: existing.userRating,
+                            libraryUpdatedAt = entry.libraryUpdatedAt ?: existing.libraryUpdatedAt,
+                            title = entry.title ?: existing.title,
+                            titleEn = entry.titleEn ?: existing.titleEn,
+                            titleRomaji = entry.titleRomaji ?: existing.titleRomaji,
+                            titleJa = entry.titleJa ?: existing.titleJa,
+                            thumbnailUrl = entry.posterUrl ?: existing.thumbnailUrl,
+                            coverUrl = entry.coverUrl ?: existing.coverUrl,
+                            subtype = entry.subtype ?: existing.subtype,
+                            startDate = entry.startDate ?: existing.startDate,
+                            endDate = entry.endDate ?: existing.endDate,
+                            episodeCount = entry.episodeCount ?: existing.episodeCount,
+                            ageRating = entry.ageRating ?: existing.ageRating,
+                            averageRating = entry.averageRating ?: existing.averageRating,
+                            slug = entry.slug ?: existing.slug
+                        )
+                        if (updated != existing) {
+                            animeDao.upsertAll(listOf(updated))
+                            statusUpdated++
+                        }
                     }
                 }
                 if (statusUpdated > 0) {
-                    Log.d(TAG, "Updated $statusUpdated watching statuses during sync")
+                    Log.d(TAG, "Updated $statusUpdated library rows during sync")
                 }
             }
             tokenStore.saveLastStatusSyncAt(System.currentTimeMillis())

@@ -75,7 +75,7 @@ interface KitsuApi {
     suspend fun getAnimeWithCategories(
         @Query("filter[id]") ids: String,
         @Query("include") include: String = "categories",
-        @Query("fields[anime]") animeFields: String = "canonicalTitle,slug",
+        @Query("fields[anime]") animeFields: String = "canonicalTitle,slug,categories",
         @Query("fields[categories]") categoryFields: String = "slug,title",
         @Query("page[limit]") limit: Int = 20
     ): KitsuAnimeWithCategoriesResponse

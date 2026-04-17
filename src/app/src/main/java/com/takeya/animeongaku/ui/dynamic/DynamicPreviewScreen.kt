@@ -53,6 +53,7 @@ import com.takeya.animeongaku.ui.theme.Ink800
 import com.takeya.animeongaku.ui.theme.Ink900
 import com.takeya.animeongaku.ui.theme.Mist100
 import com.takeya.animeongaku.ui.theme.Mist200
+import com.takeya.animeongaku.ui.player.MiniPlayerHeight
 import com.takeya.animeongaku.ui.theme.Rose500
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -170,7 +171,7 @@ fun DynamicPreviewScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(MiniPlayerHeight + 32.dp))
         }
     }
 }

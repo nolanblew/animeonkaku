@@ -80,6 +80,7 @@ import com.takeya.animeongaku.ui.theme.Ink800
 import com.takeya.animeongaku.ui.theme.Ink900
 import com.takeya.animeongaku.ui.theme.Mist100
 import com.takeya.animeongaku.ui.theme.Mist200
+import com.takeya.animeongaku.ui.player.MiniPlayerHeight
 import com.takeya.animeongaku.ui.theme.Rose500
 import com.takeya.animeongaku.ui.theme.Sky500
 
@@ -114,7 +115,7 @@ fun DynamicAdvancedBuilderScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .padding(bottom = 100.dp)
+                .padding(bottom = MiniPlayerHeight + 116.dp)
         ) {
             item {
                 TopBarRow(
@@ -153,6 +154,7 @@ fun DynamicAdvancedBuilderScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
+                .padding(bottom = MiniPlayerHeight)
                 .navigationBarsPadding()
         )
     }
@@ -592,22 +594,13 @@ private fun GenreEditor(
     var matchAll by remember { mutableStateOf(node.matchAll) }
 
     EditorTitle("Genres")
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        genres.forEach { genre ->
-            val isSelected = genre.slug in selected
-            FilterChip(
-                selected = isSelected,
-                onClick = {
-                    selected = if (isSelected) selected - genre.slug else selected + genre.slug
-                },
-                label = { Text(genre.displayName, color = if (isSelected) Ink900 else Mist200) },
-                colors = advancedChipColors(isSelected)
-            )
+    GenreSelectionContent(
+        genres = genres,
+        selectedSlugs = selected,
+        onToggleGenre = { slug ->
+            selected = if (slug in selected) selected - slug else selected + slug
         }
-    }
+    )
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(false to "Match ANY", true to "Match ALL").forEach { (all, label) ->
             val isSelected = matchAll == all
@@ -723,7 +716,7 @@ private fun SubtypeEditor(
     var selected by remember { mutableStateOf(node.subtypes.toSet()) }
     EditorTitle("Media Type")
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf("tv", "movie", "ova", "ona", "special").forEach { type ->
+        SimpleSubtypeOptions.forEach { type ->
             val isSelected = type in selected
             FilterChip(
                 selected = isSelected,
@@ -771,13 +764,7 @@ private fun WatchingStatusEditor(
     var selected by remember { mutableStateOf(node.statuses.toSet()) }
     EditorTitle("Watching Status")
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf(
-            "current" to "Current",
-            "completed" to "Completed",
-            "on_hold" to "On Hold",
-            "dropped" to "Dropped",
-            "planned" to "Plan to Watch"
-        ).forEach { (status, label) ->
+        SimpleWatchingStatusOptions.forEach { (status, label) ->
             val isSelected = status in selected
             FilterChip(
                 selected = isSelected,
@@ -820,7 +807,7 @@ private fun ThemeTypeEditor(
     var selected by remember { mutableStateOf(node.types.toSet()) }
     EditorTitle("Theme Type")
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf("OP" to "Opening", "ED" to "Ending", "IN" to "Insert").forEach { (type, label) ->
+        SimpleThemeTypeOptions.forEach { (type, label) ->
             val isSelected = type in selected
             FilterChip(
                 selected = isSelected,

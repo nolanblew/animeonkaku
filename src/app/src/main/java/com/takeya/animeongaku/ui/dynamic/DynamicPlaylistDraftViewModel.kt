@@ -10,6 +10,8 @@ import com.takeya.animeongaku.data.local.GenreDao
 import com.takeya.animeongaku.data.local.PlaylistTrack
 import com.takeya.animeongaku.data.repository.DynamicPlaylistRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.LocalDate
+import java.time.ZoneOffset
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
@@ -82,13 +84,10 @@ data class PreviewResult(val count: Int, val tracks: List<PlaylistTrack>)
 // Compile helper
 // ---------------------------------------------------------------------------
 
-private fun DynamicDraftState.compileToFilterNode(): FilterNode {
-    if (createdMode == "ADVANCED") return advancedTree
-
+internal fun compileSimpleFilter(simpleState: SimpleSectionsState): FilterNode {
     val children = mutableListOf<FilterNode>()
-    val s = simple
+    val s = simpleState
 
-    // Time
     when (s.timeMode) {
         TimeMode.ANY -> { /* no filter */ }
         TimeMode.LAST_6_MONTHS -> {
@@ -101,9 +100,27 @@ private fun DynamicDraftState.compileToFilterNode(): FilterNode {
                 children += FilterNode.LibraryUpdatedWithin(730L * 24 * 60 * 60 * 1000)
             }
         }
-        TimeMode.BEFORE_2000 -> children += FilterNode.AiredBefore(2000)
-        TimeMode.Y2000_2010 -> children += FilterNode.AiredBetween(2000, 2010)
-        TimeMode.Y2010_2020 -> children += FilterNode.AiredBetween(2010, 2020)
+        TimeMode.BEFORE_2000 -> {
+            if (s.timeDimension == TimeDimension.WATCHED) {
+                watchedYearFilter(endYearInclusive = 1999)?.let(children::add)
+            } else {
+                children += FilterNode.AiredBefore(2000)
+            }
+        }
+        TimeMode.Y2000_2010 -> {
+            if (s.timeDimension == TimeDimension.WATCHED) {
+                watchedYearFilter(startYearInclusive = 2000, endYearInclusive = 2010)?.let(children::add)
+            } else {
+                children += FilterNode.AiredBetween(2000, 2010)
+            }
+        }
+        TimeMode.Y2010_2020 -> {
+            if (s.timeDimension == TimeDimension.WATCHED) {
+                watchedYearFilter(startYearInclusive = 2010, endYearInclusive = 2020)?.let(children::add)
+            } else {
+                children += FilterNode.AiredBetween(2010, 2020)
+            }
+        }
         TimeMode.CUSTOM -> {
             val range = s.customRange
             if (range != null) {
@@ -112,23 +129,25 @@ private fun DynamicDraftState.compileToFilterNode(): FilterNode {
                         children += FilterNode.LibraryUpdatedWithin(range.durationMillis)
                     range is CustomRange.Exact && s.timeDimension == TimeDimension.AIRED ->
                         children += FilterNode.AiredBetween(range.startYear, range.endYear)
-                    else -> { /* no-op for unsupported combo */ }
+                    range is CustomRange.Exact && s.timeDimension == TimeDimension.WATCHED -> {
+                        val startYear = minOf(range.startYear, range.endYear)
+                        val endYear = maxOf(range.startYear, range.endYear)
+                        watchedYearFilter(startYear, endYear)?.let(children::add)
+                    }
+                    else -> { /* no filter */ }
                 }
             }
         }
     }
 
-    // Seasons
     if (s.seasons.isNotEmpty()) {
         children += FilterNode.SeasonIn(s.seasons.toList())
     }
 
-    // Genres
     if (s.genreSlugs.isNotEmpty()) {
         children += FilterNode.GenreIn(s.genreSlugs.toList(), s.genreMatchAll)
     }
 
-    // Rating
     s.minRating?.let { min ->
         children += if (s.ratingSource == RatingSource.MINE) {
             FilterNode.UserRatingGte(min)
@@ -137,22 +156,56 @@ private fun DynamicDraftState.compileToFilterNode(): FilterNode {
         }
     }
 
-    // Subtypes
     if (s.subtypes.isNotEmpty()) {
         children += FilterNode.SubtypeIn(s.subtypes.toList())
     }
 
-    // Watching statuses
     if (s.watchingStatuses.isNotEmpty()) {
         children += FilterNode.WatchingStatusIn(s.watchingStatuses.toList())
     }
 
-    // Theme types
     if (s.themeTypes.isNotEmpty()) {
         children += FilterNode.ThemeTypeIn(s.themeTypes.toList())
     }
 
     return FilterNode.And(children)
+}
+
+private fun DynamicDraftState.compileToFilterNode(): FilterNode {
+    if (createdMode == "ADVANCED") return advancedTree
+    return compileSimpleFilter(simple)
+}
+
+private fun watchedYearFilter(
+    startYearInclusive: Int? = null,
+    endYearInclusive: Int? = null
+): FilterNode? {
+    val clauses = mutableListOf<FilterNode>()
+
+    startYearInclusive?.let { startYear ->
+        clauses += FilterNode.LibraryUpdatedAfter(startOfYearUtcMillis(startYear) - 1L)
+    } ?: run {
+        clauses += FilterNode.LibraryUpdatedAfter(0L)
+    }
+
+    endYearInclusive?.let { endYear ->
+        clauses += FilterNode.Not(
+            FilterNode.LibraryUpdatedAfter(startOfYearUtcMillis(endYear + 1) - 1L)
+        )
+    }
+
+    return when (clauses.size) {
+        0 -> null
+        1 -> clauses.single()
+        else -> FilterNode.And(clauses)
+    }
+}
+
+private fun startOfYearUtcMillis(year: Int): Long {
+    return LocalDate.of(year, 1, 1)
+        .atStartOfDay()
+        .toInstant(ZoneOffset.UTC)
+        .toEpochMilli()
 }
 
 // ---------------------------------------------------------------------------
