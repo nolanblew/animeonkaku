@@ -1,7 +1,13 @@
 package com.takeya.animeongaku.media
 
 /**
- * Minimal set of operations to transform one ordered list of media IDs into another.
+ * Bounded-size sequence of operations that transforms one ordered list of media IDs into another.
+ *
+ * The algorithm produces a single op for the supported fast paths — append/prepend/insert,
+ * single-range remove, single-element replace, and single-item relocation — and falls back
+ * to `[Remove, Add]` for any other delta (including permutations that a smarter algorithm
+ * could express as several moves). This keeps the per-mutation IPC count to at most two
+ * batched Media3 calls without attempting LCS-style minimization.
  *
  * Indices are expressed against the list state **after** prior ops in the returned list
  * have been applied, so the caller applies them in order.

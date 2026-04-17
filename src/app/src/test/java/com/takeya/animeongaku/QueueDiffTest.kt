@@ -205,20 +205,23 @@ class QueueDiffTest {
     @Test
     fun `large shuffle with fixed head produces two ops`() {
         // Simulates toggleShuffle: current item pinned at index 0, everything else permuted.
-        val old = ids("cur") + (1..100).map { "t$it" }
-        val new = ids("cur") + (1..100).map { "t$it" }.shuffled()
+        // Seeded Random makes the shuffle deterministic; the seed is chosen so that the
+        // permutation differs from the original at both ends, but the test still tolerates
+        // whatever incidental common prefix/suffix the diff strips.
+        val tail = (1..100).map { "t$it" }
+        val old = ids("cur") + tail
+        val new = ids("cur") + tail.shuffled(kotlin.random.Random(seed = 42))
         val ops = computeQueueOps(old, new)
-        if (old == new) {
-            // Extremely unlikely but guard against flakiness
-            assertTrue(ops.isEmpty())
-        } else {
-            assertEquals(2, ops.size)
-            assertTrue(ops[0] is QueueOp.Remove)
-            assertTrue(ops[1] is QueueOp.Add)
-            val remove = ops[0] as QueueOp.Remove
-            assertEquals(1, remove.fromIndex)
-            assertEquals(101, remove.toIndex)
-        }
+
+        // With the fixed head "cur" still at index 0, the diff must be a single Remove+Add
+        // pair over the shuffled region.
+        assertEquals(2, ops.size)
+        assertTrue(ops[0] is QueueOp.Remove)
+        assertTrue(ops[1] is QueueOp.Add)
+        val remove = ops[0] as QueueOp.Remove
+        assertTrue("Remove.fromIndex should be >= 1 (prefix 'cur')", remove.fromIndex >= 1)
+        assertTrue("Remove.toIndex should be <= 101", remove.toIndex <= 101)
+        assertTrue("Remove range should be non-empty", remove.fromIndex < remove.toIndex)
         assertEquals(new, apply(old, ops))
     }
 

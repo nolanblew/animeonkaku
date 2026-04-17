@@ -41,6 +41,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.drop
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -94,10 +96,13 @@ fun UpNextSheet(
     viewModel: PlayerViewModel,
     onDismiss: () -> Unit
 ) {
-    // State is owned by the sheet so every open starts fresh — the first-frame
-    // LaunchedEffect in UpNextContent can deterministically position the now-playing
-    // row at the top before anything is painted.
-    val listState = rememberLazyListState()
+    // State is owned by the sheet so every open starts fresh. Seeding
+    // initialFirstVisibleItemIndex here (rather than scrolling after layout) means the very
+    // first frame is already pinned to the now-playing row — no animation, no race with the
+    // history-size effect inside UpNextContent.
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = upNextCurrentRowListIndex(npState.historyEntries.size)
+    )
     // Measured height of the sheet content — used to compute the dismiss threshold.
     var sheetHeightPx by remember { mutableIntStateOf(0) }
 
@@ -164,12 +169,6 @@ private fun UpNextContent(
     val currentEntry = npState.currentEntry
     val upcoming = npState.upcomingEntries
 
-    // On first composition, jump to the now-playing row without animation so the user
-    // never sees history first. Subsequent history.size changes animate smoothly below.
-    LaunchedEffect(Unit) {
-        listState.scrollToItem(upNextCurrentRowListIndex(history.size))
-    }
-
     val dragDropState = rememberDragDropState(listState) { fromKey, toKey ->
         val fromQueueId = queueIdFromKey(fromKey)
         val toQueueId = queueIdFromKey(toKey)
@@ -203,10 +202,17 @@ private fun UpNextContent(
     val firstSuggestedIdx = remember(upcoming, suggestedSet) { upcoming.indexOfFirst { it.queueId in suggestedSet } }
     val upNextCount = remember(firstSuggestedIdx, upcoming) { if (firstSuggestedIdx == -1) upcoming.size else firstSuggestedIdx }
 
-    LaunchedEffect(history.size) {
-        if (history.isNotEmpty() && dragDropState.draggingItemKey == null) {
-            listState.animateScrollToItem(upNextCurrentRowListIndex(history.size))
-        }
+    // Skip the first emission (handled by initialFirstVisibleItemIndex above) and only
+    // animate on subsequent history changes — i.e., a new track starting while the sheet is
+    // already open.
+    LaunchedEffect(listState) {
+        snapshotFlow { history.size }
+            .drop(1)
+            .collect { size ->
+                if (size > 0 && dragDropState.draggingItemKey == null) {
+                    listState.animateScrollToItem(upNextCurrentRowListIndex(size))
+                }
+            }
     }
 
     Column(
