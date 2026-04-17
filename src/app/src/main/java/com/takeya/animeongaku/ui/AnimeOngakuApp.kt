@@ -70,6 +70,8 @@ import com.takeya.animeongaku.updater.AppUpdateEvent
 import com.takeya.animeongaku.updater.AppUpdateViewModel
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.navigation
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.flow.collect
 
 private object Routes {
@@ -84,6 +86,17 @@ private object Routes {
     const val Settings = "settings"
     const val DownloadManager = "downloadManager"
 }
+
+private const val ShowLibraryBadgesArg = "showLibraryBadges"
+
+internal fun animeDetailRoute(kitsuId: String, showLibraryBadges: Boolean = true): String =
+    "${Routes.AnimeDetail}/$kitsuId?$ShowLibraryBadgesArg=$showLibraryBadges"
+
+internal fun artistDetailRoute(artistName: String, showLibraryBadges: Boolean = true): String =
+    "${Routes.ArtistDetail}/${encodeRouteSegment(artistName)}?$ShowLibraryBadgesArg=$showLibraryBadges"
+
+private fun encodeRouteSegment(value: String): String =
+    URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20")
 
 private data class BottomNavItem(
     val route: String,
@@ -238,10 +251,10 @@ fun AnimeOngakuApp(
                             navController.navigate("${Routes.Playlist}/$playlistId")
                         },
                         onOpenAnime = { kitsuId ->
-                            navController.navigate("${Routes.AnimeDetail}/$kitsuId")
+                            navController.navigate(animeDetailRoute(kitsuId))
                         },
                         onOpenArtist = { artistName ->
-                            navController.navigate("${Routes.ArtistDetail}/${android.net.Uri.encode(artistName)}")
+                            navController.navigate(artistDetailRoute(artistName))
                         },
                         onNavigateToLibrary = { tab ->
                             navController.navigate("${Routes.Library}?tab=$tab") {
@@ -256,10 +269,10 @@ fun AnimeOngakuApp(
                     SearchScreen(
                         onPlayTheme = { isPlayerExpanded = true },
                         onOpenAnime = { kitsuId ->
-                            navController.navigate("${Routes.AnimeDetail}/$kitsuId")
+                            navController.navigate(animeDetailRoute(kitsuId))
                         },
                         onOpenArtist = { artistName ->
-                            navController.navigate("${Routes.ArtistDetail}/${android.net.Uri.encode(artistName)}")
+                            navController.navigate(artistDetailRoute(artistName))
                         },
                         onOpenPlaylist = { playlistId ->
                             navController.navigate("${Routes.Playlist}/$playlistId")
@@ -279,10 +292,10 @@ fun AnimeOngakuApp(
                         },
                         onPlayTheme = { isPlayerExpanded = true },
                         onOpenAnime = { kitsuId ->
-                            navController.navigate("${Routes.AnimeDetail}/$kitsuId")
+                            navController.navigate(animeDetailRoute(kitsuId, showLibraryBadges = false))
                         },
                         onOpenArtist = { artistName ->
-                            navController.navigate("${Routes.ArtistDetail}/${android.net.Uri.encode(artistName)}")
+                            navController.navigate(artistDetailRoute(artistName, showLibraryBadges = false))
                         },
                         onNewSmartPlaylist = { navController.navigate("dynamic_flow") },
                         initialTab = tab
@@ -297,10 +310,10 @@ fun AnimeOngakuApp(
                         onBack = { navController.popBackStack() },
                         onPlayTheme = { isPlayerExpanded = true },
                         onOpenAnime = { kitsuId ->
-                            navController.navigate("${Routes.AnimeDetail}/$kitsuId")
+                            navController.navigate(animeDetailRoute(kitsuId, showLibraryBadges = false))
                         },
                         onOpenArtist = { artistName ->
-                            navController.navigate("${Routes.ArtistDetail}/${android.net.Uri.encode(artistName)}")
+                            navController.navigate(artistDetailRoute(artistName, showLibraryBadges = false))
                         },
                         onEditFilters = { editPlaylistId ->
                             navController.navigate("dynamic/edit/$editPlaylistId")
@@ -308,23 +321,33 @@ fun AnimeOngakuApp(
                     )
                 }
                 composable(
-                    route = "${Routes.AnimeDetail}/{kitsuId}",
-                    arguments = listOf(navArgument("kitsuId") { type = NavType.StringType })
+                    route = "${Routes.AnimeDetail}/{kitsuId}?$ShowLibraryBadgesArg={$ShowLibraryBadgesArg}",
+                    arguments = listOf(
+                        navArgument("kitsuId") { type = NavType.StringType },
+                        navArgument(ShowLibraryBadgesArg) { type = NavType.BoolType; defaultValue = true }
+                    )
                 ) {
+                    val showLibraryBadges = it.arguments?.getBoolean(ShowLibraryBadgesArg) ?: true
                     AnimeDetailScreen(
                         onBack = { navController.popBackStack() },
                         onPlayTheme = { isPlayerExpanded = true },
-                        onOpenArtist = { artistName -> navController.navigate("${Routes.ArtistDetail}/${android.net.Uri.encode(artistName)}") }
+                        onOpenArtist = { artistName -> navController.navigate(artistDetailRoute(artistName, showLibraryBadges)) },
+                        showLibraryBadges = showLibraryBadges
                     )
                 }
                 composable(
-                    route = "${Routes.ArtistDetail}/{artistName}",
-                    arguments = listOf(navArgument("artistName") { type = NavType.StringType })
+                    route = "${Routes.ArtistDetail}/{artistName}?$ShowLibraryBadgesArg={$ShowLibraryBadgesArg}",
+                    arguments = listOf(
+                        navArgument("artistName") { type = NavType.StringType },
+                        navArgument(ShowLibraryBadgesArg) { type = NavType.BoolType; defaultValue = true }
+                    )
                 ) {
+                    val showLibraryBadges = it.arguments?.getBoolean(ShowLibraryBadgesArg) ?: true
                     ArtistDetailScreen(
                         onBack = { navController.popBackStack() },
                         onPlayTheme = { isPlayerExpanded = true },
-                        onOpenAnime = { kitsuId -> navController.navigate("${Routes.AnimeDetail}/$kitsuId") }
+                        onOpenAnime = { kitsuId -> navController.navigate(animeDetailRoute(kitsuId, showLibraryBadges)) },
+                        showLibraryBadges = showLibraryBadges
                     )
                 }
                 composable(Routes.Import) {
@@ -431,11 +454,11 @@ fun AnimeOngakuApp(
             bottomPadding = scaffoldPadding.calculateBottomPadding(),
             onOpenAnime = { kitsuId ->
                 isPlayerExpanded = false
-                navController.navigate("${Routes.AnimeDetail}/$kitsuId")
+                navController.navigate(animeDetailRoute(kitsuId))
             },
             onOpenArtist = { artistName ->
                 isPlayerExpanded = false
-                navController.navigate("${Routes.ArtistDetail}/${android.net.Uri.encode(artistName)}")
+                navController.navigate(artistDetailRoute(artistName))
             }
         )
     }
