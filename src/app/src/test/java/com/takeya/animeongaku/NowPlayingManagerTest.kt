@@ -41,7 +41,7 @@ class NowPlayingManagerTest {
         manager = NowPlayingManager()
     }
 
-    // â”€â”€â”€ play() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ─── play() ─────────────────────────────────────────────────────────
 
     @Test
     fun `play with empty list does nothing`() {
@@ -123,7 +123,7 @@ class NowPlayingManagerTest {
         assertEquals(2L, manager.currentTheme?.id)
     }
 
-    // â”€â”€â”€ playNext() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ─── playNext() ─────────────────────────────────────────────────────
 
     @Test
     fun `playNext inserts song immediately after current`() {
@@ -205,7 +205,7 @@ class NowPlayingManagerTest {
         assertEquals(listOf(10L, 11L, 12L), state.nowPlaying.drop(1).take(3).map { it.id })
     }
 
-    // â”€â”€â”€ addToQueue() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ─── addToQueue() ───────────────────────────────────────────────────
 
     @Test
     fun `addToQueue appends song to end of queue`() {
@@ -403,7 +403,7 @@ class NowPlayingManagerTest {
         assertTrue(state.currentEntry?.queueId != originalEntryId)
     }
 
-    // â”€â”€â”€ onTrackChangedByThemeId() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ─── onTrackChangedByThemeId() ────────────────────────────────────────
 
     @Test
     fun `onTrackChanged updates currentIndex`() {
@@ -457,7 +457,7 @@ class NowPlayingManagerTest {
         assertEquals(listOf(1L, 2L), state.history.map { it.id })
     }
 
-    // â”€â”€â”€ skipTo() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ─── skipTo() ─────────────────────────────────────────────────────────
 
     @Test
     fun `skipTo moves currentIndex and marks isFullReload`() {
@@ -491,7 +491,7 @@ class NowPlayingManagerTest {
         assertEquals(v + 1, manager.state.value.queueVersion)
     }
 
-    // â”€â”€â”€ rewindTo() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ─── rewindTo() ───────────────────────────────────────────────────────
 
     @Test
     fun `rewindTo restores track from history to front of queue`() {
@@ -528,7 +528,7 @@ class NowPlayingManagerTest {
         assertTrue(ids.contains(3L))
     }
 
-    // â”€â”€â”€ toggleShuffle() / setShuffled() â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ─── toggleShuffle() / setShuffled() ──────────────────────────────────
 
     @Test
     fun `toggleShuffle shuffles upcoming tracks and sets isShuffled`() {
@@ -588,7 +588,7 @@ class NowPlayingManagerTest {
         assertFalse(manager.state.value.isFullReload)
     }
 
-    // â”€â”€â”€ upcomingTracks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ─── upcomingTracks ───────────────────────────────────────────────────
 
     @Test
     fun `upcomingTracks returns tracks after currentIndex`() {
@@ -602,7 +602,7 @@ class NowPlayingManagerTest {
         assertTrue(manager.state.value.upcomingTracks.isEmpty())
     }
 
-    // â”€â”€â”€ isActive / currentTheme â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ─── isActive / currentTheme ──────────────────────────────────────────
 
     @Test
     fun `isActive is false before any play call`() {
