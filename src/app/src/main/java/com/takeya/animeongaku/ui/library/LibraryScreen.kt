@@ -1,6 +1,7 @@
 package com.takeya.animeongaku.ui.library
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -30,6 +31,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Settings
@@ -109,6 +111,7 @@ fun LibraryScreen(
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val dynamicPlaylistIds by viewModel.dynamicPlaylistIds.collectAsStateWithLifecycle()
     val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
     val anime by viewModel.anime.collectAsStateWithLifecycle()
     val themes by viewModel.themes.collectAsStateWithLifecycle()
@@ -241,6 +244,11 @@ fun LibraryScreen(
                             } else {
                                 items(playlists, key = { it.playlist.id }) { item ->
                                     val isAuto = item.playlist.isAuto
+                                    val isDynamic = item.playlist.id in dynamicPlaylistIds
+                                    val isProtectedAuto = isAuto && !isDynamic
+                                    val canRename = !isAuto
+                                    val canDelete = !isProtectedAuto
+                                    val hasMenuOptions = canRename || canDelete
                                     val coverUrls = playlistCoverUrls[item.playlist.id] ?: emptyList()
                                     var showMenu by remember { mutableStateOf(false) }
                                     Box {
@@ -251,21 +259,25 @@ fun LibraryScreen(
                                             gradientSeed = item.playlist.gradientSeed,
                                             isAutoPlaylist = isAuto,
                                             onClick = { onOpenPlaylist(item.playlist.id) },
-                                            onLongClick = if (isAuto) null else { { showMenu = true } }
+                                            onLongClick = if (hasMenuOptions) { { showMenu = true } } else null
                                         )
-                                        if (!isAuto) {
+                                        if (hasMenuOptions) {
                                             androidx.compose.material3.DropdownMenu(
                                                 expanded = showMenu,
                                                 onDismissRequest = { showMenu = false }
                                             ) {
-                                                androidx.compose.material3.DropdownMenuItem(
-                                                    text = { Text("Rename") },
-                                                    onClick = { showMenu = false; playlistToRename = item }
-                                                )
-                                                androidx.compose.material3.DropdownMenuItem(
-                                                    text = { Text("Delete") },
-                                                    onClick = { showMenu = false; playlistToDelete = item }
-                                                )
+                                                if (canRename) {
+                                                    androidx.compose.material3.DropdownMenuItem(
+                                                        text = { Text("Rename") },
+                                                        onClick = { showMenu = false; playlistToRename = item }
+                                                    )
+                                                }
+                                                if (canDelete) {
+                                                    androidx.compose.material3.DropdownMenuItem(
+                                                        text = { Text("Delete") },
+                                                        onClick = { showMenu = false; playlistToDelete = item }
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -910,7 +922,13 @@ private fun NewPlaylistPill(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(imageVector = Icons.Rounded.Add, contentDescription = null, tint = Color.Black)
+        Crossfade(targetState = expanded, label = "new-playlist-pill-icon") { isExpanded ->
+            Icon(
+                imageVector = if (isExpanded) Icons.Rounded.Remove else Icons.Rounded.Add,
+                contentDescription = null,
+                tint = Color.Black
+            )
+        }
         Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = if (expanded) "Close playlist menu" else "New playlist",

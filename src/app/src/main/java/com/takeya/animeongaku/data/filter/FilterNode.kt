@@ -38,11 +38,23 @@ sealed interface FilterNode {
     /** Theme artist name matches (case-insensitive) any in the list */
     data class ArtistIn(val artistNames: List<String>) : FilterNode
     /** Theme is in the user's liked list */
-    data object Liked : FilterNode
+    class Liked : FilterNode {
+        override fun equals(other: Any?): Boolean = other is Liked
+        override fun hashCode(): Int = javaClass.hashCode()
+        override fun toString(): String = "Liked"
+    }
     /** Theme is in the user's disliked list */
-    data object Disliked : FilterNode
+    class Disliked : FilterNode {
+        override fun equals(other: Any?): Boolean = other is Disliked
+        override fun hashCode(): Int = javaClass.hashCode()
+        override fun toString(): String = "Disliked"
+    }
     /** Theme has been downloaded to local storage */
-    data object Downloaded : FilterNode
+    class Downloaded : FilterNode {
+        override fun equals(other: Any?): Boolean = other is Downloaded
+        override fun hashCode(): Int = javaClass.hashCode()
+        override fun toString(): String = "Downloaded"
+    }
     /** Theme has been played at least min times */
     data class PlayCountGte(val min: Int) : FilterNode
     /** Theme was last played after this timestamp */

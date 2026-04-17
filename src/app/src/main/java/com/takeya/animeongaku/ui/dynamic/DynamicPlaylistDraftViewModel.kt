@@ -80,6 +80,11 @@ data class DynamicDraftState(
 
 data class PreviewResult(val count: Int, val tracks: List<PlaylistTrack>)
 
+sealed interface SavePlaylistResult {
+    data class Success(val playlistId: Long) : SavePlaylistResult
+    data class Failure(val message: String) : SavePlaylistResult
+}
+
 // ---------------------------------------------------------------------------
 // Compile helper
 // ---------------------------------------------------------------------------
@@ -176,6 +181,38 @@ private fun DynamicDraftState.compileToFilterNode(): FilterNode {
     return compileSimpleFilter(simple)
 }
 
+internal fun validateDraft(state: DynamicDraftState): String? {
+    if (state.createdMode != "ADVANCED") return null
+    return validateAdvancedTree(state.advancedTree, isRoot = true)
+}
+
+private fun validateAdvancedTree(node: FilterNode, isRoot: Boolean): String? {
+    return when (node) {
+        is FilterNode.And -> validateGroup(node.children, isRoot)
+        is FilterNode.Or -> validateGroup(node.children, isRoot)
+        is FilterNode.Not -> validateAdvancedTree(node.child, isRoot = false)
+        else -> null
+    }
+}
+
+private fun validateGroup(children: List<FilterNode>, isRoot: Boolean): String? {
+    if (children.isEmpty()) {
+        return if (isRoot) {
+            "Add at least one attribute or group before saving."
+        } else {
+            "Remove or fill empty groups before saving."
+        }
+    }
+    return children.firstNotNullOfOrNull { child ->
+        validateAdvancedTree(child, isRoot = false)
+    }
+}
+
+private fun Throwable.toPlaylistSaveMessage(): String {
+    return message?.takeIf { it.isNotBlank() }
+        ?: "Couldn't save this smart playlist. Try removing the last filter change and try again."
+}
+
 private fun watchedYearFilter(
     startYearInclusive: Int? = null,
     endYearInclusive: Int? = null
@@ -223,13 +260,30 @@ class DynamicPlaylistDraftViewModel @Inject constructor(
     private val _state = MutableStateFlow(DynamicDraftState())
     val state: StateFlow<DynamicDraftState> = _state.asStateFlow()
 
+    val validationMessage: StateFlow<String?> = _state
+        .map(::validateDraft)
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = validateDraft(_state.value)
+        )
+
     val previewResult: StateFlow<PreviewResult> = _state
-        .map { it.compileToFilterNode() }
         .debounce(250)
-        .mapLatest { filter ->
-            val count = repository.previewCount(filter)
-            val tracks = repository.previewTracks(filter, 20)
-            PreviewResult(count, tracks)
+        .mapLatest { draft ->
+            val validationError = validateDraft(draft)
+            if (validationError != null) {
+                PreviewResult(0, emptyList())
+            } else {
+                runCatching {
+                    val filter = draft.compileToFilterNode()
+                    val count = repository.previewCount(filter)
+                    val tracks = repository.previewTracks(filter, 20)
+                    PreviewResult(count, tracks)
+                }.getOrElse {
+                    PreviewResult(0, emptyList())
+                }
+            }
         }
         .stateIn(
             scope = viewModelScope,
@@ -334,16 +388,28 @@ class DynamicPlaylistDraftViewModel @Inject constructor(
         _state.update { s -> s.copy(simple = s.simple.copy(customRange = range)) }
     }
 
-    fun savePlaylist(): Flow<Long> = flow {
+    fun savePlaylist(): Flow<SavePlaylistResult> = flow {
         val s = _state.value
+        val validationError = validateDraft(s)
+        if (validationError != null) {
+            emit(SavePlaylistResult.Failure(validationError))
+            return@flow
+        }
         val filter = s.compileToFilterNode()
-        val id = repository.createDynamic(
-            name = s.draftName.ifBlank { "Smart Playlist" },
-            filter = filter,
-            mode = s.saveMode,
-            createdMode = s.createdMode
+        val result = runCatching {
+            repository.createDynamic(
+                name = s.draftName.ifBlank { "Smart Playlist" },
+                filter = filter,
+                mode = s.saveMode,
+                createdMode = s.createdMode
+            )
+        }
+        emit(
+            result.fold(
+                onSuccess = { SavePlaylistResult.Success(it) },
+                onFailure = { SavePlaylistResult.Failure(it.toPlaylistSaveMessage()) }
+            )
         )
-        emit(id)
     }
 
     fun loadForEdit(playlistId: Long) {

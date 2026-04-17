@@ -141,9 +141,9 @@ class FilterEvaluator @Inject constructor(
                     artistName.contains(name, ignoreCase = true)
                 }
             }
-            FilterNode.Liked -> theme.id in ctx.likedThemeIds
-            FilterNode.Disliked -> theme.id in ctx.dislikedThemeIds
-            FilterNode.Downloaded -> theme.id in ctx.downloadedThemeIds
+            is FilterNode.Liked -> theme.id in ctx.likedThemeIds
+            is FilterNode.Disliked -> theme.id in ctx.dislikedThemeIds
+            is FilterNode.Downloaded -> theme.id in ctx.downloadedThemeIds
             is FilterNode.PlayCountGte -> {
                 val count = ctx.playCountByTheme[theme.id] ?: 0
                 count >= node.min

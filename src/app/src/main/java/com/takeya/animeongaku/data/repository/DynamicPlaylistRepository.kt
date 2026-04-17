@@ -30,6 +30,14 @@ class DynamicPlaylistRepository @Inject constructor(
         moshi.adapter(FilterNode::class.java)
     }
 
+    private fun serializeFilter(filter: FilterNode): String {
+        return filterAdapter.toJson(filter)
+    }
+
+    private fun deserializeFilter(filterJson: String): FilterNode? {
+        return filterAdapter.fromJson(filterJson)
+    }
+
     /** Create a new dynamic playlist. Returns the new playlist ID. */
     suspend fun createDynamic(
         name: String,
@@ -49,7 +57,7 @@ class DynamicPlaylistRepository @Inject constructor(
         specDao.upsert(
             DynamicPlaylistSpecEntity(
                 playlistId = id,
-                filterJson = filterAdapter.toJson(filter),
+                filterJson = serializeFilter(filter),
                 mode = mode,
                 createdMode = createdMode,
                 lastEvaluatedAt = 0L,
@@ -64,7 +72,7 @@ class DynamicPlaylistRepository @Inject constructor(
     /** Update the filter on an existing dynamic playlist (re-evaluates immediately). */
     suspend fun updateDynamic(playlistId: Long, filter: FilterNode) = withContext(Dispatchers.IO) {
         val existing = specDao.getById(playlistId) ?: return@withContext
-        specDao.upsert(existing.copy(filterJson = filterAdapter.toJson(filter)))
+        specDao.upsert(existing.copy(filterJson = serializeFilter(filter)))
         refreshOne(playlistId)
     }
 
@@ -76,7 +84,9 @@ class DynamicPlaylistRepository @Inject constructor(
     /** Re-evaluate and re-populate the playlist entries for one spec. */
     suspend fun refreshOne(playlistId: Long) = withContext(Dispatchers.IO) {
         val spec = specDao.getById(playlistId) ?: return@withContext
-        val filter = filterAdapter.fromJson(spec.filterJson) ?: return@withContext
+        val filter = runCatching { deserializeFilter(spec.filterJson) }
+            .getOrElse { return@withContext }
+            ?: return@withContext
         val themeIds = evaluator.evaluate(filter)
         playlistDao.deletePlaylistEntries(playlistId)
         val entries = themeIds.mapIndexed { index, themeId ->

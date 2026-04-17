@@ -55,8 +55,7 @@ import com.takeya.animeongaku.ui.theme.Mist100
 import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.player.MiniPlayerHeight
 import com.takeya.animeongaku.ui.theme.Rose500
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,8 +66,10 @@ fun DynamicPreviewScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val preview by viewModel.previewResult.collectAsStateWithLifecycle()
+    val validationMessage by viewModel.validationMessage.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
     var isSaving by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<String?>(null) }
 
     val backgroundBrush = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
 
@@ -116,10 +117,18 @@ fun DynamicPreviewScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
+            val currentError = validationMessage ?: saveError
+            if (currentError != null) {
+                ValidationMessageCard(message = currentError)
+            }
+
             // Playlist name field
             OutlinedTextField(
                 value = state.draftName,
-                onValueChange = viewModel::setDraftName,
+                onValueChange = {
+                    saveError = null
+                    viewModel.setDraftName(it)
+                },
                 label = { Text("Playlist name", color = Mist200) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -144,12 +153,22 @@ fun DynamicPreviewScreen(
             Button(
                 onClick = {
                     if (isSaving) return@Button
-                    isSaving = true
-                    viewModel.savePlaylist()
-                        .onEach { newId -> onPlaylistCreated(newId) }
-                        .launchIn(coroutineScope)
+                    saveError = null
+                    coroutineScope.launch {
+                        isSaving = true
+                        viewModel.savePlaylist().collect { result ->
+                            when (result) {
+                                is SavePlaylistResult.Success -> onPlaylistCreated(result.playlistId)
+                                is SavePlaylistResult.Failure -> {
+                                    saveError = result.message
+                                    isSaving = false
+                                }
+                            }
+                        }
+                        isSaving = false
+                    }
                 },
-                enabled = !isSaving,
+                enabled = !isSaving && validationMessage == null,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Rose500,
@@ -173,6 +192,24 @@ fun DynamicPreviewScreen(
 
             Spacer(modifier = Modifier.height(MiniPlayerHeight + 32.dp))
         }
+    }
+}
+
+@Composable
+private fun ValidationMessageCard(message: String) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF2A151A)),
+        shape = RoundedCornerShape(14.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Rose500.copy(alpha = 0.45f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            text = message,
+            color = Mist100,
+            fontSize = 13.sp,
+            lineHeight = 18.sp,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
+        )
     }
 }
 

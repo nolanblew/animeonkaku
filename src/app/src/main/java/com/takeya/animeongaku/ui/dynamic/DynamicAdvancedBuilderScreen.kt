@@ -97,6 +97,7 @@ fun DynamicAdvancedBuilderScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val preview by viewModel.previewResult.collectAsStateWithLifecycle()
+    val validationMessage by viewModel.validationMessage.collectAsStateWithLifecycle()
 
     val tree = state.advancedTree
     val scrollState = rememberScrollState()
@@ -133,8 +134,8 @@ fun DynamicAdvancedBuilderScreen(
                     .weight(1f)
                     .fillMaxWidth()
                     .verticalScroll(scrollState)
-                    .padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = MiniPlayerHeight + 128.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp)
+                    .padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = MiniPlayerHeight + 128.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 LogicCanvasNode(
                     node = tree,
@@ -151,8 +152,11 @@ fun DynamicAdvancedBuilderScreen(
                     onChangeGroupOp = { path, useAnd ->
                         viewModel.setAdvancedTree(changeGroupOperator(tree, path, useAnd))
                     },
-                    onToggleNegation = { path ->
-                        viewModel.setAdvancedTree(toggleNegation(tree, path))
+                    onAddNegation = { path ->
+                        viewModel.setAdvancedTree(wrapWithNegation(tree, path))
+                    },
+                    onRemoveNegation = { path ->
+                        viewModel.setAdvancedTree(removeNegationLayer(tree, path))
                     },
                     onAddAttribute = { attributeTargetPath = it },
                     onAddGroup = { groupTargetPath = it }
@@ -175,7 +179,9 @@ fun DynamicAdvancedBuilderScreen(
 
         AdvancedResultsBar(
             count = preview.count,
+            validationMessage = validationMessage,
             onSaveLogic = onNavigateToPreview,
+            enabled = validationMessage == null,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
@@ -276,7 +282,9 @@ private fun AdvancedTopBar(onBack: () -> Unit) {
 @Composable
 private fun AdvancedResultsBar(
     count: Int,
+    validationMessage: String?,
     onSaveLogic: () -> Unit,
+    enabled: Boolean,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -300,19 +308,26 @@ private fun AdvancedResultsBar(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "Previewing $count matching tracks",
+                    text = if (validationMessage == null) {
+                        "Previewing $count matching tracks"
+                    } else {
+                        validationMessage
+                    },
                     color = Mist100,
-                    fontSize = 18.sp,
+                    fontSize = if (validationMessage == null) 18.sp else 14.sp,
                     fontWeight = FontWeight.Bold,
-                    lineHeight = 24.sp
+                    lineHeight = if (validationMessage == null) 24.sp else 20.sp
                 )
             }
             Button(
                 onClick = onSaveLogic,
+                enabled = enabled,
                 shape = RoundedCornerShape(24.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color(0xFF181820),
-                    contentColor = Rose500
+                    contentColor = Rose500,
+                    disabledContainerColor = Color(0xFF181820),
+                    disabledContentColor = Mist200.copy(alpha = 0.7f)
                 )
             ) {
                 Text("Save Logic", fontWeight = FontWeight.SemiBold)
@@ -330,7 +345,8 @@ private fun LogicCanvasNode(
     onEditLeaf: (NodePath, FilterNode) -> Unit,
     onDeleteNode: (NodePath) -> Unit,
     onChangeGroupOp: (NodePath, Boolean) -> Unit,
-    onToggleNegation: (NodePath) -> Unit,
+    onAddNegation: (NodePath) -> Unit,
+    onRemoveNegation: (NodePath) -> Unit,
     onAddAttribute: (NodePath) -> Unit,
     onAddGroup: (NodePath) -> Unit
 ) {
@@ -345,7 +361,8 @@ private fun LogicCanvasNode(
             onEditLeaf = onEditLeaf,
             onDeleteNode = onDeleteNode,
             onChangeGroupOp = onChangeGroupOp,
-            onToggleNegation = onToggleNegation,
+            onAddNegation = onAddNegation,
+            onRemoveNegation = onRemoveNegation,
             onAddAttribute = onAddAttribute,
             onAddGroup = onAddGroup
         )
@@ -359,7 +376,8 @@ private fun LogicCanvasNode(
             onEditLeaf = onEditLeaf,
             onDeleteNode = onDeleteNode,
             onChangeGroupOp = onChangeGroupOp,
-            onToggleNegation = onToggleNegation,
+            onAddNegation = onAddNegation,
+            onRemoveNegation = onRemoveNegation,
             onAddAttribute = onAddAttribute,
             onAddGroup = onAddGroup
         )
@@ -371,16 +389,17 @@ private fun LogicCanvasNode(
             onEditLeaf = onEditLeaf,
             onDeleteNode = onDeleteNode,
             onChangeGroupOp = onChangeGroupOp,
-            onToggleNegation = onToggleNegation,
+            onAddNegation = onAddNegation,
+            onRemoveNegation = onRemoveNegation,
             onAddAttribute = onAddAttribute,
             onAddGroup = onAddGroup
         )
         else -> AttributeNodeCard(
             node = node,
             path = path,
-            depth = depth,
             onEdit = { onEditLeaf(path, node) },
-            onDelete = { onDeleteNode(path) }
+            onDelete = { onDeleteNode(path) },
+            onWrapInNot = { onAddNegation(path) }
         )
     }
 }
@@ -397,7 +416,8 @@ private fun LogicGroupCard(
     onEditLeaf: (NodePath, FilterNode) -> Unit,
     onDeleteNode: (NodePath) -> Unit,
     onChangeGroupOp: (NodePath, Boolean) -> Unit,
-    onToggleNegation: (NodePath) -> Unit,
+    onAddNegation: (NodePath) -> Unit,
+    onRemoveNegation: (NodePath) -> Unit,
     onAddAttribute: (NodePath) -> Unit,
     onAddGroup: (NodePath) -> Unit
 ) {
@@ -410,16 +430,16 @@ private fun LogicGroupCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = (depth * 8).dp),
+            .padding(start = (depth * 4).dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF17171D)),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(20.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.30f))
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             GroupHeaderRow(
                 path = path,
@@ -427,7 +447,7 @@ private fun LogicGroupCard(
                 groupLabel = groupLabel,
                 accent = accent,
                 onChangeGroupOp = onChangeGroupOp,
-                onToggleNegation = onToggleNegation,
+                onAddNegation = onAddNegation,
                 onDeleteNode = onDeleteNode
             )
 
@@ -439,31 +459,24 @@ private fun LogicGroupCard(
                     lineHeight = 18.sp
                 )
             } else {
-                Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     children.forEachIndexed { index, child ->
                         if (index > 0) {
                             GateConnector(label = groupLabel, accent = accent)
                         }
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            Box(
-                                modifier = Modifier
-                                    .align(if ((index + depth) % 2 == 0) Alignment.CenterStart else Alignment.CenterEnd)
-                                    .widthIn(max = 300.dp)
-                            ) {
-                                LogicCanvasNode(
-                                    node = child,
-                                    path = path + index,
-                                    depth = depth + 1,
-                                    isRoot = false,
-                                    onEditLeaf = onEditLeaf,
-                                    onDeleteNode = onDeleteNode,
-                                    onChangeGroupOp = onChangeGroupOp,
-                                    onToggleNegation = onToggleNegation,
-                                    onAddAttribute = onAddAttribute,
-                                    onAddGroup = onAddGroup
-                                )
-                            }
-                        }
+                        LogicCanvasNode(
+                            node = child,
+                            path = path + index,
+                            depth = depth + 1,
+                            isRoot = false,
+                            onEditLeaf = onEditLeaf,
+                            onDeleteNode = onDeleteNode,
+                            onChangeGroupOp = onChangeGroupOp,
+                            onAddNegation = onAddNegation,
+                            onRemoveNegation = onRemoveNegation,
+                            onAddAttribute = onAddAttribute,
+                            onAddGroup = onAddGroup
+                        )
                     }
                 }
             }
@@ -473,12 +486,12 @@ private fun LogicGroupCard(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 CanvasActionChip(
-                    label = "Add Attribute",
+                    label = "Attribute",
                     tint = accent,
                     onClick = { onAddAttribute(path) }
                 )
                 CanvasActionChip(
-                    label = "Add Group",
+                    label = "Group",
                     tint = Sky500,
                     onClick = { onAddGroup(path) }
                 )
@@ -487,6 +500,7 @@ private fun LogicGroupCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NegatedGroupCard(
     node: FilterNode.Not,
@@ -496,23 +510,24 @@ private fun NegatedGroupCard(
     onEditLeaf: (NodePath, FilterNode) -> Unit,
     onDeleteNode: (NodePath) -> Unit,
     onChangeGroupOp: (NodePath, Boolean) -> Unit,
-    onToggleNegation: (NodePath) -> Unit,
+    onAddNegation: (NodePath) -> Unit,
+    onRemoveNegation: (NodePath) -> Unit,
     onAddAttribute: (NodePath) -> Unit,
     onAddGroup: (NodePath) -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = (depth * 8).dp),
+            .padding(start = (depth * 4).dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF17171D)),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(20.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF8B1E2B))
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -520,7 +535,7 @@ private fun NegatedGroupCard(
             ) {
                 GateBadge(label = "NOT", accent = Color(0xFFD6404D))
                 Spacer(modifier = Modifier.weight(1f))
-                TextButton(onClick = { onToggleNegation(path) }) {
+                TextButton(onClick = { onRemoveNegation(path) }) {
                     Icon(
                         Icons.Rounded.RemoveCircleOutline,
                         contentDescription = null,
@@ -541,6 +556,16 @@ private fun NegatedGroupCard(
                 color = Mist200,
                 fontSize = 13.sp
             )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                CanvasActionChip(
+                    label = "Add NOT",
+                    tint = Color(0xFFD6404D),
+                    onClick = { onAddNegation(path) }
+                )
+            }
             LogicCanvasNode(
                 node = node.child,
                 path = path + 0,
@@ -549,7 +574,8 @@ private fun NegatedGroupCard(
                 onEditLeaf = onEditLeaf,
                 onDeleteNode = onDeleteNode,
                 onChangeGroupOp = onChangeGroupOp,
-                onToggleNegation = onToggleNegation,
+                onAddNegation = onAddNegation,
+                onRemoveNegation = onRemoveNegation,
                 onAddAttribute = onAddAttribute,
                 onAddGroup = onAddGroup
             )
@@ -565,7 +591,7 @@ private fun GroupHeaderRow(
     groupLabel: String,
     accent: Color,
     onChangeGroupOp: (NodePath, Boolean) -> Unit,
-    onToggleNegation: (NodePath) -> Unit,
+    onAddNegation: (NodePath) -> Unit,
     onDeleteNode: (NodePath) -> Unit
 ) {
     Row(
@@ -597,9 +623,9 @@ private fun GroupHeaderRow(
                     onClick = { onChangeGroupOp(path, false) }
                 )
                 CanvasActionChip(
-                    label = "NOT",
+                    label = "Add NOT",
                     tint = Color(0xFFD6404D),
-                    onClick = { onToggleNegation(path) }
+                    onClick = { onAddNegation(path) }
                 )
             }
         }
@@ -623,9 +649,9 @@ private fun GateConnector(label: String, accent: Color) {
 private fun AttributeNodeCard(
     node: FilterNode,
     path: NodePath,
-    depth: Int,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onWrapInNot: () -> Unit
 ) {
     val accent = attributeAccent(node)
     Card(
@@ -633,14 +659,14 @@ private fun AttributeNodeCard(
             .fillMaxWidth()
             .clickable(onClick = onEdit),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A20)),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(18.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.28f))
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -657,14 +683,14 @@ private fun AttributeNodeCard(
                     Text(
                         text = attributeTitle(node),
                         color = Mist100,
-                        fontSize = 18.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
                         text = attributeValue(node),
                         color = Mist200,
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -687,6 +713,17 @@ private fun AttributeNodeCard(
                             onClick = {
                                 menuExpanded = false
                                 onEdit()
+                            },
+                            colors = MenuDefaults.itemColors()
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Add NOT", color = Mist100) },
+                            leadingIcon = {
+                                Icon(Icons.Rounded.RemoveCircleOutline, contentDescription = null, tint = Color(0xFFD6404D))
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                onWrapInNot()
                             },
                             colors = MenuDefaults.itemColors()
                         )
@@ -724,9 +761,9 @@ private fun GateBadge(label: String, accent: Color) {
         Text(
             text = label,
             color = accent,
-            fontSize = 13.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
         )
     }
 }
@@ -750,9 +787,9 @@ private fun GateSelectorChip(
         Text(
             text = label,
             color = if (selected) accent else Mist200,
-            fontSize = 13.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
         )
     }
 }
@@ -772,9 +809,9 @@ private fun CanvasActionChip(
         Text(
             text = label,
             color = tint,
-            fontSize = 13.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
         )
     }
 }
@@ -787,13 +824,14 @@ private fun changeGroupOperator(tree: FilterNode, path: NodePath, useAnd: Boolea
     }
 }
 
-private fun toggleNegation(tree: FilterNode, path: NodePath): FilterNode {
+private fun wrapWithNegation(tree: FilterNode, path: NodePath): FilterNode {
     val node = tree.nodeAt(path) ?: return tree
-    return if (node is FilterNode.Not) {
-        tree.replaceAt(path, node.child)
-    } else {
-        tree.replaceAt(path, FilterNode.Not(node))
-    }
+    return tree.replaceAt(path, FilterNode.Not(node))
+}
+
+private fun removeNegationLayer(tree: FilterNode, path: NodePath): FilterNode {
+    val node = tree.nodeAt(path) as? FilterNode.Not ?: return tree
+    return tree.replaceAt(path, node.child)
 }
 
 private fun attributeTitle(node: FilterNode): String = when (node) {
@@ -810,9 +848,9 @@ private fun attributeTitle(node: FilterNode): String = when (node) {
     is FilterNode.LibraryUpdatedWithin -> "Watched Recently"
     is FilterNode.ThemeTypeIn -> "Theme Type"
     is FilterNode.ArtistIn -> "Artist"
-    FilterNode.Liked -> "Liked"
-    FilterNode.Disliked -> "Disliked"
-    FilterNode.Downloaded -> "Downloaded"
+    is FilterNode.Liked -> "Liked"
+    is FilterNode.Disliked -> "Disliked"
+    is FilterNode.Downloaded -> "Downloaded"
     is FilterNode.PlayCountGte -> "Play Count"
     is FilterNode.PlayedSince -> "Played Since"
     else -> "Filter"
@@ -832,16 +870,16 @@ private fun attributeValue(node: FilterNode): String = when (node) {
     is FilterNode.LibraryUpdatedWithin -> "Within ${node.durationMillis / (24L * 60L * 60L * 1000L)} days"
     is FilterNode.ThemeTypeIn -> node.types.joinToString(", ")
     is FilterNode.ArtistIn -> node.artistNames.joinToString(", ")
-    FilterNode.Liked -> "Only liked tracks"
-    FilterNode.Disliked -> "Only disliked tracks"
-    FilterNode.Downloaded -> "Only downloaded tracks"
+    is FilterNode.Liked -> "Only liked tracks"
+    is FilterNode.Disliked -> "Only disliked tracks"
+    is FilterNode.Downloaded -> "Only downloaded tracks"
     is FilterNode.PlayCountGte -> "${node.min}+ plays"
     is FilterNode.PlayedSince -> formatEpochDate(node.epochMillis)
     else -> ""
 }
 
 private fun attributeAccent(node: FilterNode): Color = when (node) {
-    is FilterNode.GenreIn, is FilterNode.WatchingStatusIn, FilterNode.Liked, FilterNode.Disliked -> Rose500
+    is FilterNode.GenreIn, is FilterNode.WatchingStatusIn, is FilterNode.Liked, is FilterNode.Disliked -> Rose500
     is FilterNode.AiredBefore, is FilterNode.AiredAfter, is FilterNode.AiredBetween,
     is FilterNode.LibraryUpdatedAfter, is FilterNode.LibraryUpdatedWithin, is FilterNode.PlayedSince -> Sky500
     is FilterNode.AverageRatingGte, is FilterNode.UserRatingGte, is FilterNode.PlayCountGte -> Gold400
@@ -877,9 +915,9 @@ private fun AttributeTypePickerSheet(
         Option("Watched After", "Updated in your library after a date", FilterNode.LibraryUpdatedAfter(System.currentTimeMillis()), Sky500),
         Option("Watched Within", "Updated in your library within a time window", FilterNode.LibraryUpdatedWithin(30L * 24L * 60L * 60L * 1000L), Sky500),
         Option("Artist", "Match artist names", FilterNode.ArtistIn(emptyList()), Mist200),
-        Option("Downloaded", "Only locally saved tracks", FilterNode.Downloaded, Mist200),
-        Option("Liked", "Only liked tracks", FilterNode.Liked, Rose500),
-        Option("Disliked", "Only disliked tracks", FilterNode.Disliked, Rose500),
+        Option("Downloaded", "Only locally saved tracks", FilterNode.Downloaded(), Mist200),
+        Option("Liked", "Only liked tracks", FilterNode.Liked(), Rose500),
+        Option("Disliked", "Only disliked tracks", FilterNode.Disliked(), Rose500),
         Option("Play Count", "Minimum number of plays", FilterNode.PlayCountGte(5), Gold400),
         Option("Played Since", "Last played after a date", FilterNode.PlayedSince(System.currentTimeMillis()), Sky500)
     )
@@ -1067,7 +1105,7 @@ private fun LeafEditorSheet(
                     IntegerEditor("Played at least", node.min) { onConfirm(FilterNode.PlayCountGte(it)) }
                 is FilterNode.PlayedSince ->
                     ExactDateEditor("Played since", node.epochMillis) { onConfirm(FilterNode.PlayedSince(it)) }
-                FilterNode.Liked, FilterNode.Disliked, FilterNode.Downloaded ->
+                is FilterNode.Liked, is FilterNode.Disliked, is FilterNode.Downloaded ->
                     NoConfigEditor(node) { onConfirm(node) }
                 else ->
                     NoConfigEditor(node) { onConfirm(node) }
