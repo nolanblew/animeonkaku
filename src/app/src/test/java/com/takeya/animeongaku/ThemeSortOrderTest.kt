@@ -27,7 +27,7 @@ class ThemeSortOrderTest {
     }
 
     @Test
-    fun `interleaved order OP1 ED1 OP2 ED2`() {
+    fun `openings stay grouped before endings`() {
         val input = listOf(
             theme(1, "ED2"),
             theme(2, "OP2"),
@@ -35,7 +35,22 @@ class ThemeSortOrderTest {
             theme(4, "OP1")
         )
         val sorted = sortThemesByType(input)
-        assertEquals(listOf("OP1", "ED1", "OP2", "ED2"), sorted.map { it.themeType })
+        assertEquals(listOf("OP1", "OP2", "ED1", "ED2"), sorted.map { it.themeType })
+    }
+
+    @Test
+    fun `insert and other non-ending themes stay between openings and endings`() {
+        val input = listOf(
+            theme(1, "ED2"),
+            theme(2, "IN2"),
+            theme(3, "OP2"),
+            theme(4, "TM1"),
+            theme(5, "ED1"),
+            theme(6, "OP1"),
+            theme(7, "IN1")
+        )
+        val sorted = sortThemesByType(input)
+        assertEquals(listOf("OP1", "OP2", "IN1", "IN2", "TM1", "ED1", "ED2"), sorted.map { it.themeType })
     }
 
     @Test
@@ -106,7 +121,7 @@ class ThemeSortOrderTest {
         )
         val sorted = sortThemesByType(input)
         assertEquals(
-            listOf("OP1", "ED1", "OP3", "ED3", "OP5", "ED5"),
+            listOf("OP1", "OP3", "OP5", "ED1", "ED3", "ED5"),
             sorted.map { it.themeType }
         )
     }

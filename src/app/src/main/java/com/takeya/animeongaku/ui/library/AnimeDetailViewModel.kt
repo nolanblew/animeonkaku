@@ -36,19 +36,35 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 
+private val themeTypeSequenceRegex = Regex("(\\d+)$")
+
 internal fun sortThemesByType(themes: List<ThemeEntity>): List<ThemeEntity> {
-    val regex = Regex("^(OP|ED)(\\d+)$", RegexOption.IGNORE_CASE)
-    return themes.sortedWith(compareBy<ThemeEntity> { theme ->
-        val match = theme.themeType?.let { regex.find(it) }
-        match?.groupValues?.get(2)?.toIntOrNull() ?: Int.MAX_VALUE
-    }.thenBy { theme ->
-        when {
-            theme.themeType?.startsWith("OP", ignoreCase = true) == true -> 0
-            theme.themeType?.startsWith("ED", ignoreCase = true) == true -> 1
-            else -> 2
-        }
-    }.thenBy { it.title })
+    return themes.sortedWith(
+        compareBy<ThemeEntity>(
+            { themeTypeOrder(it.themeType) },
+            { themeTypeSequence(it.themeType) },
+            { it.themeType?.uppercase() ?: "" },
+            { it.title ?: "" }
+        )
+    )
 }
+
+private fun themeTypeOrder(themeType: String?): Int {
+    val normalized = themeType?.trim()?.uppercase().orEmpty()
+    return when {
+        normalized.startsWith("OP") -> 0
+        normalized.startsWith("IN") -> 1
+        normalized.isBlank() -> 4
+        normalized.startsWith("ED") -> 3
+        else -> 2
+    }
+}
+
+private fun themeTypeSequence(themeType: String?): Int =
+    themeType
+        ?.trim()
+        ?.let { value -> themeTypeSequenceRegex.find(value)?.groupValues?.get(1)?.toIntOrNull() }
+        ?: Int.MAX_VALUE
 
 internal fun entryToThemeEntity(entry: AnimeThemeEntry): ThemeEntity {
     val themeId = entry.themeId.toLongOrNull() ?: abs(entry.themeId.hashCode()).toLong()
