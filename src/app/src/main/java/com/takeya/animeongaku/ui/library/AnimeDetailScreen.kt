@@ -21,10 +21,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
-import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.LibraryAdd
+import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
@@ -72,6 +72,7 @@ fun AnimeDetailScreen(
     onBack: () -> Unit,
     onPlayTheme: () -> Unit,
     onOpenArtist: (String) -> Unit = {},
+    showLibraryBadges: Boolean = true,
     viewModel: AnimeDetailViewModel = hiltViewModel()
 ) {
     val anime by viewModel.anime.collectAsStateWithLifecycle()
@@ -348,7 +349,7 @@ fun AnimeDetailScreen(
                     ThemeRow(
                         theme = theme,
                         coverUrl = coverUrl,
-                        inLibrary = theme.id in libraryThemeIds,
+                        inLibrary = showLibraryBadges && theme.id in libraryThemeIds,
                         isDownloaded = theme.id in downloadedThemeIds,
                         isDownloading = theme.id in downloadingThemeIds,
                         onPlay = {
@@ -435,7 +436,7 @@ private fun ThemeRow(
                 } else if (inLibrary) {
                     Spacer(modifier = Modifier.width(4.dp))
                     Icon(
-                        Icons.Rounded.CheckCircle,
+                        Icons.Rounded.LibraryMusic,
                         contentDescription = "In library",
                         tint = Mist200.copy(alpha = 0.5f),
                         modifier = Modifier.size(14.dp)
