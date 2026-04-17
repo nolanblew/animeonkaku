@@ -92,6 +92,7 @@ import java.time.ZoneId
 @Composable
 fun DynamicAdvancedBuilderScreen(
     onNavigateToPreview: () -> Unit,
+    onNavigateToSort: () -> Unit,
     onBack: () -> Unit,
     viewModel: DynamicPlaylistDraftViewModel = hiltViewModel()
 ) {
@@ -127,6 +128,12 @@ fun DynamicAdvancedBuilderScreen(
                 fontSize = 13.sp,
                 lineHeight = 18.sp,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+            )
+
+            SortSummaryRow(
+                sort = state.sort,
+                onEdit = onNavigateToSort,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
             )
 
             Column(
@@ -1455,3 +1462,84 @@ private fun parseLocalDate(text: String): Long? {
 }
 
 private const val DAY_MS = 24L * 60L * 60L * 1000L
+
+/**
+ * Compact row above the logic canvas that surfaces the current sort order as
+ * pill chips and acts as the entry point to the Sort Order sub-screen.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SortSummaryRow(
+    sort: com.takeya.animeongaku.data.filter.SortSpec,
+    onEdit: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onEdit),
+        color = Color(0xFF17171D),
+        shape = RoundedCornerShape(14.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Sky500.copy(alpha = 0.28f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "SORT ORDER",
+                    color = Sky500,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                if (sort.keys.isEmpty()) {
+                    Text(
+                        text = "Fallback order (title)",
+                        color = Mist100,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                } else {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        sort.keys.forEach { key ->
+                            SortSummaryChip(key = key)
+                        }
+                    }
+                }
+            }
+            Text(
+                text = "Edit",
+                color = Sky500,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 12.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SortSummaryChip(key: com.takeya.animeongaku.data.filter.SortKey) {
+    val arrow = when (key.attribute.valueKind) {
+        com.takeya.animeongaku.data.filter.SortValueKind.RANDOM -> "\u2699" // gear-ish indicator
+        else -> if (key.direction == com.takeya.animeongaku.data.filter.SortDirection.ASC) "\u2191" else "\u2193"
+    }
+    Surface(
+        color = Sky500.copy(alpha = 0.12f),
+        shape = RoundedCornerShape(999.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Sky500.copy(alpha = 0.28f))
+    ) {
+        Text(
+            text = "${attributeLabel(key.attribute)} $arrow",
+            color = Mist100,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+        )
+    }
+}

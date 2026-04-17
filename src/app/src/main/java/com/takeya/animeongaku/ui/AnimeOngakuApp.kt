@@ -51,6 +51,7 @@ import com.takeya.animeongaku.ui.dynamic.DynamicAdvancedBuilderScreen
 import com.takeya.animeongaku.ui.dynamic.DynamicPlaylistDraftViewModel
 import com.takeya.animeongaku.ui.dynamic.DynamicPreviewScreen
 import com.takeya.animeongaku.ui.dynamic.DynamicSimpleCreatorScreen
+import com.takeya.animeongaku.ui.dynamic.DynamicSortBuilderScreen
 import com.takeya.animeongaku.ui.home.HomeScreen
 import com.takeya.animeongaku.ui.library.AnimeDetailScreen
 import com.takeya.animeongaku.ui.library.ArtistDetailScreen
@@ -406,6 +407,16 @@ fun AnimeOngakuApp(
                         }
                         DynamicAdvancedBuilderScreen(
                             onNavigateToPreview = { navController.navigate("dynamic/preview") },
+                            onNavigateToSort = { navController.navigate("dynamic/sort") },
+                            onBack = { navController.popBackStack() },
+                            viewModel = hiltViewModel(parentEntry)
+                        )
+                    }
+                    composable("dynamic/sort") { entry ->
+                        val parentEntry = remember(entry) {
+                            navController.getBackStackEntry("dynamic_flow")
+                        }
+                        DynamicSortBuilderScreen(
                             onBack = { navController.popBackStack() },
                             viewModel = hiltViewModel(parentEntry)
                         )

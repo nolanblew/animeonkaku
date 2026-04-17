@@ -5,6 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.takeya.animeongaku.data.filter.FilterNode
 import com.takeya.animeongaku.data.filter.Season
+import com.takeya.animeongaku.data.filter.SortAttribute
+import com.takeya.animeongaku.data.filter.SortDirection
+import com.takeya.animeongaku.data.filter.SortKey
+import com.takeya.animeongaku.data.filter.SortSpec
 import com.takeya.animeongaku.data.local.GenreEntity
 import com.takeya.animeongaku.data.local.GenreDao
 import com.takeya.animeongaku.data.local.PlaylistTrack
@@ -75,7 +79,8 @@ data class DynamicDraftState(
     val draftName: String = "",
     val saveMode: String = "AUTO",        // "AUTO" | "SNAPSHOT"
     val availableGenres: List<GenreEntity> = emptyList(),
-    val editingPlaylistId: Long? = null
+    val editingPlaylistId: Long? = null,
+    val sort: SortSpec = SortSpec.DEFAULT
 )
 
 data class PreviewResult(val count: Int, val tracks: List<PlaylistTrack>)
@@ -278,7 +283,7 @@ class DynamicPlaylistDraftViewModel @Inject constructor(
                 runCatching {
                     val filter = draft.compileToFilterNode()
                     val count = repository.previewCount(filter)
-                    val tracks = repository.previewTracks(filter, 20)
+                    val tracks = repository.previewTracks(filter, draft.sort, 20)
                     PreviewResult(count, tracks)
                 }.getOrElse {
                     PreviewResult(0, emptyList())
@@ -401,7 +406,8 @@ class DynamicPlaylistDraftViewModel @Inject constructor(
                 name = s.draftName.ifBlank { "Smart Playlist" },
                 filter = filter,
                 mode = s.saveMode,
-                createdMode = s.createdMode
+                createdMode = s.createdMode,
+                sort = s.sort
             )
         }
         emit(
@@ -418,11 +424,13 @@ class DynamicPlaylistDraftViewModel @Inject constructor(
             val spec = repository.observeSpec(playlistId)
             spec.collect { entity ->
                 if (entity != null) {
+                    val storedSort = repository.decodeSort(entity)
                     _state.update { s ->
                         s.copy(
                             saveMode = entity.mode,
                             createdMode = entity.createdMode,
-                            editingPlaylistId = playlistId
+                            editingPlaylistId = playlistId,
+                            sort = storedSort
                         )
                     }
                     return@collect
@@ -435,7 +443,7 @@ class DynamicPlaylistDraftViewModel @Inject constructor(
         val s = _state.value
         val id = s.editingPlaylistId ?: return@flow
         val filter = s.compileToFilterNode()
-        repository.updateDynamic(id, filter)
+        repository.updateDynamic(id, filter, s.sort)
         emit(Unit)
     }
 
@@ -448,5 +456,63 @@ class DynamicPlaylistDraftViewModel @Inject constructor(
 
     fun setAdvancedTree(tree: FilterNode) {
         _state.update { it.copy(advancedTree = tree) }
+    }
+
+    // --- Sort editing ---
+
+    fun setSort(spec: SortSpec) {
+        val clamped = if (spec.keys.size > SortSpec.MAX_KEYS) {
+            SortSpec(spec.keys.take(SortSpec.MAX_KEYS))
+        } else {
+            spec
+        }
+        _state.update { it.copy(sort = clamped) }
+    }
+
+    fun addSortKey(attribute: SortAttribute, direction: SortDirection = SortDirection.ASC) {
+        _state.update { s ->
+            if (s.sort.keys.size >= SortSpec.MAX_KEYS) return@update s
+            s.copy(sort = SortSpec(s.sort.keys + SortKey(attribute, direction)))
+        }
+    }
+
+    fun removeSortKey(index: Int) {
+        _state.update { s ->
+            if (index !in s.sort.keys.indices) return@update s
+            s.copy(sort = SortSpec(s.sort.keys.toMutableList().also { it.removeAt(index) }))
+        }
+    }
+
+    fun moveSortKey(fromIndex: Int, toIndex: Int) {
+        _state.update { s ->
+            val keys = s.sort.keys.toMutableList()
+            if (fromIndex !in keys.indices || toIndex !in 0..keys.size) return@update s
+            val item = keys.removeAt(fromIndex)
+            val target = toIndex.coerceIn(0, keys.size)
+            keys.add(target, item)
+            s.copy(sort = SortSpec(keys))
+        }
+    }
+
+    fun setSortAttribute(index: Int, attribute: SortAttribute) {
+        _state.update { s ->
+            if (index !in s.sort.keys.indices) return@update s
+            val keys = s.sort.keys.toMutableList()
+            keys[index] = keys[index].copy(attribute = attribute)
+            s.copy(sort = SortSpec(keys))
+        }
+    }
+
+    fun setSortDirection(index: Int, direction: SortDirection) {
+        _state.update { s ->
+            if (index !in s.sort.keys.indices) return@update s
+            val keys = s.sort.keys.toMutableList()
+            keys[index] = keys[index].copy(direction = direction)
+            s.copy(sort = SortSpec(keys))
+        }
+    }
+
+    fun resetSortToDefault() {
+        _state.update { it.copy(sort = SortSpec.DEFAULT) }
     }
 }
