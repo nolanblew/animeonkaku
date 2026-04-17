@@ -13,6 +13,7 @@ import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.DownloadRequestEntity
+import com.takeya.animeongaku.data.local.DynamicPlaylistSpecDao
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.repository.ArtistRepository
@@ -52,6 +53,7 @@ internal fun librarySongsContextLabel(showDownloadedOnly: Boolean): String =
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     private val playlistDao: PlaylistDao,
+    private val dynamicPlaylistSpecDao: DynamicPlaylistSpecDao,
     private val animeDao: AnimeDao,
     private val themeDao: ThemeDao,
     private val artistDao: ArtistDao,
@@ -74,6 +76,10 @@ class LibraryViewModel @Inject constructor(
 
     val playlists = playlistDao.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val dynamicPlaylistIds: StateFlow<Set<Long>> = dynamicPlaylistSpecDao.observeAll()
+        .map { specs -> specs.mapTo(mutableSetOf()) { it.playlistId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
     val playlistCoverUrls: StateFlow<Map<Long, List<List<String>>>> = playlistDao.observeAllPlaylistCoverUrls()
         .map { rows ->

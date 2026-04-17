@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -46,6 +47,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.takeya.animeongaku.ui.dynamic.DynamicAdvancedBuilderScreen
+import com.takeya.animeongaku.ui.dynamic.DynamicPlaylistDraftViewModel
+import com.takeya.animeongaku.ui.dynamic.DynamicPreviewScreen
+import com.takeya.animeongaku.ui.dynamic.DynamicSimpleCreatorScreen
 import com.takeya.animeongaku.ui.home.HomeScreen
 import com.takeya.animeongaku.ui.library.AnimeDetailScreen
 import com.takeya.animeongaku.ui.library.ArtistDetailScreen
@@ -63,6 +68,8 @@ import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.theme.Rose500
 import com.takeya.animeongaku.updater.AppUpdateEvent
 import com.takeya.animeongaku.updater.AppUpdateViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.compose.navigation
 import kotlinx.coroutines.flow.collect
 
 private object Routes {
@@ -124,8 +131,15 @@ fun AnimeOngakuApp(
         BottomNavItem(Routes.Library, "Library", Icons.Rounded.LibraryMusic)
     )
     
+    val dynamicRoutes = setOf(
+        "dynamic/simple",
+        "dynamic/preview",
+        "dynamic/advanced",
+        "dynamic/edit/{playlistId}"
+    )
+
     val showBottomBar = currentDestination?.route?.let { route ->
-        bottomItems.any { route == it.route || route.startsWith("${it.route}?") }
+        route !in dynamicRoutes && bottomItems.any { route == it.route || route.startsWith("${it.route}?") }
     } == true
 
     var scaffoldPadding by remember { mutableStateOf(androidx.compose.foundation.layout.PaddingValues(0.dp)) }
@@ -270,6 +284,7 @@ fun AnimeOngakuApp(
                         onOpenArtist = { artistName ->
                             navController.navigate("${Routes.ArtistDetail}/${android.net.Uri.encode(artistName)}")
                         },
+                        onNewSmartPlaylist = { navController.navigate("dynamic_flow") },
                         initialTab = tab
                     )
                 }
@@ -286,6 +301,9 @@ fun AnimeOngakuApp(
                         },
                         onOpenArtist = { artistName ->
                             navController.navigate("${Routes.ArtistDetail}/${android.net.Uri.encode(artistName)}")
+                        },
+                        onEditFilters = { editPlaylistId ->
+                            navController.navigate("dynamic/edit/$editPlaylistId")
                         }
                     )
                 }
@@ -331,6 +349,63 @@ fun AnimeOngakuApp(
                     DownloadManagerScreen(
                         onBack = { navController.popBackStack() }
                     )
+                }
+
+                navigation(startDestination = "dynamic/simple", route = "dynamic_flow") {
+                    composable("dynamic/simple") { entry ->
+                        val parentEntry = remember(entry) {
+                            navController.getBackStackEntry("dynamic_flow")
+                        }
+                        DynamicSimpleCreatorScreen(
+                            onNavigateToPreview = { navController.navigate("dynamic/preview") },
+                            onNavigateToAdvanced = { navController.navigate("dynamic/advanced") },
+                            onBack = { navController.popBackStack() },
+                            viewModel = hiltViewModel(parentEntry)
+                        )
+                    }
+                    composable("dynamic/preview") { entry ->
+                        val parentEntry = remember(entry) {
+                            navController.getBackStackEntry("dynamic_flow")
+                        }
+                        DynamicPreviewScreen(
+                            onPlaylistCreated = { id ->
+                                navController.navigate("${Routes.Playlist}/$id") {
+                                    popUpTo("dynamic_flow") { inclusive = true }
+                                }
+                            },
+                            onBack = { navController.popBackStack() },
+                            viewModel = hiltViewModel(parentEntry)
+                        )
+                    }
+                    composable("dynamic/advanced") { entry ->
+                        val parentEntry = remember(entry) {
+                            navController.getBackStackEntry("dynamic_flow")
+                        }
+                        DynamicAdvancedBuilderScreen(
+                            onNavigateToPreview = { navController.navigate("dynamic/preview") },
+                            onBack = { navController.popBackStack() },
+                            viewModel = hiltViewModel(parentEntry)
+                        )
+                    }
+                    composable(
+                        route = "dynamic/edit/{playlistId}",
+                        arguments = listOf(navArgument("playlistId") { type = NavType.LongType })
+                    ) { entry ->
+                        val parentEntry = remember(entry) {
+                            navController.getBackStackEntry("dynamic_flow")
+                        }
+                        val playlistId = entry.arguments?.getLong("playlistId") ?: return@composable
+                        val vm = hiltViewModel<DynamicPlaylistDraftViewModel>(parentEntry)
+                        androidx.compose.runtime.LaunchedEffect(playlistId) {
+                            vm.loadForEdit(playlistId)
+                        }
+                        DynamicSimpleCreatorScreen(
+                            onNavigateToPreview = { navController.navigate("dynamic/preview") },
+                            onNavigateToAdvanced = { navController.navigate("dynamic/advanced") },
+                            onBack = { navController.popBackStack() },
+                            viewModel = vm
+                        )
+                    }
                 }
             }
             }

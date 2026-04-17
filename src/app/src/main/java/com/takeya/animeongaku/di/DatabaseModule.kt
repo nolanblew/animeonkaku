@@ -7,6 +7,8 @@ import com.takeya.animeongaku.data.local.AppDatabase
 import com.takeya.animeongaku.data.local.ArtistDao
 import com.takeya.animeongaku.data.local.ArtistImageDao
 import com.takeya.animeongaku.data.local.DownloadDao
+import com.takeya.animeongaku.data.local.DynamicPlaylistSpecDao
+import com.takeya.animeongaku.data.local.GenreDao
 import com.takeya.animeongaku.data.local.PlayCountDao
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.ThemeDao
@@ -36,7 +38,8 @@ object DatabaseModule {
         AppDatabase.MIGRATION_12_13,
         AppDatabase.MIGRATION_13_14,
         AppDatabase.MIGRATION_14_15,
-        AppDatabase.MIGRATION_15_16
+        AppDatabase.MIGRATION_15_16,
+        AppDatabase.MIGRATION_16_17
     ).build()
 
     @Provides
@@ -62,4 +65,10 @@ object DatabaseModule {
 
     @Provides
     fun provideUserPreferenceDao(database: AppDatabase): UserPreferenceDao = database.userPreferenceDao()
+
+    @Provides
+    fun provideGenreDao(database: AppDatabase): GenreDao = database.genreDao()
+
+    @Provides
+    fun provideDynamicPlaylistSpecDao(database: AppDatabase): DynamicPlaylistSpecDao = database.dynamicPlaylistSpecDao()
 }

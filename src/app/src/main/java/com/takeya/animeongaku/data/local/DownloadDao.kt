@@ -232,4 +232,7 @@ interface DownloadDao {
         WHERE pe.playlistId = :playlistId AND dr.status = '${DownloadRequestEntity.STATUS_COMPLETED}'
     """)
     fun observeDownloadedThemeIdsForPlaylist(playlistId: Long): Flow<List<Long>>
+
+    @Query("SELECT themeId FROM download_request WHERE status = '${DownloadRequestEntity.STATUS_COMPLETED}'")
+    suspend fun getCompletedThemeIds(): List<Long>
 }

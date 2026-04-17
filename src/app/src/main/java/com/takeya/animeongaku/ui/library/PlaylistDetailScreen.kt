@@ -28,6 +28,10 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.AutoFixHigh
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.FilterList
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
@@ -90,6 +94,7 @@ fun PlaylistDetailScreen(
     onPlayTheme: () -> Unit,
     onOpenAnime: (String) -> Unit = {},
     onOpenArtist: (String) -> Unit = {},
+    onEditFilters: (Long) -> Unit = {},
     viewModel: PlaylistDetailViewModel = hiltViewModel()
 ) {
     val playlist by viewModel.playlist.collectAsStateWithLifecycle()
@@ -109,6 +114,10 @@ fun PlaylistDetailScreen(
     val likedThemeIds by viewModel.likedThemeIds.collectAsStateWithLifecycle()
     val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+    val dynamicSpec by viewModel.dynamicSpec.collectAsStateWithLifecycle()
+    val isDynamic by viewModel.isDynamic.collectAsStateWithLifecycle()
+    var showOverflowMenu by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     val animeByThemesId = remember(anime) {
         anime.mapNotNull { entry -> entry.animeThemesId?.let { id -> id to entry } }.toMap()
     }
@@ -190,6 +199,34 @@ fun PlaylistDetailScreen(
         )
     }
 
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete playlist?") },
+            text = { Text("\"${playlist?.name ?: "This playlist"}\" will be permanently deleted.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteConfirm = false
+                        viewModel.deletePlaylist()
+                        onBack()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Rose500)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                Button(
+                    onClick = { showDeleteConfirm = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = Ink700)
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
     val filteredThemes = allThemes.filter {
         it.title.contains(searchQuery, ignoreCase = true) ||
@@ -226,9 +263,9 @@ fun PlaylistDetailScreen(
                     ) {
                         if (playlist?.isAuto == true) {
                             Icon(
-                                imageVector = Icons.Rounded.AutoAwesome,
-                                contentDescription = "Auto Playlist",
-                                tint = Mist200,
+                                imageVector = if (isDynamic) Icons.Rounded.AutoFixHigh else Icons.Rounded.AutoAwesome,
+                                contentDescription = if (isDynamic) "Smart Playlist" else "Auto Playlist",
+                                tint = if (isDynamic) Rose500 else Mist200,
                                 modifier = Modifier
                                     .size(18.dp)
                                     .padding(end = 6.dp)
@@ -248,8 +285,58 @@ fun PlaylistDetailScreen(
                             Icon(Icons.Rounded.Add, contentDescription = "Add tracks", tint = Mist100)
                         }
                     }
-                    IconButton(onClick = { showPlaylistSheet = true }) {
-                        Icon(Icons.Rounded.MoreVert, contentDescription = "More options", tint = Mist100)
+                    Box {
+                        IconButton(onClick = { showOverflowMenu = true }) {
+                            Icon(Icons.Rounded.MoreVert, contentDescription = "More options", tint = Mist100)
+                        }
+                        DropdownMenu(
+                            expanded = showOverflowMenu,
+                            onDismissRequest = { showOverflowMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Playlist options") },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    showPlaylistSheet = true
+                                }
+                            )
+                            if (isDynamic) {
+                                DropdownMenuItem(
+                                    leadingIcon = {
+                                        Icon(Icons.Rounded.FilterList, contentDescription = null)
+                                    },
+                                    text = { Text("Edit filters") },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        playlist?.id?.let { onEditFilters(it) }
+                                    }
+                                )
+                            }
+                            if (isDynamic && dynamicSpec?.mode == "SNAPSHOT") {
+                                DropdownMenuItem(
+                                    leadingIcon = {
+                                        Icon(Icons.Rounded.Refresh, contentDescription = null)
+                                    },
+                                    text = { Text("Refresh now") },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        viewModel.refreshDynamic()
+                                    }
+                                )
+                            }
+                            if (isDynamic || playlist?.isAuto != true) {
+                                DropdownMenuItem(
+                                    leadingIcon = {
+                                        Icon(Icons.Rounded.Delete, contentDescription = null, tint = Rose500)
+                                    },
+                                    text = { Text("Delete playlist", color = Rose500) },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        showDeleteConfirm = true
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -274,6 +361,29 @@ fun PlaylistDetailScreen(
                         style = MaterialTheme.typography.labelMedium,
                         color = Mist200
                     )
+                    dynamicSpec?.let { spec ->
+                        val subtitle = if (spec.mode == "AUTO") {
+                            "Smart · auto-updating"
+                        } else {
+                            val relativeTime = if (spec.lastEvaluatedAt == 0L) {
+                                "never"
+                            } else {
+                                val diff = System.currentTimeMillis() - spec.lastEvaluatedAt
+                                when {
+                                    diff < 60_000L -> "just now"
+                                    diff < 3_600_000L -> "${diff / 60_000L}m ago"
+                                    diff < 86_400_000L -> "${diff / 3_600_000L}h ago"
+                                    else -> "${diff / 86_400_000L}d ago"
+                                }
+                            }
+                            "Smart · snapshot · updated $relativeTime"
+                        }
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Rose500
+                        )
+                    }
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(

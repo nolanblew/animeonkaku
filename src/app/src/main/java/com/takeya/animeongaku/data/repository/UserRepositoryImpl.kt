@@ -2,6 +2,7 @@ package com.takeya.animeongaku.data.repository
 
 import android.util.Log
 import com.takeya.animeongaku.data.model.KitsuAnimeEntry
+import com.takeya.animeongaku.data.model.KitsuGenreData
 import com.takeya.animeongaku.data.remote.KitsuApi
 import com.takeya.animeongaku.data.remote.KitsuAnime
 import com.takeya.animeongaku.data.remote.KitsuLibraryEntry
@@ -54,7 +55,16 @@ class UserRepositoryImpl @Inject constructor(
                     abbreviatedTitles = anime?.abbreviatedTitles() ?: emptyList(),
                     posterUrl = anime?.posterUrl(),
                     coverUrl = anime?.coverUrl(),
-                    watchingStatus = entry.attributes?.status
+                    watchingStatus = entry.attributes?.status,
+                    subtype = anime?.attributes?.subtype,
+                    startDate = anime?.attributes?.startDate,
+                    endDate = anime?.attributes?.endDate,
+                    episodeCount = anime?.attributes?.episodeCount,
+                    ageRating = anime?.attributes?.ageRating,
+                    averageRating = anime?.attributes?.averageRating?.toDoubleOrNull()?.div(10.0),
+                    userRating = entry.attributes?.ratingTwenty?.let { it.toDouble() / 2.0 },
+                    libraryUpdatedAt = entry.attributes?.updatedAt?.let { parseIso8601ToMillis(it) },
+                    slug = anime?.attributes?.slug
                 )
             }
             results.addAll(pageResults)
@@ -135,7 +145,16 @@ class UserRepositoryImpl @Inject constructor(
                     abbreviatedTitles = anime?.abbreviatedTitles() ?: emptyList(),
                     posterUrl = anime?.posterUrl(),
                     coverUrl = anime?.coverUrl(),
-                    watchingStatus = entry.attributes?.status
+                    watchingStatus = entry.attributes?.status,
+                    subtype = anime?.attributes?.subtype,
+                    startDate = anime?.attributes?.startDate,
+                    endDate = anime?.attributes?.endDate,
+                    episodeCount = anime?.attributes?.episodeCount,
+                    ageRating = anime?.attributes?.ageRating,
+                    averageRating = anime?.attributes?.averageRating?.toDoubleOrNull()?.div(10.0),
+                    userRating = entry.attributes?.ratingTwenty?.let { it.toDouble() / 2.0 },
+                    libraryUpdatedAt = entry.attributes?.updatedAt?.let { parseIso8601ToMillis(it) },
+                    slug = anime?.attributes?.slug
                 )
             }
 
@@ -201,7 +220,14 @@ class UserRepositoryImpl @Inject constructor(
                 posterUrl = anime.posterUrl(),
                 posterUrlLarge = anime.posterUrlLarge(),
                 coverUrl = anime.coverUrl(),
-                coverUrlLarge = anime.coverUrlLarge()
+                coverUrlLarge = anime.coverUrlLarge(),
+                subtype = anime.attributes?.subtype,
+                startDate = anime.attributes?.startDate,
+                endDate = anime.attributes?.endDate,
+                episodeCount = anime.attributes?.episodeCount,
+                ageRating = anime.attributes?.ageRating,
+                averageRating = anime.attributes?.averageRating?.toDoubleOrNull()?.div(10.0),
+                slug = anime.attributes?.slug
             )
         }
     }
@@ -278,7 +304,16 @@ class UserRepositoryImpl @Inject constructor(
                         abbreviatedTitles = anime?.abbreviatedTitles() ?: emptyList(),
                         posterUrl = anime?.posterUrl(),
                         coverUrl = anime?.coverUrl(),
-                        watchingStatus = entry.attributes?.status
+                        watchingStatus = entry.attributes?.status,
+                        subtype = anime?.attributes?.subtype,
+                        startDate = anime?.attributes?.startDate,
+                        endDate = anime?.attributes?.endDate,
+                        episodeCount = anime?.attributes?.episodeCount,
+                        ageRating = anime?.attributes?.ageRating,
+                        averageRating = anime?.attributes?.averageRating?.toDoubleOrNull()?.div(10.0),
+                        userRating = entry.attributes?.ratingTwenty?.let { it.toDouble() / 2.0 },
+                        libraryUpdatedAt = entry.attributes?.updatedAt?.let { parseIso8601ToMillis(it) },
+                        slug = anime?.attributes?.slug
                     )
                 )
             }
@@ -315,7 +350,14 @@ class UserRepositoryImpl @Inject constructor(
                     abbreviatedTitles = anime?.abbreviatedTitles() ?: emptyList(),
                     posterUrl = anime?.posterUrl(),
                     coverUrl = anime?.coverUrl(),
-                    watchingStatus = entry.attributes?.status ?: "current"
+                    watchingStatus = entry.attributes?.status ?: "current",
+                    subtype = anime?.attributes?.subtype,
+                    startDate = anime?.attributes?.startDate,
+                    endDate = anime?.attributes?.endDate,
+                    episodeCount = anime?.attributes?.episodeCount,
+                    ageRating = anime?.attributes?.ageRating,
+                    averageRating = anime?.attributes?.averageRating?.toDoubleOrNull()?.div(10.0),
+                    slug = anime?.attributes?.slug
                 )
             }
             results.addAll(pageResults)
@@ -339,7 +381,14 @@ class UserRepositoryImpl @Inject constructor(
                     titleJa = anime.titleJa(),
                     abbreviatedTitles = anime.abbreviatedTitles(),
                     posterUrl = anime.posterUrl(),
-                    coverUrl = anime.coverUrl()
+                    coverUrl = anime.coverUrl(),
+                    subtype = anime.attributes?.subtype,
+                    startDate = anime.attributes?.startDate,
+                    endDate = anime.attributes?.endDate,
+                    episodeCount = anime.attributes?.episodeCount,
+                    ageRating = anime.attributes?.ageRating,
+                    averageRating = anime.attributes?.averageRating?.toDoubleOrNull()?.div(10.0),
+                    slug = anime.attributes?.slug
                 )
             }
         } catch (e: Exception) {
@@ -367,6 +416,43 @@ class UserRepositoryImpl @Inject constructor(
             }
         }
         return results
+    }
+
+    override suspend fun getAnimeCategoryData(kitsuIds: List<String>): Map<String, List<KitsuGenreData>> {
+        if (kitsuIds.isEmpty()) return emptyMap()
+        val result = mutableMapOf<String, MutableList<KitsuGenreData>>()
+        kitsuIds.distinct().chunked(20).forEach { batch ->
+            try {
+                val response = kitsuApi.getAnimeWithCategories(
+                    ids = batch.joinToString(","),
+                    limit = batch.size
+                )
+                val categoriesById = response.included.associateBy { it.id }
+                response.data.forEach { anime ->
+                    val genreList = mutableListOf<KitsuGenreData>()
+                    anime.relationships?.categories?.data?.forEach { ref ->
+                        val cat = categoriesById[ref.id]
+                        val slug = cat?.attributes?.slug ?: return@forEach
+                        val title = cat.attributes.title ?: slug
+                        genreList.add(KitsuGenreData(slug = slug, displayName = title, source = "category"))
+                    }
+                    if (genreList.isNotEmpty()) {
+                        result[anime.id] = genreList
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to fetch categories for batch", e)
+            }
+        }
+        return result
+    }
+
+    private fun parseIso8601ToMillis(isoString: String): Long? {
+        return try {
+            java.time.Instant.parse(isoString).toEpochMilli()
+        } catch (_: Exception) {
+            null
+        }
     }
 }
 

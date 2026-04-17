@@ -1,5 +1,11 @@
 package com.takeya.animeongaku.ui.library
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +31,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Settings
@@ -99,10 +106,12 @@ fun LibraryScreen(
     onPlayTheme: () -> Unit,
     onOpenAnime: (String) -> Unit = {},
     onOpenArtist: (String) -> Unit = {},
+    onNewSmartPlaylist: () -> Unit = {},
     initialTab: String? = null,
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val dynamicPlaylistIds by viewModel.dynamicPlaylistIds.collectAsStateWithLifecycle()
     val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
     val anime by viewModel.anime.collectAsStateWithLifecycle()
     val themes by viewModel.themes.collectAsStateWithLifecycle()
@@ -126,6 +135,7 @@ fun LibraryScreen(
     }
     val currentTab = LibraryTab.valueOf(selectedTab)
     var showDialog by remember { mutableStateOf(false) }
+    var showCreatePlaylistMenu by remember { mutableStateOf(false) }
     var playlistToRename by remember { mutableStateOf<PlaylistWithCount?>(null) }
     var playlistToDelete by remember { mutableStateOf<PlaylistWithCount?>(null) }
     val animeByThemesId = remember(anime) {
@@ -234,6 +244,11 @@ fun LibraryScreen(
                             } else {
                                 items(playlists, key = { it.playlist.id }) { item ->
                                     val isAuto = item.playlist.isAuto
+                                    val isDynamic = item.playlist.id in dynamicPlaylistIds
+                                    val isProtectedAuto = isAuto && !isDynamic
+                                    val canRename = !isAuto
+                                    val canDelete = !isProtectedAuto
+                                    val hasMenuOptions = canRename || canDelete
                                     val coverUrls = playlistCoverUrls[item.playlist.id] ?: emptyList()
                                     var showMenu by remember { mutableStateOf(false) }
                                     Box {
@@ -244,21 +259,25 @@ fun LibraryScreen(
                                             gradientSeed = item.playlist.gradientSeed,
                                             isAutoPlaylist = isAuto,
                                             onClick = { onOpenPlaylist(item.playlist.id) },
-                                            onLongClick = if (isAuto) null else { { showMenu = true } }
+                                            onLongClick = if (hasMenuOptions) { { showMenu = true } } else null
                                         )
-                                        if (!isAuto) {
+                                        if (hasMenuOptions) {
                                             androidx.compose.material3.DropdownMenu(
                                                 expanded = showMenu,
                                                 onDismissRequest = { showMenu = false }
                                             ) {
-                                                androidx.compose.material3.DropdownMenuItem(
-                                                    text = { Text("Rename") },
-                                                    onClick = { showMenu = false; playlistToRename = item }
-                                                )
-                                                androidx.compose.material3.DropdownMenuItem(
-                                                    text = { Text("Delete") },
-                                                    onClick = { showMenu = false; playlistToDelete = item }
-                                                )
+                                                if (canRename) {
+                                                    androidx.compose.material3.DropdownMenuItem(
+                                                        text = { Text("Rename") },
+                                                        onClick = { showMenu = false; playlistToRename = item }
+                                                    )
+                                                }
+                                                if (canDelete) {
+                                                    androidx.compose.material3.DropdownMenuItem(
+                                                        text = { Text("Delete") },
+                                                        onClick = { showMenu = false; playlistToDelete = item }
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -268,12 +287,49 @@ fun LibraryScreen(
                                 Spacer(modifier = Modifier.height(MiniPlayerHeight + 26.dp))
                             }
                         }
-                        NewPlaylistPill(
+                        Column(
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
                                 .padding(end = 20.dp, bottom = MiniPlayerHeight + 20.dp),
-                            onClick = { showDialog = true }
-                        )
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalAlignment = Alignment.End
+                        ) {
+                            AnimatedVisibility(
+                                visible = showCreatePlaylistMenu,
+                                enter = fadeIn() + scaleIn(),
+                                exit = fadeOut() + scaleOut()
+                            ) {
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    horizontalAlignment = Alignment.End
+                                ) {
+                                    PlaylistCreationOptionPill(
+                                        label = "Standard Playlist",
+                                        icon = Icons.Rounded.Add,
+                                        backgroundColor = Color.White,
+                                        contentColor = Color.Black,
+                                        onClick = {
+                                            showCreatePlaylistMenu = false
+                                            showDialog = true
+                                        }
+                                    )
+                                    PlaylistCreationOptionPill(
+                                        label = "Smart Playlist",
+                                        icon = Icons.Rounded.AutoAwesome,
+                                        backgroundColor = Rose500,
+                                        contentColor = Color.White,
+                                        onClick = {
+                                            showCreatePlaylistMenu = false
+                                            onNewSmartPlaylist()
+                                        }
+                                    )
+                                }
+                            }
+                            NewPlaylistPill(
+                                expanded = showCreatePlaylistMenu,
+                                onClick = { showCreatePlaylistMenu = !showCreatePlaylistMenu }
+                            )
+                        }
                     }
                 }
 
@@ -856,18 +912,51 @@ private fun ListRow(
 @Composable
 private fun NewPlaylistPill(
     modifier: Modifier = Modifier,
+    expanded: Boolean = false,
     onClick: () -> Unit
 ) {
     Row(
         modifier = modifier
-            .background(Color.White, RoundedCornerShape(24.dp))
+            .background(if (expanded) Mist100 else Color.White, RoundedCornerShape(24.dp))
             .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(imageVector = Icons.Rounded.Add, contentDescription = null, tint = Color.Black)
+        Crossfade(targetState = expanded, label = "new-playlist-pill-icon") { isExpanded ->
+            Icon(
+                imageVector = if (isExpanded) Icons.Rounded.Remove else Icons.Rounded.Add,
+                contentDescription = null,
+                tint = Color.Black
+            )
+        }
         Spacer(modifier = Modifier.width(8.dp))
-        Text(text = "New playlist", color = Color.Black, fontWeight = FontWeight.SemiBold)
+        Text(
+            text = if (expanded) "Close playlist menu" else "New playlist",
+            color = Color.Black,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun PlaylistCreationOptionPill(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    backgroundColor: Color,
+    contentColor: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = modifier
+            .background(backgroundColor, RoundedCornerShape(24.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(imageVector = icon, contentDescription = null, tint = contentColor)
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(text = label, color = contentColor, fontWeight = FontWeight.SemiBold)
     }
 }
 

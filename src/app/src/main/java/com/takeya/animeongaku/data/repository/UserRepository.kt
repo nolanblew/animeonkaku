@@ -1,6 +1,7 @@
 package com.takeya.animeongaku.data.repository
 
 import com.takeya.animeongaku.data.model.KitsuAnimeEntry
+import com.takeya.animeongaku.data.model.KitsuGenreData
 
 data class LibrarySyncProgress(
     val page: Int,
@@ -39,4 +40,6 @@ interface UserRepository {
     suspend fun getAnimeMappings(kitsuIds: List<String>): Map<String, Map<String, String>>
 
     suspend fun searchKitsuAnime(query: String): List<KitsuAnimeEntry>
+
+    suspend fun getAnimeCategoryData(kitsuIds: List<String>): Map<String, List<KitsuGenreData>>
 }

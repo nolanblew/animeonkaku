@@ -17,9 +17,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DownloadRequestEntity::class,
         DownloadGroupEntity::class,
         DownloadGroupThemeEntity::class,
-        UserPreferenceEntity::class
+        UserPreferenceEntity::class,
+        GenreEntity::class,
+        AnimeGenreCrossRef::class,
+        DynamicPlaylistSpecEntity::class
     ],
-    version = 16,
+    version = 17,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -31,6 +34,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun playCountDao(): PlayCountDao
     abstract fun downloadDao(): DownloadDao
     abstract fun userPreferenceDao(): UserPreferenceDao
+    abstract fun genreDao(): GenreDao
+    abstract fun dynamicPlaylistSpecDao(): DynamicPlaylistSpecDao
 
     companion object {
         val MIGRATION_9_10 = object : Migration(9, 10) {
@@ -118,6 +123,53 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `anime` ADD COLUMN `thumbnailUrlLarge` TEXT")
                 db.execSQL("ALTER TABLE `anime` ADD COLUMN `coverUrlLarge` TEXT")
+            }
+        }
+
+        val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // New nullable columns on anime
+                db.execSQL("ALTER TABLE `anime` ADD COLUMN `subtype` TEXT")
+                db.execSQL("ALTER TABLE `anime` ADD COLUMN `startDate` TEXT")
+                db.execSQL("ALTER TABLE `anime` ADD COLUMN `endDate` TEXT")
+                db.execSQL("ALTER TABLE `anime` ADD COLUMN `episodeCount` INTEGER")
+                db.execSQL("ALTER TABLE `anime` ADD COLUMN `ageRating` TEXT")
+                db.execSQL("ALTER TABLE `anime` ADD COLUMN `averageRating` REAL")
+                db.execSQL("ALTER TABLE `anime` ADD COLUMN `userRating` REAL")
+                db.execSQL("ALTER TABLE `anime` ADD COLUMN `libraryUpdatedAt` INTEGER")
+                db.execSQL("ALTER TABLE `anime` ADD COLUMN `slug` TEXT")
+                // Genres
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `genres` (
+                        `slug` TEXT NOT NULL,
+                        `displayName` TEXT NOT NULL,
+                        `source` TEXT NOT NULL,
+                        PRIMARY KEY(`slug`)
+                    )
+                """.trimIndent())
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `anime_genres` (
+                        `kitsuId` TEXT NOT NULL,
+                        `slug` TEXT NOT NULL,
+                        PRIMARY KEY(`kitsuId`, `slug`),
+                        FOREIGN KEY(`kitsuId`) REFERENCES `anime`(`kitsuId`) ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_anime_genres_slug` ON `anime_genres` (`slug`)")
+                // Dynamic playlist spec
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `dynamic_playlist_spec` (
+                        `playlistId` INTEGER NOT NULL,
+                        `filterJson` TEXT NOT NULL,
+                        `mode` TEXT NOT NULL,
+                        `createdMode` TEXT NOT NULL,
+                        `lastEvaluatedAt` INTEGER NOT NULL DEFAULT 0,
+                        `lastResultCount` INTEGER NOT NULL DEFAULT 0,
+                        `schemaVersion` INTEGER NOT NULL DEFAULT 1,
+                        PRIMARY KEY(`playlistId`),
+                        FOREIGN KEY(`playlistId`) REFERENCES `playlists`(`id`) ON DELETE CASCADE
+                    )
+                """.trimIndent())
             }
         }
     }

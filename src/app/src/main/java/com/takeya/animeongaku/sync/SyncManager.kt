@@ -3,7 +3,10 @@ package com.takeya.animeongaku.sync
 import android.util.Log
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.AnimeGenreCrossRef
 import com.takeya.animeongaku.data.local.ArtistDao
+import com.takeya.animeongaku.data.local.GenreDao
+import com.takeya.animeongaku.data.local.GenreEntity
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
@@ -41,7 +44,9 @@ class SyncManager @Inject constructor(
     private val artistDao: ArtistDao,
     private val playlistDao: PlaylistDao,
     private val tokenStore: KitsuTokenStore,
-    private val autoPlaylistManager: AutoPlaylistManager
+    private val autoPlaylistManager: AutoPlaylistManager,
+    private val genreDao: GenreDao,
+    private val dynamicPlaylistManager: DynamicPlaylistManager
 ) {
     companion object {
         private const val TAG = "SyncManager"
@@ -165,20 +170,43 @@ class SyncManager @Inject constructor(
                 var statusUpdated = 0
                 recentlyChanged.forEach { entry ->
                     val existing = animeDao.getByKitsuId(entry.id)
-                    if (existing != null && existing.watchingStatus != entry.watchingStatus) {
-                        animeDao.upsertAll(listOf(existing.copy(watchingStatus = entry.watchingStatus)))
-                        statusUpdated++
+                    if (existing != null) {
+                        val updated = existing.copy(
+                            watchingStatus = entry.watchingStatus ?: existing.watchingStatus,
+                            userRating = entry.userRating ?: existing.userRating,
+                            libraryUpdatedAt = entry.libraryUpdatedAt ?: existing.libraryUpdatedAt,
+                            title = entry.title ?: existing.title,
+                            titleEn = entry.titleEn ?: existing.titleEn,
+                            titleRomaji = entry.titleRomaji ?: existing.titleRomaji,
+                            titleJa = entry.titleJa ?: existing.titleJa,
+                            thumbnailUrl = entry.posterUrl ?: existing.thumbnailUrl,
+                            coverUrl = entry.coverUrl ?: existing.coverUrl,
+                            subtype = entry.subtype ?: existing.subtype,
+                            startDate = entry.startDate ?: existing.startDate,
+                            endDate = entry.endDate ?: existing.endDate,
+                            episodeCount = entry.episodeCount ?: existing.episodeCount,
+                            ageRating = entry.ageRating ?: existing.ageRating,
+                            averageRating = entry.averageRating ?: existing.averageRating,
+                            slug = entry.slug ?: existing.slug
+                        )
+                        if (updated != existing) {
+                            animeDao.upsertAll(listOf(updated))
+                            statusUpdated++
+                        }
                     }
                 }
                 if (statusUpdated > 0) {
-                    Log.d(TAG, "Updated $statusUpdated watching statuses during sync")
+                    Log.d(TAG, "Updated $statusUpdated library rows during sync")
                 }
             }
             tokenStore.saveLastStatusSyncAt(System.currentTimeMillis())
         }
 
+        backfillMissingGenres()
+
         if (entries.isEmpty() && !isFirstSync) {
             autoPlaylistManager.refreshAutoPlaylistsSuspend()
+            dynamicPlaylistManager.refreshAllAutoSuspend()
             tokenStore.saveLastSyncedAt(System.currentTimeMillis())
             updateState {
                 copy(
@@ -221,10 +249,21 @@ class SyncManager @Inject constructor(
                 coverUrlLarge = entry.coverUrlLarge ?: existing?.coverUrlLarge,
                 syncedAt = now,
                 isManuallyAdded = existing?.isManuallyAdded ?: false,
-                watchingStatus = entry.watchingStatus ?: existing?.watchingStatus
+                watchingStatus = entry.watchingStatus ?: existing?.watchingStatus,
+                subtype = entry.subtype ?: existing?.subtype,
+                startDate = entry.startDate ?: existing?.startDate,
+                endDate = entry.endDate ?: existing?.endDate,
+                episodeCount = entry.episodeCount ?: existing?.episodeCount,
+                ageRating = entry.ageRating ?: existing?.ageRating,
+                averageRating = entry.averageRating ?: existing?.averageRating,
+                userRating = entry.userRating ?: existing?.userRating,
+                libraryUpdatedAt = entry.libraryUpdatedAt ?: existing?.libraryUpdatedAt,
+                slug = entry.slug ?: existing?.slug
             )
         }
         animeDao.upsertAll(animeEntities)
+
+        backfillMissingGenres()
 
         checkPause()
 
@@ -505,6 +544,7 @@ class SyncManager @Inject constructor(
 
         updateKitsuPlaylist()
         autoPlaylistManager.refreshAutoPlaylistsSuspend()
+        dynamicPlaylistManager.refreshAllAutoSuspend()
 
         tokenStore.saveLastSyncedAt(now)
         val label = if (isFirstSync) "Imported" else "Added"
@@ -562,6 +602,56 @@ class SyncManager @Inject constructor(
         }
 
         return toDelete.size
+    }
+
+    private suspend fun backfillMissingGenres() {
+        try {
+            val libraryKitsuIds = animeDao.getAllKitsuIds()
+                .filter { it.isNotBlank() }
+                .distinct()
+            if (libraryKitsuIds.isEmpty()) return
+
+            val kitsuIdsWithGenres = genreDao.getAllCrossRefs()
+                .mapTo(mutableSetOf()) { it.kitsuId }
+            val kitsuIdsMissingGenres = libraryKitsuIds.filter { it !in kitsuIdsWithGenres }
+            if (kitsuIdsMissingGenres.isEmpty()) return
+
+            val categoryData = userRepository.getAnimeCategoryData(kitsuIdsMissingGenres)
+            if (categoryData.isEmpty()) {
+                Log.d(TAG, "Genre backfill found no category data for ${kitsuIdsMissingGenres.size} anime")
+                return
+            }
+
+            val genres = categoryData.values
+                .flatten()
+                .distinctBy { it.slug }
+                .map { genre ->
+                    GenreEntity(
+                        slug = genre.slug,
+                        displayName = genre.displayName,
+                        source = genre.source
+                    )
+                }
+            val crossRefs = categoryData.flatMap { (kitsuId, genresForAnime) ->
+                genresForAnime.map { genre ->
+                    AnimeGenreCrossRef(kitsuId = kitsuId, slug = genre.slug)
+                }
+            }
+
+            if (genres.isNotEmpty()) {
+                genreDao.upsertGenres(genres)
+            }
+            if (crossRefs.isNotEmpty()) {
+                genreDao.upsertCrossRefs(crossRefs)
+            }
+
+            Log.d(
+                TAG,
+                "Backfilled ${genres.size} genres and ${crossRefs.size} cross-refs for ${kitsuIdsMissingGenres.size} anime"
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to backfill genre data", e)
+        }
     }
 
     private suspend fun updateKitsuPlaylist() {

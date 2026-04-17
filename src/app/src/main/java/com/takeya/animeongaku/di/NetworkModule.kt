@@ -5,8 +5,10 @@ import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.adapters.PolymorphicJsonAdapterFactory
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import com.takeya.animeongaku.BuildConfig
+import com.takeya.animeongaku.data.filter.FilterNode
 import com.takeya.animeongaku.data.auth.KitsuAuthRepository
 import com.takeya.animeongaku.data.auth.KitsuAuthRepositoryImpl
 import com.takeya.animeongaku.data.auth.KitsuTokenStore
@@ -34,7 +36,35 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideMoshi(): Moshi {
+        val filterNodeFactory = PolymorphicJsonAdapterFactory.of(FilterNode::class.java, "type")
+            // Operators
+            .withSubtype(FilterNode.And::class.java, "and")
+            .withSubtype(FilterNode.Or::class.java, "or")
+            .withSubtype(FilterNode.Not::class.java, "not")
+            // Anime metadata leaves
+            .withSubtype(FilterNode.GenreIn::class.java, "genre_in")
+            .withSubtype(FilterNode.AiredBefore::class.java, "aired_before")
+            .withSubtype(FilterNode.AiredAfter::class.java, "aired_after")
+            .withSubtype(FilterNode.AiredBetween::class.java, "aired_between")
+            .withSubtype(FilterNode.SeasonIn::class.java, "season_in")
+            .withSubtype(FilterNode.SubtypeIn::class.java, "subtype_in")
+            .withSubtype(FilterNode.AverageRatingGte::class.java, "average_rating_gte")
+            .withSubtype(FilterNode.UserRatingGte::class.java, "user_rating_gte")
+            // Library/user leaves
+            .withSubtype(FilterNode.WatchingStatusIn::class.java, "watching_status_in")
+            .withSubtype(FilterNode.LibraryUpdatedAfter::class.java, "library_updated_after")
+            .withSubtype(FilterNode.LibraryUpdatedWithin::class.java, "library_updated_within")
+            // Theme leaves
+            .withSubtype(FilterNode.ThemeTypeIn::class.java, "theme_type_in")
+            .withSubtype(FilterNode.ArtistIn::class.java, "artist_in")
+            .withSubtype(FilterNode.Liked::class.java, "liked")
+            .withSubtype(FilterNode.Disliked::class.java, "disliked")
+            .withSubtype(FilterNode.Downloaded::class.java, "downloaded")
+            .withSubtype(FilterNode.PlayCountGte::class.java, "play_count_gte")
+            .withSubtype(FilterNode.PlayedSince::class.java, "played_since")
+
         return Moshi.Builder()
+            .add(filterNodeFactory)
             .add(KotlinJsonAdapterFactory())
             .build()
     }

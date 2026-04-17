@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.DynamicPlaylistSpecEntity
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
@@ -13,6 +14,7 @@ import com.takeya.animeongaku.data.local.PlaylistTrack
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.repository.DynamicPlaylistRepository
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
@@ -37,12 +39,20 @@ class PlaylistDetailViewModel @Inject constructor(
     val downloadManager: DownloadManager,
     private val downloadDao: DownloadDao,
     private val userPreferencesRepository: UserPreferencesRepository,
-    connectivityMonitor: ConnectivityMonitor
+    connectivityMonitor: ConnectivityMonitor,
+    private val dynamicPlaylistRepository: DynamicPlaylistRepository
 ) : ViewModel() {
     val isOnline: StateFlow<Boolean> = connectivityMonitor.isOnline
     private val playlistId: Long = checkNotNull(savedStateHandle["playlistId"]) {
         "playlistId is required"
     }
+
+    val dynamicSpec: StateFlow<DynamicPlaylistSpecEntity?> = dynamicPlaylistRepository.observeSpec(playlistId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val isDynamic: StateFlow<Boolean> = dynamicSpec
+        .map { it != null }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     val playlist = playlistDao.observePlaylist(playlistId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -243,6 +253,22 @@ class PlaylistDetailViewModel @Inject constructor(
 
     fun removePlaylistDownload() {
         downloadManager.removePlaylistDownload(playlistId)
+    }
+
+    fun refreshDynamic() {
+        viewModelScope.launch {
+            dynamicPlaylistRepository.refreshOne(playlistId)
+        }
+    }
+
+    fun deletePlaylist() {
+        viewModelScope.launch {
+            if (dynamicSpec.value != null) {
+                dynamicPlaylistRepository.deleteDynamic(playlistId)
+            } else {
+                playlistDao.deletePlaylist(playlistId)
+            }
+        }
     }
 
     fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
