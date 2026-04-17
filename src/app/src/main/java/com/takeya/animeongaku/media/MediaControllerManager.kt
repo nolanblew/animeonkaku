@@ -61,6 +61,7 @@ class MediaControllerManager @Inject constructor(
 
     private var controller: MediaController? = null
     private var lastSyncedVersion: Long = -1L
+    private var lastSyncedMediaIds: List<String> = emptyList()
     
     // Store restored state that should be applied once controller connects
     private var pendingRestoreState: Pair<RestoredQueueState, Boolean>? = null
@@ -200,7 +201,7 @@ class MediaControllerManager @Inject constructor(
                         
                         // We must re-sync the queue around the current item in case upcoming skips changed
                         if (npState.nowPlaying.isNotEmpty()) {
-                            syncQueueAroundCurrent(ctrl, npState)
+                            forceSyncQueue(ctrl, npState)
                             
                             val currentTheme = npState.currentTheme
                             val isUnskipped = npState.unskippedIndices.contains(npState.currentIndex)
@@ -353,134 +354,89 @@ class MediaControllerManager @Inject constructor(
 
     private fun restoreFromPersistedState(restoredState: RestoredQueueState, ctrl: MediaController, autoPlay: Boolean = false) {
         val npState = restoredState.nowPlayingState
-        val mappedItems = npState.nowPlayingEntries.mapIndexedNotNull { idx, entry ->
-            if (shouldIncludeInPlayer(idx, entry.theme, npState)) {
-                entry.toMediaItem(npState.animeMap)
-            } else {
-                null
-            }
-        }
-        
-        var exoStartIndex = 0
-        for (i in 0 until npState.currentIndex) {
-            if (shouldIncludeInPlayer(i, npState.nowPlayingEntries[i].theme, npState)) exoStartIndex++
-        }
-        
-        ctrl.setMediaItems(mappedItems, exoStartIndex, restoredState.positionMs)
+        val (desiredItems, desiredCurrentIndex) = buildDesiredItems(npState)
+
+        ctrl.setMediaItems(desiredItems, desiredCurrentIndex, restoredState.positionMs)
         ctrl.repeatMode = restoredState.repeatMode
         ctrl.playWhenReady = autoPlay
         ctrl.prepare()
-        
+
+        lastSyncedMediaIds = desiredItems.map { it.mediaId }
         lastSyncedVersion = npState.queueVersion
     }
 
     private fun syncQueueToController(ctrl: MediaController, npState: NowPlayingState) {
+        if (lastSyncedVersion == npState.queueVersion) return
+        forceSyncQueue(ctrl, npState)
+    }
+
+    /**
+     * Applies the desired queue state to the controller using the minimal number of batched
+     * Media3 calls. Bypasses the [lastSyncedVersion] fast-path so callers such as the disliked-
+     * tracks observer (which mutates the filter without bumping [NowPlayingState.queueVersion])
+     * still converge.
+     */
+    private fun forceSyncQueue(ctrl: MediaController, npState: NowPlayingState) {
         if (npState.nowPlaying.isEmpty()) {
             ctrl.clearMediaItems()
             ctrl.stop()
+            lastSyncedMediaIds = emptyList()
             lastSyncedVersion = npState.queueVersion
             return
         }
 
-        if (lastSyncedVersion == npState.queueVersion) return
+        val (desiredItems, desiredCurrentIndex) = buildDesiredItems(npState)
+        val desiredIds = desiredItems.map { it.mediaId }
 
-        if (npState.isFullReload) {
-            // Check if the controller is already playing the correct track
-            val controllerMediaId = ctrl.currentMediaItem?.mediaId
-            val expectedMediaId = npState.currentEntry?.queueId?.toString()
+        val controllerCurrentId = ctrl.currentMediaItem?.mediaId
+        val expectedCurrentId = desiredItems.getOrNull(desiredCurrentIndex)?.mediaId
 
-            if (controllerMediaId != null && controllerMediaId == expectedMediaId) {
-                // Controller already has the right song — just sync surrounding queue
-                syncQueueAroundCurrent(ctrl, npState)
-            } else {
-                // Full replacement (find valid items only)
-                val mappedItems = npState.nowPlayingEntries.mapIndexedNotNull { idx, entry ->
-                    if (shouldIncludeInPlayer(idx, entry.theme, npState)) {
-                        entry.toMediaItem(npState.animeMap)
-                    } else {
-                        null
-                    }
-                }
-                var exoStartIndex = 0
-                for (i in 0 until npState.currentIndex) {
-                    if (shouldIncludeInPlayer(i, npState.nowPlayingEntries[i].theme, npState)) exoStartIndex++
-                }
-                
-                ctrl.setMediaItems(mappedItems, exoStartIndex, C.TIME_UNSET)
-                ctrl.playWhenReady = true
-                ctrl.prepare()
-            }
+        if (controllerCurrentId == null || controllerCurrentId != expectedCurrentId) {
+            // Current track needs to change (play new context, skipTo, rewindTo, fresh connect).
+            // One batched IPC replaces the whole queue and seeks to the new current track.
+            ctrl.setMediaItems(desiredItems, desiredCurrentIndex, C.TIME_UNSET)
+            ctrl.playWhenReady = true
+            ctrl.prepare()
         } else {
-            // Queue mutation (playNext, addToQueue, shuffle) — sync without interrupting
-            syncQueueAroundCurrent(ctrl, npState)
+            // Current track is unchanged — apply a minimal diff so the session metadata and
+            // Bluetooth receivers don't see unnecessary churn.
+            applyDiffOps(ctrl, desiredItems, desiredIds)
         }
 
+        lastSyncedMediaIds = desiredIds
         lastSyncedVersion = npState.queueVersion
     }
 
-    private fun syncQueueAroundCurrent(ctrl: MediaController, npState: NowPlayingState) {
-        val controllerCount = ctrl.mediaItemCount
-        val currentMediaIdx = ctrl.currentMediaItemIndex
-
-        // Remove all items after current
-        if (controllerCount > currentMediaIdx + 1) {
-            ctrl.removeMediaItems(currentMediaIdx + 1, controllerCount)
-        }
-        // Remove all items before current
-        if (currentMediaIdx > 0) {
-            ctrl.removeMediaItems(0, currentMediaIdx)
-        }
-        // Now controller has only the current item at index 0.
-
-        // Resolve the actual index in npState that matches the controller's current item
-        val controllerMediaId = ctrl.currentMediaItem?.mediaId
-        val centerIndex = if (controllerMediaId != null) {
-            val currentQueueId = npState.currentEntry?.queueId?.toString()
-            if (currentQueueId == controllerMediaId) {
-                npState.currentIndex
-            } else {
-                // Out of sync (e.g. track just changed but npState not yet updated)
-                // Search forward first
-                var found = -1
-                for (i in npState.currentIndex until npState.nowPlayingEntries.size) {
-                    if (npState.nowPlayingEntries[i].queueId.toString() == controllerMediaId) {
-                        found = i
-                        break
-                    }
-                }
-                // Then backward
-                if (found == -1) {
-                    for (i in npState.currentIndex - 1 downTo 0) {
-                        if (npState.nowPlayingEntries[i].queueId.toString() == controllerMediaId) {
-                            found = i
-                            break
-                        }
-                    }
-                }
-                if (found != -1) found else npState.currentIndex
+    /**
+     * Build the list of [MediaItem]s the controller should hold for [npState], honoring the
+     * dislike/unskip filter, and the desired current index within that filtered list.
+     */
+    private fun buildDesiredItems(npState: NowPlayingState): Pair<List<MediaItem>, Int> {
+        val items = ArrayList<MediaItem>(npState.nowPlayingEntries.size)
+        var currentIndex = 0
+        npState.nowPlayingEntries.forEachIndexed { idx, entry ->
+            if (shouldIncludeInPlayer(idx, entry.theme, npState)) {
+                if (idx < npState.currentIndex) currentIndex++
+                items.add(entry.toMediaItem(npState.animeMap))
             }
-        } else {
-            npState.currentIndex
         }
+        return items to currentIndex.coerceAtMost((items.size - 1).coerceAtLeast(0))
+    }
 
-        // Add items before current
-        val beforeItems = npState.nowPlayingEntries.subList(0, centerIndex)
-            .filterIndexed { idx, entry -> shouldIncludeInPlayer(idx, entry.theme, npState) }
-            .map { it.toMediaItem(npState.animeMap) }
-        for ((i, item) in beforeItems.withIndex()) {
-            ctrl.addMediaItem(i, item)
-        }
+    private fun applyDiffOps(ctrl: MediaController, desiredItems: List<MediaItem>, desiredIds: List<String>) {
+        val ops = computeQueueOps(lastSyncedMediaIds, desiredIds)
+        if (ops.isEmpty()) return
 
-        // Add items after current
-        if (centerIndex + 1 < npState.nowPlayingEntries.size) {
-            val afterItems = npState.nowPlayingEntries
-                .subList(centerIndex + 1, npState.nowPlayingEntries.size)
-                .filterIndexed { offset, entry -> 
-                    shouldIncludeInPlayer(centerIndex + 1 + offset, entry.theme, npState) 
+        val itemsById = desiredItems.associateBy { it.mediaId }
+        for (op in ops) {
+            when (op) {
+                is QueueOp.Add -> {
+                    val items = op.mediaIds.mapNotNull { itemsById[it] }
+                    if (items.isNotEmpty()) ctrl.addMediaItems(op.position, items)
                 }
-                .map { it.toMediaItem(npState.animeMap) }
-            for (item in afterItems) {
-                ctrl.addMediaItem(item)
+                is QueueOp.Remove -> ctrl.removeMediaItems(op.fromIndex, op.toIndex)
+                is QueueOp.Move -> ctrl.moveMediaItem(op.fromIndex, op.toIndex)
+                is QueueOp.Replace -> itemsById[op.mediaId]?.let { ctrl.replaceMediaItem(op.position, it) }
             }
         }
     }

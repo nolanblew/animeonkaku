@@ -171,11 +171,11 @@ class FilterEvaluator @Inject constructor(
         }
 
     private fun themeTypeRank(themeType: String?): Int = when {
-        themeType == null -> 3
+        themeType == null -> 4
         themeType.uppercase().startsWith("OP") -> 0
-        themeType.uppercase().startsWith("ED") -> 1
-        themeType.uppercase().startsWith("IN") -> 2
-        else -> 3
+        themeType.uppercase().startsWith("IN") -> 1
+        themeType.uppercase().startsWith("ED") -> 3
+        else -> 2
     }
 
     private fun monthToSeason(month: Int): Season? = when (month) {
