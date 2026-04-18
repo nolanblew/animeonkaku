@@ -237,18 +237,21 @@ fun DynamicAdvancedBuilderScreen(
     val nodeBeingEdited = editingNode
     val pathBeingEdited = editingPath
     val insertParentPath = leafInsertParentPath
+    val countPreviewLambda: suspend (FilterNode) -> Int = remember(pathBeingEdited, insertParentPath, tree) {
+        { previewNode ->
+            val previewTree = when {
+                pathBeingEdited != null -> tree.replaceAt(pathBeingEdited, previewNode)
+                insertParentPath != null -> tree.insertAt(insertParentPath, previewNode)
+                else -> tree.insertAt(emptyList(), previewNode)
+            }
+            viewModel.countFilter(previewTree)
+        }
+    }
     if (nodeBeingEdited != null) {
         LeafEditorSheet(
             node = nodeBeingEdited,
             availableGenres = state.availableGenres,
-            countPreview = { previewNode ->
-                val previewTree = when {
-                    pathBeingEdited != null -> tree.replaceAt(pathBeingEdited, previewNode)
-                    insertParentPath != null -> tree.insertAt(insertParentPath, previewNode)
-                    else -> tree.insertAt(emptyList(), previewNode)
-                }
-                viewModel.countFilter(previewTree)
-            },
+            countPreview = countPreviewLambda,
             onDismiss = {
                 editingNode = null
                 editingPath = null
@@ -1635,26 +1638,24 @@ private fun TextMatchEditor(
     var showRegexHelp by remember { mutableStateOf(false) }
     var liveCount by remember { mutableStateOf<Int?>(null) }
 
-    val compiledRegex: Regex? = remember(patternValue.text, isRegex) {
-        if (isRegex && patternValue.text.isNotBlank())
-            runCatching { Regex(patternValue.text) }.getOrNull()
+    val (compiledRegex, regexError) = remember(patternValue.text, isRegex) {
+        if (isRegex && patternValue.text.isNotBlank()) {
+            val result = runCatching { Regex(patternValue.text) }
+            result.getOrNull() to result.exceptionOrNull()?.message
+        } else null to null
+    }
+    val testMatch: Boolean? = remember(compiledRegex, testText) {
+        if (compiledRegex != null && testText.isNotEmpty())
+            runCatching { compiledRegex.containsMatchIn(testText) }.getOrElse { false }
         else null
     }
-    val regexError: String? = remember(patternValue.text, isRegex) {
-        if (isRegex && patternValue.text.isNotBlank())
-            runCatching { Regex(patternValue.text) }.exceptionOrNull()?.message
-        else null
-    }
-    val testMatch: Boolean? = if (compiledRegex != null && testText.isNotEmpty()) {
-        compiledRegex.containsMatchIn(testText)
-    } else null
 
     val countPreviewRef = rememberUpdatedState(countPreview)
     LaunchedEffect(patternValue.text, isRegex) {
         delay(300L)
         val text = patternValue.text
         val isRegexOn = isRegex
-        val isValid = !isRegexOn || text.isBlank() || runCatching { Regex(text) }.isSuccess
+        val isValid = !isRegexOn || text.isBlank() || compiledRegex != null
         liveCount = if (isValid) countPreviewRef.value?.invoke(text, isRegexOn) else null
     }
 
