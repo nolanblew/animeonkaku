@@ -116,8 +116,12 @@ class LibraryViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            artistNames.collect { names ->
-                artistRepository.refreshArtistImages(names)
+            combine(artistNames, isOnline) { names, online ->
+                if (online) names else emptyList()
+            }.distinctUntilChanged().collect { names ->
+                if (names.isNotEmpty()) {
+                    artistRepository.refreshArtistImages(names)
+                }
             }
         }
     }

@@ -5,6 +5,7 @@ import com.takeya.animeongaku.data.local.ArtistImageDao
 import com.takeya.animeongaku.data.local.ArtistImageEntity
 import com.takeya.animeongaku.data.remote.AnimeThemesArtistResponse
 import com.takeya.animeongaku.data.remote.ApiArtistImage
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
@@ -61,13 +62,17 @@ class ArtistRepositoryImpl @Inject constructor(
 
         val adapter = moshi.adapter(AnimeThemesArtistResponse::class.java)
         return withContext(Dispatchers.IO) {
-            okHttpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use null
-                val body = response.body?.string() ?: return@use null
-                val payload = adapter.fromJson(body) ?: return@use null
-                val artist = payload.artists.firstOrNull { it.name?.equals(name, ignoreCase = true) == true }
-                    ?: payload.artists.firstOrNull()
-                artist?.images?.bestImageUrl()
+            try {
+                okHttpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use null
+                    val body = response.body?.string() ?: return@use null
+                    val payload = adapter.fromJson(body) ?: return@use null
+                    val artist = payload.artists.firstOrNull { it.name?.equals(name, ignoreCase = true) == true }
+                        ?: payload.artists.firstOrNull()
+                    artist?.images?.bestImageUrl()
+                }
+            } catch (_: IOException) {
+                null
             }
         }
     }
