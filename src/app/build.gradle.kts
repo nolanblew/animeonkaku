@@ -47,10 +47,10 @@ android {
         applicationId = "com.takeya.animeongaku"
         minSdk = 35
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.0.3"
         
-        buildConfigField("String", "DISPLAY_VERSION", "\"1.0.2\"")
+        buildConfigField("String", "DISPLAY_VERSION", "\"1.0.3\"")
         buildConfigField("boolean", "UPDATER_ENABLED", "false")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
