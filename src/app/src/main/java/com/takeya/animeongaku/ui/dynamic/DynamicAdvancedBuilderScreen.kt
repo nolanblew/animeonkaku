@@ -56,10 +56,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -233,22 +236,29 @@ fun DynamicAdvancedBuilderScreen(
 
     val nodeBeingEdited = editingNode
     val pathBeingEdited = editingPath
+    val insertParentPath = leafInsertParentPath
     if (nodeBeingEdited != null) {
         LeafEditorSheet(
             node = nodeBeingEdited,
             availableGenres = state.availableGenres,
+            countPreview = { previewNode ->
+                val previewTree = when {
+                    pathBeingEdited != null -> tree.replaceAt(pathBeingEdited, previewNode)
+                    insertParentPath != null -> tree.insertAt(insertParentPath, previewNode)
+                    else -> tree.insertAt(emptyList(), previewNode)
+                }
+                viewModel.countFilter(previewTree)
+            },
             onDismiss = {
                 editingNode = null
                 editingPath = null
                 leafInsertParentPath = null
             },
             onConfirm = { newLeaf ->
-                val updatedTree = if (pathBeingEdited != null) {
-                    tree.replaceAt(pathBeingEdited, newLeaf)
-                } else if (leafInsertParentPath != null) {
-                    tree.insertAt(leafInsertParentPath!!, newLeaf)
-                } else {
-                    tree.insertAt(emptyList(), newLeaf)
+                val updatedTree = when {
+                    pathBeingEdited != null -> tree.replaceAt(pathBeingEdited, newLeaf)
+                    insertParentPath != null -> tree.insertAt(insertParentPath, newLeaf)
+                    else -> tree.insertAt(emptyList(), newLeaf)
                 }
                 viewModel.setAdvancedTree(updatedTree)
                 editingNode = null
@@ -1103,6 +1113,7 @@ private fun GroupChoiceCard(
 private fun LeafEditorSheet(
     node: FilterNode,
     availableGenres: List<com.takeya.animeongaku.data.local.GenreEntity>,
+    countPreview: suspend (FilterNode) -> Int,
     onDismiss: () -> Unit,
     onConfirm: (FilterNode) -> Unit
 ) {
@@ -1136,13 +1147,15 @@ private fun LeafEditorSheet(
                         onConfirm(FilterNode.PlayedOn(op, anchor, end))
                     }
                 is FilterNode.TitleMatches ->
-                    TextMatchEditor("Anime title", node.pattern, node.isRegex) { pattern, isRegex ->
-                        onConfirm(FilterNode.TitleMatches(pattern, isRegex))
-                    }
+                    TextMatchEditor(
+                        "Anime title", node.pattern, node.isRegex,
+                        countPreview = { pat, isRx -> countPreview(FilterNode.TitleMatches(pat, isRx)) }
+                    ) { pattern, isRegex -> onConfirm(FilterNode.TitleMatches(pattern, isRegex)) }
                 is FilterNode.SongTitleMatches ->
-                    TextMatchEditor("Song title", node.pattern, node.isRegex) { pattern, isRegex ->
-                        onConfirm(FilterNode.SongTitleMatches(pattern, isRegex))
-                    }
+                    TextMatchEditor(
+                        "Song title", node.pattern, node.isRegex,
+                        countPreview = { pat, isRx -> countPreview(FilterNode.SongTitleMatches(pat, isRx)) }
+                    ) { pattern, isRegex -> onConfirm(FilterNode.SongTitleMatches(pattern, isRegex)) }
                 is FilterNode.SeasonIn ->
                     SeasonEditor(node) { onConfirm(FilterNode.SeasonIn(it)) }
                 is FilterNode.SubtypeIn ->
@@ -1613,12 +1626,14 @@ private fun TextMatchEditor(
     title: String,
     initialPattern: String,
     initialIsRegex: Boolean,
+    countPreview: (suspend (String, Boolean) -> Int)? = null,
     onConfirm: (String, Boolean) -> Unit
 ) {
     var patternValue by remember { mutableStateOf(TextFieldValue(initialPattern)) }
     var isRegex by remember { mutableStateOf(initialIsRegex) }
     var testText by remember { mutableStateOf("") }
     var showRegexHelp by remember { mutableStateOf(false) }
+    var liveCount by remember { mutableStateOf<Int?>(null) }
 
     val compiledRegex: Regex? = remember(patternValue.text, isRegex) {
         if (isRegex && patternValue.text.isNotBlank())
@@ -1633,6 +1648,15 @@ private fun TextMatchEditor(
     val testMatch: Boolean? = if (compiledRegex != null && testText.isNotEmpty()) {
         compiledRegex.containsMatchIn(testText)
     } else null
+
+    val countPreviewRef = rememberUpdatedState(countPreview)
+    LaunchedEffect(patternValue.text, isRegex) {
+        delay(300L)
+        val text = patternValue.text
+        val isRegexOn = isRegex
+        val isValid = !isRegexOn || text.isBlank() || runCatching { Regex(text) }.isSuccess
+        liveCount = if (isValid) countPreviewRef.value?.invoke(text, isRegexOn) else null
+    }
 
     EditorTitle(title)
     OutlinedTextField(
@@ -1664,6 +1688,13 @@ private fun TextMatchEditor(
                 }
             } else null,
             colors = editorTextFieldColors()
+        )
+    }
+    if (liveCount != null) {
+        Text(
+            text = "$liveCount tracks match",
+            color = Mist200,
+            fontSize = 13.sp
         )
     }
     Row(
