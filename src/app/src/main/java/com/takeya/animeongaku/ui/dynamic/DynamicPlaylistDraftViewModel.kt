@@ -318,6 +318,8 @@ class DynamicPlaylistDraftViewModel @Inject constructor(
         _state.update { it.copy(advancedTree = tree) }
     }
 
+    suspend fun countFilter(filter: FilterNode): Int = repository.previewCount(filter)
+
     // --- Sort editing ---
 
     fun setSort(spec: SortSpec) {

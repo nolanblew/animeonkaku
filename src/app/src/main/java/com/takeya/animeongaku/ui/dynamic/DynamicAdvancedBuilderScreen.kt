@@ -30,6 +30,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.RemoveCircleOutline
 import androidx.compose.material3.Button
@@ -55,15 +56,20 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -230,22 +236,32 @@ fun DynamicAdvancedBuilderScreen(
 
     val nodeBeingEdited = editingNode
     val pathBeingEdited = editingPath
+    val insertParentPath = leafInsertParentPath
+    val countPreviewLambda: suspend (FilterNode) -> Int = remember(pathBeingEdited, insertParentPath, tree) {
+        { previewNode ->
+            val previewTree = when {
+                pathBeingEdited != null -> tree.replaceAt(pathBeingEdited, previewNode)
+                insertParentPath != null -> tree.insertAt(insertParentPath, previewNode)
+                else -> tree.insertAt(emptyList(), previewNode)
+            }
+            viewModel.countFilter(previewTree)
+        }
+    }
     if (nodeBeingEdited != null) {
         LeafEditorSheet(
             node = nodeBeingEdited,
             availableGenres = state.availableGenres,
+            countPreview = countPreviewLambda,
             onDismiss = {
                 editingNode = null
                 editingPath = null
                 leafInsertParentPath = null
             },
             onConfirm = { newLeaf ->
-                val updatedTree = if (pathBeingEdited != null) {
-                    tree.replaceAt(pathBeingEdited, newLeaf)
-                } else if (leafInsertParentPath != null) {
-                    tree.insertAt(leafInsertParentPath!!, newLeaf)
-                } else {
-                    tree.insertAt(emptyList(), newLeaf)
+                val updatedTree = when {
+                    pathBeingEdited != null -> tree.replaceAt(pathBeingEdited, newLeaf)
+                    insertParentPath != null -> tree.insertAt(insertParentPath, newLeaf)
+                    else -> tree.insertAt(emptyList(), newLeaf)
                 }
                 viewModel.setAdvancedTree(updatedTree)
                 editingNode = null
@@ -1100,6 +1116,7 @@ private fun GroupChoiceCard(
 private fun LeafEditorSheet(
     node: FilterNode,
     availableGenres: List<com.takeya.animeongaku.data.local.GenreEntity>,
+    countPreview: suspend (FilterNode) -> Int,
     onDismiss: () -> Unit,
     onConfirm: (FilterNode) -> Unit
 ) {
@@ -1133,13 +1150,15 @@ private fun LeafEditorSheet(
                         onConfirm(FilterNode.PlayedOn(op, anchor, end))
                     }
                 is FilterNode.TitleMatches ->
-                    TextMatchEditor("Anime title", node.pattern, node.isRegex) { pattern, isRegex ->
-                        onConfirm(FilterNode.TitleMatches(pattern, isRegex))
-                    }
+                    TextMatchEditor(
+                        "Anime title", node.pattern, node.isRegex,
+                        countPreview = { pat, isRx -> countPreview(FilterNode.TitleMatches(pat, isRx)) }
+                    ) { pattern, isRegex -> onConfirm(FilterNode.TitleMatches(pattern, isRegex)) }
                 is FilterNode.SongTitleMatches ->
-                    TextMatchEditor("Song title", node.pattern, node.isRegex) { pattern, isRegex ->
-                        onConfirm(FilterNode.SongTitleMatches(pattern, isRegex))
-                    }
+                    TextMatchEditor(
+                        "Song title", node.pattern, node.isRegex,
+                        countPreview = { pat, isRx -> countPreview(FilterNode.SongTitleMatches(pat, isRx)) }
+                    ) { pattern, isRegex -> onConfirm(FilterNode.SongTitleMatches(pattern, isRegex)) }
                 is FilterNode.SeasonIn ->
                     SeasonEditor(node) { onConfirm(FilterNode.SeasonIn(it)) }
                 is FilterNode.SubtypeIn ->
@@ -1610,18 +1629,40 @@ private fun TextMatchEditor(
     title: String,
     initialPattern: String,
     initialIsRegex: Boolean,
+    countPreview: (suspend (String, Boolean) -> Int)? = null,
     onConfirm: (String, Boolean) -> Unit
 ) {
-    var pattern by remember { mutableStateOf(initialPattern) }
+    var patternValue by remember { mutableStateOf(TextFieldValue(initialPattern)) }
     var isRegex by remember { mutableStateOf(initialIsRegex) }
-    val regexError = if (isRegex && pattern.isNotBlank()) {
-        runCatching { Regex(pattern) }.exceptionOrNull()?.message
-    } else null
+    var testText by remember { mutableStateOf("") }
+    var showRegexHelp by remember { mutableStateOf(false) }
+    var liveCount by remember { mutableStateOf<Int?>(null) }
+
+    val (compiledRegex, regexError) = remember(patternValue.text, isRegex) {
+        if (isRegex && patternValue.text.isNotBlank()) {
+            val result = runCatching { Regex(patternValue.text) }
+            result.getOrNull() to result.exceptionOrNull()?.message
+        } else null to null
+    }
+    val testMatch: Boolean? = remember(compiledRegex, testText) {
+        if (compiledRegex != null && testText.isNotEmpty())
+            runCatching { compiledRegex.containsMatchIn(testText) }.getOrElse { false }
+        else null
+    }
+
+    val countPreviewRef = rememberUpdatedState(countPreview)
+    LaunchedEffect(patternValue.text, isRegex) {
+        delay(300L)
+        val text = patternValue.text
+        val isRegexOn = isRegex
+        val isValid = !isRegexOn || text.isBlank() || compiledRegex != null
+        liveCount = if (isValid) countPreviewRef.value?.invoke(text, isRegexOn) else null
+    }
 
     EditorTitle(title)
     OutlinedTextField(
-        value = pattern,
-        onValueChange = { pattern = it },
+        value = patternValue,
+        onValueChange = { patternValue = it },
         label = { Text(if (isRegex) "Regex pattern" else "Contains (case-insensitive)", color = Mist200) },
         modifier = Modifier.fillMaxWidth(),
         isError = regexError != null,
@@ -1630,15 +1671,53 @@ private fun TextMatchEditor(
         } else null,
         colors = editorTextFieldColors()
     )
+    if (isRegex) {
+        OutlinedTextField(
+            value = testText,
+            onValueChange = { testText = it },
+            label = { Text("Test text", color = Mist200) },
+            modifier = Modifier.fillMaxWidth(),
+            trailingIcon = if (testMatch != null) {
+                {
+                    Text(
+                        text = if (testMatch) "✓ Match" else "✗ No match",
+                        color = if (testMatch) Sky500 else Mist200,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                }
+            } else null,
+            colors = editorTextFieldColors()
+        )
+    }
+    if (liveCount != null) {
+        Text(
+            text = "$liveCount tracks match",
+            color = Mist200,
+            fontSize = 13.sp
+        )
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text("Use regex", color = Mist200, modifier = Modifier.weight(1f))
+        IconButton(
+            onClick = { showRegexHelp = true },
+            modifier = Modifier.size(36.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Info,
+                contentDescription = "Regex help",
+                tint = Mist200,
+                modifier = Modifier.size(18.dp)
+            )
+        }
         Switch(checked = isRegex, onCheckedChange = { isRegex = it })
     }
     Button(
-        onClick = { onConfirm(pattern, isRegex) },
+        onClick = { onConfirm(patternValue.text, isRegex) },
         enabled = regexError == null,
         modifier = Modifier.fillMaxWidth(),
         colors = ButtonDefaults.buttonColors(
@@ -1650,6 +1729,18 @@ private fun TextMatchEditor(
             text = if (regexError != null) "Fix regex to apply" else "Apply",
             color = if (regexError != null) Mist200 else Color.White,
             fontWeight = FontWeight.SemiBold
+        )
+    }
+
+    if (showRegexHelp) {
+        RegexHelpSheet(
+            onDismiss = { showRegexHelp = false },
+            onPatternSelected = { snippet ->
+                val text = patternValue.text
+                val insertAt = patternValue.selection.start.coerceIn(0, text.length)
+                val newText = text.substring(0, insertAt) + snippet + text.substring(insertAt)
+                patternValue = TextFieldValue(newText, TextRange(insertAt + snippet.length))
+            }
         )
     }
 }
