@@ -8,6 +8,8 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.adapters.PolymorphicJsonAdapterFactory
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import com.takeya.animeongaku.BuildConfig
+import com.takeya.animeongaku.data.filter.CustomRange
+import com.takeya.animeongaku.data.filter.DateAnchor
 import com.takeya.animeongaku.data.filter.FilterNode
 import com.takeya.animeongaku.data.auth.KitsuAuthRepository
 import com.takeya.animeongaku.data.auth.KitsuAuthRepositoryImpl
@@ -35,6 +37,7 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 object NetworkModule {
     @Provides
     @Singleton
+    @Suppress("DEPRECATION")
     fun provideMoshi(): Moshi {
         val filterNodeFactory = PolymorphicJsonAdapterFactory.of(FilterNode::class.java, "type")
             // Operators
@@ -43,28 +46,44 @@ object NetworkModule {
             .withSubtype(FilterNode.Not::class.java, "not")
             // Anime metadata leaves
             .withSubtype(FilterNode.GenreIn::class.java, "genre_in")
-            .withSubtype(FilterNode.AiredBefore::class.java, "aired_before")
-            .withSubtype(FilterNode.AiredAfter::class.java, "aired_after")
-            .withSubtype(FilterNode.AiredBetween::class.java, "aired_between")
+            .withSubtype(FilterNode.AiredOn::class.java, "aired_on")
             .withSubtype(FilterNode.SeasonIn::class.java, "season_in")
             .withSubtype(FilterNode.SubtypeIn::class.java, "subtype_in")
             .withSubtype(FilterNode.AverageRatingGte::class.java, "average_rating_gte")
             .withSubtype(FilterNode.UserRatingGte::class.java, "user_rating_gte")
             // Library/user leaves
             .withSubtype(FilterNode.WatchingStatusIn::class.java, "watching_status_in")
-            .withSubtype(FilterNode.LibraryUpdatedAfter::class.java, "library_updated_after")
-            .withSubtype(FilterNode.LibraryUpdatedWithin::class.java, "library_updated_within")
+            .withSubtype(FilterNode.WatchedOn::class.java, "watched_on")
             // Theme leaves
             .withSubtype(FilterNode.ThemeTypeIn::class.java, "theme_type_in")
             .withSubtype(FilterNode.ArtistIn::class.java, "artist_in")
+            .withSubtype(FilterNode.TitleMatches::class.java, "title_matches")
+            .withSubtype(FilterNode.SongTitleMatches::class.java, "song_title_matches")
             .withSubtype(FilterNode.Liked::class.java, "liked")
             .withSubtype(FilterNode.Disliked::class.java, "disliked")
             .withSubtype(FilterNode.Downloaded::class.java, "downloaded")
             .withSubtype(FilterNode.PlayCountGte::class.java, "play_count_gte")
+            .withSubtype(FilterNode.PlayedOn::class.java, "played_on")
+            // Legacy nodes — kept for safe deserialization of old specs
+            .withSubtype(FilterNode.AiredBefore::class.java, "aired_before")
+            .withSubtype(FilterNode.AiredAfter::class.java, "aired_after")
+            .withSubtype(FilterNode.AiredBetween::class.java, "aired_between")
+            .withSubtype(FilterNode.LibraryUpdatedAfter::class.java, "library_updated_after")
+            .withSubtype(FilterNode.LibraryUpdatedWithin::class.java, "library_updated_within")
             .withSubtype(FilterNode.PlayedSince::class.java, "played_since")
+
+        val dateAnchorFactory = PolymorphicJsonAdapterFactory.of(DateAnchor::class.java, "type")
+            .withSubtype(DateAnchor.AbsoluteYear::class.java, "absolute_year")
+            .withSubtype(DateAnchor.Relative::class.java, "relative")
+
+        val customRangeFactory = PolymorphicJsonAdapterFactory.of(CustomRange::class.java, "type")
+            .withSubtype(CustomRange.Relative::class.java, "relative")
+            .withSubtype(CustomRange.Exact::class.java, "exact")
 
         return Moshi.Builder()
             .add(filterNodeFactory)
+            .add(dateAnchorFactory)
+            .add(customRangeFactory)
             .add(KotlinJsonAdapterFactory())
             .build()
     }

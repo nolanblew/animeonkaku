@@ -22,7 +22,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AnimeGenreCrossRef::class,
         DynamicPlaylistSpecEntity::class
     ],
-    version = 18,
+    version = 19,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -176,6 +176,12 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_17_18 = object : Migration(17, 18) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `dynamic_playlist_spec` ADD COLUMN `sortJson` TEXT")
+            }
+        }
+
+        val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `dynamic_playlist_spec` ADD COLUMN `simpleStateJson` TEXT")
             }
         }
     }

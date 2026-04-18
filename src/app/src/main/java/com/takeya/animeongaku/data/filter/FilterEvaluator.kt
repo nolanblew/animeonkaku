@@ -11,6 +11,8 @@ import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.local.UserPreferenceDao
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
+import java.time.ZoneOffset
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -80,6 +82,7 @@ class FilterEvaluator @Inject constructor(
         )
     }
 
+    @Suppress("DEPRECATION")
     internal fun matches(node: FilterNode, theme: ThemeEntity, ctx: EvaluationContext): Boolean {
         val anime: AnimeEntity? = theme.animeId?.let { ctx.animeByThemesId[it] }
         val animeKitsuId: String? = anime?.kitsuId
@@ -94,6 +97,19 @@ class FilterEvaluator @Inject constructor(
                 if (node.matchAll) node.slugs.all { it in genreSlugs }
                 else node.slugs.any { it in genreSlugs }
             }
+            is FilterNode.AiredOn -> {
+                val year = anime?.startDate?.take(4)?.toIntOrNull() ?: return false
+                val anchorYear = resolveYear(node.anchor, ctx.nowMillis)
+                when (node.operator) {
+                    DateOperator.GT -> year >= anchorYear
+                    DateOperator.LT -> year < anchorYear
+                    DateOperator.BETWEEN -> {
+                        val endYear = node.endAnchor?.let { resolveYear(it, ctx.nowMillis) } ?: anchorYear
+                        year in minOf(anchorYear, endYear)..maxOf(anchorYear, endYear)
+                    }
+                }
+            }
+            // Legacy aired nodes — delegate to AiredOn semantics
             is FilterNode.AiredBefore -> {
                 val year = anime?.startDate?.take(4)?.toIntOrNull() ?: return false
                 year < node.year
@@ -127,6 +143,19 @@ class FilterEvaluator @Inject constructor(
                 val status = anime?.watchingStatus ?: return false
                 status in node.statuses
             }
+            is FilterNode.WatchedOn -> {
+                val updatedAt = anime?.libraryUpdatedAt ?: return false
+                val anchorMillis = resolveMillis(node.anchor, ctx.nowMillis)
+                when (node.operator) {
+                    DateOperator.GT -> updatedAt > anchorMillis
+                    DateOperator.LT -> updatedAt < anchorMillis
+                    DateOperator.BETWEEN -> {
+                        val endMillis = node.endAnchor?.let { resolveMillis(it, ctx.nowMillis) } ?: anchorMillis
+                        updatedAt in minOf(anchorMillis, endMillis)..maxOf(anchorMillis, endMillis)
+                    }
+                }
+            }
+            // Legacy library nodes
             is FilterNode.LibraryUpdatedAfter -> {
                 val updatedAt = anime?.libraryUpdatedAt ?: return false
                 updatedAt > node.epochMillis
@@ -145,6 +174,14 @@ class FilterEvaluator @Inject constructor(
                     artistName.contains(name, ignoreCase = true)
                 }
             }
+            is FilterNode.TitleMatches -> {
+                val title = anime?.title ?: return false
+                matchesPattern(title, node.pattern, node.isRegex)
+            }
+            is FilterNode.SongTitleMatches -> {
+                val songTitle = theme.title ?: return false
+                matchesPattern(songTitle, node.pattern, node.isRegex)
+            }
             is FilterNode.Liked -> theme.id in ctx.likedThemeIds
             is FilterNode.Disliked -> theme.id in ctx.dislikedThemeIds
             is FilterNode.Downloaded -> theme.id in ctx.downloadedThemeIds
@@ -152,6 +189,19 @@ class FilterEvaluator @Inject constructor(
                 val count = ctx.playCountByTheme[theme.id] ?: 0
                 count >= node.min
             }
+            is FilterNode.PlayedOn -> {
+                val lastPlayed = ctx.lastPlayedByTheme[theme.id] ?: return false
+                val anchorMillis = resolveMillis(node.anchor, ctx.nowMillis)
+                when (node.operator) {
+                    DateOperator.GT -> lastPlayed >= anchorMillis
+                    DateOperator.LT -> lastPlayed < anchorMillis
+                    DateOperator.BETWEEN -> {
+                        val endMillis = node.endAnchor?.let { resolveMillis(it, ctx.nowMillis) } ?: anchorMillis
+                        lastPlayed in minOf(anchorMillis, endMillis)..maxOf(anchorMillis, endMillis)
+                    }
+                }
+            }
+            // Legacy played node
             is FilterNode.PlayedSince -> {
                 val lastPlayed = ctx.lastPlayedByTheme[theme.id] ?: return false
                 lastPlayed >= node.epochMillis
@@ -168,5 +218,39 @@ class FilterEvaluator @Inject constructor(
         7, 8, 9 -> Season.SUMMER
         10, 11, 12 -> Season.FALL
         else -> null
+    }
+
+    private fun resolveYear(anchor: DateAnchor, nowMillis: Long): Int = when (anchor) {
+        is DateAnchor.AbsoluteYear -> anchor.year
+        is DateAnchor.Relative -> {
+            val now = LocalDate.ofEpochDay(nowMillis / 86_400_000L)
+            when (anchor.unit) {
+                DateUnit.DAYS -> now.minusDays(anchor.amount.toLong())
+                DateUnit.MONTHS -> now.minusMonths(anchor.amount.toLong())
+                DateUnit.YEARS -> now.minusYears(anchor.amount.toLong())
+            }.year
+        }
+    }
+
+    private fun resolveMillis(anchor: DateAnchor, nowMillis: Long): Long = when (anchor) {
+        is DateAnchor.AbsoluteYear -> LocalDate.of(anchor.year, 1, 1)
+            .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        is DateAnchor.Relative -> {
+            val now = LocalDate.ofEpochDay(nowMillis / 86_400_000L)
+            when (anchor.unit) {
+                DateUnit.DAYS -> now.minusDays(anchor.amount.toLong())
+                DateUnit.MONTHS -> now.minusMonths(anchor.amount.toLong())
+                DateUnit.YEARS -> now.minusYears(anchor.amount.toLong())
+            }.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        }
+    }
+
+    private fun matchesPattern(text: String, pattern: String, isRegex: Boolean): Boolean {
+        if (pattern.isBlank()) return true
+        return if (isRegex) {
+            runCatching { Regex(pattern).containsMatchIn(text) }.getOrElse { false }
+        } else {
+            text.contains(pattern, ignoreCase = true)
+        }
     }
 }
