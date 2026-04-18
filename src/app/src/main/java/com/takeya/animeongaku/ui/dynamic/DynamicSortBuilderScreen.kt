@@ -90,6 +90,7 @@ fun DynamicSortBuilderScreen(
     val scrollState = rememberScrollState()
 
     var pickerTarget by remember { mutableStateOf<SortPickerTarget?>(null) }
+    var categoricalEditIndex by remember { mutableStateOf<Int?>(null) }
 
     Box(
         modifier = Modifier
@@ -132,6 +133,7 @@ fun DynamicSortBuilderScreen(
                             onChangeDirection = { dir ->
                                 viewModel.setSortDirection(index, dir)
                             },
+                            onEditCategoricalOrder = { categoricalEditIndex = index },
                             onChangeAttribute = {
                                 pickerTarget = SortPickerTarget.Replace(index)
                             },
@@ -201,6 +203,18 @@ fun DynamicSortBuilderScreen(
                 pickerTarget = null
             }
         )
+    }
+
+    categoricalEditIndex?.let { idx ->
+        val key = sort.keys.getOrNull(idx)
+        if (key != null) {
+            CategoricalOrderSheet(
+                attribute = key.attribute,
+                order = key.categoricalOrder ?: SortKey.defaultCategoricalOrder(key.attribute),
+                onDismiss = { categoricalEditIndex = null },
+                onOrderChanged = { newOrder -> viewModel.setCategoricalOrder(idx, newOrder) }
+            )
+        }
     }
 }
 
@@ -298,6 +312,7 @@ private fun SortKeyCard(
     isFirst: Boolean,
     isLast: Boolean,
     onChangeDirection: (SortDirection) -> Unit,
+    onEditCategoricalOrder: () -> Unit,
     onChangeAttribute: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
@@ -354,10 +369,10 @@ private fun SortKeyCard(
             }
 
             DirectionRow(
-                attribute = key.attribute,
-                direction = key.direction,
+                key = key,
                 accent = accent,
-                onChangeDirection = onChangeDirection
+                onChangeDirection = onChangeDirection,
+                onEditCategoricalOrder = onEditCategoricalOrder
             )
         }
     }
@@ -455,44 +470,78 @@ private fun SortKeyMenu(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DirectionRow(
-    attribute: SortAttribute,
-    direction: SortDirection,
+    key: SortKey,
     accent: Color,
-    onChangeDirection: (SortDirection) -> Unit
+    onChangeDirection: (SortDirection) -> Unit,
+    onEditCategoricalOrder: () -> Unit
 ) {
-    if (attribute.valueKind == SortValueKind.RANDOM) {
-        Surface(
-            color = accent.copy(alpha = 0.12f),
-            shape = RoundedCornerShape(999.dp),
-            border = BorderStroke(1.dp, accent.copy(alpha = 0.28f))
-        ) {
-            Text(
-                text = "Shuffle",
-                color = accent,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-            )
+    when (key.attribute.valueKind) {
+        SortValueKind.RANDOM -> {
+            Surface(
+                color = accent.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(999.dp),
+                border = BorderStroke(1.dp, accent.copy(alpha = 0.28f))
+            ) {
+                Text(
+                    text = "Shuffle",
+                    color = accent,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+            }
         }
-        return
-    }
-    val (ascLabel, descLabel) = directionLabels(attribute)
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        DirectionChip(
-            label = ascLabel,
-            selected = direction == SortDirection.ASC,
-            accent = accent,
-            onClick = { onChangeDirection(SortDirection.ASC) }
-        )
-        DirectionChip(
-            label = descLabel,
-            selected = direction == SortDirection.DESC,
-            accent = accent,
-            onClick = { onChangeDirection(SortDirection.DESC) }
-        )
+        SortValueKind.CATEGORICAL -> {
+            val order = key.categoricalOrder ?: SortKey.defaultCategoricalOrder(key.attribute)
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onEditCategoricalOrder),
+                color = accent.copy(alpha = 0.08f),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, accent.copy(alpha = 0.26f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = order.joinToString(" \u2192 ") { categoricalValueLabel(key.attribute, it) },
+                        color = Mist100,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = "Edit order",
+                        color = accent,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+        else -> {
+            val (ascLabel, descLabel) = directionLabels(key.attribute)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                DirectionChip(
+                    label = ascLabel,
+                    selected = key.direction == SortDirection.ASC,
+                    accent = accent,
+                    onClick = { onChangeDirection(SortDirection.ASC) }
+                )
+                DirectionChip(
+                    label = descLabel,
+                    selected = key.direction == SortDirection.DESC,
+                    accent = accent,
+                    onClick = { onChangeDirection(SortDirection.DESC) }
+                )
+            }
+        }
     }
 }
 
@@ -695,10 +744,17 @@ private enum class AttributeCategory(
     ANIME("Anime", listOf(
         SortAttribute.ANIME_TITLE,
         SortAttribute.AIRED_DATE,
+        SortAttribute.SEASON,
+        SortAttribute.SUBTYPE,
         SortAttribute.AVERAGE_RATING,
         SortAttribute.MY_RATING
     )),
-    LIBRARY("Library", listOf(SortAttribute.WATCHED_DATE, SortAttribute.LIKED, SortAttribute.DOWNLOADED)),
+    LIBRARY("Library", listOf(
+        SortAttribute.WATCHED_DATE,
+        SortAttribute.WATCHING_STATUS,
+        SortAttribute.LIKED,
+        SortAttribute.DOWNLOADED
+    )),
     PLAYBACK("Playback", listOf(SortAttribute.PLAY_COUNT, SortAttribute.LAST_PLAYED)),
     MISC("Misc", listOf(SortAttribute.RANDOM))
 }
@@ -717,6 +773,9 @@ internal fun attributeLabel(attr: SortAttribute): String = when (attr) {
     SortAttribute.LIKED -> "Liked"
     SortAttribute.DOWNLOADED -> "Downloaded"
     SortAttribute.RANDOM -> "Random"
+    SortAttribute.WATCHING_STATUS -> "Watching Status"
+    SortAttribute.SUBTYPE -> "Media Type"
+    SortAttribute.SEASON -> "Season"
 }
 
 internal fun attributeKindLabel(attr: SortAttribute): String = when (attr.valueKind) {
@@ -724,17 +783,17 @@ internal fun attributeKindLabel(attr: SortAttribute): String = when (attr.valueK
     SortValueKind.NUMBER -> "Number"
     SortValueKind.DATE -> "Date"
     SortValueKind.BOOLEAN -> "Yes / No"
-    SortValueKind.THEME_TYPE -> "OP / IN / ED order"
+    SortValueKind.CATEGORICAL -> "Custom order"
     SortValueKind.RANDOM -> "Shuffle"
 }
 
 /** Returns (ascendingLabel, descendingLabel) for an attribute's value kind. */
 internal fun directionLabels(attr: SortAttribute): Pair<String, String> = when (attr.valueKind) {
-    SortValueKind.STRING, SortValueKind.THEME_TYPE -> "A \u2192 Z" to "Z \u2192 A"
+    SortValueKind.STRING -> "A \u2192 Z" to "Z \u2192 A"
     SortValueKind.NUMBER -> "Low \u2192 High" to "High \u2192 Low"
     SortValueKind.DATE -> "Oldest first" to "Newest first"
     SortValueKind.BOOLEAN -> "Yes first" to "No first"
-    SortValueKind.RANDOM -> "Shuffle" to "Shuffle"
+    SortValueKind.CATEGORICAL, SortValueKind.RANDOM -> "Custom" to "Custom"
 }
 
 internal fun attributeAccent(attr: SortAttribute): Color = when (attr.valueKind) {
@@ -742,7 +801,129 @@ internal fun attributeAccent(attr: SortAttribute): Color = when (attr.valueKind)
     SortValueKind.NUMBER -> Gold400
     SortValueKind.DATE -> Sky500
     SortValueKind.BOOLEAN -> Rose500
-    SortValueKind.THEME_TYPE -> Mist200
+    SortValueKind.CATEGORICAL -> Mist200
     SortValueKind.RANDOM -> Gold400
+}
+
+internal fun categoricalValueLabel(attr: SortAttribute, value: String): String = when (attr) {
+    SortAttribute.THEME_TYPE -> when (value.uppercase()) {
+        "OP" -> "Opening"
+        "ED" -> "Ending"
+        "IN" -> "Insert"
+        else -> value
+    }
+    SortAttribute.SEASON -> value.lowercase().replaceFirstChar(Char::uppercaseChar)
+    SortAttribute.WATCHING_STATUS -> when (value.lowercase()) {
+        "current" -> "Watching"
+        "completed" -> "Completed"
+        "planned" -> "Planned"
+        "dropped" -> "Dropped"
+        "on_hold" -> "On Hold"
+        else -> value.replaceFirstChar(Char::uppercaseChar)
+    }
+    SortAttribute.SUBTYPE -> value.uppercase()
+    else -> value
+}
+
+@Composable
+private fun CategoricalOrderSheet(
+    attribute: SortAttribute,
+    order: List<String>,
+    onDismiss: () -> Unit,
+    onOrderChanged: (List<String>) -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Ink800
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+                .navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "Sort order: ${attributeLabel(attribute)}",
+                color = Mist100,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "First in the list = highest priority. Use arrows to reorder.",
+                color = Mist200,
+                fontSize = 13.sp
+            )
+            order.forEachIndexed { index, value ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color(0xFF1A1A20),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, Mist200.copy(alpha = 0.18f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${index + 1}.",
+                            color = Mist200,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.width(28.dp)
+                        )
+                        Text(
+                            text = categoricalValueLabel(attribute, value),
+                            color = Mist100,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = {
+                                if (index > 0) {
+                                    val newOrder = order.toMutableList()
+                                    val item = newOrder.removeAt(index)
+                                    newOrder.add(index - 1, item)
+                                    onOrderChanged(newOrder)
+                                }
+                            },
+                            enabled = index > 0
+                        ) {
+                            Icon(
+                                Icons.Rounded.ArrowUpward,
+                                contentDescription = "Move up",
+                                tint = if (index > 0) Mist200 else Mist200.copy(alpha = 0.3f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                if (index < order.lastIndex) {
+                                    val newOrder = order.toMutableList()
+                                    val item = newOrder.removeAt(index)
+                                    newOrder.add(index + 1, item)
+                                    onOrderChanged(newOrder)
+                                }
+                            },
+                            enabled = index < order.lastIndex
+                        ) {
+                            Icon(
+                                Icons.Rounded.ArrowDownward,
+                                contentDescription = "Move down",
+                                tint = if (index < order.lastIndex) Mist200 else Mist200.copy(alpha = 0.3f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+    }
 }
 

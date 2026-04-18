@@ -3,19 +3,23 @@ package com.takeya.animeongaku.ui.dynamic
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.takeya.animeongaku.data.filter.CustomRange
 import com.takeya.animeongaku.data.filter.FilterNode
+import com.takeya.animeongaku.data.filter.RatingSource
 import com.takeya.animeongaku.data.filter.Season
+import com.takeya.animeongaku.data.filter.SimpleSectionsState
 import com.takeya.animeongaku.data.filter.SortAttribute
 import com.takeya.animeongaku.data.filter.SortDirection
 import com.takeya.animeongaku.data.filter.SortKey
 import com.takeya.animeongaku.data.filter.SortSpec
+import com.takeya.animeongaku.data.filter.TimeDimension
+import com.takeya.animeongaku.data.filter.TimeMode
+import com.takeya.animeongaku.data.filter.compileSimpleFilter
 import com.takeya.animeongaku.data.local.GenreEntity
 import com.takeya.animeongaku.data.local.GenreDao
 import com.takeya.animeongaku.data.local.PlaylistTrack
 import com.takeya.animeongaku.data.repository.DynamicPlaylistRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import java.time.LocalDate
-import java.time.ZoneOffset
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
@@ -33,44 +37,8 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 // ---------------------------------------------------------------------------
-// Supporting enums & sealed types
-// ---------------------------------------------------------------------------
-
-enum class TimeMode {
-    ANY,
-    LAST_6_MONTHS,
-    LAST_2_YEARS,
-    BEFORE_2000,
-    Y2000_2010,
-    Y2010_2020,
-    CUSTOM
-}
-
-enum class TimeDimension { AIRED, WATCHED }
-enum class RatingSource { MINE, AVERAGE }
-
-sealed interface CustomRange {
-    data class Relative(val durationMillis: Long) : CustomRange
-    data class Exact(val startYear: Int, val endYear: Int) : CustomRange
-}
-
-// ---------------------------------------------------------------------------
 // State types
 // ---------------------------------------------------------------------------
-
-data class SimpleSectionsState(
-    val timeMode: TimeMode = TimeMode.ANY,
-    val customRange: CustomRange? = null,
-    val timeDimension: TimeDimension = TimeDimension.AIRED,
-    val seasons: Set<Season> = emptySet(),
-    val genreSlugs: Set<String> = emptySet(),
-    val genreMatchAll: Boolean = false,
-    val minRating: Double? = null,
-    val ratingSource: RatingSource = RatingSource.MINE,
-    val subtypes: Set<String> = emptySet(),
-    val watchingStatuses: Set<String> = emptySet(),
-    val themeTypes: Set<String> = emptySet()
-)
 
 data class DynamicDraftState(
     val createdMode: String = "SIMPLE",   // "SIMPLE" | "ADVANCED"
@@ -80,6 +48,7 @@ data class DynamicDraftState(
     val saveMode: String = "AUTO",        // "AUTO" | "SNAPSHOT"
     val availableGenres: List<GenreEntity> = emptyList(),
     val editingPlaylistId: Long? = null,
+    val isEditLocked: Boolean = false,
     val sort: SortSpec = SortSpec.DEFAULT
 )
 
@@ -91,95 +60,8 @@ sealed interface SavePlaylistResult {
 }
 
 // ---------------------------------------------------------------------------
-// Compile helper
+// Compile / validate helpers
 // ---------------------------------------------------------------------------
-
-internal fun compileSimpleFilter(simpleState: SimpleSectionsState): FilterNode {
-    val children = mutableListOf<FilterNode>()
-    val s = simpleState
-
-    when (s.timeMode) {
-        TimeMode.ANY -> { /* no filter */ }
-        TimeMode.LAST_6_MONTHS -> {
-            if (s.timeDimension == TimeDimension.WATCHED) {
-                children += FilterNode.LibraryUpdatedWithin(182L * 24 * 60 * 60 * 1000)
-            }
-        }
-        TimeMode.LAST_2_YEARS -> {
-            if (s.timeDimension == TimeDimension.WATCHED) {
-                children += FilterNode.LibraryUpdatedWithin(730L * 24 * 60 * 60 * 1000)
-            }
-        }
-        TimeMode.BEFORE_2000 -> {
-            if (s.timeDimension == TimeDimension.WATCHED) {
-                watchedYearFilter(endYearInclusive = 1999)?.let(children::add)
-            } else {
-                children += FilterNode.AiredBefore(2000)
-            }
-        }
-        TimeMode.Y2000_2010 -> {
-            if (s.timeDimension == TimeDimension.WATCHED) {
-                watchedYearFilter(startYearInclusive = 2000, endYearInclusive = 2010)?.let(children::add)
-            } else {
-                children += FilterNode.AiredBetween(2000, 2010)
-            }
-        }
-        TimeMode.Y2010_2020 -> {
-            if (s.timeDimension == TimeDimension.WATCHED) {
-                watchedYearFilter(startYearInclusive = 2010, endYearInclusive = 2020)?.let(children::add)
-            } else {
-                children += FilterNode.AiredBetween(2010, 2020)
-            }
-        }
-        TimeMode.CUSTOM -> {
-            val range = s.customRange
-            if (range != null) {
-                when {
-                    range is CustomRange.Relative && s.timeDimension == TimeDimension.WATCHED ->
-                        children += FilterNode.LibraryUpdatedWithin(range.durationMillis)
-                    range is CustomRange.Exact && s.timeDimension == TimeDimension.AIRED ->
-                        children += FilterNode.AiredBetween(range.startYear, range.endYear)
-                    range is CustomRange.Exact && s.timeDimension == TimeDimension.WATCHED -> {
-                        val startYear = minOf(range.startYear, range.endYear)
-                        val endYear = maxOf(range.startYear, range.endYear)
-                        watchedYearFilter(startYear, endYear)?.let(children::add)
-                    }
-                    else -> { /* no filter */ }
-                }
-            }
-        }
-    }
-
-    if (s.seasons.isNotEmpty()) {
-        children += FilterNode.SeasonIn(s.seasons.toList())
-    }
-
-    if (s.genreSlugs.isNotEmpty()) {
-        children += FilterNode.GenreIn(s.genreSlugs.toList(), s.genreMatchAll)
-    }
-
-    s.minRating?.let { min ->
-        children += if (s.ratingSource == RatingSource.MINE) {
-            FilterNode.UserRatingGte(min)
-        } else {
-            FilterNode.AverageRatingGte(min)
-        }
-    }
-
-    if (s.subtypes.isNotEmpty()) {
-        children += FilterNode.SubtypeIn(s.subtypes.toList())
-    }
-
-    if (s.watchingStatuses.isNotEmpty()) {
-        children += FilterNode.WatchingStatusIn(s.watchingStatuses.toList())
-    }
-
-    if (s.themeTypes.isNotEmpty()) {
-        children += FilterNode.ThemeTypeIn(s.themeTypes.toList())
-    }
-
-    return FilterNode.And(children)
-}
 
 private fun DynamicDraftState.compileToFilterNode(): FilterNode {
     if (createdMode == "ADVANCED") return advancedTree
@@ -216,38 +98,6 @@ private fun validateGroup(children: List<FilterNode>, isRoot: Boolean): String? 
 private fun Throwable.toPlaylistSaveMessage(): String {
     return message?.takeIf { it.isNotBlank() }
         ?: "Couldn't save this smart playlist. Try removing the last filter change and try again."
-}
-
-private fun watchedYearFilter(
-    startYearInclusive: Int? = null,
-    endYearInclusive: Int? = null
-): FilterNode? {
-    val clauses = mutableListOf<FilterNode>()
-
-    startYearInclusive?.let { startYear ->
-        clauses += FilterNode.LibraryUpdatedAfter(startOfYearUtcMillis(startYear) - 1L)
-    } ?: run {
-        clauses += FilterNode.LibraryUpdatedAfter(0L)
-    }
-
-    endYearInclusive?.let { endYear ->
-        clauses += FilterNode.Not(
-            FilterNode.LibraryUpdatedAfter(startOfYearUtcMillis(endYear + 1) - 1L)
-        )
-    }
-
-    return when (clauses.size) {
-        0 -> null
-        1 -> clauses.single()
-        else -> FilterNode.And(clauses)
-    }
-}
-
-private fun startOfYearUtcMillis(year: Int): Long {
-    return LocalDate.of(year, 1, 1)
-        .atStartOfDay()
-        .toInstant(ZoneOffset.UTC)
-        .toEpochMilli()
 }
 
 // ---------------------------------------------------------------------------
@@ -401,13 +251,15 @@ class DynamicPlaylistDraftViewModel @Inject constructor(
             return@flow
         }
         val filter = s.compileToFilterNode()
+        val simpleState = if (s.createdMode == "SIMPLE") s.simple else null
         val result = runCatching {
             repository.createDynamic(
                 name = s.draftName.ifBlank { "Smart Playlist" },
                 filter = filter,
                 mode = s.saveMode,
                 createdMode = s.createdMode,
-                sort = s.sort
+                sort = s.sort,
+                simpleState = simpleState
             )
         }
         emit(
@@ -421,16 +273,23 @@ class DynamicPlaylistDraftViewModel @Inject constructor(
     fun loadForEdit(playlistId: Long) {
         _state.update { it.copy(editingPlaylistId = playlistId) }
         viewModelScope.launch {
-            val spec = repository.observeSpec(playlistId)
-            spec.collect { entity ->
+            repository.observeSpec(playlistId).collect { entity ->
                 if (entity != null) {
                     val storedSort = repository.decodeSort(entity)
+                    val storedFilter = repository.decodeFilter(entity)
+                    val storedSimple = repository.decodeSimpleState(entity)
+                    val isSimple = entity.createdMode == "SIMPLE"
+
                     _state.update { s ->
                         s.copy(
                             saveMode = entity.mode,
                             createdMode = entity.createdMode,
                             editingPlaylistId = playlistId,
-                            sort = storedSort
+                            isEditLocked = true,
+                            sort = storedSort,
+                            simple = storedSimple ?: SimpleSectionsState(),
+                            advancedTree = if (!isSimple) storedFilter ?: FilterNode.And(emptyList())
+                                          else s.advancedTree
                         )
                     }
                     return@collect
@@ -443,7 +302,8 @@ class DynamicPlaylistDraftViewModel @Inject constructor(
         val s = _state.value
         val id = s.editingPlaylistId ?: return@flow
         val filter = s.compileToFilterNode()
-        repository.updateDynamic(id, filter, s.sort)
+        val simpleState = if (s.createdMode == "SIMPLE") s.simple else null
+        repository.updateDynamic(id, filter, s.sort, simpleState)
         emit(Unit)
     }
 
@@ -457,6 +317,8 @@ class DynamicPlaylistDraftViewModel @Inject constructor(
     fun setAdvancedTree(tree: FilterNode) {
         _state.update { it.copy(advancedTree = tree) }
     }
+
+    suspend fun countFilter(filter: FilterNode): Int = repository.previewCount(filter)
 
     // --- Sort editing ---
 
@@ -472,7 +334,12 @@ class DynamicPlaylistDraftViewModel @Inject constructor(
     fun addSortKey(attribute: SortAttribute, direction: SortDirection = SortDirection.ASC) {
         _state.update { s ->
             if (s.sort.keys.size >= SortSpec.MAX_KEYS) return@update s
-            s.copy(sort = SortSpec(s.sort.keys + SortKey(attribute, direction)))
+            val key = if (attribute.valueKind == com.takeya.animeongaku.data.filter.SortValueKind.CATEGORICAL) {
+                SortKey(attribute, direction, SortKey.defaultCategoricalOrder(attribute))
+            } else {
+                SortKey(attribute, direction)
+            }
+            s.copy(sort = SortSpec(s.sort.keys + key))
         }
     }
 
@@ -498,7 +365,12 @@ class DynamicPlaylistDraftViewModel @Inject constructor(
         _state.update { s ->
             if (index !in s.sort.keys.indices) return@update s
             val keys = s.sort.keys.toMutableList()
-            keys[index] = keys[index].copy(attribute = attribute)
+            val newKey = if (attribute.valueKind == com.takeya.animeongaku.data.filter.SortValueKind.CATEGORICAL) {
+                SortKey(attribute, SortDirection.ASC, SortKey.defaultCategoricalOrder(attribute))
+            } else {
+                keys[index].copy(attribute = attribute, categoricalOrder = null)
+            }
+            keys[index] = newKey
             s.copy(sort = SortSpec(keys))
         }
     }
@@ -508,6 +380,15 @@ class DynamicPlaylistDraftViewModel @Inject constructor(
             if (index !in s.sort.keys.indices) return@update s
             val keys = s.sort.keys.toMutableList()
             keys[index] = keys[index].copy(direction = direction)
+            s.copy(sort = SortSpec(keys))
+        }
+    }
+
+    fun setCategoricalOrder(index: Int, order: List<String>) {
+        _state.update { s ->
+            if (index !in s.sort.keys.indices) return@update s
+            val keys = s.sort.keys.toMutableList()
+            keys[index] = keys[index].copy(categoricalOrder = order)
             s.copy(sort = SortSpec(keys))
         }
     }

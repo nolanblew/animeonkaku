@@ -430,15 +430,29 @@ fun AnimeOngakuApp(
                         }
                         val playlistId = entry.arguments?.getLong("playlistId") ?: return@composable
                         val vm = hiltViewModel<DynamicPlaylistDraftViewModel>(parentEntry)
+                        val editState by vm.state.collectAsStateWithLifecycle()
+
                         androidx.compose.runtime.LaunchedEffect(playlistId) {
                             vm.loadForEdit(playlistId)
                         }
-                        DynamicSimpleCreatorScreen(
-                            onNavigateToPreview = { navController.navigate("dynamic/preview") },
-                            onNavigateToAdvanced = { navController.navigate("dynamic/advanced") },
-                            onBack = { navController.popBackStack() },
-                            viewModel = vm
-                        )
+
+                        if (editState.editingPlaylistId == playlistId && editState.isEditLocked) {
+                            if (editState.createdMode == "ADVANCED") {
+                                DynamicAdvancedBuilderScreen(
+                                    onNavigateToPreview = { navController.navigate("dynamic/preview") },
+                                    onNavigateToSort = { navController.navigate("dynamic/sort") },
+                                    onBack = { navController.popBackStack() },
+                                    viewModel = vm
+                                )
+                            } else {
+                                DynamicSimpleCreatorScreen(
+                                    onNavigateToPreview = { navController.navigate("dynamic/preview") },
+                                    onNavigateToAdvanced = { navController.navigate("dynamic/advanced") },
+                                    onBack = { navController.popBackStack() },
+                                    viewModel = vm
+                                )
+                            }
+                        }
                     }
                 }
             }

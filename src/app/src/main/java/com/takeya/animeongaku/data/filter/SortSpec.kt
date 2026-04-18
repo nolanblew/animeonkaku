@@ -9,7 +9,7 @@ enum class SortAttribute(val valueKind: SortValueKind) {
     TITLE(SortValueKind.STRING),
     ARTIST(SortValueKind.STRING),
     ANIME_TITLE(SortValueKind.STRING),
-    THEME_TYPE(SortValueKind.THEME_TYPE),
+    THEME_TYPE(SortValueKind.CATEGORICAL),
     AIRED_DATE(SortValueKind.DATE),
     WATCHED_DATE(SortValueKind.DATE),
     AVERAGE_RATING(SortValueKind.NUMBER),
@@ -18,7 +18,10 @@ enum class SortAttribute(val valueKind: SortValueKind) {
     LAST_PLAYED(SortValueKind.DATE),
     LIKED(SortValueKind.BOOLEAN),
     DOWNLOADED(SortValueKind.BOOLEAN),
-    RANDOM(SortValueKind.RANDOM)
+    RANDOM(SortValueKind.RANDOM),
+    WATCHING_STATUS(SortValueKind.CATEGORICAL),
+    SUBTYPE(SortValueKind.CATEGORICAL),
+    SEASON(SortValueKind.CATEGORICAL)
 }
 
 /** Logical value type for a [SortAttribute], used to choose UI affordances. */
@@ -27,8 +30,8 @@ enum class SortValueKind {
     NUMBER,
     DATE,
     BOOLEAN,
-    /** Opening/ending rank + sequence number, not a raw string. */
-    THEME_TYPE,
+    /** Fixed-value set; direction is replaced by a custom drag-reorder list. */
+    CATEGORICAL,
     /** Deterministic shuffle; direction is ignored. */
     RANDOM
 }
@@ -37,8 +40,20 @@ enum class SortDirection { ASC, DESC }
 
 data class SortKey(
     val attribute: SortAttribute,
-    val direction: SortDirection = SortDirection.ASC
-)
+    val direction: SortDirection = SortDirection.ASC,
+    /** Custom ordering for CATEGORICAL attributes. Null = use canonical default. */
+    val categoricalOrder: List<String>? = null
+) {
+    companion object {
+        fun defaultCategoricalOrder(attribute: SortAttribute): List<String> = when (attribute) {
+            SortAttribute.THEME_TYPE -> listOf("OP", "IN", "ED")
+            SortAttribute.SEASON -> listOf("WINTER", "SPRING", "SUMMER", "FALL")
+            SortAttribute.WATCHING_STATUS -> listOf("current", "completed")
+            SortAttribute.SUBTYPE -> listOf("tv", "movie", "ova", "ona", "special", "music")
+            else -> emptyList()
+        }
+    }
+}
 
 data class SortSpec(val keys: List<SortKey>) {
     companion object {

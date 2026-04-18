@@ -49,11 +49,27 @@ private fun comparatorForKey(
         SortAttribute.ANIME_TITLE ->
             nullableStringComparator(descending) { animeFor(it, ctx)?.title }
         SortAttribute.THEME_TYPE -> {
-            val asc = Comparator.comparingInt<ThemeEntity> { themeTypeRank(it.themeType) }
+            val order = key.categoricalOrder ?: SortKey.defaultCategoricalOrder(SortAttribute.THEME_TYPE)
+            Comparator.comparingInt<ThemeEntity> { categoricalRank(it.themeType?.uppercase()?.take(2), order) }
                 .thenComparingInt { theme ->
                     theme.themeType?.filter { ch -> ch.isDigit() }?.toIntOrNull() ?: 0
                 }
-            if (descending) asc.reversed() else asc
+        }
+        SortAttribute.WATCHING_STATUS -> {
+            val order = key.categoricalOrder ?: SortKey.defaultCategoricalOrder(SortAttribute.WATCHING_STATUS)
+            Comparator.comparingInt<ThemeEntity> { categoricalRank(animeFor(it, ctx)?.watchingStatus, order) }
+        }
+        SortAttribute.SUBTYPE -> {
+            val order = key.categoricalOrder ?: SortKey.defaultCategoricalOrder(SortAttribute.SUBTYPE)
+            Comparator.comparingInt<ThemeEntity> { categoricalRank(animeFor(it, ctx)?.subtype?.lowercase(), order) }
+        }
+        SortAttribute.SEASON -> {
+            val order = key.categoricalOrder ?: SortKey.defaultCategoricalOrder(SortAttribute.SEASON)
+            Comparator.comparingInt<ThemeEntity> { theme ->
+                val month = animeFor(theme, ctx)?.startDate?.drop(5)?.take(2)?.toIntOrNull()
+                val season = month?.let { monthToSeason(it) }?.name
+                categoricalRank(season, order)
+            }
         }
         SortAttribute.AIRED_DATE ->
             nullableLongComparator(descending) { theme ->
@@ -77,7 +93,7 @@ private fun comparatorForKey(
             booleanComparator(descending) { it.id in ctx.likedThemeIds }
         SortAttribute.DOWNLOADED ->
             booleanComparator(descending) { it.id in ctx.downloadedThemeIds }
-        SortAttribute.RANDOM -> Comparator { _, _ -> 0 }
+        SortAttribute.RANDOM -> Comparator { _, _ -> 0 } // handled above, never reached
     }
 }
 
@@ -163,24 +179,36 @@ private fun parseStartDateMillis(raw: String): Long? {
         .toEpochMilli()
 }
 
+private val defaultThemeTypeOrder = SortKey.defaultCategoricalOrder(SortAttribute.THEME_TYPE)
+
 private fun themeDefaultOrder(ctx: EvaluationContext): Comparator<ThemeEntity> =
     Comparator { a, b ->
         val animeA = a.animeId?.let { ctx.animeByThemesId[it] }
         val animeB = b.animeId?.let { ctx.animeByThemesId[it] }
         val titleCmp = (animeA?.title ?: "").compareTo(animeB?.title ?: "", ignoreCase = true)
         if (titleCmp != 0) return@Comparator titleCmp
-        val typeRankA = themeTypeRank(a.themeType)
-        val typeRankB = themeTypeRank(b.themeType)
+        val typeRankA = categoricalRank(a.themeType?.uppercase()?.take(2), defaultThemeTypeOrder)
+        val typeRankB = categoricalRank(b.themeType?.uppercase()?.take(2), defaultThemeTypeOrder)
         if (typeRankA != typeRankB) return@Comparator typeRankA - typeRankB
         val seqA = a.themeType?.filter { it.isDigit() }?.toIntOrNull() ?: 0
         val seqB = b.themeType?.filter { it.isDigit() }?.toIntOrNull() ?: 0
         seqA - seqB
     }
 
-internal fun themeTypeRank(themeType: String?): Int = when {
-    themeType == null -> 4
-    themeType.uppercase().startsWith("OP") -> 0
-    themeType.uppercase().startsWith("IN") -> 1
-    themeType.uppercase().startsWith("ED") -> 3
-    else -> 2
+/**
+ * Returns the position of [value] in [order] (case-insensitive prefix match for theme types),
+ * or [order].size if not found — so unknowns always sort last.
+ */
+internal fun categoricalRank(value: String?, order: List<String>): Int {
+    if (value == null) return order.size
+    val upper = value.uppercase()
+    return order.indexOfFirst { upper.startsWith(it.uppercase()) }.takeIf { it >= 0 } ?: order.size
+}
+
+private fun monthToSeason(month: Int): Season? = when (month) {
+    1, 2, 3 -> Season.WINTER
+    4, 5, 6 -> Season.SPRING
+    7, 8, 9 -> Season.SUMMER
+    10, 11, 12 -> Season.FALL
+    else -> null
 }

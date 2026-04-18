@@ -4,6 +4,7 @@ import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
 import com.takeya.animeongaku.data.filter.FilterEvaluator
 import com.takeya.animeongaku.data.filter.FilterNode
+import com.takeya.animeongaku.data.filter.SimpleSectionsState
 import com.takeya.animeongaku.data.filter.SortSpec
 import com.takeya.animeongaku.data.local.DynamicPlaylistSpecDao
 import com.takeya.animeongaku.data.local.DynamicPlaylistSpecEntity
@@ -35,13 +36,13 @@ class DynamicPlaylistRepository @Inject constructor(
         moshi.adapter(SortSpec::class.java)
     }
 
-    private fun serializeFilter(filter: FilterNode): String {
-        return filterAdapter.toJson(filter)
+    private val simpleStateAdapter: JsonAdapter<SimpleSectionsState> by lazy {
+        moshi.adapter(SimpleSectionsState::class.java)
     }
 
-    private fun deserializeFilter(filterJson: String): FilterNode? {
-        return filterAdapter.fromJson(filterJson)
-    }
+    private fun serializeFilter(filter: FilterNode): String = filterAdapter.toJson(filter)
+
+    private fun deserializeFilter(filterJson: String): FilterNode? = filterAdapter.fromJson(filterJson)
 
     private fun serializeSort(sort: SortSpec): String = sortAdapter.toJson(sort)
 
@@ -53,13 +54,22 @@ class DynamicPlaylistRepository @Inject constructor(
             ?: SortSpec.DEFAULT
     }
 
+    private fun serializeSimpleState(state: SimpleSectionsState): String =
+        simpleStateAdapter.toJson(state)
+
+    private fun deserializeSimpleState(json: String?): SimpleSectionsState? {
+        if (json == null) return null
+        return runCatching { simpleStateAdapter.fromJson(json) }.getOrNull()
+    }
+
     /** Create a new dynamic playlist. Returns the new playlist ID. */
     suspend fun createDynamic(
         name: String,
         filter: FilterNode,
         mode: String,
         createdMode: String,
-        sort: SortSpec = SortSpec.DEFAULT
+        sort: SortSpec = SortSpec.DEFAULT,
+        simpleState: SimpleSectionsState? = null
     ): Long = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val id = playlistDao.insertPlaylist(
@@ -79,23 +89,26 @@ class DynamicPlaylistRepository @Inject constructor(
                 lastEvaluatedAt = 0L,
                 lastResultCount = 0,
                 schemaVersion = 1,
-                sortJson = serializeSort(sort)
+                sortJson = serializeSort(sort),
+                simpleStateJson = simpleState?.let(::serializeSimpleState)
             )
         )
         refreshOne(id)
         id
     }
 
-    /** Update the filter (and optionally sort) on an existing dynamic playlist. Re-evaluates immediately. */
+    /** Update the filter (and optionally sort / simple state) on an existing dynamic playlist. Re-evaluates immediately. */
     suspend fun updateDynamic(
         playlistId: Long,
         filter: FilterNode,
-        sort: SortSpec? = null
+        sort: SortSpec? = null,
+        simpleState: SimpleSectionsState? = null
     ) = withContext(Dispatchers.IO) {
         val existing = specDao.getById(playlistId) ?: return@withContext
         val updated = existing.copy(
             filterJson = serializeFilter(filter),
-            sortJson = sort?.let(::serializeSort) ?: existing.sortJson
+            sortJson = sort?.let(::serializeSort) ?: existing.sortJson,
+            simpleStateJson = simpleState?.let(::serializeSimpleState) ?: existing.simpleStateJson
         )
         specDao.upsert(updated)
         refreshOne(playlistId)
@@ -133,6 +146,14 @@ class DynamicPlaylistRepository @Inject constructor(
     /** Decode a persisted spec's sort spec, falling back to the default. */
     fun decodeSort(entity: DynamicPlaylistSpecEntity): SortSpec =
         deserializeSortOrDefault(entity.sortJson)
+
+    /** Decode a persisted spec's simple state, returning null for advanced playlists or legacy rows. */
+    fun decodeSimpleState(entity: DynamicPlaylistSpecEntity): SimpleSectionsState? =
+        deserializeSimpleState(entity.simpleStateJson)
+
+    /** Decode the filter tree from a persisted spec. Returns null on parse failure. */
+    fun decodeFilter(entity: DynamicPlaylistSpecEntity): FilterNode? =
+        runCatching { deserializeFilter(entity.filterJson) }.getOrNull()
 
     /** Count how many themes match the filter (for live preview). */
     suspend fun previewCount(filter: FilterNode): Int = withContext(Dispatchers.IO) {

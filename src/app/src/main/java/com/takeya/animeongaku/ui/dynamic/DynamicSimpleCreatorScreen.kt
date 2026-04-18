@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.takeya.animeongaku.data.filter.FilterNode
+import com.takeya.animeongaku.data.filter.compileSimpleFilter
 import com.takeya.animeongaku.ui.player.MiniPlayerHeight
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
@@ -86,7 +87,7 @@ fun DynamicSimpleCreatorScreen(
                         )
                     }
                     Text(
-                        text = "New Smart Playlist",
+                        text = if (state.editingPlaylistId != null) "Edit Smart Playlist" else "New Smart Playlist",
                         color = Mist100,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
@@ -145,20 +146,22 @@ fun DynamicSimpleCreatorScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(
-                        onClick = {
-                            viewModel.promoteToAdvanced()
-                            onNavigateToAdvanced()
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.AutoAwesome,
-                            contentDescription = null,
-                            tint = Rose500
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Advanced Builder", color = Rose500)
+                    if (!state.isEditLocked) {
+                        TextButton(
+                            onClick = {
+                                viewModel.promoteToAdvanced()
+                                onNavigateToAdvanced()
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.AutoAwesome,
+                                contentDescription = null,
+                                tint = Rose500
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Advanced Builder", color = Rose500)
+                        }
                     }
                     Button(
                         onClick = onNavigateToPreview,

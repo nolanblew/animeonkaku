@@ -30,6 +30,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.RemoveCircleOutline
 import androidx.compose.material3.Button
@@ -50,25 +51,34 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.takeya.animeongaku.data.filter.DateAnchor
+import com.takeya.animeongaku.data.filter.DateOperator
+import com.takeya.animeongaku.data.filter.DateUnit
 import com.takeya.animeongaku.data.filter.FilterNode
 import com.takeya.animeongaku.data.filter.NodePath
 import com.takeya.animeongaku.data.filter.Season
@@ -226,22 +236,32 @@ fun DynamicAdvancedBuilderScreen(
 
     val nodeBeingEdited = editingNode
     val pathBeingEdited = editingPath
+    val insertParentPath = leafInsertParentPath
+    val countPreviewLambda: suspend (FilterNode) -> Int = remember(pathBeingEdited, insertParentPath, tree) {
+        { previewNode ->
+            val previewTree = when {
+                pathBeingEdited != null -> tree.replaceAt(pathBeingEdited, previewNode)
+                insertParentPath != null -> tree.insertAt(insertParentPath, previewNode)
+                else -> tree.insertAt(emptyList(), previewNode)
+            }
+            viewModel.countFilter(previewTree)
+        }
+    }
     if (nodeBeingEdited != null) {
         LeafEditorSheet(
             node = nodeBeingEdited,
             availableGenres = state.availableGenres,
+            countPreview = countPreviewLambda,
             onDismiss = {
                 editingNode = null
                 editingPath = null
                 leafInsertParentPath = null
             },
             onConfirm = { newLeaf ->
-                val updatedTree = if (pathBeingEdited != null) {
-                    tree.replaceAt(pathBeingEdited, newLeaf)
-                } else if (leafInsertParentPath != null) {
-                    tree.insertAt(leafInsertParentPath!!, newLeaf)
-                } else {
-                    tree.insertAt(emptyList(), newLeaf)
+                val updatedTree = when {
+                    pathBeingEdited != null -> tree.replaceAt(pathBeingEdited, newLeaf)
+                    insertParentPath != null -> tree.insertAt(insertParentPath, newLeaf)
+                    else -> tree.insertAt(emptyList(), newLeaf)
                 }
                 viewModel.setAdvancedTree(updatedTree)
                 editingNode = null
@@ -841,56 +861,95 @@ private fun removeNegationLayer(tree: FilterNode, path: NodePath): FilterNode {
     return tree.replaceAt(path, node.child)
 }
 
+@Suppress("DEPRECATION")
 private fun attributeTitle(node: FilterNode): String = when (node) {
     is FilterNode.GenreIn -> "Genre"
-    is FilterNode.AiredBefore -> "Aired Before"
-    is FilterNode.AiredAfter -> "Aired After"
-    is FilterNode.AiredBetween -> "Aired Between"
+    is FilterNode.AiredOn -> "Aired On"
     is FilterNode.SeasonIn -> "Season"
     is FilterNode.SubtypeIn -> "Media Type"
     is FilterNode.AverageRatingGte -> "Average Rating"
     is FilterNode.UserRatingGte -> "My Rating"
     is FilterNode.WatchingStatusIn -> "Watching Status"
-    is FilterNode.LibraryUpdatedAfter -> "Watched After"
-    is FilterNode.LibraryUpdatedWithin -> "Watched Recently"
+    is FilterNode.WatchedOn -> "Watched On"
     is FilterNode.ThemeTypeIn -> "Theme Type"
     is FilterNode.ArtistIn -> "Artist"
+    is FilterNode.TitleMatches -> "Anime Title"
+    is FilterNode.SongTitleMatches -> "Song Title"
     is FilterNode.Liked -> "Liked"
     is FilterNode.Disliked -> "Disliked"
     is FilterNode.Downloaded -> "Downloaded"
     is FilterNode.PlayCountGte -> "Play Count"
-    is FilterNode.PlayedSince -> "Played Since"
+    is FilterNode.PlayedOn -> "Last Played"
+    // Legacy — display-only
+    is FilterNode.AiredBefore -> "Aired Before (legacy)"
+    is FilterNode.AiredAfter -> "Aired After (legacy)"
+    is FilterNode.AiredBetween -> "Aired Between (legacy)"
+    is FilterNode.LibraryUpdatedAfter -> "Watched After (legacy)"
+    is FilterNode.LibraryUpdatedWithin -> "Watched Within (legacy)"
+    is FilterNode.PlayedSince -> "Played Since (legacy)"
     else -> "Filter"
 }
 
+@Suppress("DEPRECATION")
 private fun attributeValue(node: FilterNode): String = when (node) {
     is FilterNode.GenreIn -> node.slugs.joinToString(", ").ifBlank { "Pick one or more genres" }
-    is FilterNode.AiredBefore -> "Before ${node.year}"
-    is FilterNode.AiredAfter -> "${node.year}+"
-    is FilterNode.AiredBetween -> "${node.minYear} to ${node.maxYear}"
+    is FilterNode.AiredOn -> dateFilterSummary(node.operator, node.anchor, node.endAnchor)
     is FilterNode.SeasonIn -> node.seasons.joinToString(", ") { it.name.lowercase().replaceFirstChar(Char::uppercaseChar) }
     is FilterNode.SubtypeIn -> node.subtypes.joinToString(", ").uppercase()
     is FilterNode.AverageRatingGte -> "${"%.1f".format(node.min)} or higher"
     is FilterNode.UserRatingGte -> "${"%.1f".format(node.min)} or higher"
     is FilterNode.WatchingStatusIn -> node.statuses.joinToString(", ")
-    is FilterNode.LibraryUpdatedAfter -> formatEpochDate(node.epochMillis)
-    is FilterNode.LibraryUpdatedWithin -> "Within ${node.durationMillis / (24L * 60L * 60L * 1000L)} days"
+    is FilterNode.WatchedOn -> dateFilterSummary(node.operator, node.anchor, node.endAnchor)
     is FilterNode.ThemeTypeIn -> node.types.joinToString(", ")
     is FilterNode.ArtistIn -> node.artistNames.joinToString(", ")
+    is FilterNode.TitleMatches -> if (node.isRegex) "Regex: ${node.pattern}" else node.pattern
+    is FilterNode.SongTitleMatches -> if (node.isRegex) "Regex: ${node.pattern}" else node.pattern
     is FilterNode.Liked -> "Only liked tracks"
     is FilterNode.Disliked -> "Only disliked tracks"
     is FilterNode.Downloaded -> "Only downloaded tracks"
     is FilterNode.PlayCountGte -> "${node.min}+ plays"
+    is FilterNode.PlayedOn -> dateFilterSummary(node.operator, node.anchor, node.endAnchor)
+    // Legacy
+    is FilterNode.AiredBefore -> "Before ${node.year}"
+    is FilterNode.AiredAfter -> "${node.year}+"
+    is FilterNode.AiredBetween -> "${node.minYear} to ${node.maxYear}"
+    is FilterNode.LibraryUpdatedAfter -> formatEpochDate(node.epochMillis)
+    is FilterNode.LibraryUpdatedWithin -> "Within ${node.durationMillis / (24L * 60L * 60L * 1000L)} days"
     is FilterNode.PlayedSince -> formatEpochDate(node.epochMillis)
     else -> ""
 }
 
+@Suppress("DEPRECATION")
 private fun attributeAccent(node: FilterNode): Color = when (node) {
     is FilterNode.GenreIn, is FilterNode.WatchingStatusIn, is FilterNode.Liked, is FilterNode.Disliked -> Rose500
-    is FilterNode.AiredBefore, is FilterNode.AiredAfter, is FilterNode.AiredBetween,
-    is FilterNode.LibraryUpdatedAfter, is FilterNode.LibraryUpdatedWithin, is FilterNode.PlayedSince -> Sky500
+    is FilterNode.AiredOn, is FilterNode.WatchedOn, is FilterNode.PlayedOn -> Sky500
     is FilterNode.AverageRatingGte, is FilterNode.UserRatingGte, is FilterNode.PlayCountGte -> Gold400
+    is FilterNode.TitleMatches, is FilterNode.SongTitleMatches, is FilterNode.ArtistIn -> Rose500
+    // Legacy
+    is FilterNode.AiredBefore,
+    is FilterNode.AiredAfter,
+    is FilterNode.AiredBetween,
+    is FilterNode.LibraryUpdatedAfter,
+    is FilterNode.LibraryUpdatedWithin,
+    is FilterNode.PlayedSince -> Sky500
     else -> Mist200
+}
+
+private fun dateFilterSummary(operator: DateOperator, anchor: DateAnchor, endAnchor: DateAnchor?): String {
+    val anchorStr = anchorLabel(anchor)
+    return when (operator) {
+        DateOperator.GT -> "After $anchorStr"
+        DateOperator.LT -> "Before $anchorStr"
+        DateOperator.BETWEEN -> {
+            val endStr = endAnchor?.let { anchorLabel(it) } ?: anchorStr
+            "$anchorStr – $endStr"
+        }
+    }
+}
+
+private fun anchorLabel(anchor: DateAnchor): String = when (anchor) {
+    is DateAnchor.AbsoluteYear -> anchor.year.toString()
+    is DateAnchor.Relative -> "last ${anchor.amount} ${anchor.unit.name.lowercase()}${if (anchor.amount != 1) "s" else ""}"
 }
 
 private fun formatEpochDate(epochMillis: Long): String {
@@ -913,20 +972,20 @@ private fun AttributeTypePickerSheet(
         Option("Genre", "Match one or more Kitsu categories", FilterNode.GenreIn(emptyList()), Rose500),
         Option("Season", "Spring, summer, fall, winter", FilterNode.SeasonIn(emptyList()), Rose500),
         Option("Media Type", "TV, movie, OVA, ONA, special", FilterNode.SubtypeIn(emptyList()), Mist200),
-        Option("Watching Status", "Current or completed", FilterNode.WatchingStatusIn(emptyList()), Rose500),
-        Option("Theme Type", "Opening or ending", FilterNode.ThemeTypeIn(emptyList()), Mist200),
+        Option("Watching Status", "Current, completed, and more", FilterNode.WatchingStatusIn(emptyList()), Rose500),
+        Option("Theme Type", "Opening, insert, or ending", FilterNode.ThemeTypeIn(emptyList()), Mist200),
         Option("Average Rating", "Kitsu community score", FilterNode.AverageRatingGte(7.0), Gold400),
         Option("My Rating", "Your Kitsu score", FilterNode.UserRatingGte(7.0), Gold400),
-        Option("Aired Before", "Released before a year", FilterNode.AiredBefore(2000), Sky500),
-        Option("Aired Between", "Released within a year range", FilterNode.AiredBetween(2000, 2010), Sky500),
-        Option("Watched After", "Updated in your library after a date", FilterNode.LibraryUpdatedAfter(System.currentTimeMillis()), Sky500),
-        Option("Watched Within", "Updated in your library within a time window", FilterNode.LibraryUpdatedWithin(30L * 24L * 60L * 60L * 1000L), Sky500),
+        Option("Aired On", "Aired before, after, or between dates", FilterNode.AiredOn(DateOperator.GT, DateAnchor.AbsoluteYear(2010)), Sky500),
+        Option("Watched On", "Library updated before, after, or within a window", FilterNode.WatchedOn(DateOperator.GT, DateAnchor.Relative(DateUnit.MONTHS, 6)), Sky500),
+        Option("Played On", "Last played before, after, or within a window", FilterNode.PlayedOn(DateOperator.GT, DateAnchor.Relative(DateUnit.DAYS, 30)), Sky500),
         Option("Artist", "Match artist names", FilterNode.ArtistIn(emptyList()), Mist200),
+        Option("Anime Title", "Anime title contains or matches regex", FilterNode.TitleMatches(""), Rose500),
+        Option("Song Title", "Song title contains or matches regex", FilterNode.SongTitleMatches(""), Rose500),
         Option("Downloaded", "Only locally saved tracks", FilterNode.Downloaded(), Mist200),
         Option("Liked", "Only liked tracks", FilterNode.Liked(), Rose500),
         Option("Disliked", "Only disliked tracks", FilterNode.Disliked(), Rose500),
-        Option("Play Count", "Minimum number of plays", FilterNode.PlayCountGte(5), Gold400),
-        Option("Played Since", "Last played after a date", FilterNode.PlayedSince(System.currentTimeMillis()), Sky500)
+        Option("Play Count", "Minimum number of plays", FilterNode.PlayCountGte(5), Gold400)
     )
 
     ModalBottomSheet(
@@ -1051,11 +1110,13 @@ private fun GroupChoiceCard(
     }
 }
 
+@Suppress("DEPRECATION")
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun LeafEditorSheet(
     node: FilterNode,
     availableGenres: List<com.takeya.animeongaku.data.local.GenreEntity>,
+    countPreview: suspend (FilterNode) -> Int,
     onDismiss: () -> Unit,
     onConfirm: (FilterNode) -> Unit
 ) {
@@ -1076,18 +1137,28 @@ private fun LeafEditorSheet(
             when (node) {
                 is FilterNode.GenreIn ->
                     GenreEditor(node, availableGenres, onConfirm)
-                is FilterNode.AiredBefore ->
-                    SingleYearEditor("Aired before", node.year) {
-                        onConfirm(FilterNode.AiredBefore(it))
+                is FilterNode.AiredOn ->
+                    DateOnEditor("Aired on", node.operator, node.anchor, node.endAnchor) { op, anchor, end ->
+                        onConfirm(FilterNode.AiredOn(op, anchor, end))
                     }
-                is FilterNode.AiredAfter ->
-                    SingleYearEditor("Aired after", node.year) {
-                        onConfirm(FilterNode.AiredAfter(it))
+                is FilterNode.WatchedOn ->
+                    DateOnEditor("Watched on", node.operator, node.anchor, node.endAnchor) { op, anchor, end ->
+                        onConfirm(FilterNode.WatchedOn(op, anchor, end))
                     }
-                is FilterNode.AiredBetween ->
-                    YearRangeEditor(node.minYear, node.maxYear) { min, max ->
-                        onConfirm(FilterNode.AiredBetween(min, max))
+                is FilterNode.PlayedOn ->
+                    DateOnEditor("Last played", node.operator, node.anchor, node.endAnchor) { op, anchor, end ->
+                        onConfirm(FilterNode.PlayedOn(op, anchor, end))
                     }
+                is FilterNode.TitleMatches ->
+                    TextMatchEditor(
+                        "Anime title", node.pattern, node.isRegex,
+                        countPreview = { pat, isRx -> countPreview(FilterNode.TitleMatches(pat, isRx)) }
+                    ) { pattern, isRegex -> onConfirm(FilterNode.TitleMatches(pattern, isRegex)) }
+                is FilterNode.SongTitleMatches ->
+                    TextMatchEditor(
+                        "Song title", node.pattern, node.isRegex,
+                        countPreview = { pat, isRx -> countPreview(FilterNode.SongTitleMatches(pat, isRx)) }
+                    ) { pattern, isRegex -> onConfirm(FilterNode.SongTitleMatches(pattern, isRegex)) }
                 is FilterNode.SeasonIn ->
                     SeasonEditor(node) { onConfirm(FilterNode.SeasonIn(it)) }
                 is FilterNode.SubtypeIn ->
@@ -1098,22 +1169,29 @@ private fun LeafEditorSheet(
                     RatingEditor("My rating", node.min) { onConfirm(FilterNode.UserRatingGte(it)) }
                 is FilterNode.WatchingStatusIn ->
                     WatchingStatusEditor(node) { onConfirm(FilterNode.WatchingStatusIn(it)) }
-                is FilterNode.LibraryUpdatedAfter ->
-                    ExactDateEditor("Watched after", node.epochMillis) { onConfirm(FilterNode.LibraryUpdatedAfter(it)) }
-                is FilterNode.LibraryUpdatedWithin ->
-                    DaysEditor("Watched within", node.durationMillis / DAY_MS) {
-                        onConfirm(FilterNode.LibraryUpdatedWithin(it * DAY_MS))
-                    }
                 is FilterNode.ThemeTypeIn ->
                     ThemeTypeEditor(node) { onConfirm(FilterNode.ThemeTypeIn(it)) }
                 is FilterNode.ArtistIn ->
                     ArtistEditor(node) { onConfirm(FilterNode.ArtistIn(it)) }
                 is FilterNode.PlayCountGte ->
                     IntegerEditor("Played at least", node.min) { onConfirm(FilterNode.PlayCountGte(it)) }
-                is FilterNode.PlayedSince ->
-                    ExactDateEditor("Played since", node.epochMillis) { onConfirm(FilterNode.PlayedSince(it)) }
                 is FilterNode.Liked, is FilterNode.Disliked, is FilterNode.Downloaded ->
                     NoConfigEditor(node) { onConfirm(node) }
+                // Legacy nodes — read-only editing kept for backward compatibility
+                is FilterNode.AiredBefore ->
+                    SingleYearEditor("Aired before (legacy)", node.year) { onConfirm(FilterNode.AiredBefore(it)) }
+                is FilterNode.AiredAfter ->
+                    SingleYearEditor("Aired after (legacy)", node.year) { onConfirm(FilterNode.AiredAfter(it)) }
+                is FilterNode.AiredBetween ->
+                    YearRangeEditor(node.minYear, node.maxYear) { min, max -> onConfirm(FilterNode.AiredBetween(min, max)) }
+                is FilterNode.LibraryUpdatedAfter ->
+                    ExactDateEditor("Watched after (legacy)", node.epochMillis) { onConfirm(FilterNode.LibraryUpdatedAfter(it)) }
+                is FilterNode.LibraryUpdatedWithin ->
+                    DaysEditor("Watched within (legacy)", node.durationMillis / DAY_MS) {
+                        onConfirm(FilterNode.LibraryUpdatedWithin(it * DAY_MS))
+                    }
+                is FilterNode.PlayedSince ->
+                    ExactDateEditor("Played since (legacy)", node.epochMillis) { onConfirm(FilterNode.PlayedSince(it)) }
                 else ->
                     NoConfigEditor(node) { onConfirm(node) }
             }
@@ -1412,6 +1490,261 @@ private fun IntegerEditor(
     ConfirmButton { onConfirm(text.toIntOrNull() ?: initial) }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DateOnEditor(
+    title: String,
+    initialOperator: DateOperator,
+    initialAnchor: DateAnchor,
+    initialEndAnchor: DateAnchor?,
+    onConfirm: (DateOperator, DateAnchor, DateAnchor?) -> Unit
+) {
+    var operator by remember { mutableStateOf(initialOperator) }
+    var anchor by remember { mutableStateOf(initialAnchor) }
+    var endAnchor by remember {
+        mutableStateOf(initialEndAnchor ?: DateAnchor.AbsoluteYear(LocalDate.now().year))
+    }
+
+    EditorTitle(title)
+
+    Text("Condition", color = Mist200, fontSize = 13.sp)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(
+            DateOperator.GT to "After",
+            DateOperator.LT to "Before",
+            DateOperator.BETWEEN to "Between"
+        ).forEach { (op, label) ->
+            val selected = operator == op
+            androidx.compose.material3.FilterChip(
+                selected = selected,
+                onClick = { operator = op },
+                label = { Text(label, color = if (selected) Ink900 else Mist200) },
+                colors = filterChipColors(selected)
+            )
+        }
+    }
+
+    Text(
+        text = if (operator == DateOperator.BETWEEN) "Start" else "Date",
+        color = Mist200,
+        fontSize = 13.sp
+    )
+    AnchorEditor(anchor = anchor, onAnchorChange = { anchor = it })
+
+    if (operator == DateOperator.BETWEEN) {
+        Text("End", color = Mist200, fontSize = 13.sp)
+        AnchorEditor(anchor = endAnchor, onAnchorChange = { endAnchor = it })
+    }
+
+    ConfirmButton {
+        onConfirm(operator, anchor, if (operator == DateOperator.BETWEEN) endAnchor else null)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AnchorEditor(
+    anchor: DateAnchor,
+    onAnchorChange: (DateAnchor) -> Unit
+) {
+    val isAbsolute = anchor is DateAnchor.AbsoluteYear
+    var yearText by remember {
+        mutableStateOf(if (anchor is DateAnchor.AbsoluteYear) anchor.year.toString() else LocalDate.now().year.toString())
+    }
+    var amountText by remember {
+        mutableStateOf(if (anchor is DateAnchor.Relative) anchor.amount.toString() else "6")
+    }
+
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(true to "Absolute year", false to "Relative").forEach { (abs, label) ->
+            val selected = isAbsolute == abs
+            androidx.compose.material3.FilterChip(
+                selected = selected,
+                onClick = {
+                    if (abs) {
+                        onAnchorChange(DateAnchor.AbsoluteYear(yearText.toIntOrNull() ?: LocalDate.now().year))
+                    } else {
+                        val unit = (anchor as? DateAnchor.Relative)?.unit ?: DateUnit.MONTHS
+                        onAnchorChange(DateAnchor.Relative(unit, amountText.toIntOrNull() ?: 6))
+                    }
+                },
+                label = { Text(label, color = if (selected) Ink900 else Mist200) },
+                colors = filterChipColors(selected)
+            )
+        }
+    }
+
+    if (isAbsolute) {
+        OutlinedTextField(
+            value = yearText,
+            onValueChange = {
+                yearText = it
+                it.toIntOrNull()?.let { y -> onAnchorChange(DateAnchor.AbsoluteYear(y)) }
+            },
+            singleLine = true,
+            label = { Text("Year (e.g. 2015)", color = Mist200) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = editorTextFieldColors()
+        )
+    } else {
+        val relUnit = (anchor as? DateAnchor.Relative)?.unit ?: DateUnit.MONTHS
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = amountText,
+                onValueChange = {
+                    amountText = it
+                    it.toIntOrNull()?.let { a -> onAnchorChange(DateAnchor.Relative(relUnit, a)) }
+                },
+                singleLine = true,
+                label = { Text("Amount", color = Mist200) },
+                modifier = Modifier.weight(1f),
+                colors = editorTextFieldColors()
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                DateUnit.entries.forEach { unit ->
+                    val selected = relUnit == unit
+                    androidx.compose.material3.FilterChip(
+                        selected = selected,
+                        onClick = { onAnchorChange(DateAnchor.Relative(unit, amountText.toIntOrNull() ?: 6)) },
+                        label = {
+                            Text(
+                                unit.name.lowercase().replaceFirstChar(Char::uppercaseChar),
+                                color = if (selected) Ink900 else Mist200
+                            )
+                        },
+                        colors = filterChipColors(selected)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TextMatchEditor(
+    title: String,
+    initialPattern: String,
+    initialIsRegex: Boolean,
+    countPreview: (suspend (String, Boolean) -> Int)? = null,
+    onConfirm: (String, Boolean) -> Unit
+) {
+    var patternValue by remember { mutableStateOf(TextFieldValue(initialPattern)) }
+    var isRegex by remember { mutableStateOf(initialIsRegex) }
+    var testText by remember { mutableStateOf("") }
+    var showRegexHelp by remember { mutableStateOf(false) }
+    var liveCount by remember { mutableStateOf<Int?>(null) }
+
+    val (compiledRegex, regexError) = remember(patternValue.text, isRegex) {
+        if (isRegex && patternValue.text.isNotBlank()) {
+            val result = runCatching { Regex(patternValue.text) }
+            result.getOrNull() to result.exceptionOrNull()?.message
+        } else null to null
+    }
+    val testMatch: Boolean? = remember(compiledRegex, testText) {
+        if (compiledRegex != null && testText.isNotEmpty())
+            runCatching { compiledRegex.containsMatchIn(testText) }.getOrElse { false }
+        else null
+    }
+
+    val countPreviewRef = rememberUpdatedState(countPreview)
+    LaunchedEffect(patternValue.text, isRegex) {
+        delay(300L)
+        val text = patternValue.text
+        val isRegexOn = isRegex
+        val isValid = !isRegexOn || text.isBlank() || compiledRegex != null
+        liveCount = if (isValid) countPreviewRef.value?.invoke(text, isRegexOn) else null
+    }
+
+    EditorTitle(title)
+    OutlinedTextField(
+        value = patternValue,
+        onValueChange = { patternValue = it },
+        label = { Text(if (isRegex) "Regex pattern" else "Contains (case-insensitive)", color = Mist200) },
+        modifier = Modifier.fillMaxWidth(),
+        isError = regexError != null,
+        supportingText = if (regexError != null) {
+            { Text(regexError, color = Rose500, fontSize = 12.sp) }
+        } else null,
+        colors = editorTextFieldColors()
+    )
+    if (isRegex) {
+        OutlinedTextField(
+            value = testText,
+            onValueChange = { testText = it },
+            label = { Text("Test text", color = Mist200) },
+            modifier = Modifier.fillMaxWidth(),
+            trailingIcon = if (testMatch != null) {
+                {
+                    Text(
+                        text = if (testMatch) "✓ Match" else "✗ No match",
+                        color = if (testMatch) Sky500 else Mist200,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                }
+            } else null,
+            colors = editorTextFieldColors()
+        )
+    }
+    if (liveCount != null) {
+        Text(
+            text = "$liveCount tracks match",
+            color = Mist200,
+            fontSize = 13.sp
+        )
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("Use regex", color = Mist200, modifier = Modifier.weight(1f))
+        IconButton(
+            onClick = { showRegexHelp = true },
+            modifier = Modifier.size(36.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Info,
+                contentDescription = "Regex help",
+                tint = Mist200,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        Switch(checked = isRegex, onCheckedChange = { isRegex = it })
+    }
+    Button(
+        onClick = { onConfirm(patternValue.text, isRegex) },
+        enabled = regexError == null,
+        modifier = Modifier.fillMaxWidth(),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Rose500,
+            disabledContainerColor = Ink700
+        )
+    ) {
+        Text(
+            text = if (regexError != null) "Fix regex to apply" else "Apply",
+            color = if (regexError != null) Mist200 else Color.White,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+
+    if (showRegexHelp) {
+        RegexHelpSheet(
+            onDismiss = { showRegexHelp = false },
+            onPatternSelected = { snippet ->
+                val text = patternValue.text
+                val insertAt = patternValue.selection.start.coerceIn(0, text.length)
+                val newText = text.substring(0, insertAt) + snippet + text.substring(insertAt)
+                patternValue = TextFieldValue(newText, TextRange(insertAt + snippet.length))
+            }
+        )
+    }
+}
+
 @Composable
 private fun NoConfigEditor(
     node: FilterNode,
@@ -1526,7 +1859,8 @@ private fun SortSummaryRow(
 @Composable
 private fun SortSummaryChip(key: com.takeya.animeongaku.data.filter.SortKey) {
     val arrow = when (key.attribute.valueKind) {
-        com.takeya.animeongaku.data.filter.SortValueKind.RANDOM -> "\u2699" // gear-ish indicator
+        com.takeya.animeongaku.data.filter.SortValueKind.RANDOM -> "\u2699"
+        com.takeya.animeongaku.data.filter.SortValueKind.CATEGORICAL -> "\u2261" // ≡ custom order indicator
         else -> if (key.direction == com.takeya.animeongaku.data.filter.SortDirection.ASC) "\u2191" else "\u2193"
     }
     Surface(

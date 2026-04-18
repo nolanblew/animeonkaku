@@ -36,7 +36,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.takeya.animeongaku.data.filter.CustomRange
+import com.takeya.animeongaku.data.filter.RatingSource
 import com.takeya.animeongaku.data.filter.Season
+import com.takeya.animeongaku.data.filter.SimpleSectionsState
+import com.takeya.animeongaku.data.filter.TimeDimension
+import com.takeya.animeongaku.data.filter.TimeMode
 import com.takeya.animeongaku.data.local.GenreEntity
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800

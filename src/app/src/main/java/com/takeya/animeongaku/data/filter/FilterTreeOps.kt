@@ -137,8 +137,14 @@ fun FilterNode.toNodeRows(depth: Int = 0, path: NodePath = emptyList()): List<No
 }
 
 /** Human-readable summary for a leaf node (for list display). */
+@Suppress("DEPRECATION")
 fun FilterNode.leafSummary(): String = when (this) {
     is FilterNode.GenreIn -> "Genre = ${slugs.joinToString(", ")}${if (matchAll) " (all)" else ""}"
+    is FilterNode.AiredOn -> "Aired: ${operator.name} ${anchor}"
+    is FilterNode.WatchedOn -> "Watched: ${operator.name} ${anchor}"
+    is FilterNode.PlayedOn -> "Played: ${operator.name} ${anchor}"
+    is FilterNode.TitleMatches -> "Anime title matches \"$pattern\""
+    is FilterNode.SongTitleMatches -> "Song title matches \"$pattern\""
     is FilterNode.AiredBefore -> "Aired before $year"
     is FilterNode.AiredAfter -> "Aired after ${year - 1}"
     is FilterNode.AiredBetween -> "Aired $minYear-$maxYear"
