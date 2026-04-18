@@ -30,6 +30,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.RemoveCircleOutline
 import androidx.compose.material3.Button
@@ -63,7 +64,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -1612,16 +1615,29 @@ private fun TextMatchEditor(
     initialIsRegex: Boolean,
     onConfirm: (String, Boolean) -> Unit
 ) {
-    var pattern by remember { mutableStateOf(initialPattern) }
+    var patternValue by remember { mutableStateOf(TextFieldValue(initialPattern)) }
     var isRegex by remember { mutableStateOf(initialIsRegex) }
-    val regexError = if (isRegex && pattern.isNotBlank()) {
-        runCatching { Regex(pattern) }.exceptionOrNull()?.message
+    var testText by remember { mutableStateOf("") }
+    var showRegexHelp by remember { mutableStateOf(false) }
+
+    val compiledRegex: Regex? = remember(patternValue.text, isRegex) {
+        if (isRegex && patternValue.text.isNotBlank())
+            runCatching { Regex(patternValue.text) }.getOrNull()
+        else null
+    }
+    val regexError: String? = remember(patternValue.text, isRegex) {
+        if (isRegex && patternValue.text.isNotBlank())
+            runCatching { Regex(patternValue.text) }.exceptionOrNull()?.message
+        else null
+    }
+    val testMatch: Boolean? = if (compiledRegex != null && testText.isNotEmpty()) {
+        compiledRegex.containsMatchIn(testText)
     } else null
 
     EditorTitle(title)
     OutlinedTextField(
-        value = pattern,
-        onValueChange = { pattern = it },
+        value = patternValue,
+        onValueChange = { patternValue = it },
         label = { Text(if (isRegex) "Regex pattern" else "Contains (case-insensitive)", color = Mist200) },
         modifier = Modifier.fillMaxWidth(),
         isError = regexError != null,
@@ -1630,15 +1646,46 @@ private fun TextMatchEditor(
         } else null,
         colors = editorTextFieldColors()
     )
+    if (isRegex) {
+        OutlinedTextField(
+            value = testText,
+            onValueChange = { testText = it },
+            label = { Text("Test text", color = Mist200) },
+            modifier = Modifier.fillMaxWidth(),
+            trailingIcon = if (testMatch != null) {
+                {
+                    Text(
+                        text = if (testMatch) "✓ Match" else "✗ No match",
+                        color = if (testMatch) Sky500 else Mist200,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                }
+            } else null,
+            colors = editorTextFieldColors()
+        )
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text("Use regex", color = Mist200, modifier = Modifier.weight(1f))
+        IconButton(
+            onClick = { showRegexHelp = true },
+            modifier = Modifier.size(36.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Info,
+                contentDescription = "Regex help",
+                tint = Mist200,
+                modifier = Modifier.size(18.dp)
+            )
+        }
         Switch(checked = isRegex, onCheckedChange = { isRegex = it })
     }
     Button(
-        onClick = { onConfirm(pattern, isRegex) },
+        onClick = { onConfirm(patternValue.text, isRegex) },
         enabled = regexError == null,
         modifier = Modifier.fillMaxWidth(),
         colors = ButtonDefaults.buttonColors(
@@ -1650,6 +1697,18 @@ private fun TextMatchEditor(
             text = if (regexError != null) "Fix regex to apply" else "Apply",
             color = if (regexError != null) Mist200 else Color.White,
             fontWeight = FontWeight.SemiBold
+        )
+    }
+
+    if (showRegexHelp) {
+        RegexHelpSheet(
+            onDismiss = { showRegexHelp = false },
+            onPatternSelected = { snippet ->
+                val text = patternValue.text
+                val insertAt = patternValue.selection.start.coerceIn(0, text.length)
+                val newText = text.substring(0, insertAt) + snippet + text.substring(insertAt)
+                patternValue = TextFieldValue(newText, TextRange(insertAt + snippet.length))
+            }
         )
     }
 }
