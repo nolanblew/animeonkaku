@@ -526,6 +526,28 @@ class NowPlayingManagerTest {
         assertEquals(listOf(1L, 2L), historyQueueIds)
     }
 
+    @Test
+    fun `restoreState preserves duplicate songs with distinct queue identities`() {
+        val duplicateSongEntries = listOf(
+            QueueEntry(queueId = 1L, theme = theme(1)),
+            QueueEntry(queueId = 2L, theme = theme(1)),
+            QueueEntry(queueId = 3L, theme = theme(2))
+        )
+
+        manager.restoreState(
+            NowPlayingState(
+                originalQueueEntries = duplicateSongEntries,
+                nowPlayingEntries = duplicateSongEntries,
+                currentIndex = 2,
+                historyEntries = listOf(duplicateSongEntries[0], duplicateSongEntries[1])
+            )
+        )
+
+        val state = manager.state.value
+        assertEquals(listOf(1L, 1L), state.history.map { it.id })
+        assertEquals(listOf(1L, 2L), state.historyEntries.map { it.queueId })
+    }
+
     // ─── rewindTo() ───────────────────────────────────────────────────────
 
     @Test
