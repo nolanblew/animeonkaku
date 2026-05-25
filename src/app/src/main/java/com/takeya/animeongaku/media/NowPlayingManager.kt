@@ -17,8 +17,9 @@ class NowPlayingManager @Inject constructor() {
     private var nextQueueEntryId: Long = 1L
 
     fun restoreState(state: NowPlayingState) {
-        nextQueueEntryId = state.maxQueueEntryId + 1L
-        _state.value = state.copy(isFullReload = true)
+        val restored = state.withUniqueHistoryEntries()
+        nextQueueEntryId = restored.maxQueueEntryId + 1L
+        _state.value = restored.copy(isFullReload = true)
     }
 
     /**
@@ -232,7 +233,7 @@ class NowPlayingManager @Inject constructor() {
 
         val oldIndex = current.currentIndex
         val newHistory = if (newIndex > oldIndex && oldIndex >= 0 && oldIndex < current.nowPlayingEntries.size) {
-            current.historyEntries + current.nowPlayingEntries.subList(oldIndex, newIndex)
+            current.historyEntries.appendUniqueQueueEntries(current.nowPlayingEntries.subList(oldIndex, newIndex))
         } else if (newIndex < oldIndex) {
             val rewindTrack = current.nowPlayingEntries[newIndex]
             val histIdx = current.historyEntries.indexOfLast { it.queueId == rewindTrack.queueId }
@@ -269,7 +270,11 @@ class NowPlayingManager @Inject constructor() {
         if (index < 0 || index >= current.nowPlayingEntries.size) return
 
         val newHistory = if (index > current.currentIndex) {
-            current.historyEntries + current.nowPlayingEntries.subList(current.currentIndex, index)
+            current.historyEntries.appendUniqueQueueEntries(current.nowPlayingEntries.subList(current.currentIndex, index))
+        } else if (index < current.currentIndex) {
+            val targetEntry = current.nowPlayingEntries[index]
+            val histIdx = current.historyEntries.indexOfLast { it.queueId == targetEntry.queueId }
+            if (histIdx >= 0) current.historyEntries.subList(0, histIdx) else current.historyEntries
         } else {
             current.historyEntries
         }
@@ -650,4 +655,14 @@ data class NowPlayingState(
     }
 
     fun indexOfQueueId(queueId: Long): Int = nowPlayingEntries.indexOfFirst { it.queueId == queueId }
+}
+
+internal fun NowPlayingState.withUniqueHistoryEntries(): NowPlayingState =
+    copy(historyEntries = historyEntries.distinctBy { it.queueId })
+
+private fun List<QueueEntry>.appendUniqueQueueEntries(entries: List<QueueEntry>): List<QueueEntry> {
+    if (entries.isEmpty()) return this
+    val seen = mapTo(mutableSetOf()) { it.queueId }
+    val uniqueEntries = entries.filter { seen.add(it.queueId) }
+    return if (uniqueEntries.isEmpty()) this else this + uniqueEntries
 }

@@ -222,7 +222,7 @@ class NowPlayingPersistence @Inject constructor(
                 animeMap = animeMap,
                 queueVersion = persisted.queueVersion,
                 isFullReload = true
-            )
+            ).withUniqueHistoryEntries()
 
             Log.d("NowPlayingPersistence", "Restored queue state, size: ${nowPlayingEntries.size}")
             RestoredQueueState(restoredState, persisted.positionMs, persisted.repeatMode)
