@@ -6,18 +6,16 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
-import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
-import com.takeya.animeongaku.data.local.AnimeEntity
-import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.PlayCountDao
 import com.takeya.animeongaku.data.local.ThemeEntity
@@ -49,6 +47,7 @@ import javax.inject.Singleton
  * All queue changes flow through NowPlayingManager → this class → MediaController.
  */
 @Singleton
+@androidx.annotation.OptIn(UnstableApi::class)
 class MediaControllerManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val nowPlayingManager: NowPlayingManager,
@@ -417,7 +416,7 @@ class MediaControllerManager @Inject constructor(
         npState.nowPlayingEntries.forEachIndexed { idx, entry ->
             if (shouldIncludeInPlayer(idx, entry.theme, npState)) {
                 if (idx < npState.currentIndex) currentIndex++
-                items.add(entry.toMediaItem(npState.animeMap))
+                items.add(entry.toPlaybackMediaItem(npState.animeMap))
             }
         }
         return items to currentIndex.coerceAtMost((items.size - 1).coerceAtLeast(0))
@@ -515,48 +514,3 @@ data class PlaybackState(
     val errorMessage: String? = null,
     val repeatMode: Int = Player.REPEAT_MODE_OFF
 )
-
-private fun QueueEntry.toMediaItem(animeMap: Map<Long, AnimeEntity>): MediaItem =
-    theme.toMediaItem(queueId.toString(), animeMap)
-
-private fun ThemeEntity.toMediaItem(mediaId: String, animeMap: Map<Long, AnimeEntity>): MediaItem {
-    val anime = animeId?.let { animeMap[it] }
-    val artworkUrl = anime?.primaryArtworkUrl()
-    val animeName = anime?.title
-    val typeTag = themeType
-
-    val primaryLine = when {
-        !animeName.isNullOrBlank() && !typeTag.isNullOrBlank() -> "$animeName · $typeTag"
-        !animeName.isNullOrBlank() -> animeName
-        !typeTag.isNullOrBlank() -> "$typeTag · $title"
-        else -> title
-    }
-    val secondaryLine = when {
-        !artistName.isNullOrBlank() -> "$title · $artistName"
-        else -> title
-    }
-
-    // Prefer local file for downloaded songs
-    val uri = if (isDownloaded && !localFilePath.isNullOrBlank()) {
-        if (localFilePath.startsWith("/")) "file://$localFilePath" else localFilePath
-    } else {
-        audioUrl
-    }
-
-    return MediaItem.Builder()
-        .setMediaId(mediaId)
-        .setUri(uri)
-        .setMediaMetadata(
-            MediaMetadata.Builder()
-                .setTitle(primaryLine)
-                .setArtist(secondaryLine)
-                .setAlbumTitle(animeName)
-                .apply {
-                    if (!artworkUrl.isNullOrBlank()) {
-                        setArtworkUri(Uri.parse(artworkUrl))
-                    }
-                }
-                .build()
-        )
-        .build()
-}
