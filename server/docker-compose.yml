@@ -1,0 +1,38 @@
+services:
+  api:
+    build: .
+    image: animeongaku-server:latest
+    ports: ["8080:8080"]
+    environment:
+      DATABASE_URL: postgres://ongaku:${DB_PASSWORD:-ongaku-dev}@db:5432/ongaku
+      MEDIA_ROOT: /data/media
+      KITSU_CLIENT_ID: ${KITSU_CLIENT_ID:-}
+      KITSU_CLIENT_SECRET: ${KITSU_CLIENT_SECRET:-}
+      KITSU_AUTH_MODE: ${KITSU_AUTH_MODE:-stub}
+      SYNC_INTERVAL_MINUTES: "360"
+      AUDIO_BACKFILL_DELAY_SECONDS: "8"
+    volumes:
+      - media:/data/media
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ongaku
+      POSTGRES_USER: ongaku
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ongaku-dev}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ongaku -d ongaku"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  media:    # audio + images survive container rebuilds
+  pgdata:   # database survives container rebuilds
