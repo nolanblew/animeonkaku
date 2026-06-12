@@ -34,19 +34,21 @@ Two concurrent workstreams (S = server, A = android), with one integration miles
 
 ---
 
-### S1 — Server skeleton + persistence (no upstream calls yet)
+### S1 — Server skeleton + persistence (no upstream calls yet) ✅ DONE
+
+**Completed 2026-06-12 in [PR #24](https://github.com/nolanblew/animeonkaku/pull/24).**
 
 **Deliverable:** `server/` Node/TypeScript project boots in docker compose, initial drizzle migration applied, `/healthz` green, auth round-trip works against a stubbed Kitsu client.
 
 Tasks:
-1. Create `server/` per layout in doc 03: `npm init` + TypeScript strict config, Fastify 5, Dockerfile (multi-stage: node:22-alpine build → prod-deps runtime) + `docker-compose.yml` (api + postgres:16-alpine + volumes) + `.env.example` exactly as doc 03.
-2. Drizzle schema in `src/db/schema.ts` producing exactly the SQL contract in doc 05; `drizzle-kit generate` initial migration (checked in); migration runner invoked in `src/index.ts` before the HTTP listener.
-3. `pg` pool from `DATABASE_URL`; config parsing via zod in `src/config.ts`.
-4. Fastify wiring: zod type provider, error handler emitting the error envelope from doc 04, pino logging, `/healthz` (DB ping + disk free on `MEDIA_ROOT`).
-5. Session auth: token generation (`crypto.randomBytes(32)`, base64url), SHA-256 storage, bearer-auth Fastify hook/decorator, `POST /auth/login` against a `KitsuAuthClient` *interface* (real impl in S2), `/auth/me`, `/auth/logout`, device list/revoke.
-6. Tests (vitest + `fastify.inject()`): token hash round-trip, login creates user+session, 401 paths.
+- [x] 1. Create `server/` per layout in doc 03: `npm init` + TypeScript strict config, Fastify 5, Dockerfile (multi-stage: node:22-alpine build → prod-deps runtime) + `docker-compose.yml` (api + postgres:16-alpine + volumes) + `.env.example` exactly as doc 03.
+- [x] 2. Drizzle schema in `src/db/schema.ts` producing exactly the SQL contract in doc 05; `drizzle-kit generate` initial migration (checked in); migration runner invoked in `src/index.ts` before the HTTP listener.
+- [x] 3. `pg` pool from `DATABASE_URL`; config parsing via zod in `src/config.ts`.
+- [x] 4. Fastify wiring: zod type provider, error handler emitting the error envelope from doc 04, pino logging, `/healthz` (DB ping + disk free on `MEDIA_ROOT`).
+- [x] 5. Session auth: token generation (`crypto.randomBytes(32)`, base64url), SHA-256 storage, bearer-auth Fastify hook/decorator, `POST /auth/login` against a `KitsuAuthClient` *interface* (real impl in S2), `/auth/me`, `/auth/logout`, device list/revoke.
+- [x] 6. Tests (vitest + `fastify.inject()`): token hash round-trip, login creates user+session, 401 paths.
 
-**Definition of done:** `docker compose up` → login with stub → authenticated `/auth/me`; `docker compose down && up` retains data (volume check).
+**Definition of done:** `docker compose up` → login with stub → authenticated `/auth/me`; `docker compose down && up` retains data (volume check). ✅ Verified live (20/20 tests, persistence confirmed via re-login `isNewUser=false` after down/up).
 
 ### S2 — Upstream clients (Kitsu + AnimeThemes ports)
 
