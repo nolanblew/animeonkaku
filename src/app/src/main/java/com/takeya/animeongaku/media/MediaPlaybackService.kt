@@ -17,9 +17,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
-import androidx.media3.session.SessionResult
+import com.google.common.util.concurrent.SettableFuture
 import javax.inject.Inject
 
 @UnstableApi
@@ -69,20 +68,51 @@ class MediaPlaybackService : MediaSessionService() {
                 mediaSession: MediaSession,
                 controller: MediaSession.ControllerInfo
             ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
-                if (nowPlayingManager.state.value.nowPlaying.isEmpty()) {
-                    // Start restore asynchronously, but we must return something immediately.
-                    // For Media3, we can just return a future that resolves when ready,
-                    // or let it start empty and update the queue later.
-                    scope.launch {
-                        val restored = nowPlayingPersistence.restore()
-                        if (restored != null) {
-                            mediaControllerManager.restore(restored, autoPlay = true)
-                        } else {
-                            player.play()
-                        }
+                val activeState = nowPlayingManager.state.value
+                if (activeState.nowPlaying.isNotEmpty()) {
+                    val playbackItems = activeState.toPlaybackMediaItems()
+                    return SettableFuture.create<MediaSession.MediaItemsWithStartPosition>().apply {
+                        set(
+                            MediaSession.MediaItemsWithStartPosition(
+                                playbackItems.items,
+                                playbackItems.currentIndex,
+                                player.currentPosition.takeIf { it > 0 } ?: C.TIME_UNSET
+                            )
+                        )
                     }
                 }
-                return super.onPlaybackResumption(mediaSession, controller)
+
+                val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+                scope.launch {
+                    try {
+                        val restored = nowPlayingPersistence.restore()
+                        if (restored == null) {
+                            future.set(
+                                MediaSession.MediaItemsWithStartPosition(
+                                    emptyList(),
+                                    0,
+                                    C.TIME_UNSET
+                                )
+                            )
+                            return@launch
+                        }
+
+                        player.repeatMode = restored.repeatMode
+                        mediaControllerManager.prepareForSessionResumption(restored)
+
+                        val playbackItems = restored.nowPlayingState.toPlaybackMediaItems()
+                        future.set(
+                            MediaSession.MediaItemsWithStartPosition(
+                                playbackItems.items,
+                                playbackItems.currentIndex,
+                                restored.positionMs
+                            )
+                        )
+                    } catch (e: Exception) {
+                        future.setException(e)
+                    }
+                }
+                return future
             }
         }
 
