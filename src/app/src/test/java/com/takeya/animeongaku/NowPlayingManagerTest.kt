@@ -3,6 +3,8 @@ package com.takeya.animeongaku
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.media.NowPlayingManager
+import com.takeya.animeongaku.media.NowPlayingState
+import com.takeya.animeongaku.media.QueueEntry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -489,6 +491,61 @@ class NowPlayingManagerTest {
         val v = manager.state.value.queueVersion
         manager.skipTo(1)
         assertEquals(v + 1, manager.state.value.queueVersion)
+    }
+
+    @Test
+    fun `skipTo backward trims history so later forward skip does not duplicate keys`() {
+        manager.play("ctx", listOf(theme(1), theme(2), theme(3)))
+        manager.skipTo(2)
+        manager.skipTo(1)
+        manager.skipTo(2)
+
+        val historyQueueIds = manager.state.value.historyEntries.map { it.queueId }
+        assertEquals(historyQueueIds.distinct(), historyQueueIds)
+        assertEquals(listOf(1L, 2L), manager.state.value.history.map { it.id })
+    }
+
+    @Test
+    fun `restoreState removes duplicate history entries by queue identity`() {
+        val entries = listOf(
+            QueueEntry(queueId = 1L, theme = theme(1)),
+            QueueEntry(queueId = 2L, theme = theme(2)),
+            QueueEntry(queueId = 3L, theme = theme(3))
+        )
+
+        manager.restoreState(
+            NowPlayingState(
+                originalQueueEntries = entries,
+                nowPlayingEntries = entries,
+                currentIndex = 2,
+                historyEntries = listOf(entries[0], entries[1], entries[1])
+            )
+        )
+
+        val historyQueueIds = manager.state.value.historyEntries.map { it.queueId }
+        assertEquals(listOf(1L, 2L), historyQueueIds)
+    }
+
+    @Test
+    fun `restoreState preserves duplicate songs with distinct queue identities`() {
+        val duplicateSongEntries = listOf(
+            QueueEntry(queueId = 1L, theme = theme(1)),
+            QueueEntry(queueId = 2L, theme = theme(1)),
+            QueueEntry(queueId = 3L, theme = theme(2))
+        )
+
+        manager.restoreState(
+            NowPlayingState(
+                originalQueueEntries = duplicateSongEntries,
+                nowPlayingEntries = duplicateSongEntries,
+                currentIndex = 2,
+                historyEntries = listOf(duplicateSongEntries[0], duplicateSongEntries[1])
+            )
+        )
+
+        val state = manager.state.value
+        assertEquals(listOf(1L, 1L), state.history.map { it.id })
+        assertEquals(listOf(1L, 2L), state.historyEntries.map { it.queueId })
     }
 
     // ─── rewindTo() ───────────────────────────────────────────────────────
