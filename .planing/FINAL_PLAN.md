@@ -50,15 +50,17 @@ Tasks:
 
 **Definition of done:** `docker compose up` → login with stub → authenticated `/auth/me`; `docker compose down && up` retains data (volume check). ✅ Verified live (20/20 tests, persistence confirmed via re-login `isNewUser=false` after down/up).
 
-### S2 — Upstream clients (Kitsu + AnimeThemes ports)
+### S2 — Upstream clients (Kitsu + AnimeThemes ports) ✅ DONE
+
+**Completed 2026-06-12 in [PR #25](https://github.com/nolanblew/animeonkaku/pull/25).**
 
 **Deliverable:** server-side ports of the proven Android clients, with politeness built in.
 
 Tasks:
-1. `kitsu/KitsuClient`: OAuth password+refresh grant with the tolerant response parsing ported from `KitsuAuthRepositoryImpl.parseFallback` (doc 02 lists why); library paging (500/page), `-updatedAt` delta walk, anime details/mappings/categories batchers (20/batch) — port `UserRepositoryImpl` behavior 1:1, including ratingTwenty/averageRating conversions.
-2. `animethemes/AnimeThemesClient`: the four query shapes from doc 02 (Kitsu-id batch ≤50, MAL-id batch, `q=` title search, single anime), `links.next` pagination.
-3. Shared HTTP stack: retry (GET-only, 408/429/5xx, exp backoff) **honoring `Retry-After`**; per-host token buckets (animethemes-api 60/min, kitsu 2/s, binary hosts 1-concurrent) per doc 06; circuit breaker (5 fails → 10 min open).
-4. Tests: fixture-JSON parsing (reuse the Android test fixtures from `src/app/src/test/` where applicable — `ApiDeserializationTest` inputs), rate-limiter timing, Retry-After honored, breaker opens/half-opens.
+1. [x] `kitsu/KitsuClient`: OAuth password+refresh grant with the tolerant response parsing ported from `KitsuAuthRepositoryImpl.parseFallback` (doc 02 lists why); library paging (500/page), `-updatedAt` delta walk, anime details/mappings/categories batchers (20/batch) — port `UserRepositoryImpl` behavior 1:1, including ratingTwenty/averageRating conversions.
+2. [x] `animethemes/AnimeThemesClient`: the four query shapes from doc 02 (Kitsu-id batch ≤50, MAL-id batch, `q=` title search, single anime), `links.next` pagination.
+3. [x] Shared HTTP stack: retry (GET-only, 408/429/5xx, exp backoff) **honoring `Retry-After`**; per-host token buckets (animethemes-api 60/min, kitsu 2/s, binary hosts 1-concurrent) per doc 06; circuit breaker (5 fails → 10 min open).
+4. [x] Tests: fixture-JSON parsing (reuse the Android test fixtures from `src/app/src/test/` where applicable — `ApiDeserializationTest` inputs), rate-limiter timing, Retry-After honored, breaker opens/half-opens.
 
 ### S3 — Job queue + media store
 
