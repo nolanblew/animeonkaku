@@ -6,10 +6,8 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
-import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -17,7 +15,6 @@ import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import com.takeya.animeongaku.data.local.AnimeEntity
-import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.PlayCountDao
 import com.takeya.animeongaku.data.local.ThemeEntity
@@ -27,6 +24,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,6 +58,8 @@ class MediaControllerManager @Inject constructor(
     private val connectivityMonitor: ConnectivityMonitor
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val imageLoader = ImageLoader(context)
+    private val artworkDataCache = ArtworkDataCache()
 
     private var controller: MediaController? = null
     private var lastSyncedVersion: Long = -1L
@@ -75,6 +77,7 @@ class MediaControllerManager @Inject constructor(
     private val MAX_CONSECUTIVE_ERRORS = 5
 
     private var cachedDislikedThemeIds: Set<Long> = emptySet()
+    private val artworkPreloadAheadCount = 3
 
     private fun shouldIncludeInPlayer(idx: Int, theme: ThemeEntity, npState: NowPlayingState): Boolean {
         if (idx == npState.currentIndex) return true
@@ -234,49 +237,80 @@ class MediaControllerManager @Inject constructor(
      * so Bluetooth receivers (e.g. Tesla) get a correctly-proportioned cover image.
      */
     private fun startArtworkInjection() {
-        val imageLoader = ImageLoader(context)
         scope.launch {
             _controllerReady.collectLatest { ready ->
                 if (!ready) return@collectLatest
                 nowPlayingManager.state
-                    .distinctUntilChangedBy { it.currentEntry?.queueId to it.currentTheme?.animeId }
+                    .distinctUntilChangedBy { state ->
+                        state.currentEntry?.queueId to
+                            state.upcomingEntries.take(artworkPreloadAheadCount).map { it.queueId }
+                    }
                     .collectLatest { npState ->
                         val ctrl = controller ?: return@collectLatest
-                        val currentEntry = npState.currentEntry ?: return@collectLatest
-                        val theme = npState.currentTheme ?: return@collectLatest
-                        val expectedQueueId = currentEntry.queueId.toString()
-                        val anime = theme.animeId?.let { npState.animeMap[it] } ?: return@collectLatest
-                        val urls = anime.primaryArtworkUrls()
-                        if (urls.isEmpty()) return@collectLatest
-
-                        val bitmap = loadSquareBitmap(imageLoader, urls) ?: return@collectLatest
-
-                        // Verify the controller is still playing the same track after the async load
-                        val currentIdx = ctrl.currentMediaItemIndex
-                        if (currentIdx < 0 || currentIdx >= ctrl.mediaItemCount) return@collectLatest
-                        val current = ctrl.getMediaItemAt(currentIdx)
-                        if (current.mediaId != expectedQueueId) return@collectLatest
-
-                        val bytes = withContext(Dispatchers.IO) {
-                            ByteArrayOutputStream().use { bos ->
-                                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, bos)
-                                bos.toByteArray()
-                            }
-                        }
-
-                        // Re-check after compression in case track changed again
-                        val finalIdx = ctrl.currentMediaItemIndex
-                        if (finalIdx < 0 || finalIdx >= ctrl.mediaItemCount) return@collectLatest
-                        val finalItem = ctrl.getMediaItemAt(finalIdx)
-                        if (finalItem.mediaId != expectedQueueId) return@collectLatest
-
-                        val updatedMetadata = finalItem.mediaMetadata.buildUpon()
-                            .setArtworkData(bytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
-                            .build()
-                        val updated = finalItem.buildUpon().setMediaMetadata(updatedMetadata).build()
-                        ctrl.replaceMediaItem(finalIdx, updated)
+                        preloadArtworkForPlaybackWindow(ctrl, npState)
                     }
             }
+        }
+    }
+
+    private suspend fun preloadArtworkForPlaybackWindow(ctrl: MediaController, npState: NowPlayingState) {
+        val entries = buildList {
+            npState.currentEntry?.let(::add)
+            addAll(npState.upcomingEntries.take(artworkPreloadAheadCount))
+        }
+        if (entries.isEmpty()) return
+
+        coroutineScope {
+            entries.map { entry ->
+                async {
+                    injectArtworkForEntry(ctrl, entry, npState)
+                }
+            }.awaitAll()
+        }
+    }
+
+    private suspend fun injectArtworkForEntry(
+        ctrl: MediaController,
+        entry: QueueEntry,
+        npState: NowPlayingState
+    ) {
+        val anime = entry.theme.animeId?.let { npState.animeMap[it] } ?: return
+        val bytes = loadArtworkData(anime) ?: return
+        replaceMediaItemArtworkData(ctrl, entry.queueId.toString(), bytes)
+    }
+
+    private suspend fun loadArtworkData(anime: AnimeEntity): ByteArray? {
+        val urls = anime.primaryArtworkUrls()
+        if (urls.isEmpty()) return null
+
+        val cacheKey = artworkCacheKey(anime, urls)
+        artworkDataCache.get(cacheKey)?.let { return it }
+
+        val bitmap = loadSquareBitmap(imageLoader, urls) ?: return null
+        val bytes = withContext(Dispatchers.IO) {
+            ByteArrayOutputStream().use { bos ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, bos)
+                bos.toByteArray()
+            }
+        }
+        artworkDataCache.put(cacheKey, bytes)
+        return bytes
+    }
+
+    private fun replaceMediaItemArtworkData(
+        ctrl: MediaController,
+        mediaId: String,
+        artworkData: ByteArray
+    ) {
+        for (idx in 0 until ctrl.mediaItemCount) {
+            val item = ctrl.getMediaItemAt(idx)
+            if (item.mediaId != mediaId) continue
+
+            val existingArtwork = item.mediaMetadata.artworkData
+            if (existingArtwork != null && existingArtwork.contentEquals(artworkData)) return
+
+            ctrl.replaceMediaItem(idx, item.withArtworkData(artworkData))
+            return
         }
     }
 
@@ -352,6 +386,15 @@ class MediaControllerManager @Inject constructor(
         }
     }
 
+    fun prepareForSessionResumption(restoredState: RestoredQueueState) {
+        val npState = restoredState.nowPlayingState
+        nowPlayingManager.restoreState(npState)
+        val playbackItems = npState.toPlaybackMediaItems()
+
+        lastSyncedMediaIds = playbackItems.items.map { it.mediaId }
+        lastSyncedVersion = npState.queueVersion
+    }
+
     private fun restoreFromPersistedState(restoredState: RestoredQueueState, ctrl: MediaController, autoPlay: Boolean = false) {
         val npState = restoredState.nowPlayingState
         val (desiredItems, desiredCurrentIndex) = buildDesiredItems(npState)
@@ -412,16 +455,21 @@ class MediaControllerManager @Inject constructor(
      * dislike/unskip filter, and the desired current index within that filtered list.
      */
     private fun buildDesiredItems(npState: NowPlayingState): Pair<List<MediaItem>, Int> {
-        val items = ArrayList<MediaItem>(npState.nowPlayingEntries.size)
-        var currentIndex = 0
-        npState.nowPlayingEntries.forEachIndexed { idx, entry ->
-            if (shouldIncludeInPlayer(idx, entry.theme, npState)) {
-                if (idx < npState.currentIndex) currentIndex++
-                items.add(entry.toMediaItem(npState.animeMap))
-            }
-        }
-        return items to currentIndex.coerceAtMost((items.size - 1).coerceAtLeast(0))
+        val playbackItems = npState.toPlaybackMediaItems(
+            shouldIncludeInPlayer = { idx, theme -> shouldIncludeInPlayer(idx, theme, npState) },
+            artworkDataForAnime = ::cachedArtworkDataForAnime
+        )
+        return playbackItems.items to playbackItems.currentIndex
     }
+
+    private fun cachedArtworkDataForAnime(anime: AnimeEntity): ByteArray? {
+        val urls = anime.primaryArtworkUrls()
+        if (urls.isEmpty()) return null
+        return artworkDataCache.get(artworkCacheKey(anime, urls))
+    }
+
+    private fun artworkCacheKey(anime: AnimeEntity, urls: List<String>): String =
+        "${anime.animeThemesId ?: anime.kitsuId}:${urls.joinToString("|")}"
 
     private fun applyDiffOps(ctrl: MediaController, desiredItems: List<MediaItem>, desiredIds: List<String>) {
         val ops = computeQueueOps(lastSyncedMediaIds, desiredIds)
@@ -515,48 +563,3 @@ data class PlaybackState(
     val errorMessage: String? = null,
     val repeatMode: Int = Player.REPEAT_MODE_OFF
 )
-
-private fun QueueEntry.toMediaItem(animeMap: Map<Long, AnimeEntity>): MediaItem =
-    theme.toMediaItem(queueId.toString(), animeMap)
-
-private fun ThemeEntity.toMediaItem(mediaId: String, animeMap: Map<Long, AnimeEntity>): MediaItem {
-    val anime = animeId?.let { animeMap[it] }
-    val artworkUrl = anime?.primaryArtworkUrl()
-    val animeName = anime?.title
-    val typeTag = themeType
-
-    val primaryLine = when {
-        !animeName.isNullOrBlank() && !typeTag.isNullOrBlank() -> "$animeName · $typeTag"
-        !animeName.isNullOrBlank() -> animeName
-        !typeTag.isNullOrBlank() -> "$typeTag · $title"
-        else -> title
-    }
-    val secondaryLine = when {
-        !artistName.isNullOrBlank() -> "$title · $artistName"
-        else -> title
-    }
-
-    // Prefer local file for downloaded songs
-    val uri = if (isDownloaded && !localFilePath.isNullOrBlank()) {
-        if (localFilePath.startsWith("/")) "file://$localFilePath" else localFilePath
-    } else {
-        audioUrl
-    }
-
-    return MediaItem.Builder()
-        .setMediaId(mediaId)
-        .setUri(uri)
-        .setMediaMetadata(
-            MediaMetadata.Builder()
-                .setTitle(primaryLine)
-                .setArtist(secondaryLine)
-                .setAlbumTitle(animeName)
-                .apply {
-                    if (!artworkUrl.isNullOrBlank()) {
-                        setArtworkUri(Uri.parse(artworkUrl))
-                    }
-                }
-                .build()
-        )
-        .build()
-}
