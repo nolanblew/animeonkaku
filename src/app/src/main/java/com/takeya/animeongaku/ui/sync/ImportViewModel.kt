@@ -181,6 +181,7 @@ class ImportViewModel @Inject constructor(
                     )
                     return@launch
                 }
+                libraryPullManager.pullNow(forceFull = false)
                 ongakuApi.startSync(OngakuSyncRequest(full = forceFullSync))
                 _serverSyncState.value = SyncState(
                     phase = SyncPhase.SyncingLibrary,

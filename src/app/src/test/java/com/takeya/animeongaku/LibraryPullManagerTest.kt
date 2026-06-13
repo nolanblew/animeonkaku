@@ -1,7 +1,14 @@
 package com.takeya.animeongaku
 
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.adapters.PolymorphicJsonAdapterFactory
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import com.takeya.animeongaku.data.filter.CustomRange
+import com.takeya.animeongaku.data.filter.DateAnchor
+import com.takeya.animeongaku.data.filter.FilterNode
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.AnimeGenreCrossRef
+import com.takeya.animeongaku.data.local.DynamicPlaylistSpecEntity
 import com.takeya.animeongaku.data.local.GenreEntity
 import com.takeya.animeongaku.data.local.PlayCountEntity
 import com.takeya.animeongaku.data.local.PlaylistEntity
@@ -86,11 +93,37 @@ class LibraryPullManagerTest {
                     isAuto = false,
                     updatedAt = 1760000000001,
                     dynamicSpecJson = null
+                ),
+                OngakuPlaylistDto(
+                    id = 99L,
+                    name = "Smart Mix",
+                    entries = listOf(100L),
+                    isAuto = false,
+                    updatedAt = 1760000000002,
+                    dynamicSpecJson = mapOf(
+                        "filterJson" to mapOf(
+                            "type" to "liked"
+                        ),
+                        "mode" to "AUTO",
+                        "createdMode" to "SIMPLE",
+                        "schemaVersion" to 1,
+                        "sortJson" to mapOf(
+                            "keys" to listOf(
+                                mapOf(
+                                    "attribute" to "TITLE",
+                                    "direction" to "ASC"
+                                )
+                            )
+                        ),
+                        "simpleStateJson" to mapOf(
+                            "likedOnly" to true
+                        )
+                    )
                 )
             )
         )
         val cache = FakeLibraryPullCache(mapOf(100L to existingDownloaded))
-        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects())
+        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(), testMoshi())
 
         val result = manager.pullNow(forceFull = false)
 
@@ -109,8 +142,15 @@ class LibraryPullManagerTest {
         assertEquals(7, cache.playCounts.single().playCount)
         assertTrue(api.playlistsCalled)
         assertFalse(api.autoPlaylistsCalled)
-        assertEquals(listOf("Server Auto", "Manual Mix"), cache.autoPlaylists.map { it.name })
-        assertEquals(listOf(100L, 100L), cache.autoEntries.map { it.themeId })
+        assertEquals(listOf("Server Auto", "Manual Mix", "Smart Mix"), cache.autoPlaylists.map { it.name })
+        assertEquals(listOf(true, false, true), cache.autoPlaylists.map { it.isAuto })
+        assertEquals(listOf(100L, 100L, 100L), cache.autoEntries.map { it.themeId })
+        assertEquals(99L, cache.dynamicSpecs.single().playlistId)
+        assertEquals("""{"type":"liked"}""", cache.dynamicSpecs.single().filterJson)
+        assertEquals("AUTO", cache.dynamicSpecs.single().mode)
+        assertEquals("SIMPLE", cache.dynamicSpecs.single().createdMode)
+        assertEquals("""{"keys":[{"attribute":"TITLE","direction":"ASC"}]}""", cache.dynamicSpecs.single().sortJson)
+        assertEquals("""{"likedOnly":true}""", cache.dynamicSpecs.single().simpleStateJson)
     }
 
     @Test
@@ -126,7 +166,7 @@ class LibraryPullManagerTest {
             events = events
         )
         val cache = FakeLibraryPullCache(emptyMap(), events)
-        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(events))
+        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(events), testMoshi())
 
         manager.pullNow(forceFull = true)
 
@@ -141,7 +181,7 @@ class LibraryPullManagerTest {
         val settings = ServerSettingsStore(FakeSharedPreferences())
         val api = FakeOngakuApi(libraryResponse(), emptyList(), emptyList())
         val cache = FakeLibraryPullCache(emptyMap())
-        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects())
+        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(), testMoshi())
 
         val result = manager.pullNow(forceFull = false)
 
@@ -159,7 +199,7 @@ class LibraryPullManagerTest {
         }
         val api = FakeOngakuApi(libraryResponse(), emptyList(), emptyList())
         val cache = FakeLibraryPullCache(emptyMap())
-        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects())
+        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(), testMoshi())
 
         val freshResult = manager.pullIfStale(minIntervalMs = 5_000L, now = 14_000L)
 
@@ -274,6 +314,7 @@ private class FakeLibraryPullCache(
     var playCounts: List<PlayCountEntity> = emptyList()
     var autoPlaylists: List<PlaylistEntity> = emptyList()
     var autoEntries: List<PlaylistEntryEntity> = emptyList()
+    var dynamicSpecs: List<DynamicPlaylistSpecEntity> = emptyList()
 
     override suspend fun existingThemes(themeIds: List<Long>): Map<Long, ThemeEntity> =
         existing.filterKeys { it in themeIds }
@@ -308,12 +349,56 @@ private class FakeLibraryPullCache(
 
     override suspend fun applyAutoPlaylists(
         playlists: List<PlaylistEntity>,
-        entries: List<PlaylistEntryEntity>
+        entries: List<PlaylistEntryEntity>,
+        dynamicSpecs: List<DynamicPlaylistSpecEntity>
     ) {
         events += "applyAuto"
         this.autoPlaylists = playlists
         this.autoEntries = entries
+        this.dynamicSpecs = dynamicSpecs
     }
+}
+
+private fun testMoshi(): Moshi {
+    val filterNodeFactory = PolymorphicJsonAdapterFactory.of(FilterNode::class.java, "type")
+        .withSubtype(FilterNode.And::class.java, "and")
+        .withSubtype(FilterNode.Or::class.java, "or")
+        .withSubtype(FilterNode.Not::class.java, "not")
+        .withSubtype(FilterNode.GenreIn::class.java, "genre_in")
+        .withSubtype(FilterNode.AiredOn::class.java, "aired_on")
+        .withSubtype(FilterNode.SeasonIn::class.java, "season_in")
+        .withSubtype(FilterNode.SubtypeIn::class.java, "subtype_in")
+        .withSubtype(FilterNode.AverageRatingGte::class.java, "average_rating_gte")
+        .withSubtype(FilterNode.UserRatingGte::class.java, "user_rating_gte")
+        .withSubtype(FilterNode.WatchingStatusIn::class.java, "watching_status_in")
+        .withSubtype(FilterNode.WatchedOn::class.java, "watched_on")
+        .withSubtype(FilterNode.ThemeTypeIn::class.java, "theme_type_in")
+        .withSubtype(FilterNode.ArtistIn::class.java, "artist_in")
+        .withSubtype(FilterNode.TitleMatches::class.java, "title_matches")
+        .withSubtype(FilterNode.SongTitleMatches::class.java, "song_title_matches")
+        .withSubtype(FilterNode.Liked::class.java, "liked")
+        .withSubtype(FilterNode.Disliked::class.java, "disliked")
+        .withSubtype(FilterNode.Downloaded::class.java, "downloaded")
+        .withSubtype(FilterNode.PlayCountGte::class.java, "play_count_gte")
+        .withSubtype(FilterNode.PlayedOn::class.java, "played_on")
+        .withSubtype(FilterNode.AiredBefore::class.java, "aired_before")
+        .withSubtype(FilterNode.AiredAfter::class.java, "aired_after")
+        .withSubtype(FilterNode.AiredBetween::class.java, "aired_between")
+        .withSubtype(FilterNode.LibraryUpdatedAfter::class.java, "library_updated_after")
+        .withSubtype(FilterNode.LibraryUpdatedWithin::class.java, "library_updated_within")
+        .withSubtype(FilterNode.PlayedSince::class.java, "played_since")
+    val dateAnchorFactory = PolymorphicJsonAdapterFactory.of(DateAnchor::class.java, "type")
+        .withSubtype(DateAnchor.AbsoluteYear::class.java, "absolute_year")
+        .withSubtype(DateAnchor.Relative::class.java, "relative")
+    val customRangeFactory = PolymorphicJsonAdapterFactory.of(CustomRange::class.java, "type")
+        .withSubtype(CustomRange.Relative::class.java, "relative")
+        .withSubtype(CustomRange.Exact::class.java, "exact")
+    return Moshi.Builder()
+        .add(filterNodeFactory)
+        .add(dateAnchorFactory)
+        .add(customRangeFactory)
+        .add(KotlinJsonAdapterFactory())
+        .build()
 }
 
 private class FakeLibraryPullSideEffects(

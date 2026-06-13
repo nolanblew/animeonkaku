@@ -6,6 +6,8 @@ import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.AnimeGenreCrossRef
 import com.takeya.animeongaku.data.local.AppDatabase
 import com.takeya.animeongaku.data.local.ArtistDao
+import com.takeya.animeongaku.data.local.DynamicPlaylistSpecDao
+import com.takeya.animeongaku.data.local.DynamicPlaylistSpecEntity
 import com.takeya.animeongaku.data.local.GenreDao
 import com.takeya.animeongaku.data.local.GenreEntity
 import com.takeya.animeongaku.data.local.PlayCountDao
@@ -30,7 +32,8 @@ class RoomLibraryPullCache @Inject constructor(
     private val genreDao: GenreDao,
     private val userPreferenceDao: UserPreferenceDao,
     private val playCountDao: PlayCountDao,
-    private val playlistDao: PlaylistDao
+    private val playlistDao: PlaylistDao,
+    private val dynamicPlaylistSpecDao: DynamicPlaylistSpecDao
 ) : LibraryPullCache {
     override suspend fun existingThemes(themeIds: List<Long>): Map<Long, ThemeEntity> {
         if (themeIds.isEmpty()) return emptyMap()
@@ -108,17 +111,28 @@ class RoomLibraryPullCache @Inject constructor(
 
     override suspend fun applyAutoPlaylists(
         playlists: List<PlaylistEntity>,
-        entries: List<PlaylistEntryEntity>
+        entries: List<PlaylistEntryEntity>,
+        dynamicSpecs: List<DynamicPlaylistSpecEntity>
     ) {
         database.withTransaction {
-            val serverAutoIds = playlists.map { it.id }.toSet()
+            val serverAutoIds = playlists
+                .filter { it.isAuto }
+                .map { it.id }
+                .toSet()
             playlistDao.getAutoPlaylistIds()
                 .filterNot { it in serverAutoIds }
                 .forEach { playlistDao.deletePlaylist(it) }
 
+            val dynamicSpecByPlaylistId = dynamicSpecs.associateBy { it.playlistId }
             playlists.forEach { playlist ->
                 playlistDao.insertPlaylist(playlist)
                 playlistDao.deletePlaylistEntries(playlist.id)
+                val dynamicSpec = dynamicSpecByPlaylistId[playlist.id]
+                if (dynamicSpec != null) {
+                    dynamicPlaylistSpecDao.upsert(dynamicSpec)
+                } else {
+                    dynamicPlaylistSpecDao.delete(playlist.id)
+                }
             }
             if (entries.isNotEmpty()) {
                 playlistDao.insertEntries(entries)

@@ -3,6 +3,7 @@ package com.takeya.animeongaku.sync
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.AnimeGenreCrossRef
 import com.takeya.animeongaku.data.local.GenreEntity
+import com.takeya.animeongaku.data.local.DynamicPlaylistSpecEntity
 import com.takeya.animeongaku.data.local.PlayCountEntity
 import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
@@ -30,7 +31,8 @@ interface LibraryPullCache {
 
     suspend fun applyAutoPlaylists(
         playlists: List<PlaylistEntity>,
-        entries: List<PlaylistEntryEntity>
+        entries: List<PlaylistEntryEntity>,
+        dynamicSpecs: List<DynamicPlaylistSpecEntity>
     )
 }
 

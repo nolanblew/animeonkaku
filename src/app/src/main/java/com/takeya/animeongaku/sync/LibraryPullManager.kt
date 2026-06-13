@@ -1,5 +1,8 @@
 package com.takeya.animeongaku.sync
 
+import com.squareup.moshi.JsonAdapter
+import com.squareup.moshi.Moshi
+import com.takeya.animeongaku.data.local.DynamicPlaylistSpecEntity
 import com.takeya.animeongaku.data.local.PlayCountEntity
 import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
@@ -15,8 +18,11 @@ class LibraryPullManager @Inject constructor(
     private val api: OngakuApi,
     private val settings: ServerSettingsStore,
     private val cache: LibraryPullCache,
-    private val sideEffects: LibraryPullSideEffects
+    private val sideEffects: LibraryPullSideEffects,
+    moshi: Moshi
 ) {
+    private val anyAdapter = moshi.adapter(Any::class.java)
+
     suspend fun pullIfStale(
         minIntervalMs: Long,
         now: Long = System.currentTimeMillis()
@@ -86,7 +92,8 @@ class LibraryPullManager @Inject constructor(
                         orderIndex = index
                     )
                 }
-            }
+            },
+            dynamicSpecs = autoPlaylists.mapNotNull { it.toDynamicSpecEntity(anyAdapter) }
         )
 
         settings.serverPullCursor = library.serverTime
@@ -105,5 +112,37 @@ private fun OngakuPlaylistDto.toPlaylistEntity(): PlaylistEntity =
         id = id,
         name = name,
         createdAt = updatedAt,
-        isAuto = true
+        isAuto = isAuto || dynamicSpecJson != null
     )
+
+private fun OngakuPlaylistDto.toDynamicSpecEntity(anyAdapter: JsonAdapter<Any>): DynamicPlaylistSpecEntity? {
+    val spec = dynamicSpecJson as? Map<*, *> ?: return null
+    val filterJson = spec.jsonField("filterJson", anyAdapter) ?: return null
+    return DynamicPlaylistSpecEntity(
+        playlistId = id,
+        filterJson = filterJson,
+        mode = spec.stringField("mode") ?: "AUTO",
+        createdMode = spec.stringField("createdMode") ?: "ADVANCED",
+        schemaVersion = spec.numberField("schemaVersion") ?: 1,
+        sortJson = spec.jsonField("sortJson", anyAdapter),
+        simpleStateJson = spec.jsonField("simpleStateJson", anyAdapter)
+    )
+}
+
+private fun Map<*, *>.stringField(key: String): String? =
+    this[key] as? String
+
+private fun Map<*, *>.numberField(key: String): Int? =
+    when (val value = this[key]) {
+        is Number -> value.toInt()
+        is String -> value.toIntOrNull()
+        else -> null
+    }
+
+private fun Map<*, *>.jsonField(key: String, anyAdapter: JsonAdapter<Any>): String? {
+    val value = this[key] ?: return null
+    return when (value) {
+        is String -> value
+        else -> anyAdapter.toJson(value)
+    }
+}
