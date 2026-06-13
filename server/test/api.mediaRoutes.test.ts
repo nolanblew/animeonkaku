@@ -121,6 +121,30 @@ describe("media API routes", () => {
     expect(res.body).toBe("");
   });
 
+  it("serves a video-fallback audio file as video/webm", async () => {
+    const contents = Buffer.from("0123456789abcdef");
+    writeFileSync(join(mediaRoot, "audio", "101.ogg"), contents);
+    repo.audio.set(101, {
+      themeId: 101,
+      originUrl: "https://v.animethemes.moe/Fallback.webm",
+      state: "READY",
+      filePath: "audio/101.ogg",
+      byteSize: contents.length,
+      sha256: "deadbeef",
+      videoFallback: true,
+    });
+    const token = await bearer();
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/media/audio/101",
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("video/webm");
+  });
+
   it("redirects missing audio to origin and dedupes the URGENT fetch job", async () => {
     repo.audio.set(100, {
       themeId: 100,

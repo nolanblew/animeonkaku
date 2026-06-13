@@ -212,6 +212,8 @@ class FakeSyncApi implements SyncApiService {
       progress: { mapped: 3 },
       lastCompletedAt: 123,
       unmatched: ["Unknown Show"],
+      mapping: { state: "RUNNING", lastError: null },
+      upstreamBlocked: false,
     };
   }
 }

@@ -21,6 +21,8 @@ export interface MediaAudioRecord {
   filePath: string | null;
   byteSize: number | null;
   sha256: string | null;
+  /** True when the stored file is a webm video track served as audio (doc 08 #11). */
+  videoFallback?: boolean;
 }
 
 export interface MediaImageRecord {
@@ -76,7 +78,7 @@ export class MediaStreamingService {
           reply,
           totalSize: fileStat.size,
           etag: audio.sha256,
-          contentType: "audio/ogg",
+          contentType: audio.videoFallback ? "video/webm" : "audio/ogg",
         });
       }
     }
