@@ -1,0 +1,92 @@
+MEDIA SESSION SERVICE (dumpsys media_session)
+
+9 sessions listeners.
+Global priority session is com.android.server.telecom/HeadsetMediaButton/1 (userId=0)
+  HeadsetMediaButton com.android.server.telecom/HeadsetMediaButton/1 (userId=0)
+    ownerPid=1609, ownerUid=1000, userId=0
+    package=com.android.server.telecom
+    launchIntent=null
+    mediaButtonReceiver=null
+    active=false
+    flags=65537
+    rating type=0
+    controllers: 0
+    state=null
+    audioAttrs=AudioAttributes: usage=USAGE_VOICE_COMMUNICATION content=CONTENT_TYPE_SPEECH flags=0x800(FLAG_MUTE_HAPTIC)  tags= bundle=null
+    volumeType=LOCAL, controlType=ABSOLUTE, max=0, current=0, volumeControlId=null
+    metadata: null
+    queueTitle=null, size=0
+User Records:
+Record for full_user=0
+  Volume key long-press listener: null
+  Volume key long-press listener package: 
+  Media key listener: null
+  Media key listener package: 
+  OnMediaKeyEventDispatchedListener: added 0 listener(s)
+  OnMediaKeyEventSessionChangedListener: added 1 listener(s)
+    from com.google.android.bluetooth
+  Last MediaButtonReceiver: null
+  Media button session is com.takeya.animeongaku/androidx.media3.session.id./34 (userId=0)
+  Sessions Stack - have 4 sessions:
+    androidx.media3.session.id. com.takeya.animeongaku/androidx.media3.session.id./34 (userId=0)
+      ownerPid=28121, ownerUid=10519, userId=0
+      package=com.takeya.animeongaku
+      launchIntent=PendingIntent{35975fd: PendingIntentRecord{b3a104d com.takeya.animeongaku startActivity (allowlist: 90e395c:+30s0ms/0/NOTIFICATION_SERVICE/NotificationManagerService)}}
+      mediaButtonReceiver=null
+      active=true
+      flags=7
+      rating type=0
+      controllers: 9
+      state=PlaybackState {state=PLAYING(3), position=26718, buffered position=79020, speed=1.0, updated=97954707, actions=7340031, custom actions=[], active item id=0, error=null}
+      audioAttrs=AudioAttributes: usage=USAGE_MEDIA content=CONTENT_TYPE_UNKNOWN flags=0x800(FLAG_MUTE_HAPTIC)  tags= bundle=null
+      volumeType=LOCAL, controlType=ABSOLUTE, max=0, current=0, volumeControlId=null
+      metadata: size=7, description=Naruto · OP1, null, null
+      queueTitle=null, size=25
+    androidx.media3.session.id.HKLYx8Ip com.nolanblew.animequiz.mobile/androidx.media3.session.id.HKLYx8Ip/15 (userId=0)
+      ownerPid=23830, ownerUid=10499, userId=0
+      package=com.nolanblew.animequiz.mobile
+      launchIntent=null
+      mediaButtonReceiver=null
+      active=true
+      flags=7
+      rating type=0
+      controllers: 53
+      state=PlaybackState {state=PAUSED(2), position=2680, buffered position=55681, speed=0.0, updated=12895669, actions=7339997, custom actions=[], active item id=0, error=null}
+      audioAttrs=AudioAttributes: usage=USAGE_MEDIA content=CONTENT_TYPE_UNKNOWN flags=0x800(FLAG_MUTE_HAPTIC)  tags= bundle=null
+      volumeType=LOCAL, controlType=ABSOLUTE, max=0, current=0, volumeControlId=null
+      metadata: size=4, description=Sleepy Princess in the Demon Castle, S1 ED1, null
+      queueTitle=null, size=1
+    play_movies_media com.google.android.videos/play_movies_media/2 (userId=0)
+      ownerPid=10847, ownerUid=10175, userId=0
+      package=com.google.android.videos
+      launchIntent=null
+      mediaButtonReceiver=null
+      active=false
+      flags=3
+      rating type=0
+      controllers: 0
+      state=null
+      audioAttrs=AudioAttributes: usage=USAGE_MEDIA content=CONTENT_TYPE_UNKNOWN flags=0x800(FLAG_MUTE_HAPTIC)  tags= bundle=null
+      volumeType=LOCAL, controlType=ABSOLUTE, max=0, current=0, volumeControlId=null
+      metadata: null
+      queueTitle=null, size=0
+    cast_rcn_media_session com.google.android.gms/cast_rcn_media_session/32 (userId=0)
+      ownerPid=904, ownerUid=10160, userId=0
+      package=com.google.android.gms
+      launchIntent=null
+      mediaButtonReceiver=MBR {pi=PendingIntent{17b50d3: PendingIntentRecord{e7d0963 com.google.android.gms/com.google.android.gms.cast broadcastIntent}}, componentName=null, type=0, pkg=com.google.android.gms}
+      active=false
+      flags=3
+      rating type=0
+      controllers: 0
+      state=PlaybackState {state=NONE(0), position=0, buffered position=0, speed=1.0, updated=95702250, actions=0, custom actions=[], active item id=-1, error=null}
+      audioAttrs=AudioAttributes: usage=USAGE_MEDIA content=CONTENT_TYPE_UNKNOWN flags=0x800(FLAG_MUTE_HAPTIC)  tags= bundle=null
+      volumeType=REMOTE, controlType=RELATIVE, max=0, current=0, volumeControlId=null
+      metadata: size=0, description=null, null, null
+      queueTitle=null, size=0
+Audio playback (lastly played comes first)
+  uid=10519 packages=com.takeya.animeongaku 
+Media session config:
+  media_session_calback_fgs_allowlist_duration_ms: [cur: 10000, def: 10000]
+  media_session_callback_fgs_while_in_use_temp_allow_duration_ms: [cur: 10000, def: 10000]
+  media_session_temp_user_engaged_duration_ms: [cur: 600000, def: 600000]

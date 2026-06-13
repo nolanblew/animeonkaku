@@ -1,0 +1,2 @@
+06-13 14:41:38.702 28121 28799 I okhttp.OkHttpClient: --> PUT https://ongaku.local/v1/prefs/themes/1476 (31-byte body)
+06-13 14:41:38.718 28121 28799 I okhttp.OkHttpClient: <-- 200 OK http://127.0.0.1:8080/v1/prefs/themes/1476 (16ms, 80-byte body)

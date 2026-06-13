@@ -1,0 +1,33 @@
+06-13 14:37:57.166 28121 28143 D PreCacheManager: Pre-caching: http://127.0.0.1:8080/v1/media/audio/1477
+06-13 14:37:57.246 28121 28170 D MediaCodec: keep callback message for reclaim
+06-13 14:37:57.313  1609  1939 I ActivityManager: Background started FGS: Allowed [callingPackage: com.takeya.animeongaku; callingUid: 10519; uidState: TOP ; uidBFSL: [BFSL]; intent: Intent { xflg=0x4 cmp=com.takeya.animeongaku/.media.MediaPlaybackService }; code:PROC_STATE_TOP; tempAllowListReason:<null>; allowWiu:12; targetSdkVersion:36; callerTargetSdkVersion:36; startForegroundCount:0; bindFromPackage:null: isBindService:false]
+06-13 14:37:57.314  1609  1939 I ActivityManager: Background started FGS: Allowed [callingPackage: com.takeya.animeongaku; callingUid: 10519; uidState: TOP ; uidBFSL: [BFSL]; intent: Intent { act=androidx.media3.session.MediaSessionService cmp=com.takeya.animeongaku/.media.MediaPlaybackService }; code:PROC_STATE_TOP; tempAllowListReason:<null>; allowWiu:12; targetSdkVersion:36; callerTargetSdkVersion:36; startForegroundCount:0; bindFromPackage:null: isBindService:false]; startForegroundDelayMs:87388
+06-13 14:38:01.037 28121 28143 D PreCacheManager: Pre-cached successfully: http://127.0.0.1:8080/v1/media/audio/1477
+06-13 14:38:01.037 28121 28143 D PreCacheManager: Pre-caching: http://127.0.0.1:8080/v1/media/audio/1478
+06-13 14:38:01.689 28121 28170 D MediaCodec: keep callback message for reclaim
+06-13 14:38:01.695 28121 28188 D CCodecBufferChannel: [c2.android.opus.decoder#807] MediaCodec discarded an unknown buffer
+06-13 14:38:01.695 28121 28188 D CCodecBufferChannel: [c2.android.opus.decoder#807] MediaCodec discarded an unknown buffer
+06-13 14:38:01.695 28121 28188 D CCodecBufferChannel: [c2.android.opus.decoder#807] MediaCodec discarded an unknown buffer
+06-13 14:38:01.695 28121 28188 D CCodecBufferChannel: [c2.android.opus.decoder#807] MediaCodec discarded an unknown buffer
+06-13 14:38:01.696 28121 28170 I DMCodecAdapterFactory: Creating an asynchronous MediaCodec adapter for track type audio
+06-13 14:38:01.721 28121 28394 I MediaCodec: MediaCodec will operate in async mode
+06-13 14:38:01.722 28121 28170 I MediaCodec: media_quality service unavailable, skipping updatePictureProfile
+06-13 14:38:01.725 28121 28170 D MediaCodec: keep callback message for reclaim
+06-13 14:38:02.035  5232  5232 I Tycho.VoiceLibrary: Skip the config reloading on wifi_state_change because it's using local profile and enableConfigReloadForLocalProfile is disabled.
+06-13 14:38:02.037 13436 13436 I Wildlife_WildlifeVpnReceiver: ACTION_WIFI_STATE_CHANGED
+06-13 14:38:02.043  4417  4863 I BugleRcsEngine: handleMessage processing message:[NOTIFY_UPTIME_IGNORE_STATE_CHANGED] with [non-null]:RcsEngineImpl reference [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[a8f71631-44a9]>Handler" thread_id=66 ]
+06-13 14:38:08.184 13436 13436 I Wildlife_WildlifeVpnReceiver: ACTION_WIFI_STATE_CHANGED
+06-13 14:38:08.186  4417  4863 I BugleRcsEngine: handleMessage processing message:[NOTIFY_UPTIME_IGNORE_STATE_CHANGED] with [non-null]:RcsEngineImpl reference [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[a8f71631-44a9]>Handler" thread_id=66 ]
+06-13 14:38:08.188  5232  5232 I Tycho.VoiceLibrary: Skip the config reloading on wifi_state_change because it's using local profile and enableConfigReloadForLocalProfile is disabled.
+06-13 14:38:11.259 13436 13436 I Wildlife_WildlifeVpnReceiver: ACTION_WIFI_STATE_CHANGED
+06-13 14:38:11.260  5232  5232 I Tycho.VoiceLibrary: Skip the config reloading on wifi_state_change because it's using local profile and enableConfigReloadForLocalProfile is disabled.
+06-13 14:38:11.269  4417  4863 I BugleRcsEngine: handleMessage processing message:[NOTIFY_UPTIME_IGNORE_STATE_CHANGED] with [non-null]:RcsEngineImpl reference [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[a8f71631-44a9]>Handler" thread_id=66 ]
+06-13 14:38:17.401 13436 13436 I Wildlife_WildlifeVpnReceiver: ACTION_WIFI_STATE_CHANGED
+06-13 14:38:17.404  5232  5232 I Tycho.VoiceLibrary: Skip the config reloading on wifi_state_change because it's using local profile and enableConfigReloadForLocalProfile is disabled.
+06-13 14:38:17.410  4417  4863 I BugleRcsEngine: handleMessage processing message:[NOTIFY_UPTIME_IGNORE_STATE_CHANGED] with [non-null]:RcsEngineImpl reference [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[a8f71631-44a9]>Handler" thread_id=66 ]
+06-13 14:38:23.544 13436 13436 I Wildlife_WildlifeVpnReceiver: ACTION_WIFI_STATE_CHANGED
+06-13 14:38:23.545  5232  5232 I Tycho.VoiceLibrary: Skip the config reloading on wifi_state_change because it's using local profile and enableConfigReloadForLocalProfile is disabled.
+06-13 14:38:23.549  4417  4863 I BugleRcsEngine: handleMessage processing message:[NOTIFY_UPTIME_IGNORE_STATE_CHANGED] with [non-null]:RcsEngineImpl reference [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[a8f71631-44a9]>Handler" thread_id=66 ]
+06-13 14:38:26.618  5232  5232 I Tycho.VoiceLibrary: Skip the config reloading on wifi_state_change because it's using local profile and enableConfigReloadForLocalProfile is disabled.
+06-13 14:38:26.621  4417  4863 I BugleRcsEngine: handleMessage processing message:[NOTIFY_UPTIME_IGNORE_STATE_CHANGED] with [non-null]:RcsEngineImpl reference [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[a8f71631-44a9]>Handler" thread_id=66 ]
+06-13 14:38:26.635 13436 13436 I Wildlife_WildlifeVpnReceiver: ACTION_WIFI_STATE_CHANGED

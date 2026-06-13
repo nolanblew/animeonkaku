@@ -1,0 +1,78 @@
+06-13 14:45:15.263 28121 28139 D WM-NetworkStateTracker: Network capabilities changed: [ Transports: WIFI Capabilities: NOT_METERED&INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VPN&VALIDATED&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED&NOT_BANDWIDTH_CONSTRAINED LinkUpBandwidth>=18481Kbps LinkDnBandwidth>=70609Kbps TransportInfo: <SSID: <unknown ssid>, BSSID: 02:00:00:00:00:00, MAC: 02:00:00:00:00:00, IP: /192.168.173.201, Security type: 2, Supplicant state: COMPLETED, Wi-Fi standard: 11ax, RSSI: -56, Link speed: 288Mbps, Tx Link speed: 288Mbps, Max Supported Tx Link speed: 1200Mbps, Calculated Tx : 502Mbps, Rx Link speed: 864Mbps, Max Supported Rx Link speed: 1200Mbps, Calculated Rx : 840Mbps, Frequency: 5745MHz, Net ID: -1, Metered hint: false, score: 100, isUsable: true, CarrierMerged: false, SubscriptionId: -1, IsPrimary: -1, Trusted: true, Restricted: false, Ephemeral: false, OEM paid: false, OEM private: false, OSU AP: false, FQDN: <none>, Provider friendly name: <none>, Requesting package name: <none><none>MLO Information: , Is TID-To-Link negotiation supported by the AP: false, AP MLD Address: <none>, AP MLO Link Id: <none>, AP MLO Affiliated links: <none>, Vendor Data: <none>> SignalStrength: -56 UnderlyingNetworks: Null]
+06-13 14:45:15.273 28121 28121 D WM-WorkerWrapper: Starting work for com.takeya.animeongaku.download.DownloadWorker
+06-13 14:45:15.276 28121 28142 D DownloadWorker: Starting download for theme 6663: http://127.0.0.1:8080/v1/media/audio/6663
+06-13 14:45:15.345 28121 29370 I okhttp.OkHttpClient: --> POST https://ongaku.local/v1/media/audio/6663/request (0-byte body)
+06-13 14:45:15.365 28121 29370 I okhttp.OkHttpClient: <-- 200 OK http://127.0.0.1:8080/v1/media/audio/6663/request (19ms, 48-byte body)
+06-13 14:45:15.368 28121 28142 I okhttp.OkHttpClient: --> GET http://127.0.0.1:8080/v1/media/audio/6663
+06-13 14:45:15.376 28121 28142 I okhttp.OkHttpClient: <-- 200 OK http://127.0.0.1:8080/v1/media/audio/6663 (7ms, 4106868-byte body)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: Download failed for theme 6663
+06-13 14:45:15.481 28121 28142 E DownloadWorker: java.io.FileNotFoundException: /data/user/0/com.takeya.animeongaku/files/downloads/6663.1:8080/v1/media/audio/6663: open failed: ENOENT (No such file or directory)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at libcore.io.IoBridge.open(IoBridge.java:574)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at java.io.FileOutputStream.<init>(FileOutputStream.java:259)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at java.io.FileOutputStream.<init>(FileOutputStream.java:208)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at com.takeya.animeongaku.download.DownloadWorker.downloadFile(DownloadWorker.kt:228)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at com.takeya.animeongaku.download.DownloadWorker.downloadFile$default(DownloadWorker.kt:198)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at com.takeya.animeongaku.download.DownloadWorker$doWork$2.invokeSuspend(DownloadWorker.kt:123)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:101)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:113)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:589)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:823)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:720)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:707)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: Caused by: android.system.ErrnoException: open failed: ENOENT (No such file or directory)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at libcore.io.Linux.open(Native Method)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at libcore.io.ForwardingOs.open(ForwardingOs.java:579)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at libcore.io.BlockGuardOs.open(BlockGuardOs.java:274)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at libcore.io.ForwardingOs.open(ForwardingOs.java:579)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at android.app.AndroidForwardingOs.open(AndroidForwardingOs.java:120)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	at libcore.io.IoBridge.open(IoBridge.java:560)
+06-13 14:45:15.481 28121 28142 E DownloadWorker: 	... 13 more
+06-13 14:45:15.490 28121 28157 I WM-WorkerWrapper: Worker result RETRY for Work [ id=55a84bca-ffc1-4a14-9309-f8f7b6218e72, tags={ com.takeya.animeongaku.download.DownloadWorker,download,download_6663 } ]
+06-13 14:45:15.503  1609  3198 W JobScheduler: Job didn't exist in JobStore: 7f80254 {androidx.work.systemjobscheduler} #u0a519/7 #DownloadWorker#@androidx.work.systemjobscheduler@com.takeya.animeongaku/androidx.work.impl.background.systemjob.SystemJobService
+06-13 14:45:22.619  2936  2968 D IwlanDataService: onCapabilitiesChanged: 100 [ Transports: WIFI Capabilities: NOT_METERED&INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VPN&VALIDATED&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED&NOT_BANDWIDTH_CONSTRAINED LinkUpBandwidth>=18481Kbps LinkDnBandwidth>=70609Kbps TransportInfo: <SSID: "KitsuNet", BSSID: f4:92:bf:88:b9:2b, MAC: c8:2a:dd:b6:e9:9e, IP: /192.168.173.201, Security type: 2, Supplicant state: COMPLETED, Wi-Fi standard: 11ax, RSSI: -56, Link speed: 408Mbps, Tx Link speed: 408Mbps, Max Supported Tx Link speed: 1200Mbps, Calculated Tx : 266Mbps, Rx Link speed: 864Mbps, Max Supported Rx Link speed: 1200Mbps, Calculated Rx : 840Mbps, Frequency: 5745MHz, Net ID: 107, Metered hint: false, score: 100, isUsable: true, CarrierMerged: false, SubscriptionId: -1, IsPrimary: 1, Trusted: true, Restricted: false, Ephemeral: false, OEM paid: false, OEM private: false, OSU AP: false, FQDN: <none>, Provider friendly name: <none>, Requesting package name: <none>"KitsuNet"wpa2-pskMLO Information: , Is TID-To-Link negotiation supported by the AP: false, AP MLD Address: <none>, AP MLO Link Id: <none>, AP MLO Affiliated links: <none>, Vendor Data: <none>> SignalStrength: -56 OwnerUid: 1000 AdminUids: [1000] SSID: "KitsuNet" UnderlyingNetworks: Null]
+06-13 14:45:22.625  2626  3828 D SHANNON_RCS: 2346 [0][PROX][TELE] onCapabilitiesChanged, Network: 100, NetworkCapabilities: [ Transports: WIFI Capabilities: NOT_METERED&INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VPN&VALIDATED&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED&NOT_BANDWIDTH_CONSTRAINED LinkUpBandwidth>=18481Kbps LinkDnBandwidth>=70609Kbps TransportInfo: <SSID: <unknown ssid>, BSSID: 02:00:00:00:00:00, MAC: 02:00:00:00:00:00, IP: /192.168.173.201, Security type: 2, Supplicant state: COMPLETED, Wi-Fi standard: 11ax, RSSI: -56, Link speed: 408Mbps, Tx Link speed: 408Mbps, Max Supported Tx Link speed: 1200Mbps, Calculated Tx : 266Mbps, Rx Link speed: 864Mbps, Max Supported Rx Link speed: 1200Mbps, Calculated Rx : 840Mbps, Frequency: 5745MHz, Net ID: -1, Metered hint: false, score: 100, isUsable: true, CarrierMerged: false, SubscriptionId: -1, IsPrimary: -1, Trusted: true, Restricted: false, Ephemeral: false, OEM paid: false, OEM private: false, OSU AP: false, FQDN: <none>, Provider friendly name: <none>, Requesting package name: <none><none>MLO Information: , Is TID-To-Link negotiation supported by the AP: false, AP MLD Address: <none>, AP MLO Link Id: <none>, AP MLO Affiliated links: <none>, Vendor Data: <none>> SignalStrength: -56 UnderlyingNetworks: Null] (DefaultNetworkCallback%onCapabilitiesChanged:76)
+06-13 14:45:23.846  8142  8163 I Finsky  : [45] Stats for Executor: LightweightExecutor vzk@138401a[Running, pool size = 4, active threads = 0, queued tasks = 0, completed tasks = 9803]
+06-13 14:45:23.847  8142  8163 I Finsky  : [45] Stats for Executor: BlockingExecutor vzk@4f1117d[Running, pool size = 0, active threads = 0, queued tasks = 0, completed tasks = 871]
+06-13 14:45:23.847  8142  8163 I Finsky  : [45] Stats for Executor: bgExecutor vzk@302672b[Running, pool size = 4, active threads = 0, queued tasks = 0, completed tasks = 24327]
+06-13 14:45:33.748  8142  8163 I Finsky  : [45] Stats for Executor: GrpcBackgroundExecutor vzk@8cba6e9[Running, pool size = 4, active threads = 0, queued tasks = 0, completed tasks = 21]
+06-13 14:45:45.509 28121 28139 D WM-NetworkStateTracker: Network capabilities changed: [ Transports: WIFI Capabilities: NOT_METERED&INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VPN&VALIDATED&NOT_ROAMING&FOREGROUND&NOT_CONGESTED&NOT_SUSPENDED&NOT_VCN_MANAGED&NOT_BANDWIDTH_CONSTRAINED LinkUpBandwidth>=18481Kbps LinkDnBandwidth>=70609Kbps TransportInfo: <SSID: <unknown ssid>, BSSID: 02:00:00:00:00:00, MAC: 02:00:00:00:00:00, IP: /192.168.173.201, Security type: 2, Supplicant state: COMPLETED, Wi-Fi standard: 11ax, RSSI: -56, Link speed: 408Mbps, Tx Link speed: 408Mbps, Max Supported Tx Link speed: 1200Mbps, Calculated Tx : 266Mbps, Rx Link speed: 864Mbps, Max Supported Rx Link speed: 1200Mbps, Calculated Rx : 840Mbps, Frequency: 5745MHz, Net ID: -1, Metered hint: false, score: 100, isUsable: true, CarrierMerged: false, SubscriptionId: -1, IsPrimary: -1, Trusted: true, Restricted: false, Ephemeral: false, OEM paid: false, OEM private: false, OSU AP: false, FQDN: <none>, Provider friendly name: <none>, Requesting package name: <none><none>MLO Information: , Is TID-To-Link negotiation supported by the AP: false, AP MLD Address: <none>, AP MLO Link Id: <none>, AP MLO Affiliated links: <none>, Vendor Data: <none>> SignalStrength: -56 UnderlyingNetworks: Null]
+06-13 14:45:45.528 28121 28121 D WM-WorkerWrapper: Starting work for com.takeya.animeongaku.download.DownloadWorker
+06-13 14:45:45.529 28121 28145 D DownloadWorker: Starting download for theme 6663: http://127.0.0.1:8080/v1/media/audio/6663
+06-13 14:45:45.583 28121 29370 I okhttp.OkHttpClient: --> POST https://ongaku.local/v1/media/audio/6663/request (0-byte body)
+06-13 14:45:45.603 28121 29370 I okhttp.OkHttpClient: <-- 200 OK http://127.0.0.1:8080/v1/media/audio/6663/request (20ms, 48-byte body)
+06-13 14:45:45.609 28121 28145 I okhttp.OkHttpClient: --> GET http://127.0.0.1:8080/v1/media/audio/6663
+06-13 14:45:45.619 28121 28145 I okhttp.OkHttpClient: <-- 200 OK http://127.0.0.1:8080/v1/media/audio/6663 (9ms, 4106868-byte body)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: Download failed for theme 6663
+06-13 14:45:45.723 28121 28145 E DownloadWorker: java.io.FileNotFoundException: /data/user/0/com.takeya.animeongaku/files/downloads/6663.1:8080/v1/media/audio/6663: open failed: ENOENT (No such file or directory)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at libcore.io.IoBridge.open(IoBridge.java:574)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at java.io.FileOutputStream.<init>(FileOutputStream.java:259)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at java.io.FileOutputStream.<init>(FileOutputStream.java:208)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at com.takeya.animeongaku.download.DownloadWorker.downloadFile(DownloadWorker.kt:228)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at com.takeya.animeongaku.download.DownloadWorker.downloadFile$default(DownloadWorker.kt:198)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at com.takeya.animeongaku.download.DownloadWorker$doWork$2.invokeSuspend(DownloadWorker.kt:123)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:101)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:113)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:589)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:823)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:720)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:707)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: Caused by: android.system.ErrnoException: open failed: ENOENT (No such file or directory)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at libcore.io.Linux.open(Native Method)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at libcore.io.ForwardingOs.open(ForwardingOs.java:579)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at libcore.io.BlockGuardOs.open(BlockGuardOs.java:274)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at libcore.io.ForwardingOs.open(ForwardingOs.java:579)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at android.app.AndroidForwardingOs.open(AndroidForwardingOs.java:120)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	at libcore.io.IoBridge.open(IoBridge.java:560)
+06-13 14:45:45.723 28121 28145 E DownloadWorker: 	... 13 more
+06-13 14:45:45.732 28121 28157 I WM-WorkerWrapper: Worker result RETRY for Work [ id=55a84bca-ffc1-4a14-9309-f8f7b6218e72, tags={ com.takeya.animeongaku.download.DownloadWorker,download,download_6663 } ]
+06-13 14:45:49.246   904  2733 I Auth    : (REDACTED) [GetToken] GetToken failed for app=%s with userRecoverable status: %s 
+06-13 14:45:49.247   904  2733 W Auth    : aicp: GetToken failed with status code and recovery intent: BadAuthentication
+06-13 14:45:50.252  1363  1363 I adbd    : adbd service requested 'shell,v2,raw:am start -n com.takeya.animeongaku/.MainActivity --es navigate_to downloadManager'
+06-13 14:45:54.334  1363  1363 I adbd    : adbd service requested 'shell,v2,raw:uiautomator dump /sdcard/qa-download-manager-fixed.xml'
+06-13 14:45:56.552  1363  1363 I adbd    : adbd service requested 'shell,v2,raw:screencap -p /sdcard/qa-download-manager-fixed.png'
+06-13 14:45:56.838   904   904 I AHS_AsmStepsDataSource: onFlushCompleted [CONTEXT service_id=412 ]
+06-13 14:45:56.961  1609  1671 I ActivityManager: Broadcast completed: result=0
