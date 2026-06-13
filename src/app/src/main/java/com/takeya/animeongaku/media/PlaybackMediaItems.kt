@@ -59,11 +59,7 @@ internal fun ThemeEntity.toPlaybackMediaItem(
         else -> title
     }
 
-    val uri = if (isDownloaded && !localFilePath.isNullOrBlank()) {
-        if (localFilePath.startsWith("/")) "file://$localFilePath" else localFilePath
-    } else {
-        audioUrl
-    }
+    val uri = playbackUriString()
 
     return MediaItem.Builder()
         .setMediaId(mediaId)
@@ -85,6 +81,13 @@ internal fun ThemeEntity.toPlaybackMediaItem(
         )
         .build()
 }
+
+internal fun ThemeEntity.playbackUriString(): String =
+    if (isDownloaded && !localFilePath.isNullOrBlank()) {
+        if (localFilePath.startsWith("/")) "file://$localFilePath" else localFilePath
+    } else {
+        audioUrl
+    }
 
 internal fun MediaItem.withArtworkData(artworkData: ByteArray): MediaItem {
     val updatedMetadata = mediaMetadata.buildUpon()

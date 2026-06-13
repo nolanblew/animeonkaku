@@ -15,9 +15,14 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.takeya.animeongaku.MainActivity
 import com.takeya.animeongaku.R
+import com.takeya.animeongaku.data.auth.ServerTokenStore
 import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.DownloadRequestEntity
 import com.takeya.animeongaku.data.local.ThemeDao
+import com.takeya.animeongaku.data.remote.OngakuApi
+import com.takeya.animeongaku.data.server.ServerSettingsStore
+import com.takeya.animeongaku.network.isServerUrl
+import com.takeya.animeongaku.network.serverMediaRequestHeaders
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -33,7 +38,10 @@ class DownloadWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val downloadDao: DownloadDao,
     private val themeDao: ThemeDao,
-    private val okHttpClient: OkHttpClient
+    private val okHttpClient: OkHttpClient,
+    private val ongakuApi: OngakuApi,
+    private val serverSettingsStore: ServerSettingsStore,
+    private val serverTokenStore: ServerTokenStore
 ) : CoroutineWorker(appContext, workerParams) {
 
     companion object {
@@ -95,6 +103,8 @@ class DownloadWorker @AssistedInject constructor(
             val downloadsDir = File(applicationContext.filesDir, "downloads")
             if (!downloadsDir.exists()) downloadsDir.mkdirs()
 
+            warmServerAudioIfNeeded(themeId)
+
             // Download audio file
             val extension = audioUrl.substringAfterLast('.', "webm").substringBefore('?')
             val audioFile = File(downloadsDir, "${themeId}.$extension")
@@ -152,13 +162,29 @@ class DownloadWorker @AssistedInject constructor(
         }
     }
 
+    private suspend fun warmServerAudioIfNeeded(themeId: Long) {
+        if (!serverSettingsStore.isConfigured) return
+        try {
+            ongakuApi.requestAudio(themeId)
+        } catch (e: Exception) {
+            Log.w(TAG, "Server audio warm-up failed for theme $themeId", e)
+            throw e
+        }
+    }
+
     private suspend fun downloadFile(
         url: String,
         outputFile: File,
         themeId: Long,
         reportProgress: Boolean = true
     ): Long {
-        val request = Request.Builder().url(url).build()
+        val requestBuilder = Request.Builder().url(url)
+        if (isServerUrl(serverSettingsStore.serverBaseUrl, url)) {
+            serverMediaRequestHeaders(serverTokenStore.currentToken()).forEach { (name, value) ->
+                requestBuilder.header(name, value)
+            }
+        }
+        val request = requestBuilder.build()
         val response = okHttpClient.newCall(request).execute()
 
         if (!response.isSuccessful) {

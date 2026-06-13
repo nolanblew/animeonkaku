@@ -1,6 +1,8 @@
 package com.takeya.animeongaku.data.local
 
 import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
@@ -43,4 +45,7 @@ interface PlayCountDao {
 
     @Query("SELECT * FROM play_count")
     suspend fun getAllPlayCounts(): List<PlayCountEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(playCounts: List<PlayCountEntity>)
 }

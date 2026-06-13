@@ -9,14 +9,13 @@ import com.takeya.animeongaku.data.local.AnimeWithThemeCount
 import com.takeya.animeongaku.data.local.ArtistDao
 import com.takeya.animeongaku.data.local.ArtistImageDao
 import com.takeya.animeongaku.data.local.PlaylistDao
-import com.takeya.animeongaku.data.local.PlaylistEntity
-import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.DownloadRequestEntity
 import com.takeya.animeongaku.data.local.DynamicPlaylistSpecDao
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.repository.ArtistRepository
+import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
@@ -59,6 +58,7 @@ class LibraryViewModel @Inject constructor(
     private val artistDao: ArtistDao,
     private val artistImageDao: ArtistImageDao,
     private val artistRepository: ArtistRepository,
+    private val serverPlaylistWriter: ServerPlaylistWriter,
     val nowPlayingManager: NowPlayingManager,
     val downloadManager: DownloadManager,
     private val downloadDao: DownloadDao,
@@ -159,19 +159,13 @@ class LibraryViewModel @Inject constructor(
         val trimmed = name.trim()
         if (trimmed.isBlank()) return
         viewModelScope.launch {
-            playlistDao.insertPlaylist(
-                PlaylistEntity(
-                    name = trimmed,
-                    createdAt = System.currentTimeMillis()
-                )
-            )
+            serverPlaylistWriter.createPlaylist(trimmed)
         }
     }
 
     fun deletePlaylist(playlistId: Long) {
         viewModelScope.launch {
-            playlistDao.deletePlaylistEntries(playlistId)
-            playlistDao.deletePlaylist(playlistId)
+            serverPlaylistWriter.deletePlaylist(playlistId)
         }
     }
 
@@ -179,7 +173,7 @@ class LibraryViewModel @Inject constructor(
         val trimmed = newName.trim()
         if (trimmed.isBlank()) return
         viewModelScope.launch {
-            playlistDao.renamePlaylist(playlistId, trimmed)
+            serverPlaylistWriter.renamePlaylist(playlistId, trimmed)
         }
     }
 
@@ -231,11 +225,7 @@ class LibraryViewModel @Inject constructor(
 
     fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {
         viewModelScope.launch {
-            val count = playlistDao.countEntries(playlistId)
-            val entries = themeIds.mapIndexed { i, id ->
-                PlaylistEntryEntity(playlistId = playlistId, themeId = id, orderIndex = count + i)
-            }
-            playlistDao.insertEntries(entries)
+            serverPlaylistWriter.addEntries(playlistId, themeIds)
         }
     }
 
@@ -274,13 +264,7 @@ class LibraryViewModel @Inject constructor(
 
     fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
         viewModelScope.launch {
-            val newId = playlistDao.insertPlaylist(
-                PlaylistEntity(name = name, createdAt = System.currentTimeMillis())
-            )
-            val entries = themeIds.mapIndexed { i, id ->
-                PlaylistEntryEntity(playlistId = newId, themeId = id, orderIndex = i)
-            }
-            playlistDao.insertEntries(entries)
+            serverPlaylistWriter.createPlaylist(name, themeIds)
         }
     }
 }

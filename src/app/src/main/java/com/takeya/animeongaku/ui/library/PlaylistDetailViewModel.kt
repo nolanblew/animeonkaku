@@ -8,13 +8,13 @@ import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.DynamicPlaylistSpecEntity
 import com.takeya.animeongaku.data.local.PlaylistDao
-import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.PlaylistTrack
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.repository.DynamicPlaylistRepository
+import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
@@ -40,7 +40,8 @@ class PlaylistDetailViewModel @Inject constructor(
     private val downloadDao: DownloadDao,
     private val userPreferencesRepository: UserPreferencesRepository,
     connectivityMonitor: ConnectivityMonitor,
-    private val dynamicPlaylistRepository: DynamicPlaylistRepository
+    private val dynamicPlaylistRepository: DynamicPlaylistRepository,
+    private val serverPlaylistWriter: ServerPlaylistWriter
 ) : ViewModel() {
     val isOnline: StateFlow<Boolean> = connectivityMonitor.isOnline
     private val playlistId: Long = checkNotNull(savedStateHandle["playlistId"]) {
@@ -112,22 +113,14 @@ class PlaylistDetailViewModel @Inject constructor(
         viewModelScope.launch {
             val exists = tracks.value.any { it.theme.id == theme.id }
             if (exists) return@launch
-            val lastOrder = tracks.value.maxOfOrNull { it.orderIndex } ?: -1
-            playlistDao.insertEntries(
-                listOf(
-                    PlaylistEntryEntity(
-                        playlistId = playlistId,
-                        themeId = theme.id,
-                        orderIndex = lastOrder + 1
-                    )
-                )
-            )
+            serverPlaylistWriter.addEntries(playlistId, listOf(theme.id))
         }
     }
 
     fun removeTheme(themeId: Long) {
         viewModelScope.launch {
             playlistDao.deleteEntry(playlistId, themeId)
+            serverPlaylistWriter.syncPlaylistEntries(playlistId)
         }
     }
 
@@ -161,6 +154,7 @@ class PlaylistDetailViewModel @Inject constructor(
                     )
                 )
             )
+            serverPlaylistWriter.syncPlaylistEntries(playlistId)
         }
     }
 
@@ -206,11 +200,7 @@ class PlaylistDetailViewModel @Inject constructor(
 
     fun addToOtherPlaylist(targetPlaylistId: Long, themeIds: List<Long>) {
         viewModelScope.launch {
-            val count = playlistDao.countEntries(targetPlaylistId)
-            val entries = themeIds.mapIndexed { i, id ->
-                PlaylistEntryEntity(playlistId = targetPlaylistId, themeId = id, orderIndex = count + i)
-            }
-            playlistDao.insertEntries(entries)
+            serverPlaylistWriter.addEntries(targetPlaylistId, themeIds)
         }
     }
 
@@ -266,20 +256,14 @@ class PlaylistDetailViewModel @Inject constructor(
             if (dynamicSpec.value != null) {
                 dynamicPlaylistRepository.deleteDynamic(playlistId)
             } else {
-                playlistDao.deletePlaylist(playlistId)
+                serverPlaylistWriter.deletePlaylist(playlistId)
             }
         }
     }
 
     fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
         viewModelScope.launch {
-            val newId = playlistDao.insertPlaylist(
-                PlaylistEntity(name = name, createdAt = System.currentTimeMillis())
-            )
-            val entries = themeIds.mapIndexed { i, id ->
-                PlaylistEntryEntity(playlistId = newId, themeId = id, orderIndex = i)
-            }
-            playlistDao.insertEntries(entries)
+            serverPlaylistWriter.createPlaylist(name, themeIds)
         }
     }
 }

@@ -44,6 +44,9 @@ interface GenreDao {
     @Query("DELETE FROM anime_genres WHERE kitsuId = :kitsuId")
     suspend fun deleteForAnime(kitsuId: String)
 
+    @Query("DELETE FROM anime_genres WHERE kitsuId IN (:kitsuIds)")
+    suspend fun deleteForAnimeIds(kitsuIds: List<String>)
+
     @Query("SELECT * FROM anime_genres")
     suspend fun getAllCrossRefs(): List<AnimeGenreCrossRef>
 }

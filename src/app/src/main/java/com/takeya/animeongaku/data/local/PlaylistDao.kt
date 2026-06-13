@@ -71,6 +71,9 @@ interface PlaylistDao {
     @Query("SELECT * FROM playlists WHERE isAuto = 1 AND name = :name LIMIT 1")
     suspend fun findAutoPlaylistByName(name: String): PlaylistEntity?
 
+    @Query("SELECT id FROM playlists WHERE isAuto = 1")
+    suspend fun getAutoPlaylistIds(): List<Long>
+
     @Query("""
         SELECT a.coverUrl, a.thumbnailUrl
         FROM playlist_entries pe

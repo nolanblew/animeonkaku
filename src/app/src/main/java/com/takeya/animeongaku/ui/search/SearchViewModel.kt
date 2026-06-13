@@ -8,8 +8,6 @@ import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ArtistDao
 import com.takeya.animeongaku.data.local.ArtistTrackCount
 import com.takeya.animeongaku.data.local.PlaylistDao
-import com.takeya.animeongaku.data.local.PlaylistEntity
-import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeArtistCrossRef
 import com.takeya.animeongaku.data.local.ThemeDao
@@ -18,6 +16,7 @@ import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.model.OnlineAnimeResult
 import com.takeya.animeongaku.data.model.OnlineArtistResult
 import com.takeya.animeongaku.data.repository.AnimeRepository
+import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserRepository
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
@@ -52,6 +51,7 @@ class SearchViewModel @Inject constructor(
     val nowPlayingManager: NowPlayingManager,
     val downloadManager: DownloadManager,
     private val downloadDao: DownloadDao,
+    private val serverPlaylistWriter: ServerPlaylistWriter,
     private val userPreferencesRepository: UserPreferencesRepository
 ) : ViewModel() {
 
@@ -295,11 +295,7 @@ class SearchViewModel @Inject constructor(
 
     fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {
         viewModelScope.launch {
-            val count = playlistDao.countEntries(playlistId)
-            val entries = themeIds.mapIndexed { i, id ->
-                PlaylistEntryEntity(playlistId = playlistId, themeId = id, orderIndex = count + i)
-            }
-            playlistDao.insertEntries(entries)
+            serverPlaylistWriter.addEntries(playlistId, themeIds)
         }
     }
 
@@ -338,13 +334,7 @@ class SearchViewModel @Inject constructor(
 
     fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
         viewModelScope.launch {
-            val newId = playlistDao.insertPlaylist(
-                PlaylistEntity(name = name, createdAt = System.currentTimeMillis())
-            )
-            val entries = themeIds.mapIndexed { i, id ->
-                PlaylistEntryEntity(playlistId = newId, themeId = id, orderIndex = i)
-            }
-            playlistDao.insertEntries(entries)
+            serverPlaylistWriter.createPlaylist(name, themeIds)
         }
     }
 }
