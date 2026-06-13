@@ -5,6 +5,7 @@ import type {
   JobState,
   JobType,
 } from "./types.js";
+import { JobPriority } from "./types.js";
 
 export interface JobQueueOptions {
   now?: () => Date;
@@ -81,6 +82,14 @@ export class JobQueue {
 
   async retryJob(id: number): Promise<JobRecord | null> {
     return this.repo.retry(id, this.now());
+  }
+
+  async updateProgress(id: number, progress: Record<string, unknown>): Promise<void> {
+    await this.repo.updateProgress(id, progress);
+  }
+
+  async hasUrgentQueued(): Promise<boolean> {
+    return this.repo.hasQueuedPriorityAtOrBelow(JobPriority.URGENT);
   }
 }
 

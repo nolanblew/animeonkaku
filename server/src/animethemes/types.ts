@@ -8,6 +8,7 @@ export interface AnimeThemeEntry {
   animeId: number;
   animeName: string | null;
   animeNameEn: string | null;
+  animeSynonyms: string[];
   kitsuId: string | null;
   coverUrl: string | null;
   themeId: number;

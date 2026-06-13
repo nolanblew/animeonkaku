@@ -7,6 +7,7 @@ interface JobRow {
   priority: number;
   state: string;
   payload: Record<string, unknown>;
+  progress: Record<string, unknown>;
   dedupe_key: string | null;
   attempts: number;
   max_attempts: number;
@@ -135,6 +136,21 @@ export class PgJobRepository implements JobRepository {
     return result.rows[0] ? toJobRecord(result.rows[0]) : null;
   }
 
+  async updateProgress(id: number, progress: Record<string, unknown>): Promise<void> {
+    await this.pool.query(
+      "UPDATE jobs SET progress = $2::jsonb, updated_at = now() WHERE id = $1",
+      [id, JSON.stringify(progress)],
+    );
+  }
+
+  async hasQueuedPriorityAtOrBelow(priority: number): Promise<boolean> {
+    const result = await this.pool.query<{ exists: boolean }>(
+      "SELECT EXISTS (SELECT 1 FROM jobs WHERE state = 'QUEUED' AND priority <= $1) AS exists",
+      [priority],
+    );
+    return result.rows[0]?.exists ?? false;
+  }
+
   private async findByDedupeKey(dedupeKey: string | null | undefined): Promise<JobRow | null> {
     if (!dedupeKey) return null;
     const result = await this.pool.query<JobRow>("SELECT * FROM jobs WHERE dedupe_key = $1 LIMIT 1", [
@@ -151,6 +167,7 @@ function toJobRecord(row: JobRow): JobRecord {
     priority: row.priority,
     state: row.state as JobRecord["state"],
     payload: row.payload ?? {},
+    progress: row.progress ?? {},
     dedupeKey: row.dedupe_key,
     attempts: row.attempts,
     maxAttempts: row.max_attempts,

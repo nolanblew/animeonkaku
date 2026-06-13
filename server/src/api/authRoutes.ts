@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import type { AuthService } from "../auth/service.js";
+import type { AuthService, LoginResult } from "../auth/service.js";
 import { ApiError } from "./errors.js";
 import { makeRequireAuth } from "./requireAuth.js";
 
@@ -15,12 +15,22 @@ const deviceParams = z.object({
   id: z.coerce.number().int().positive(),
 });
 
-export function registerAuthRoutes(fastify: FastifyInstance, authService: AuthService): void {
+export interface AuthRouteOptions {
+  onLogin?: ((result: LoginResult) => Promise<void>) | undefined;
+}
+
+export function registerAuthRoutes(
+  fastify: FastifyInstance,
+  authService: AuthService,
+  options: AuthRouteOptions = {},
+): void {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
   const requireAuth = makeRequireAuth(authService);
 
   app.post("/v1/auth/login", { schema: { body: loginBody } }, async (request) => {
-    return authService.login(request.body);
+    const result = await authService.login(request.body);
+    await options.onLogin?.(result);
+    return result;
   });
 
   app.post("/v1/auth/logout", { preHandler: requireAuth }, async (request, reply) => {

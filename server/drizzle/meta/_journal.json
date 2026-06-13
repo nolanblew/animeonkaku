@@ -15,6 +15,13 @@
       "when": 1781315388083,
       "tag": "0001_nosy_blizzard",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781316774957,
+      "tag": "0002_wealthy_wild_child",
+      "breakpoints": true
     }
   ]
 }

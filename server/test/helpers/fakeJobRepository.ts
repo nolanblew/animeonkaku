@@ -35,6 +35,7 @@ export class FakeJobRepository implements JobRepository {
       priority: input.priority,
       state: "QUEUED",
       payload: input.payload,
+      progress: {},
       dedupeKey: input.dedupeKey ?? null,
       attempts: 0,
       maxAttempts: input.maxAttempts,
@@ -103,6 +104,19 @@ export class FakeJobRepository implements JobRepository {
     job.lastError = null;
     job.updatedAt = this.now();
     return { ...job };
+  }
+
+  async updateProgress(id: number, progress: Record<string, unknown>): Promise<void> {
+    const job = this.jobs.get(id);
+    if (!job) return;
+    job.progress = progress;
+    job.updatedAt = this.now();
+  }
+
+  async hasQueuedPriorityAtOrBelow(priority: number): Promise<boolean> {
+    return [...this.jobs.values()].some(
+      (job) => job.state === "QUEUED" && job.priority <= priority,
+    );
   }
 }
 

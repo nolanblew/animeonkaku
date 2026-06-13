@@ -70,6 +70,7 @@ describe("toThemeEntries", () => {
       animeId: 2984,
       animeName: "Toradora!",
       animeNameEn: "Tiger X Dragon",
+      animeSynonyms: ["Tiger X Dragon"],
       kitsuId: "4224",
       coverUrl: "https://i.animethemes.moe/covers/large.jpg",
       themeId: 3040,

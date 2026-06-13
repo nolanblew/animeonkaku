@@ -7,7 +7,7 @@ import {
 import { registerAuthRoutes } from "./api/authRoutes.js";
 import { ApiError, errorEnvelope } from "./api/errors.js";
 import { registerHealthRoutes, type HealthDeps } from "./api/healthRoutes.js";
-import type { AuthService } from "./auth/service.js";
+import type { AuthService, LoginResult } from "./auth/service.js";
 import { KitsuAuthError } from "./auth/types.js";
 import { registerJobAdminRoutes, type JobAdminService } from "./jobs/adminRoutes.js";
 
@@ -15,6 +15,7 @@ export interface AppDeps {
   authService: AuthService;
   health: HealthDeps;
   jobs?: JobAdminService;
+  onLogin?: (result: LoginResult) => Promise<void>;
   logger?: boolean;
 }
 
@@ -50,7 +51,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
 
   registerHealthRoutes(app, deps.health);
-  registerAuthRoutes(app, deps.authService);
+  registerAuthRoutes(app, deps.authService, { onLogin: deps.onLogin });
   if (deps.jobs) {
     registerJobAdminRoutes(app, deps.authService, deps.jobs);
   }
