@@ -36,6 +36,7 @@ export function toThemeEntries(anime: unknown): AnimeThemeEntry[] {
 
   const animeName = stringValue(animeObject.name);
   const animeNameEn = englishTitle(animeObject);
+  const animeSynonyms = synonymTitles(animeObject);
   const kitsuId = externalIdForSite(animeObject, "Kitsu");
   const coverUrl = coverImageUrl(animeObject);
 
@@ -59,6 +60,7 @@ export function toThemeEntries(anime: unknown): AnimeThemeEntry[] {
       animeId,
       animeName,
       animeNameEn,
+      animeSynonyms,
       kitsuId,
       coverUrl,
       themeId,
@@ -137,6 +139,16 @@ function englishTitle(anime: Record<string, unknown>): string | null {
     (candidate) => stringValue(candidate.type)?.toLowerCase() === "english",
   );
   return stringValue(synonym?.text);
+}
+
+function synonymTitles(anime: Record<string, unknown>): string[] {
+  return [
+    ...new Set(
+      asRecordArray(anime.animesynonyms ?? anime.synonyms)
+        .map((candidate) => stringValue(candidate.text)?.trim())
+        .filter((title): title is string => title !== undefined && title.length > 0),
+    ),
+  ];
 }
 
 function themeTitle(theme: Record<string, unknown>, song: Record<string, unknown> | null): string {

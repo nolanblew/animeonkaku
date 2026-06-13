@@ -6,8 +6,12 @@ import type { Sleep } from "../../src/http/types.js";
  * real waiting.
  */
 export class FakeTime {
-  private currentMs = 0;
+  private currentMs: number;
   readonly sleeps: number[] = [];
+
+  constructor(initialMs = 0) {
+    this.currentMs = initialMs;
+  }
 
   now = (): number => this.currentMs;
 

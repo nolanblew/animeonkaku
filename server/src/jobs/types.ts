@@ -24,6 +24,7 @@ export interface JobRecord {
   priority: number;
   state: JobState;
   payload: Record<string, unknown>;
+  progress: Record<string, unknown>;
   dedupeKey: string | null;
   attempts: number;
   maxAttempts: number;
@@ -57,6 +58,8 @@ export interface JobRepository {
   recoverRunning(): Promise<number>;
   list(status?: JobState): Promise<JobRecord[]>;
   retry(id: number, now: Date): Promise<JobRecord | null>;
+  updateProgress(id: number, progress: Record<string, unknown>): Promise<void>;
+  hasQueuedPriorityAtOrBelow(priority: number): Promise<boolean>;
 }
 
 export type JobHandler = (

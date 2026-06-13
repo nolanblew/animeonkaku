@@ -243,6 +243,7 @@ export const jobs = pgTable(
     priority: integer("priority").notNull(), // 0 URGENT, 10 HIGH, 20 NORMAL, 30 MAINTENANCE
     state: text("state").notNull().default("QUEUED"), // QUEUED | RUNNING | DONE | FAILED | CANCELLED
     payload: jsonb("payload").notNull().default({}),
+    progress: jsonb("progress").notNull().default({}),
     dedupeKey: text("dedupe_key").unique(), // e.g. 'FETCH_AUDIO:4567'
     attempts: integer("attempts").notNull().default(0),
     maxAttempts: integer("max_attempts").notNull().default(5),

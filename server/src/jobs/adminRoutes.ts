@@ -58,6 +58,7 @@ function toResponse(job: JobRecord) {
     priority: job.priority,
     state: job.state,
     payload: job.payload,
+    progress: job.progress,
     dedupeKey: job.dedupeKey,
     attempts: job.attempts,
     maxAttempts: job.maxAttempts,
