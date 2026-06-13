@@ -1,14 +1,9 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { AuthService } from "../auth/service.js";
-import { ApiError, errorEnvelope } from "./errors.js";
-
-declare module "fastify" {
-  interface FastifyRequest {
-    auth?: import("../auth/service.js").AuthContext;
-  }
-}
+import { ApiError } from "./errors.js";
+import { makeRequireAuth } from "./requireAuth.js";
 
 const loginBody = z.object({
   username: z.string().min(1),
@@ -22,19 +17,7 @@ const deviceParams = z.object({
 
 export function registerAuthRoutes(fastify: FastifyInstance, authService: AuthService): void {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
-
-  const requireAuth = async (request: FastifyRequest, reply: FastifyReply) => {
-    const header = request.headers.authorization;
-    const token = header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : undefined;
-    const auth = token ? await authService.authenticate(token) : null;
-    if (!auth) {
-      return reply
-        .code(401)
-        .send(errorEnvelope("UNAUTHORIZED", "Missing or invalid session token."));
-    }
-    request.auth = auth;
-    return undefined;
-  };
+  const requireAuth = makeRequireAuth(authService);
 
   app.post("/v1/auth/login", { schema: { body: loginBody } }, async (request) => {
     return authService.login(request.body);
