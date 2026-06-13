@@ -15,10 +15,13 @@ import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.PendingPlayDao
+import com.takeya.animeongaku.data.local.PendingPlayEntity
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.PlayCountDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
+import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.network.ConnectivityMonitor
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -53,9 +56,11 @@ class MediaControllerManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val nowPlayingManager: NowPlayingManager,
     private val playCountDao: PlayCountDao,
+    private val pendingPlayDao: PendingPlayDao,
     private val userPreferencesRepository: UserPreferencesRepository,
     private val nowPlayingPersistence: NowPlayingPersistence,
-    private val connectivityMonitor: ConnectivityMonitor
+    private val connectivityMonitor: ConnectivityMonitor,
+    private val serverSettingsStore: ServerSettingsStore
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val imageLoader = ImageLoader(context)
@@ -115,7 +120,7 @@ class MediaControllerManager @Inject constructor(
                 
                 // Record play count on track start
                 if (themeId != null) {
-                    scope.launch { playCountDao.incrementPlayCount(themeId) }
+                    scope.launch { recordPlay(themeId) }
                 }
             }
         }
@@ -148,6 +153,19 @@ class MediaControllerManager @Inject constructor(
                     }
                 }
             }
+        }
+    }
+
+    private suspend fun recordPlay(themeId: Long) {
+        val playedAt = System.currentTimeMillis()
+        playCountDao.incrementPlayCount(themeId, playedAt)
+        if (serverSettingsStore.isConfigured) {
+            pendingPlayDao.insert(
+                PendingPlayEntity(
+                    themeId = themeId,
+                    playedAt = playedAt
+                )
+            )
         }
     }
 

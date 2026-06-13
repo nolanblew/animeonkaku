@@ -106,6 +106,8 @@ Tasks:
 
 **Deliverable:** app gains a "Server" mode scaffold compiled in but inert until a base URL is configured.
 
+**Status:** Implemented in [PR #29](https://github.com/nolanblew/animeonkaku/pull/29).
+
 Tasks:
 1. `OngakuApi` Retrofit service + DTOs matching doc 04 (build against the spec, not the server — fixtures from doc 04 JSON).
 2. `ServerTokenStore`, `OngakuAuthInterceptor` (Bearer + 401→logout signal), settings UI for base URL, `@Named("ongaku")` client/retrofit in `NetworkModule`.

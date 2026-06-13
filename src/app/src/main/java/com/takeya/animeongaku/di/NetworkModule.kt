@@ -14,9 +14,16 @@ import com.takeya.animeongaku.data.filter.FilterNode
 import com.takeya.animeongaku.data.auth.KitsuAuthRepository
 import com.takeya.animeongaku.data.auth.KitsuAuthRepositoryImpl
 import com.takeya.animeongaku.data.auth.KitsuTokenStore
+import com.takeya.animeongaku.data.auth.OngakuAuthRepository
+import com.takeya.animeongaku.data.auth.OngakuAuthRepositoryImpl
+import com.takeya.animeongaku.data.auth.ServerTokenStore
 import com.takeya.animeongaku.data.remote.ApiConstants
 import com.takeya.animeongaku.data.remote.KitsuApi
 import com.takeya.animeongaku.data.remote.KitsuAuthApi
+import com.takeya.animeongaku.data.remote.OngakuApi
+import com.takeya.animeongaku.data.server.ServerSettingsStore
+import com.takeya.animeongaku.network.OngakuAuthInterceptor
+import com.takeya.animeongaku.network.OngakuBaseUrlInterceptor
 import com.takeya.animeongaku.network.KitsuAuthInterceptor
 import com.takeya.animeongaku.network.RateLimitInterceptor
 import com.takeya.animeongaku.network.RetryInterceptor
@@ -141,6 +148,34 @@ object NetworkModule {
 
     @Provides
     @Singleton
+    @Named("ongaku")
+    fun provideOngakuOkHttpClient(
+        @Named("base") baseClient: OkHttpClient,
+        baseUrlInterceptor: OngakuBaseUrlInterceptor,
+        authInterceptor: OngakuAuthInterceptor
+    ): OkHttpClient {
+        return baseClient.newBuilder()
+            .addInterceptor(baseUrlInterceptor)
+            .addInterceptor(authInterceptor)
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    @Named("ongaku")
+    fun provideOngakuRetrofit(
+        @Named("ongaku") okHttpClient: OkHttpClient,
+        moshi: Moshi
+    ): Retrofit {
+        return Retrofit.Builder()
+            .baseUrl("https://ongaku.local/")
+            .client(okHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+    }
+
+    @Provides
+    @Singleton
     @Named("auth")
     fun provideAuthRetrofit(
         @Named("base") okHttpClient: OkHttpClient,
@@ -163,6 +198,12 @@ object NetworkModule {
     @Singleton
     fun provideKitsuAuthApi(@Named("auth") retrofit: Retrofit): KitsuAuthApi {
         return retrofit.create(KitsuAuthApi::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideOngakuApi(@Named("ongaku") retrofit: Retrofit): OngakuApi {
+        return retrofit.create(OngakuApi::class.java)
     }
 
     @Provides
@@ -190,7 +231,25 @@ object NetworkModule {
 
     @Provides
     @Singleton
+    fun provideServerSettingsStore(prefs: SharedPreferences): ServerSettingsStore {
+        return ServerSettingsStore(prefs)
+    }
+
+    @Provides
+    @Singleton
+    fun provideServerTokenStore(prefs: SharedPreferences): ServerTokenStore {
+        return ServerTokenStore(prefs)
+    }
+
+    @Provides
+    @Singleton
     fun provideKitsuAuthRepository(
         impl: KitsuAuthRepositoryImpl
     ): KitsuAuthRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideOngakuAuthRepository(
+        impl: OngakuAuthRepositoryImpl
+    ): OngakuAuthRepository = impl
 }

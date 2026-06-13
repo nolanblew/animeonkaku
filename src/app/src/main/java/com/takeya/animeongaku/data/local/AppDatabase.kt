@@ -20,9 +20,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         UserPreferenceEntity::class,
         GenreEntity::class,
         AnimeGenreCrossRef::class,
-        DynamicPlaylistSpecEntity::class
+        DynamicPlaylistSpecEntity::class,
+        PendingPlayEntity::class
     ],
-    version = 19,
+    version = 20,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -36,6 +37,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun userPreferenceDao(): UserPreferenceDao
     abstract fun genreDao(): GenreDao
     abstract fun dynamicPlaylistSpecDao(): DynamicPlaylistSpecDao
+    abstract fun pendingPlayDao(): PendingPlayDao
 
     companion object {
         val MIGRATION_9_10 = object : Migration(9, 10) {
@@ -182,6 +184,20 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_18_19 = object : Migration(18, 19) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `dynamic_playlist_spec` ADD COLUMN `simpleStateJson` TEXT")
+            }
+        }
+
+        val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `pending_plays` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `themeId` INTEGER NOT NULL,
+                        `playedAt` INTEGER NOT NULL,
+                        `createdAt` INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_pending_plays_themeId` ON `pending_plays` (`themeId`)")
             }
         }
     }

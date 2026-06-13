@@ -24,10 +24,13 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -48,6 +51,7 @@ import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.theme.Rose500
 import com.takeya.animeongaku.updater.AvailableAppUpdate
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit = {},
@@ -62,6 +66,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val wifiOnly by viewModel.wifiOnly.collectAsStateWithLifecycle()
+    val serverBaseUrl by viewModel.serverBaseUrl.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -104,6 +109,27 @@ fun SettingsScreen(
                 title = "Kitsu Sync",
                 subtitle = "Manage your Kitsu connection",
                 onClick = onOpenImport
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            OutlinedTextField(
+                value = serverBaseUrl,
+                onValueChange = viewModel::setServerBaseUrl,
+                label = { Text("Server URL") },
+                placeholder = { Text("https://ongaku.lan:8080") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = Mist100),
+                colors = TextFieldDefaults.colors(
+                    focusedTextColor = Mist100,
+                    unfocusedTextColor = Mist100,
+                    focusedContainerColor = Ink800,
+                    unfocusedContainerColor = Ink800,
+                    focusedIndicatorColor = Rose500,
+                    unfocusedIndicatorColor = Mist200.copy(alpha = 0.45f),
+                    focusedLabelColor = Mist200,
+                    unfocusedLabelColor = Mist200,
+                    cursorColor = Rose500
+                )
             )
 
             Spacer(modifier = Modifier.height(24.dp))
