@@ -227,6 +227,7 @@ export const mediaFiles = pgTable(
     attempts: integer("attempts").notNull().default(0),
     fetchedAt: timestamp("fetched_at", { withTimezone: true }),
     updatedAt: updatedAt(),
+    videoFallback: boolean("video_fallback").notNull().default(false),
   },
   (t) => [unique("media_files_kind_ref_id_unique").on(t.kind, t.refId)],
 );

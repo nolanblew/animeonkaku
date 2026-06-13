@@ -9,10 +9,12 @@ import { ApiError, errorEnvelope } from "./api/errors.js";
 import { registerHealthRoutes, type HealthDeps } from "./api/healthRoutes.js";
 import type { AuthService } from "./auth/service.js";
 import { KitsuAuthError } from "./auth/types.js";
+import { registerJobAdminRoutes, type JobAdminService } from "./jobs/adminRoutes.js";
 
 export interface AppDeps {
   authService: AuthService;
   health: HealthDeps;
+  jobs?: JobAdminService;
   logger?: boolean;
 }
 
@@ -49,6 +51,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   registerHealthRoutes(app, deps.health);
   registerAuthRoutes(app, deps.authService);
+  if (deps.jobs) {
+    registerJobAdminRoutes(app, deps.authService, deps.jobs);
+  }
 
   return app;
 }

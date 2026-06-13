@@ -62,16 +62,18 @@ Tasks:
 3. [x] Shared HTTP stack: retry (GET-only, 408/429/5xx, exp backoff) **honoring `Retry-After`**; per-host token buckets (animethemes-api 60/min, kitsu 2/s, binary hosts 1-concurrent) per doc 06; circuit breaker (5 fails → 10 min open).
 4. [x] Tests: fixture-JSON parsing (reuse the Android test fixtures from `src/app/src/test/` where applicable — `ApiDeserializationTest` inputs), rate-limiter timing, Retry-After honored, breaker opens/half-opens.
 
-### S3 — Job queue + media store
+### S3 — Job queue + media store ✅ DONE
+
+**Completed 2026-06-12 in [PR #26](https://github.com/nolanblew/animeonkaku/pull/26).**
 
 **Deliverable:** the doc 06 queue running end-to-end with `FETCH_AUDIO`/`FETCH_IMAGE`.
 
 Tasks:
-1. `jobs/JobQueue`: enqueue with `ON CONFLICT (dedupe_key)` priority-bump upsert (SQL in doc 06), picker query with `FOR UPDATE SKIP LOCKED`, worker loop, backoff, boot-time RUNNING→QUEUED recovery, per-type timeouts.
-2. `media/MediaStore`: tmp-file download → size/Content-Type validation → sha256 → atomic move → `media_files` READY (doc 03 storage layout; doc 08 §B validation rules, incl. `video_fallback` flag).
-3. `FETCH_AUDIO`/`FETCH_IMAGE` handlers; disk-free guard (<2 GB pauses fetch jobs).
-4. Admin: `GET /v1/jobs?status=`, `POST /v1/jobs/{id}/retry`.
-5. Tests: dedupe/priority-bump semantics, preemption ordering (URGENT beats running-next MAINTENANCE), crash-recovery requeue, partial-file never READY.
+1. [x] `jobs/JobQueue`: enqueue with `ON CONFLICT (dedupe_key)` priority-bump upsert (SQL in doc 06), picker query with `FOR UPDATE SKIP LOCKED`, worker loop, backoff, boot-time RUNNING→QUEUED recovery, per-type timeouts.
+2. [x] `media/MediaStore`: tmp-file download → size/Content-Type validation → sha256 → atomic move → `media_files` READY (doc 03 storage layout; doc 08 §B validation rules, incl. `video_fallback` flag).
+3. [x] `FETCH_AUDIO`/`FETCH_IMAGE` handlers; disk-free guard (<2 GB pauses fetch jobs).
+4. [x] Admin: `GET /v1/jobs?status=`, `POST /v1/jobs/{id}/retry`.
+5. [x] Tests: dedupe/priority-bump semantics, preemption ordering (URGENT beats running-next MAINTENANCE), crash-recovery requeue, partial-file never READY.
 
 ### S4 — Library sync pipeline (the big port)
 

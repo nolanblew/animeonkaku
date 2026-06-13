@@ -8,6 +8,13 @@
       "when": 1781302914814,
       "tag": "0000_orange_bucky",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781315388083,
+      "tag": "0001_nosy_blizzard",
+      "breakpoints": true
     }
   ]
 }

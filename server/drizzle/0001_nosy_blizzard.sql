@@ -1,0 +1,1 @@
+ALTER TABLE "media_files" ADD COLUMN "video_fallback" boolean DEFAULT false NOT NULL;

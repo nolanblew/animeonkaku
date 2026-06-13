@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { statfs } from "node:fs/promises";
 import { join } from "node:path";
 import { buildApp } from "./app.js";
 import { AuthService } from "./auth/service.js";
@@ -10,7 +11,14 @@ import { runMigrations } from "./db/migrate.js";
 import { CircuitBreaker } from "./http/circuitBreaker.js";
 import { TokenBucket } from "./http/tokenBucket.js";
 import { UpstreamHttp } from "./http/upstream.js";
+import { JobQueue, JobWorker, PgJobRepository } from "./jobs/index.js";
 import { RealKitsuAuthClient } from "./kitsu/kitsuAuthClient.js";
+import {
+  createFetchMediaHandlers,
+  DrizzleMediaCatalogLookup,
+  DrizzleMediaFileRepo,
+  MediaStore,
+} from "./media/index.js";
 
 const config = loadConfig();
 
@@ -21,6 +29,26 @@ await runMigrations(db);
 await mkdir(join(config.MEDIA_ROOT, "audio", "tmp"), { recursive: true });
 await mkdir(join(config.MEDIA_ROOT, "images", "anime"), { recursive: true });
 await mkdir(join(config.MEDIA_ROOT, "images", "artists"), { recursive: true });
+
+const jobQueue = new JobQueue(new PgJobRepository(pool));
+const mediaStore = new MediaStore({
+  mediaRoot: config.MEDIA_ROOT,
+  repo: new DrizzleMediaFileRepo(db),
+});
+const fetchHandlers = createFetchMediaHandlers({
+  mediaStore,
+  catalog: new DrizzleMediaCatalogLookup(db),
+  getDiskFreeBytes: async () => {
+    const stats = await statfs(config.MEDIA_ROOT);
+    return stats.bavail * stats.bsize;
+  },
+});
+await jobQueue.recoverRunningJobs();
+const worker = new JobWorker(jobQueue, {
+  handlers: fetchHandlers,
+  maintenanceFetchDelayMs: config.AUDIO_BACKFILL_DELAY_SECONDS * 1000,
+});
+worker.start();
 
 const app = buildApp({
   authService: new AuthService(
@@ -43,11 +71,13 @@ const app = buildApp({
     },
     mediaRoot: config.MEDIA_ROOT,
   },
+  jobs: jobQueue,
   logger: true,
 });
 
 async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, "shutting down");
+  worker.stop();
   await app.close();
   await pool.end();
   process.exit(0);
