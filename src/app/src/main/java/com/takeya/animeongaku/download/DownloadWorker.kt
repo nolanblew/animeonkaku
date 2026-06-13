@@ -27,6 +27,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -43,6 +44,19 @@ internal fun downloadFailureStatus(
     } else {
         DownloadRequestEntity.STATUS_RETRYING
     }
+
+internal fun downloadFileExtension(url: String, defaultExtension: String): String {
+    val pathSegment = url.toHttpUrlOrNull()
+        ?.encodedPathSegments
+        ?.lastOrNull()
+        ?.takeIf { it.contains('.') }
+        ?: url.substringBefore('?').substringAfterLast('/').takeIf { it.contains('.') }
+
+    return pathSegment
+        ?.substringAfterLast('.')
+        ?.takeIf { extension -> extension.length in 1..12 && extension.all { it.isLetterOrDigit() } }
+        ?: defaultExtension
+}
 
 @HiltWorker
 class DownloadWorker @AssistedInject constructor(
@@ -118,7 +132,7 @@ class DownloadWorker @AssistedInject constructor(
             warmServerAudioIfNeeded(themeId)
 
             // Download audio file
-            val extension = audioUrl.substringAfterLast('.', "webm").substringBefore('?')
+            val extension = downloadFileExtension(audioUrl, defaultExtension = "ogg")
             val audioFile = File(downloadsDir, "${themeId}.$extension")
             val audioSize = downloadFile(audioUrl, audioFile, themeId)
 
@@ -131,7 +145,7 @@ class DownloadWorker @AssistedInject constructor(
             if (!imageUrl.isNullOrBlank()) {
                 val imagesDir = File(downloadsDir, "images")
                 if (!imagesDir.exists()) imagesDir.mkdirs()
-                val imageExtension = imageUrl.substringAfterLast('.', "jpg").substringBefore('?')
+                val imageExtension = downloadFileExtension(imageUrl, defaultExtension = "jpg")
                 val imageFile = File(imagesDir, "${themeId}.$imageExtension")
                 val imageSize = downloadFile(imageUrl, imageFile, themeId, reportProgress = false)
                 if (imageSize > 0) {

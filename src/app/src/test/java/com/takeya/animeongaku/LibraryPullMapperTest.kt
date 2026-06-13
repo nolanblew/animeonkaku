@@ -65,7 +65,7 @@ class LibraryPullMapperTest {
         assertEquals("Seishun Complex", entity.title)
         assertEquals("Kessoku Band, Ikuyo Kita", entity.artistName)
         assertEquals("http://192.168.1.5:8080/api/v1/media/audio/100", entity.audioUrl)
-        assertEquals("https://v.animethemes.moe/Bocchi-OP1.webm", entity.videoUrl)
+        assertNull(entity.videoUrl)
         assertEquals("OP1", entity.themeType)
         assertTrue(entity.isDownloaded)
         assertEquals("/data/user/0/files/downloads/100.webm", entity.localFilePath)
@@ -121,7 +121,7 @@ class LibraryPullMapperTest {
             OngakuThemeArtistDto(name = "Ikuyo Kita", asCharacter = "as Ikuyo", alias = "Kita")
         ),
         audioUrl = "/v1/media/audio/100",
-        videoUrl = "https://v.animethemes.moe/Bocchi-OP1.webm",
+        videoUrl = "https://cdn.example.test/Bocchi-OP1.webm",
         audioState = "READY",
         durationSeconds = 90,
         fileSize = 5_242_880,

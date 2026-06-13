@@ -26,12 +26,16 @@ export class PgJobRepository implements JobRepository {
         INSERT INTO jobs (type, priority, payload, dedupe_key, max_attempts, next_run_at)
         VALUES ($1, $2, $3::jsonb, $4, $5, $6)
         ON CONFLICT (dedupe_key) DO UPDATE
-          SET priority = LEAST(jobs.priority, EXCLUDED.priority),
+          SET state = 'QUEUED',
+              priority = LEAST(jobs.priority, EXCLUDED.priority),
               payload = EXCLUDED.payload,
               max_attempts = EXCLUDED.max_attempts,
+              attempts = 0,
+              progress = '{}'::jsonb,
+              last_error = NULL,
               next_run_at = LEAST(jobs.next_run_at, EXCLUDED.next_run_at),
               updated_at = now()
-          WHERE jobs.state IN ('QUEUED', 'FAILED')
+          WHERE jobs.state IN ('QUEUED', 'FAILED', 'DONE', 'CANCELLED')
         RETURNING *
       `,
       [

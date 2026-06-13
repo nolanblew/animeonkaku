@@ -5,6 +5,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { AuthService } from "../auth/service.js";
+import type { FetchLike } from "../http/types.js";
 import { JobPriority, type JobQueue } from "../jobs/index.js";
 import type { MediaState } from "../media/types.js";
 import type { AudioState } from "./clientRoutes.js";
@@ -38,6 +39,7 @@ export interface MediaStreamingServiceDeps {
   repo: MediaApiRepository;
   queue: JobQueue;
   mediaRoot: string;
+  fetch?: FetchLike;
 }
 
 interface ByteRange {
@@ -47,9 +49,11 @@ interface ByteRange {
 
 export class MediaStreamingService {
   private readonly mediaRoot: string;
+  private readonly fetchImpl: FetchLike;
 
   constructor(private readonly deps: MediaStreamingServiceDeps) {
     this.mediaRoot = resolve(deps.mediaRoot);
+    this.fetchImpl = deps.fetch ?? ((url, init) => fetch(url, init));
   }
 
   async sendAudio(
@@ -110,7 +114,8 @@ export class MediaStreamingService {
       }
     }
 
-    return redirect(reply, image.originUrl);
+    await this.enqueueImageFetch(kind, refId, JobPriority.NORMAL);
+    return this.proxyImage(reply, image.originUrl);
   }
 
   private async enqueueFetch(themeId: number, priority: number) {
@@ -120,6 +125,33 @@ export class MediaStreamingService {
       payload: { themeId },
       dedupeKey: `FETCH_AUDIO:${themeId}`,
     });
+  }
+
+  private async enqueueImageFetch(kind: ImageRouteKind, refId: string, priority: number) {
+    return this.deps.queue.enqueue({
+      type: "FETCH_IMAGE",
+      priority,
+      payload: { kind, refId },
+      dedupeKey: `FETCH_IMAGE:${kind}:${refId}`,
+    });
+  }
+
+  private async proxyImage(reply: FastifyReply, originUrl: string): Promise<FastifyReply> {
+    const response = await this.fetchImpl(originUrl);
+    if (!response.ok) {
+      throw new ApiError(502, "UPSTREAM_FAILED", `Image origin returned HTTP ${response.status}.`);
+    }
+    const contentType = response.headers.get("content-type") ?? "image/jpeg";
+    if (!contentType.toLowerCase().startsWith("image/")) {
+      throw new ApiError(502, "UPSTREAM_FAILED", "Image origin returned a non-image response.");
+    }
+    const body = Buffer.from(await response.arrayBuffer());
+    reply
+      .code(200)
+      .header("Cache-Control", "private, max-age=3600")
+      .header("Content-Type", contentType)
+      .header("Content-Length", String(body.length));
+    return reply.send(body);
   }
 
   private sendReadyFile(input: {

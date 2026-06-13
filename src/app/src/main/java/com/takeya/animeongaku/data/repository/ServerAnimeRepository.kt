@@ -32,8 +32,9 @@ class ServerAnimeRepository @Inject constructor(
         if (query.isBlank()) return OnlineSearchResult(emptyList(), emptyList(), emptyList())
 
         val response = ongakuApi.search(query)
+        val serverBaseUrl = serverBaseUrl()
         val themes = response.animeThemes.search.anime.flatMap { anime ->
-            anime.toThemeEntries(serverBaseUrl = serverBaseUrl())
+            anime.toThemeEntries(serverBaseUrl = serverBaseUrl)
         }.distinctBy { it.themeId }
         val anime = themes
             .groupBy { it.animeId }
@@ -48,7 +49,7 @@ class ServerAnimeRepository @Inject constructor(
                     themeCount = entries.size
                 )
             }
-        val artists = response.animeThemes.search.artists.mapNotNull { it.toOnlineArtist() }
+        val artists = response.animeThemes.search.artists.mapNotNull { it.toOnlineArtist(serverBaseUrl) }
 
         return OnlineSearchResult(
             themes = themes,
@@ -104,7 +105,7 @@ private fun OngakuThemeDto.toThemeEntry(
         title = title,
         artist = artists.joinToString(", ") { it.name }.ifBlank { null },
         audioUrl = resolveServerUrl(serverBaseUrl, audioUrl).orEmpty(),
-        videoUrl = videoUrl,
+        videoUrl = null,
         themeType = themeType,
         artists = artists.map { ArtistCredit(it.name, it.asCharacter, it.alias) }
     )
@@ -116,7 +117,7 @@ private fun ApiAnime.toThemeEntries(serverBaseUrl: String): List<AnimeThemeEntry
     val kitsuId = kitsuExternalId()
     val coverUrl = kitsuId?.let {
         resolveServerUrl(serverBaseUrl, "/v1/media/images/anime/$it/cover")
-    } ?: coverImageUrl()
+    }
 
     return animethemes.mapNotNull { theme ->
         theme.toThemeEntry(
@@ -159,7 +160,7 @@ private fun ApiTheme.toThemeEntry(
         title = song?.title?.takeIf { it.isNotBlank() } ?: themeTypeTag ?: type ?: "Theme",
         artist = artists.joinToString(", ") { it.name }.ifBlank { null },
         audioUrl = serverAudioUrl(serverBaseUrl, themeId),
-        videoUrl = video.link,
+        videoUrl = null,
         themeType = themeTypeTag,
         artists = artists
     )
@@ -184,7 +185,6 @@ private fun ApiThemeWithAnime.toThemeEntry(
     val themeId = id ?: return null
     val anime = anime ?: return null
     val animeId = anime.id?.toString() ?: return null
-    val video = animethemeentries.flatMap { it.videos }.firstOrNull()
     val themeTypeTag = type?.let { value ->
         val seq = sequence?.toString().orEmpty()
         "$value$seq"
@@ -198,12 +198,12 @@ private fun ApiThemeWithAnime.toThemeEntry(
         kitsuId = kitsuId,
         coverUrl = kitsuId?.let {
             resolveServerUrl(serverBaseUrl, "/v1/media/images/anime/$it/cover")
-        } ?: anime.coverImageUrl(),
+        },
         themeId = themeId.toString(),
         title = songTitle?.takeIf { it.isNotBlank() } ?: themeTypeTag ?: type ?: "Theme",
         artist = songArtists.joinToString(", ") { it.name }.ifBlank { null },
         audioUrl = serverAudioUrl(serverBaseUrl, themeId),
-        videoUrl = video?.link,
+        videoUrl = null,
         themeType = themeTypeTag,
         artists = songArtists
     )
@@ -219,25 +219,6 @@ private fun ApiAnime.kitsuExternalId(): String? {
     return when (val id = resource.externalId) {
         is String -> id
         is Number -> id.toLong().toString()
-        else -> null
-    }
-}
-
-private fun ApiAnime.coverImageUrl(): String? {
-    val preferred = images.firstOrNull {
-        it.facet?.contains("Large Cover", ignoreCase = true) == true
-    } ?: images.firstOrNull {
-        it.facet?.contains("Small Cover", ignoreCase = true) == true
-    } ?: images.firstOrNull()
-    val link = preferred?.link
-    val path = preferred?.path
-    return when {
-        !link.isNullOrBlank() -> link
-        !path.isNullOrBlank() -> if (path.startsWith("http", ignoreCase = true)) {
-            path
-        } else {
-            "https://i.animethemes.moe/$path"
-        }
         else -> null
     }
 }
@@ -259,20 +240,15 @@ private fun ApiArtist.toCredit(): ArtistCredit? {
     )
 }
 
-private fun ApiSearchArtist.toOnlineArtist(): OnlineArtistResult? {
+private fun ApiSearchArtist.toOnlineArtist(serverBaseUrl: String): OnlineArtistResult? {
     val id = id ?: return null
     val name = name?.takeIf { it.isNotBlank() } ?: return null
     val slug = slug?.takeIf { it.isNotBlank() } ?: return null
-    val imageUrl = images.firstOrNull {
-        it.facet?.contains("Large", ignoreCase = true) == true
-    } ?: images.firstOrNull {
-        it.facet?.contains("Small", ignoreCase = true) == true
-    } ?: images.firstOrNull()
     return OnlineArtistResult(
         id = id,
         name = name,
         slug = slug,
-        imageUrl = imageUrl?.link ?: imageUrl?.path
+        imageUrl = resolveServerUrl(serverBaseUrl, "/v1/media/images/artists/$slug")
     )
 }
 

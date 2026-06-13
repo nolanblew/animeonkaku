@@ -153,7 +153,7 @@ fun ImportScreen(
                 }
 
                 item {
-                    StatusCard(uiState)
+                    StatusCard(uiState, importedCount = anime.size)
                 }
 
                 item {
@@ -452,7 +452,7 @@ private fun SignInCard(
 }
 
 @Composable
-private fun StatusCard(uiState: ImportUiState) {
+private fun StatusCard(uiState: ImportUiState, importedCount: Int) {
     val shape = RoundedCornerShape(14.dp)
     val isError = uiState.syncPhase == ImportSyncPhase.Error
     val statusColor = if (isError) Rose500 else Mist100
@@ -488,7 +488,7 @@ private fun StatusCard(uiState: ImportUiState) {
             )
             uiState.userId?.let { id ->
                 Text(
-                    text = "User ID: $id · Imported: ${uiState.lastSyncCount}",
+                    text = "User ID: $id · Imported: $importedCount",
                     style = MaterialTheme.typography.labelMedium,
                     color = Mist200
                 )
@@ -637,7 +637,7 @@ private fun UnmatchedAnimeCard(unmatchedAnime: List<String>) {
             color = Rose500
         )
         Text(
-            text = "These anime were not found on AnimeThemes.moe and will show 0 themes.",
+            text = "These anime were not matched by the server and will show 0 themes.",
             style = MaterialTheme.typography.labelSmall,
             color = Mist200
         )

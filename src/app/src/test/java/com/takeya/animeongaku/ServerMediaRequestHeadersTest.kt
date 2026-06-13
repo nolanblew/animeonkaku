@@ -21,7 +21,7 @@ class ServerMediaRequestHeadersTest {
 
         assertTrue(isServerUrl(baseUrl, "http://192.168.1.5:8080/api/v1/media/audio/100"))
         assertTrue(isServerUrl(baseUrl, "http://192.168.1.5:8080/api/v1/media/images/anime/1/poster"))
-        assertFalse(isServerUrl(baseUrl, "https://animethemes.moe/audio.webm"))
+        assertFalse(isServerUrl(baseUrl, "https://cdn.example.test/audio.webm"))
         assertFalse(isServerUrl(baseUrl, "http://192.168.1.5:8080/other/v1/media/audio/100"))
     }
 }

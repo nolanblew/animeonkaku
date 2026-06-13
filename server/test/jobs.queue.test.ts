@@ -73,6 +73,33 @@ describe("JobQueue", () => {
     expect(await queue.recoverRunningJobs()).toBe(1);
     expect((await queue.list("QUEUED"))).toHaveLength(1);
   });
+
+  it("requeues completed deduped jobs for recurring work", async () => {
+    const time = new FakeTime();
+    const queue = new JobQueue(new FakeJobRepository(() => new Date(time.now())), {
+      now: () => new Date(time.now()),
+    });
+    const first = await queue.enqueue({
+      type: "AUTO_PLAYLIST_REFRESH",
+      priority: JobPriority.NORMAL,
+      payload: { userId: "u1" },
+      dedupeKey: "AUTO_PLAYLIST_REFRESH:u1",
+    });
+    await queue.complete(first.id);
+    time.advance(60_000);
+
+    const second = await queue.enqueue({
+      type: "AUTO_PLAYLIST_REFRESH",
+      priority: JobPriority.HIGH,
+      payload: { userId: "u1" },
+      dedupeKey: "AUTO_PLAYLIST_REFRESH:u1",
+    });
+
+    expect(second.id).toBe(first.id);
+    expect(second.state).toBe("QUEUED");
+    expect(second.priority).toBe(JobPriority.HIGH);
+    expect(await queue.list("QUEUED")).toHaveLength(1);
+  });
 });
 
 describe("JobWorker", () => {

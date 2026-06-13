@@ -40,7 +40,7 @@ fun OngakuThemeDto.toThemeEntity(serverBaseUrl: String, existing: ThemeEntity?):
     title = title,
     artistName = artists.joinToString(", ") { it.name }.ifBlank { null },
     audioUrl = resolveServerUrl(serverBaseUrl, audioUrl).orEmpty(),
-    videoUrl = videoUrl,
+    videoUrl = null,
     isDownloaded = existing?.isDownloaded ?: false,
     localFilePath = existing?.localFilePath,
     themeType = themeType,

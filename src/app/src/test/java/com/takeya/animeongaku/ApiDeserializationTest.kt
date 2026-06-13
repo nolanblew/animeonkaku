@@ -55,9 +55,9 @@ class ApiDeserializationTest {
                 {
                   "videos": [
                     {
-                      "link": "https://v.animethemes.moe/Toradora-OP1.webm",
+                      "link": "/v1/media/video/Toradora-OP1.webm",
                       "audio": {
-                        "link": "https://a.animethemes.moe/Toradora-OP1.ogg",
+                        "link": "/v1/media/audio/3040",
                         "path": "2008/Fall/Toradora-OP1.ogg"
                       }
                     }
@@ -83,9 +83,9 @@ class ApiDeserializationTest {
                 {
                   "videos": [
                     {
-                      "link": "https://v.animethemes.moe/Toradora-OP2.webm",
+                      "link": "/v1/media/video/Toradora-OP2.webm",
                       "audio": {
-                        "link": "https://a.animethemes.moe/Toradora-OP2.ogg",
+                        "link": "/v1/media/audio/3041",
                         "path": "2008/Fall/Toradora-OP2.ogg"
                       }
                     }
@@ -111,9 +111,9 @@ class ApiDeserializationTest {
                 {
                   "videos": [
                     {
-                      "link": "https://v.animethemes.moe/Toradora-ED1.webm",
+                      "link": "/v1/media/video/Toradora-ED1.webm",
                       "audio": {
-                        "link": "https://a.animethemes.moe/Toradora-ED1.ogg",
+                        "link": "/v1/media/audio/3042",
                         "path": "2008/Fall/Toradora-ED1.ogg"
                       }
                     }
@@ -144,9 +144,9 @@ class ApiDeserializationTest {
                 {
                   "videos": [
                     {
-                      "link": "https://v.animethemes.moe/Toradora-ED3.webm",
+                      "link": "/v1/media/video/Toradora-ED3.webm",
                       "audio": {
-                        "link": "https://a.animethemes.moe/Toradora-ED3.ogg",
+                        "link": "/v1/media/audio/3044",
                         "path": "2008/Fall/Toradora-ED3.ogg"
                       }
                     }
@@ -216,8 +216,8 @@ class ApiDeserializationTest {
         val op1 = response.anime[0].animethemes[0]
         val video = op1.animethemeentries[0].videos[0]
 
-        assertEquals("https://v.animethemes.moe/Toradora-OP1.webm", video.link)
-        assertEquals("https://a.animethemes.moe/Toradora-OP1.ogg", video.audio?.link)
+        assertEquals("/v1/media/video/Toradora-OP1.webm", video.link)
+        assertEquals("/v1/media/audio/3040", video.audio?.link)
     }
 
     // Test with extra unknown fields (API may return more fields than we model)

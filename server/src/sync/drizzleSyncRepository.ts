@@ -6,6 +6,7 @@ import {
   isNotNull,
   isNull,
   notInArray,
+  sql,
 } from "drizzle-orm";
 import type { AnimeThemeEntry, AnimeThemesArtistCredit } from "../animethemes/types.js";
 import type { Db } from "../db/client.js";
@@ -315,6 +316,78 @@ export class DrizzleSyncRepository implements SyncRepository {
         .onConflictDoUpdate({
           target: artists.slug,
           set: { name: artist.name },
+        });
+    }
+  }
+
+  async saveOnlineAnimeCatalog(inputThemes: AnimeThemeEntry[]): Promise<void> {
+    await this.saveAnimeThemesCatalog(inputThemes);
+    const cleanThemes = uniqueBy(
+      inputThemes.filter(
+        (theme) =>
+          Number.isInteger(theme.animeId) &&
+          theme.animeId > 0 &&
+          Number.isInteger(theme.themeId) &&
+          theme.themeId > 0 &&
+          theme.kitsuId !== null &&
+          theme.kitsuId.trim().length > 0,
+      ),
+      (theme) => theme.kitsuId!,
+    );
+    if (cleanThemes.length === 0) return;
+
+    const now = new Date();
+    for (const theme of cleanThemes) {
+      await this.db
+        .insert(kitsuAnime)
+        .values({
+          kitsuId: theme.kitsuId!,
+          animethemesAnimeId: theme.animeId,
+          title: theme.animeName,
+          titleEn: theme.animeNameEn,
+          coverUrl: theme.coverUrl,
+          coverUrlLarge: theme.coverUrl,
+          mappingState: "MAPPED",
+          updatedAt: now,
+          deletedAt: null,
+        })
+        .onConflictDoUpdate({
+          target: kitsuAnime.kitsuId,
+          set: {
+            animethemesAnimeId: theme.animeId,
+            title: theme.animeName ?? sql`${kitsuAnime.title}`,
+            titleEn: theme.animeNameEn ?? sql`${kitsuAnime.titleEn}`,
+            coverUrl: theme.coverUrl ?? sql`${kitsuAnime.coverUrl}`,
+            coverUrlLarge: theme.coverUrl ?? sql`${kitsuAnime.coverUrlLarge}`,
+            mappingState: "MAPPED",
+            updatedAt: now,
+            deletedAt: null,
+          },
+        });
+    }
+  }
+
+  async upsertArtistImages(inputArtists: Array<{ slug: string; name: string; imageUrl: string | null }>): Promise<void> {
+    const cleanArtists = uniqueBy(
+      inputArtists
+        .map((artist) => ({
+          slug: artist.slug.trim(),
+          name: artist.name.trim(),
+          imageUrl: artist.imageUrl?.trim() || null,
+        }))
+        .filter((artist) => artist.slug.length > 0 && artist.name.length > 0),
+      (artist) => artist.slug,
+    );
+    for (const artist of cleanArtists) {
+      await this.db
+        .insert(artists)
+        .values(artist)
+        .onConflictDoUpdate({
+          target: artists.slug,
+          set: {
+            name: artist.name,
+            imageUrl: artist.imageUrl,
+          },
         });
     }
   }

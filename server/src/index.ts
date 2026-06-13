@@ -119,7 +119,7 @@ const app = buildApp({
   }),
   syncApi: new JobSyncApiService(jobQueue),
   proxyApi: new CachedProxyService({
-    upstream: new UpstreamProxyService(animeThemesClient, kitsuClient),
+    upstream: new UpstreamProxyService(animeThemesClient, kitsuClient, syncRepo),
   }),
   onLogin: async (result) => {
     if (!result.isNewUser) return;

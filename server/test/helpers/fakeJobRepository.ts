@@ -16,9 +16,19 @@ export class FakeJobRepository implements JobRepository {
     const existing = input.dedupeKey
       ? [...this.jobs.values()].find((job) => job.dedupeKey === input.dedupeKey)
       : undefined;
-    if (existing && (existing.state === "QUEUED" || existing.state === "FAILED")) {
+    if (
+      existing &&
+      (existing.state === "QUEUED" ||
+        existing.state === "FAILED" ||
+        existing.state === "DONE" ||
+        existing.state === "CANCELLED")
+    ) {
+      existing.state = "QUEUED";
       existing.priority = Math.min(existing.priority, input.priority);
       existing.payload = input.payload;
+      existing.progress = {};
+      existing.attempts = 0;
+      existing.lastError = null;
       existing.nextRunAt =
         existing.nextRunAt.getTime() <= input.nextRunAt.getTime()
           ? existing.nextRunAt

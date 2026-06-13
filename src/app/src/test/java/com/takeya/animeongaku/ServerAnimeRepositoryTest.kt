@@ -42,6 +42,7 @@ import com.takeya.animeongaku.data.repository.ServerAnimeRepository
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 import retrofit2.Response
 
@@ -73,8 +74,13 @@ class ServerAnimeRepositoryTest {
         assertEquals("bocchi", api.searchQueries.single())
         assertEquals(listOf("Seishun Complex"), result.themes.map { it.title })
         assertEquals("http://192.168.1.5:8080/api/v1/media/audio/777", result.themes.single().audioUrl)
+        assertNull(result.themes.single().videoUrl)
         assertEquals(listOf("Bocchi the Rock!"), result.anime.map { it.name })
         assertEquals(listOf("Kessoku Band"), result.artists.map { it.name })
+        assertEquals(
+            "http://192.168.1.5:8080/api/v1/media/images/artists/kessoku-band",
+            result.artists.single().imageUrl
+        )
     }
 
     @Test
@@ -113,7 +119,7 @@ class ServerAnimeRepositoryTest {
                         themeType = "OP1",
                         artists = listOf(OngakuThemeArtistDto("Kessoku Band", null, null)),
                         audioUrl = "/v1/media/audio/777",
-                        videoUrl = "https://v.animethemes.moe/bocchi.webm",
+                        videoUrl = "https://cdn.example.test/bocchi.webm",
                         audioState = "READY",
                         durationSeconds = 90,
                         fileSize = 123L,
@@ -131,6 +137,7 @@ class ServerAnimeRepositoryTest {
         assertEquals(mapOf("123" to 55L), result.animeMappings)
         assertEquals("Seishun Complex", result.themes.single().title)
         assertEquals("http://192.168.1.5:8080/api/v1/media/audio/777", result.themes.single().audioUrl)
+        assertNull(result.themes.single().videoUrl)
     }
 
     @Test
@@ -175,6 +182,7 @@ class ServerAnimeRepositoryTest {
         assertEquals("kessoku-band", api.artistRequests.single())
         assertEquals("Seishun Complex", result.single().title)
         assertEquals("http://192.168.1.5:8080/api/v1/media/audio/777", result.single().audioUrl)
+        assertNull(result.single().videoUrl)
     }
 
     private fun serverAnimeRepository(api: SearchRecordingOngakuApi): ServerAnimeRepository {

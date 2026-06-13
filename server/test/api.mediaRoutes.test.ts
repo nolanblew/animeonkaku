@@ -44,7 +44,16 @@ beforeEach(async () => {
   app = buildApp({
     authService: new AuthService(new FakeAuthRepo(), new StubKitsuAuthClient()),
     health: { pingDb: async () => {}, mediaRoot },
-    mediaApi: new MediaStreamingService({ repo, queue, mediaRoot }),
+    mediaApi: new MediaStreamingService({
+      repo,
+      queue,
+      mediaRoot,
+      fetch: async () =>
+        new Response(Buffer.from("jpeg-bytes"), {
+          status: 200,
+          headers: { "content-type": "image/jpeg" },
+        }),
+    }),
   });
 });
 
@@ -168,7 +177,7 @@ describe("media API routes", () => {
     });
   });
 
-  it("redirects missing image media without requiring bearer auth", async () => {
+  it("proxies missing image media without requiring bearer auth and queues a cache fetch", async () => {
     repo.images.set("ANIME_COVER:123", {
       originUrl: "https://media.kitsu.test/anime-cover.jpg",
       state: "MISSING",
@@ -181,7 +190,14 @@ describe("media API routes", () => {
       url: "/v1/media/images/anime/123/cover",
     });
 
-    expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toBe("https://media.kitsu.test/anime-cover.jpg");
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("image/jpeg");
+    expect(res.body).toBe("jpeg-bytes");
+    expect((await queue.list("QUEUED"))[0]).toMatchObject({
+      type: "FETCH_IMAGE",
+      priority: JobPriority.NORMAL,
+      payload: { kind: "ANIME_COVER", refId: "123" },
+      dedupeKey: "FETCH_IMAGE:ANIME_COVER:123",
+    });
   });
 });

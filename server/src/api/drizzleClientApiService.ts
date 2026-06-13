@@ -13,6 +13,7 @@ import type { Db } from "../db/client.js";
 import {
   animeGenres,
   genres,
+  animethemesAnime,
   kitsuAnime,
   libraryEntries,
   mediaFiles,
@@ -92,7 +93,7 @@ export class DrizzleClientApiService implements ClientApiService {
   ): Promise<{ anime: LibraryAnimeDto; themes: LibraryThemeDto[] } | null> {
     const library = await this.getLibrary(userId, null);
     const anime = library.anime.find((item) => item.kitsuId === kitsuId && !item.deleted);
-    if (!anime) return null;
+    if (!anime) return this.catalogAnime(kitsuId);
     return {
       anime,
       themes: library.themes.filter((theme) =>
@@ -227,6 +228,12 @@ export class DrizzleClientApiService implements ClientApiService {
     const [pref] = await this.getThemePrefs(userId).then((prefs) =>
       prefs.filter((item) => item.themeId === themeId),
     );
+    await this.queue.enqueue({
+      type: "AUTO_PLAYLIST_REFRESH",
+      priority: JobPriority.NORMAL,
+      payload: { userId },
+      dedupeKey: `AUTO_PLAYLIST_REFRESH:${userId}`,
+    });
     return pref!;
   }
 
@@ -443,7 +450,6 @@ export class DrizzleClientApiService implements ClientApiService {
         animeThemesAnimeId: themes.animethemesAnimeId,
         title: themes.title,
         themeType: themes.themeType,
-        videoUrl: themes.videoOriginUrl,
         durationSeconds: themes.durationSeconds,
         updatedAt: themes.updatedAt,
         deletedAt: themes.deletedAt,
@@ -472,7 +478,7 @@ export class DrizzleClientApiService implements ClientApiService {
         themeType: row.themeType,
         artists: artists.get(row.id) ?? [],
         audioUrl: `/v1/media/audio/${row.id}`,
-        videoUrl: row.videoUrl,
+        videoUrl: null,
         audioState: audioState(audio?.state ?? null),
         durationSeconds: row.durationSeconds,
         fileSize: audio?.byteSize ?? null,
@@ -595,6 +601,147 @@ export class DrizzleClientApiService implements ClientApiService {
       .limit(1);
     return rows[0]?.kitsuId ?? null;
   }
+
+  private async catalogAnime(kitsuIdOrAnimeThemesId: string): Promise<{ anime: LibraryAnimeDto; themes: LibraryThemeDto[] } | null> {
+    const byKitsu = await this.catalogAnimeByKitsuId(kitsuIdOrAnimeThemesId);
+    if (byKitsu) return byKitsu;
+
+    if (!/^\d+$/.test(kitsuIdOrAnimeThemesId)) return null;
+    return this.catalogAnimeByAnimeThemesId(Number(kitsuIdOrAnimeThemesId));
+  }
+
+  private async catalogAnimeByKitsuId(kitsuId: string): Promise<{ anime: LibraryAnimeDto; themes: LibraryThemeDto[] } | null> {
+    const rows = await this.db
+      .select({
+        kitsuId: kitsuAnime.kitsuId,
+        animeThemesId: kitsuAnime.animethemesAnimeId,
+        title: kitsuAnime.title,
+        titleEn: kitsuAnime.titleEn,
+        titleRomaji: kitsuAnime.titleRomaji,
+        titleJa: kitsuAnime.titleJa,
+        posterOriginUrl: kitsuAnime.posterUrl,
+        posterLargeOriginUrl: kitsuAnime.posterUrlLarge,
+        coverOriginUrl: kitsuAnime.coverUrl,
+        coverLargeOriginUrl: kitsuAnime.coverUrlLarge,
+        subtype: kitsuAnime.subtype,
+        startDate: kitsuAnime.startDate,
+        endDate: kitsuAnime.endDate,
+        episodeCount: kitsuAnime.episodeCount,
+        ageRating: kitsuAnime.ageRating,
+        averageRating: kitsuAnime.averageRating,
+        slug: kitsuAnime.slug,
+        updatedAt: kitsuAnime.updatedAt,
+      })
+      .from(kitsuAnime)
+      .where(and(eq(kitsuAnime.kitsuId, kitsuId), isNull(kitsuAnime.deletedAt)))
+      .limit(1);
+    const row = rows[0];
+    if (!row || row.animeThemesId === null) return null;
+    return {
+      anime: catalogKitsuAnimeDto(row),
+      themes: await this.catalogThemes([{ kitsuId, animeThemesId: row.animeThemesId }]),
+    };
+  }
+
+  private async catalogAnimeByAnimeThemesId(animeThemesId: number): Promise<{ anime: LibraryAnimeDto; themes: LibraryThemeDto[] } | null> {
+    const kitsuRows = await this.db
+      .select({ kitsuId: kitsuAnime.kitsuId })
+      .from(kitsuAnime)
+      .where(and(eq(kitsuAnime.animethemesAnimeId, animeThemesId), isNull(kitsuAnime.deletedAt)))
+      .orderBy(asc(kitsuAnime.kitsuId))
+      .limit(1);
+    const kitsuId = kitsuRows[0]?.kitsuId;
+    if (kitsuId) return this.catalogAnimeByKitsuId(kitsuId);
+
+    const rows = await this.db
+      .select({
+        id: animethemesAnime.id,
+        name: animethemesAnime.name,
+        nameEn: animethemesAnime.nameEn,
+        coverUrl: animethemesAnime.coverUrl,
+        syncedAt: animethemesAnime.syncedAt,
+      })
+      .from(animethemesAnime)
+      .where(eq(animethemesAnime.id, animeThemesId))
+      .limit(1);
+    const row = rows[0];
+    if (!row) return null;
+    const syntheticKitsuId = `animethemes-${row.id}`;
+    return {
+      anime: {
+        kitsuId: syntheticKitsuId,
+        animeThemesId: row.id,
+        title: row.nameEn ?? row.name,
+        titleEn: row.nameEn,
+        titleRomaji: null,
+        titleJa: null,
+        posterUrl: null,
+        coverUrl: null,
+        watchingStatus: null,
+        subtype: null,
+        startDate: null,
+        endDate: null,
+        episodeCount: null,
+        ageRating: null,
+        averageRating: null,
+        userRating: null,
+        libraryUpdatedAt: null,
+        slug: null,
+        genres: [],
+        updatedAt: dateMillis(row.syncedAt) ?? 0,
+        deleted: false,
+      },
+      themes: await this.catalogThemes([{ kitsuId: syntheticKitsuId, animeThemesId: row.id }]),
+    };
+  }
+
+  private async catalogThemes(
+    mappings: Array<{ kitsuId: string; animeThemesId: number }>,
+  ): Promise<LibraryThemeDto[]> {
+    const animeThemesIds = uniqueNumbers(mappings.map((row) => row.animeThemesId));
+    if (animeThemesIds.length === 0) return [];
+    const rows = await this.db
+      .select({
+        id: themes.id,
+        animeThemesAnimeId: themes.animethemesAnimeId,
+        title: themes.title,
+        themeType: themes.themeType,
+        durationSeconds: themes.durationSeconds,
+        updatedAt: themes.updatedAt,
+        deletedAt: themes.deletedAt,
+      })
+      .from(themes)
+      .where(and(inArray(themes.animethemesAnimeId, animeThemesIds), isNull(themes.deletedAt)))
+      .orderBy(asc(themes.id));
+    const themeIds = rows.map((row) => row.id);
+    const artists = await this.themeArtistMap(themeIds);
+    const media = await this.audioMediaMap(themeIds);
+    const kitsuIdsByAnimeThemesId = mappings.reduce((map, row) => {
+      const ids = map.get(row.animeThemesId) ?? [];
+      ids.push(row.kitsuId);
+      map.set(row.animeThemesId, ids);
+      return map;
+    }, new Map<number, string[]>());
+
+    return rows.map((row) => {
+      const audio = media.get(row.id);
+      return {
+        id: row.id,
+        animeThemesAnimeId: row.animeThemesAnimeId,
+        kitsuAnimeIds: kitsuIdsByAnimeThemesId.get(row.animeThemesAnimeId) ?? [],
+        title: row.title,
+        themeType: row.themeType,
+        artists: artists.get(row.id) ?? [],
+        audioUrl: `/v1/media/audio/${row.id}`,
+        videoUrl: null,
+        audioState: audioState(audio?.state ?? null),
+        durationSeconds: row.durationSeconds,
+        fileSize: audio?.byteSize ?? null,
+        updatedAt: dateMillis(row.updatedAt) ?? 0,
+        deleted: false,
+      };
+    });
+  }
 }
 
 function normalizedPrefPatch(patch: ThemePrefPatch, now: Date): Partial<typeof themePrefs.$inferInsert> {
@@ -636,6 +783,55 @@ function playlistDto(
     isAuto: row.isAuto,
     updatedAt: row.updatedAt.getTime(),
     dynamicSpecJson: parseSpec(row.dynamicSpecJson),
+  };
+}
+
+function catalogKitsuAnimeDto(row: {
+  kitsuId: string;
+  animeThemesId: number | null;
+  title: string | null;
+  titleEn: string | null;
+  titleRomaji: string | null;
+  titleJa: string | null;
+  posterOriginUrl: string | null;
+  posterLargeOriginUrl: string | null;
+  coverOriginUrl: string | null;
+  coverLargeOriginUrl: string | null;
+  subtype: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  episodeCount: number | null;
+  ageRating: string | null;
+  averageRating: number | null;
+  slug: string | null;
+  updatedAt: Date | string | null;
+}): LibraryAnimeDto {
+  return {
+    kitsuId: row.kitsuId,
+    animeThemesId: row.animeThemesId,
+    title: row.title,
+    titleEn: row.titleEn,
+    titleRomaji: row.titleRomaji,
+    titleJa: row.titleJa,
+    posterUrl: row.posterOriginUrl || row.posterLargeOriginUrl
+      ? `/v1/media/images/anime/${row.kitsuId}/poster`
+      : null,
+    coverUrl: row.coverOriginUrl || row.coverLargeOriginUrl
+      ? `/v1/media/images/anime/${row.kitsuId}/cover`
+      : null,
+    watchingStatus: null,
+    subtype: row.subtype,
+    startDate: row.startDate,
+    endDate: row.endDate,
+    episodeCount: row.episodeCount,
+    ageRating: row.ageRating,
+    averageRating: row.averageRating,
+    userRating: null,
+    libraryUpdatedAt: null,
+    slug: row.slug,
+    genres: [],
+    updatedAt: dateMillis(row.updatedAt) ?? 0,
+    deleted: false,
   };
 }
 

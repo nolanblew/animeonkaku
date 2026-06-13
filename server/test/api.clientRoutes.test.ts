@@ -92,7 +92,7 @@ class FakeClientApi implements ClientApiService {
           themeType: "OP1",
           artists: [{ name: "Kessoku Band", asCharacter: null, alias: null }],
           audioUrl: "/v1/media/audio/100",
-          videoUrl: "https://v.animethemes.moe/Bocchi-OP1.webm",
+          videoUrl: null,
           audioState: "READY",
           durationSeconds: 90,
           fileSize: 5_242_880,
