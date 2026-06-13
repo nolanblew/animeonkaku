@@ -646,7 +646,7 @@ From repo root:
 
 Expected: no whitespace errors; only intentional files modified plus the stale untracked `.planing/CURRENT_TASK.md`.
 
-- [ ] **Step 6: Commit, push, and open stacked PR**
+- [x] **Step 6: Commit, push, and open stacked PR**
 
 Commit the I2 changes, push `codex/i2-migration-cleanup`, and open a PR stacked on `codex/i1-client-server-integration`.
 
@@ -659,6 +659,6 @@ $env:Path = 'C:\Program Files\Git\cmd;C:\Windows\System32;' + $env:Path
 & 'C:\Program Files\GitHub CLI\gh.exe' pr create --base codex/i1-client-server-integration --head codex/i2-migration-cleanup --title "Implement I2 migration cleanup" --body-file <body-file>
 ```
 
-- [ ] **Step 7: Update `FINAL_PLAN.md` with PR link**
+- [x] **Step 7: Update `FINAL_PLAN.md` with PR link**
 
 After PR creation, add the PR link to the I2 status line and commit that status update to the same branch.
