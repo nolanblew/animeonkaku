@@ -15,13 +15,16 @@ import com.takeya.animeongaku.data.repository.LibrarySyncProgress
 import com.takeya.animeongaku.data.repository.ThemeMappingProgress
 import com.takeya.animeongaku.data.repository.UserRepository
 import com.takeya.animeongaku.data.server.ServerSettingsStore
+import com.takeya.animeongaku.sync.LibraryPullManager
 import com.takeya.animeongaku.sync.LibrarySyncService
 import com.takeya.animeongaku.sync.SyncManager
 import com.takeya.animeongaku.sync.SyncPhase
 import com.takeya.animeongaku.sync.SyncState
+import com.takeya.animeongaku.sync.toSyncState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,14 +40,17 @@ class ImportViewModel @Inject constructor(
     private val animeDao: AnimeDao,
     private val tokenStore: KitsuTokenStore,
     private val serverSettingsStore: ServerSettingsStore,
+    private val libraryPullManager: LibraryPullManager,
     val syncManager: SyncManager,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
     companion object {
         private const val TAG = "ImportViewModel"
+        private const val SERVER_SYNC_POLL_INTERVAL_MS = 2_000L
     }
 
     private val _authState = MutableStateFlow(AuthState())
+    private val _serverSyncState = MutableStateFlow(SyncState())
     val uiState: StateFlow<ImportUiState>
 
     val anime = animeDao.observeAll()
@@ -72,7 +78,8 @@ class ImportViewModel @Inject constructor(
 
         uiState = MutableStateFlow(ImportUiState()).also { flow ->
             viewModelScope.launch {
-                combine(_authState, syncManager.state) { auth, sync ->
+                combine(_authState, syncManager.state, _serverSyncState) { auth, legacySync, serverSync ->
+                    val sync = if (serverSettingsStore.isConfigured) serverSync else legacySync
                     mapToUiState(auth, sync)
                 }.collect { flow.value = it }
             }
@@ -184,7 +191,7 @@ class ImportViewModel @Inject constructor(
                     linkedUsername = session.username,
                     isAuthenticating = false
                 )
-                runCatching { ongakuApi.startSync(OngakuSyncRequest(full = false)) }
+                performServerSync(forceFullSync = false)
             } catch (exception: Exception) {
                 _authState.value = _authState.value.copy(
                     authError = exception.toReadableMessage(prefix = "Server sign-in failed"),
@@ -252,6 +259,11 @@ class ImportViewModel @Inject constructor(
                     return@launch
                 }
                 ongakuApi.startSync(OngakuSyncRequest(full = forceFullSync))
+                _serverSyncState.value = SyncState(
+                    phase = SyncPhase.SyncingLibrary,
+                    status = "Server sync queued",
+                    isRunning = true
+                )
                 _authState.value = _authState.value.copy(
                     userId = session.kitsuUserId,
                     isSignedIn = true,
@@ -259,11 +271,41 @@ class ImportViewModel @Inject constructor(
                     linkedUsername = session.username,
                     isAuthenticating = false
                 )
+                pollServerSyncThenPull()
             } catch (exception: Exception) {
+                val message = exception.toReadableMessage(prefix = "Server sync failed")
+                _serverSyncState.value = SyncState(
+                    phase = SyncPhase.Error,
+                    status = message,
+                    isRunning = false,
+                    errorMessage = message
+                )
                 _authState.value = _authState.value.copy(
-                    authError = exception.toReadableMessage(prefix = "Server sync failed"),
+                    authError = message,
                     isAuthenticating = false
                 )
+            }
+        }
+    }
+
+    private suspend fun pollServerSyncThenPull() {
+        while (true) {
+            val status = ongakuApi.syncStatus()
+            val syncState = status.toSyncState()
+            _serverSyncState.value = syncState
+
+            when (status.state.uppercase()) {
+                "QUEUED", "RUNNING" -> delay(SERVER_SYNC_POLL_INTERVAL_MS)
+                "FAILED", "CANCELLED" -> return
+                else -> {
+                    libraryPullManager.pullNow(forceFull = true)
+                    _serverSyncState.value = syncState.copy(
+                        phase = SyncPhase.Done,
+                        status = "Server sync complete",
+                        isRunning = false
+                    )
+                    return
+                }
             }
         }
     }

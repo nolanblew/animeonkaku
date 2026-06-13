@@ -11,7 +11,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.tooling.preview.Preview
 import com.takeya.animeongaku.ui.theme.AnimeOngakuTheme
 import com.takeya.animeongaku.ui.AnimeOngakuApp
+import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.sync.AutoPlaylistManager
+import com.takeya.animeongaku.sync.LibraryPullManager
 import com.takeya.animeongaku.sync.LibraryStatusSyncManager
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -28,11 +30,14 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var autoPlaylistManager: AutoPlaylistManager
     @Inject lateinit var libraryStatusSyncManager: LibraryStatusSyncManager
+    @Inject lateinit var libraryPullManager: LibraryPullManager
+    @Inject lateinit var serverSettingsStore: ServerSettingsStore
 
     val pendingNavigateTo = mutableStateOf<String?>(null)
     private val appUpdateViewModel: AppUpdateViewModel by viewModels()
     
     private var periodicSyncJob: Job? = null
+    private var handledInitialServerStart = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -45,11 +50,16 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         pendingNavigateTo.value = intent?.getStringExtra("navigate_to")
         enableEdgeToEdge()
-        autoPlaylistManager.refreshAutoPlaylists()
-        
-        // Cold start sync: min interval 5 minutes
-        if (libraryStatusSyncManager.shouldSync(5 * 60 * 1000L)) {
-            com.takeya.animeongaku.sync.StatusSyncService.start(this)
+
+        if (serverSettingsStore.isConfigured) {
+            requestServerPullIfStale(COLD_START_PULL_INTERVAL_MS)
+        } else {
+            autoPlaylistManager.refreshAutoPlaylists()
+
+            // Cold start sync: min interval 5 minutes
+            if (libraryStatusSyncManager.shouldSync(COLD_START_PULL_INTERVAL_MS)) {
+                com.takeya.animeongaku.sync.StatusSyncService.start(this)
+            }
         }
 
         setContent {
@@ -64,16 +74,34 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        if (serverSettingsStore.isConfigured) {
+            if (handledInitialServerStart) {
+                requestServerPullIfStale(WARM_RESUME_PULL_INTERVAL_MS)
+            } else {
+                handledInitialServerStart = true
+            }
+
+            periodicSyncJob = lifecycleScope.launch {
+                while (true) {
+                    delay(FOREGROUND_PULL_INTERVAL_MS)
+                    runCatching {
+                        libraryPullManager.pullIfStale(FOREGROUND_PULL_INTERVAL_MS)
+                    }
+                }
+            }
+            return
+        }
+
         // Warm resume sync: min interval 60 minutes
-        if (libraryStatusSyncManager.shouldSync(60 * 60 * 1000L)) {
+        if (libraryStatusSyncManager.shouldSync(WARM_RESUME_PULL_INTERVAL_MS)) {
             com.takeya.animeongaku.sync.StatusSyncService.start(this)
         }
         
         // Continuous foreground periodic sync: min interval 2 hours
         periodicSyncJob = lifecycleScope.launch {
             while (true) {
-                delay(2 * 60 * 60 * 1000L) // 2 hours
-                if (libraryStatusSyncManager.shouldSync(2 * 60 * 60 * 1000L)) {
+                delay(FOREGROUND_PULL_INTERVAL_MS)
+                if (libraryStatusSyncManager.shouldSync(FOREGROUND_PULL_INTERVAL_MS)) {
                     com.takeya.animeongaku.sync.StatusSyncService.start(this@MainActivity)
                 }
             }
@@ -92,6 +120,20 @@ class MainActivity : ComponentActivity() {
         if (navigateTo != null) {
             pendingNavigateTo.value = navigateTo
         }
+    }
+
+    private fun requestServerPullIfStale(minIntervalMs: Long) {
+        lifecycleScope.launch {
+            runCatching {
+                libraryPullManager.pullIfStale(minIntervalMs)
+            }
+        }
+    }
+
+    private companion object {
+        const val COLD_START_PULL_INTERVAL_MS = 5 * 60 * 1000L
+        const val WARM_RESUME_PULL_INTERVAL_MS = 60 * 60 * 1000L
+        const val FOREGROUND_PULL_INTERVAL_MS = 2 * 60 * 60 * 1000L
     }
 }
 

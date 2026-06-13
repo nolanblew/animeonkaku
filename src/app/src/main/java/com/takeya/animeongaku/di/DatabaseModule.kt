@@ -14,6 +14,12 @@ import com.takeya.animeongaku.data.local.PlayCountDao
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.UserPreferenceDao
+import com.takeya.animeongaku.data.repository.PlaylistWriteStore
+import com.takeya.animeongaku.data.repository.RoomPlaylistWriteStore
+import com.takeya.animeongaku.sync.DefaultLibraryPullSideEffects
+import com.takeya.animeongaku.sync.LibraryPullCache
+import com.takeya.animeongaku.sync.LibraryPullSideEffects
+import com.takeya.animeongaku.sync.RoomLibraryPullCache
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -78,4 +84,17 @@ object DatabaseModule {
 
     @Provides
     fun providePendingPlayDao(database: AppDatabase): PendingPlayDao = database.pendingPlayDao()
+
+    @Provides
+    @Singleton
+    fun provideLibraryPullCache(cache: RoomLibraryPullCache): LibraryPullCache = cache
+
+    @Provides
+    @Singleton
+    fun provideLibraryPullSideEffects(sideEffects: DefaultLibraryPullSideEffects): LibraryPullSideEffects =
+        sideEffects
+
+    @Provides
+    @Singleton
+    fun providePlaylistWriteStore(store: RoomPlaylistWriteStore): PlaylistWriteStore = store
 }

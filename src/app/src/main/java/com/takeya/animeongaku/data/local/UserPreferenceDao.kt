@@ -19,6 +19,9 @@ interface UserPreferenceDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdate(preference: UserPreferenceEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(preferences: List<UserPreferenceEntity>)
     
     @Query("SELECT themeId FROM user_preferences WHERE isLiked = 1")
     fun observeLikedThemeIds(): Flow<List<Long>>

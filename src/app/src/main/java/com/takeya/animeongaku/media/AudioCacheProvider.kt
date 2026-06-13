@@ -8,6 +8,8 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
+import com.takeya.animeongaku.data.auth.ServerTokenStore
+import com.takeya.animeongaku.network.serverMediaRequestHeaders
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
@@ -16,7 +18,8 @@ import javax.inject.Singleton
 @UnstableApi
 @Singleton
 class AudioCacheProvider @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val serverTokenStore: ServerTokenStore
 ) {
     companion object {
         private const val CACHE_DIR_NAME = "audio_cache"
@@ -35,10 +38,16 @@ class AudioCacheProvider @Inject constructor(
     }
 
     private val httpDataSourceFactory: DataSource.Factory by lazy {
-        DefaultHttpDataSource.Factory()
-            .setConnectTimeoutMs(CONNECT_TIMEOUT_MS)
-            .setReadTimeoutMs(READ_TIMEOUT_MS)
-            .setAllowCrossProtocolRedirects(true)
+        DataSource.Factory {
+            DefaultHttpDataSource.Factory()
+                .setConnectTimeoutMs(CONNECT_TIMEOUT_MS)
+                .setReadTimeoutMs(READ_TIMEOUT_MS)
+                .setAllowCrossProtocolRedirects(true)
+                .setDefaultRequestProperties(
+                    serverMediaRequestHeaders(serverTokenStore.currentToken())
+                )
+                .createDataSource()
+        }
     }
 
     private val defaultDataSourceFactory: DataSource.Factory by lazy {

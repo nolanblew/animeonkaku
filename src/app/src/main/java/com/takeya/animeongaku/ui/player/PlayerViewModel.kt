@@ -5,11 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.PlaylistDao
-import com.takeya.animeongaku.data.local.PlaylistEntity
-import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.media.MediaControllerManager
 import com.takeya.animeongaku.media.NowPlayingManager
@@ -32,6 +31,7 @@ class PlayerViewModel @Inject constructor(
     private val playlistDao: PlaylistDao,
     private val themeDao: ThemeDao,
     private val animeDao: AnimeDao,
+    private val serverPlaylistWriter: ServerPlaylistWriter,
     private val userPreferencesRepository: UserPreferencesRepository,
     val connectivityMonitor: ConnectivityMonitor
 ) : ViewModel() {
@@ -90,23 +90,13 @@ class PlayerViewModel @Inject constructor(
 
     fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {
         viewModelScope.launch {
-            val count = playlistDao.countEntries(playlistId)
-            val entries = themeIds.mapIndexed { i, id ->
-                PlaylistEntryEntity(playlistId = playlistId, themeId = id, orderIndex = count + i)
-            }
-            playlistDao.insertEntries(entries)
+            serverPlaylistWriter.addEntries(playlistId, themeIds)
         }
     }
 
     fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
         viewModelScope.launch {
-            val newId = playlistDao.insertPlaylist(
-                PlaylistEntity(name = name, createdAt = System.currentTimeMillis())
-            )
-            val entries = themeIds.mapIndexed { i, id ->
-                PlaylistEntryEntity(playlistId = newId, themeId = id, orderIndex = i)
-            }
-            playlistDao.insertEntries(entries)
+            serverPlaylistWriter.createPlaylist(name, themeIds)
         }
     }
 }
