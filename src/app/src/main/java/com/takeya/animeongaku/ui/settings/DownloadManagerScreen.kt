@@ -121,6 +121,7 @@ fun DownloadManagerScreen(
                 it.status in listOf(
                     DownloadRequestEntity.STATUS_PENDING,
                     DownloadRequestEntity.STATUS_DOWNLOADING,
+                    DownloadRequestEntity.STATUS_RETRYING,
                     DownloadRequestEntity.STATUS_WAITING_FOR_WIFI
                 )
             }
@@ -469,6 +470,16 @@ private fun ActiveDownloadsCard(
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 "${pending.size} queued",
+                style = MaterialTheme.typography.bodySmall,
+                color = Mist200
+            )
+        }
+
+        val retrying = activeDownloads.filter { it.status == DownloadRequestEntity.STATUS_RETRYING }
+        if (retrying.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "${retrying.size} retrying",
                 style = MaterialTheme.typography.bodySmall,
                 color = Mist200
             )

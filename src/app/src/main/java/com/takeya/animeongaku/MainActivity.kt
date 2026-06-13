@@ -14,7 +14,6 @@ import com.takeya.animeongaku.ui.AnimeOngakuApp
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.sync.AutoPlaylistManager
 import com.takeya.animeongaku.sync.LibraryPullManager
-import com.takeya.animeongaku.sync.LibraryStatusSyncManager
 import dagger.hilt.android.AndroidEntryPoint
 
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -29,7 +28,6 @@ import com.takeya.animeongaku.updater.AppUpdateViewModel
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var autoPlaylistManager: AutoPlaylistManager
-    @Inject lateinit var libraryStatusSyncManager: LibraryStatusSyncManager
     @Inject lateinit var libraryPullManager: LibraryPullManager
     @Inject lateinit var serverSettingsStore: ServerSettingsStore
 
@@ -55,11 +53,6 @@ class MainActivity : ComponentActivity() {
             requestServerPullIfStale(COLD_START_PULL_INTERVAL_MS)
         } else {
             autoPlaylistManager.refreshAutoPlaylists()
-
-            // Cold start sync: min interval 5 minutes
-            if (libraryStatusSyncManager.shouldSync(COLD_START_PULL_INTERVAL_MS)) {
-                com.takeya.animeongaku.sync.StatusSyncService.start(this)
-            }
         }
 
         setContent {
@@ -92,20 +85,7 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // Warm resume sync: min interval 60 minutes
-        if (libraryStatusSyncManager.shouldSync(WARM_RESUME_PULL_INTERVAL_MS)) {
-            com.takeya.animeongaku.sync.StatusSyncService.start(this)
-        }
-        
-        // Continuous foreground periodic sync: min interval 2 hours
-        periodicSyncJob = lifecycleScope.launch {
-            while (true) {
-                delay(FOREGROUND_PULL_INTERVAL_MS)
-                if (libraryStatusSyncManager.shouldSync(FOREGROUND_PULL_INTERVAL_MS)) {
-                    com.takeya.animeongaku.sync.StatusSyncService.start(this@MainActivity)
-                }
-            }
-        }
+        autoPlaylistManager.refreshAutoPlaylists()
     }
 
     override fun onStop() {

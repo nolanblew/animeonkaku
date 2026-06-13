@@ -29,10 +29,10 @@ interface OngakuApi {
     suspend fun anime(@Path("kitsuId") kitsuId: String): OngakuAnimeDetailResponse
 
     @GET("v1/search")
-    suspend fun search(@Query("q") query: String): Any
+    suspend fun search(@Query("q") query: String): OngakuSearchResponse
 
     @GET("v1/artists/{slug}")
-    suspend fun artist(@Path("slug") slug: String): Any
+    suspend fun artist(@Path("slug") slug: String): AnimeThemesSingleArtistResponse
 
     @POST("v1/library/anime")
     suspend fun addAnime(@Body request: OngakuManualAnimeRequest): OngakuManualAnimeResponse

@@ -20,6 +20,8 @@ import com.takeya.animeongaku.sync.DefaultLibraryPullSideEffects
 import com.takeya.animeongaku.sync.LibraryPullCache
 import com.takeya.animeongaku.sync.LibraryPullSideEffects
 import com.takeya.animeongaku.sync.RoomLibraryPullCache
+import com.takeya.animeongaku.sync.RoomServerMigrationStore
+import com.takeya.animeongaku.sync.ServerMigrationStore
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -97,4 +99,8 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun providePlaylistWriteStore(store: RoomPlaylistWriteStore): PlaylistWriteStore = store
+
+    @Provides
+    @Singleton
+    fun provideServerMigrationStore(store: RoomServerMigrationStore): ServerMigrationStore = store
 }

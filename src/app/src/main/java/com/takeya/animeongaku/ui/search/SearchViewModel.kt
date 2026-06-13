@@ -15,12 +15,14 @@ import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.model.OnlineAnimeResult
 import com.takeya.animeongaku.data.model.OnlineArtistResult
+import com.takeya.animeongaku.data.remote.OngakuApi
+import com.takeya.animeongaku.data.remote.OngakuManualAnimeRequest
 import com.takeya.animeongaku.data.repository.AnimeRepository
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
-import com.takeya.animeongaku.data.repository.UserRepository
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
+import com.takeya.animeongaku.sync.LibraryPullManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlin.math.abs
@@ -47,7 +49,8 @@ class SearchViewModel @Inject constructor(
     private val artistDao: ArtistDao,
     private val playlistDao: PlaylistDao,
     private val animeRepository: AnimeRepository,
-    private val userRepository: UserRepository,
+    private val ongakuApi: OngakuApi,
+    private val libraryPullManager: LibraryPullManager,
     val nowPlayingManager: NowPlayingManager,
     val downloadManager: DownloadManager,
     private val downloadDao: DownloadDao,
@@ -253,43 +256,39 @@ class SearchViewModel @Inject constructor(
     fun addOnlineThemeToLibrary(entry: AnimeThemeEntry) {
         viewModelScope.launch {
             saveThemeToDb(entry)
-            // Also try to create/update the AnimeEntity via Kitsu cross-reference
-            enrichAnimeFromKitsu(entry)
+            saveSyntheticAnimeIfMissing(entry)
+            requestServerLibraryAdd(entry)
         }
     }
 
-    private suspend fun enrichAnimeFromKitsu(entry: AnimeThemeEntry) {
+    private suspend fun saveSyntheticAnimeIfMissing(entry: AnimeThemeEntry) {
         val animeThemesId = entry.animeId.toLongOrNull() ?: return
-        // Check if we already have this anime
         val existing = animeDao.getByAnimeThemesId(animeThemesId)
         if (existing != null) return
 
-        try {
-            val match = if (entry.kitsuId != null) {
-                // We have a direct Kitsu ID from AnimeThemes resources — fetch details
-                val details = userRepository.getAnimeDetails(listOf(entry.kitsuId))
-                details.firstOrNull()
-            } else {
-                // Fall back to searching Kitsu by anime name
-                val animeName = entry.animeName ?: return
-                val kitsuResults = userRepository.searchKitsuAnime(animeName)
-                kitsuResults.firstOrNull()
-            } ?: return
+        val animeEntity = AnimeEntity(
+            kitsuId = entry.kitsuId ?: "online-${entry.animeId}",
+            animeThemesId = animeThemesId,
+            title = entry.animeNameEn ?: entry.animeName ?: "Unknown",
+            titleEn = entry.animeNameEn,
+            thumbnailUrl = entry.coverUrl,
+            coverUrl = entry.coverUrl,
+            syncedAt = System.currentTimeMillis(),
+            isManuallyAdded = true
+        )
+        animeDao.upsertAll(listOf(animeEntity))
+    }
 
-            val animeEntity = AnimeEntity(
-                kitsuId = match.id,
-                animeThemesId = animeThemesId,
-                title = match.title ?: entry.animeName ?: "Unknown",
-                titleEn = match.titleEn,
-                titleRomaji = match.titleRomaji,
-                titleJa = match.titleJa,
-                thumbnailUrl = match.posterUrl,
-                coverUrl = match.coverUrl,
-                syncedAt = System.currentTimeMillis()
+    private suspend fun requestServerLibraryAdd(entry: AnimeThemeEntry) {
+        val animeThemesId = entry.animeId.toLongOrNull()
+        runCatching {
+            ongakuApi.addAnime(
+                OngakuManualAnimeRequest(
+                    kitsuId = entry.kitsuId,
+                    animeThemesId = if (entry.kitsuId == null) animeThemesId else null
+                )
             )
-            animeDao.upsertAll(listOf(animeEntity))
-        } catch (_: Exception) {
-            // Best-effort: if Kitsu lookup fails, we still have the theme saved
+            libraryPullManager.pullNow(forceFull = true)
         }
     }
 

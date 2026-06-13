@@ -32,6 +32,18 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 
+internal const val DOWNLOAD_MAX_ATTEMPTS = 3
+
+internal fun downloadFailureStatus(
+    runAttemptCount: Int,
+    maxAttempts: Int = DOWNLOAD_MAX_ATTEMPTS
+): String =
+    if (runAttemptCount + 1 >= maxAttempts) {
+        DownloadRequestEntity.STATUS_FAILED
+    } else {
+        DownloadRequestEntity.STATUS_RETRYING
+    }
+
 @HiltWorker
 class DownloadWorker @AssistedInject constructor(
     @Assisted appContext: Context,
@@ -111,8 +123,7 @@ class DownloadWorker @AssistedInject constructor(
             val audioSize = downloadFile(audioUrl, audioFile, themeId)
 
             if (audioSize == -1L) {
-                downloadDao.markFailed(themeId, "Audio download failed")
-                return@withContext Result.retry()
+                return@withContext retryOrFail(themeId, "Audio download failed")
             }
 
             // Download cover image if available
@@ -156,9 +167,21 @@ class DownloadWorker @AssistedInject constructor(
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Download failed for theme $themeId", e)
-            cancelNotification()
-            downloadDao.markFailed(themeId, e.message ?: "Unknown error")
-            Result.retry()
+            retryOrFail(themeId, e.message ?: "Unknown error")
+        }
+    }
+
+    private suspend fun retryOrFail(themeId: Long, error: String): Result {
+        return when (downloadFailureStatus(runAttemptCount)) {
+            DownloadRequestEntity.STATUS_RETRYING -> {
+                downloadDao.markRetrying(themeId, error)
+                Result.retry()
+            }
+            else -> {
+                downloadDao.markFailed(themeId, error)
+                cancelNotification()
+                Result.failure()
+            }
         }
     }
 

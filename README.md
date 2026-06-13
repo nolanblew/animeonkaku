@@ -6,13 +6,13 @@
 
 ## What It Does
 
-Anime Ongaku is a native Android music player designed for anime opening and ending themes. By connecting to your Kitsu account, it can sync your anime library and fetch matching music tracks from AnimeThemes.
+Anime Ongaku is a native Android music player designed for anime opening and ending themes. It connects to a self-hosted Anime Ongaku server, which signs in to Kitsu and syncs matching tracks from AnimeThemes.
 
 Features include:
 
-- **Library sync**: Connect your Kitsu account to import watched and currently watching anime.
+- **Library sync**: Configure your Anime Ongaku server and sign in with your Kitsu username/email and password to import watched and currently watching anime.
 - **Auto-playlists**: Automatically generate and update playlists from shows you are currently watching.
-- **Offline playback**: Download tracks for offline listening, with an optional Wi-Fi-only download setting.
+- **Offline playback**: Download tracks for offline listening, with an optional Wi-Fi-only download setting. Existing downloaded files keep playing even without server access.
 - **Background playback and media controls**: Support Android media sessions, lock-screen controls, background playback, and Android Auto through Media3/ExoPlayer.
 - **Smart queueing**: YouTube Music-style up-next queue with shuffle, repeat, and suggested autoplay behavior.
 - **Custom playlists**: Create, manage, and add tracks to custom playlists.
@@ -22,7 +22,13 @@ Features include:
 - **UI architecture**: Jetpack Compose, Material 3, ViewModels, and StateFlow.
 - **Media engine**: AndroidX Media3/ExoPlayer with a foreground playback service.
 - **Data layer**: Room Database for local caching, plus Kotlin Coroutines and Flows for reactive UI updates.
-- **APIs**: Kitsu API for user library sync and AnimeThemes API for song metadata, artist information, and audio streaming URLs.
+- **APIs**: Android talks to the Anime Ongaku server for auth, sync, search, media URLs, preferences, plays, and playlists. The Android app no longer calls Kitsu or AnimeThemes directly; the server owns those tokens, rate limits, media fetches, and caches.
+
+## Server Requirement
+
+Network sync, search, and playback of non-downloaded tracks require a configured Anime Ongaku server URL in the Android settings screen. The server authenticates against Kitsu using either a Kitsu username or email plus password, then exposes stable `/v1/media/audio/{themeId}` URLs to the app.
+
+Already-downloaded files remain playable offline because the Android app keeps its Room cache and downloaded audio files on device.
 
 ## Local Development
 
@@ -54,6 +60,23 @@ Useful local checks:
 ```powershell
 .\gradlew.bat testDebugUnitTest
 .\gradlew.bat lint
+```
+
+On this Windows workspace, PATH can be unreliable. These direct verification commands worked:
+
+```powershell
+$env:ANDROID_HOME = 'F:\Program Files (x86)\Microsoft Visual Studio\Shared\Android\android-sdk'
+$env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
+$env:JAVA_HOME = 'F:\Program Files (x86)\Microsoft Visual Studio\Shared\Android\openjdk\jdk-21.0.8'
+$env:Path = "$env:JAVA_HOME\bin;$env:ANDROID_HOME\platform-tools;C:\Windows\System32;$env:Path"
+.\gradlew.bat --no-daemon test
+```
+
+Server checks run from `server/`:
+
+```powershell
+& 'E:\Users\Nolan\npm\node.exe' '.\node_modules\vitest\vitest.mjs' run
+& 'E:\Users\Nolan\npm\node.exe' '.\node_modules\typescript\bin\tsc' -p tsconfig.json --noEmit
 ```
 
 ## Signing and Upgrade Compatibility

@@ -43,6 +43,38 @@ data class OngakuAnimeDetailResponse(
     val themes: List<OngakuThemeDto>
 )
 
+data class OngakuSearchResponse(
+    val query: String,
+    val animeThemes: AnimeThemesSearchResponse = AnimeThemesSearchResponse(),
+    val kitsu: Any? = null
+)
+
+data class AnimeThemesSingleArtistResponse(
+    val artist: ApiArtistProfileWithSongs? = null
+)
+
+data class ApiArtistProfileWithSongs(
+    val id: Long? = null,
+    val name: String? = null,
+    val slug: String? = null,
+    val images: List<ApiArtistImage> = emptyList(),
+    val songs: List<ApiArtistSongWithThemes> = emptyList()
+)
+
+data class ApiArtistSongWithThemes(
+    val title: String? = null,
+    val artists: List<ApiArtist> = emptyList(),
+    val animethemes: List<ApiThemeWithAnime> = emptyList()
+)
+
+data class ApiThemeWithAnime(
+    val id: Long? = null,
+    val type: String? = null,
+    val sequence: Int? = null,
+    val anime: ApiAnime? = null,
+    val animethemeentries: List<ApiThemeEntry> = emptyList()
+)
+
 data class OngakuAnimeDto(
     val kitsuId: String,
     val animeThemesId: Long?,

@@ -17,6 +17,9 @@ interface UserPreferenceDao {
     @Query("SELECT * FROM user_preferences")
     fun observeAllPreferences(): Flow<List<UserPreferenceEntity>>
 
+    @Query("SELECT * FROM user_preferences")
+    suspend fun getAllPreferences(): List<UserPreferenceEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdate(preference: UserPreferenceEntity)
 

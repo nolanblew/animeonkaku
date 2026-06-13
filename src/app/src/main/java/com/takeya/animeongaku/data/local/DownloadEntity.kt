@@ -19,6 +19,7 @@ data class DownloadRequestEntity(
     companion object {
         const val STATUS_PENDING = "pending"
         const val STATUS_DOWNLOADING = "downloading"
+        const val STATUS_RETRYING = "retrying"
         const val STATUS_COMPLETED = "completed"
         const val STATUS_FAILED = "failed"
         const val STATUS_PAUSED = "paused"

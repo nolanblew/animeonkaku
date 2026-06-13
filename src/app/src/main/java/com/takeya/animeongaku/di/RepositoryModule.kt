@@ -1,11 +1,9 @@
 package com.takeya.animeongaku.di
 
 import com.takeya.animeongaku.data.repository.AnimeRepository
-import com.takeya.animeongaku.data.repository.AnimeRepositoryImpl
 import com.takeya.animeongaku.data.repository.ArtistRepository
 import com.takeya.animeongaku.data.repository.ArtistRepositoryImpl
-import com.takeya.animeongaku.data.repository.UserRepository
-import com.takeya.animeongaku.data.repository.UserRepositoryImpl
+import com.takeya.animeongaku.data.repository.ServerAnimeRepository
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -17,11 +15,7 @@ import javax.inject.Singleton
 abstract class RepositoryModule {
     @Binds
     @Singleton
-    abstract fun bindUserRepository(impl: UserRepositoryImpl): UserRepository
-
-    @Binds
-    @Singleton
-    abstract fun bindAnimeRepository(impl: AnimeRepositoryImpl): AnimeRepository
+    abstract fun bindAnimeRepository(impl: ServerAnimeRepository): AnimeRepository
 
     @Binds
     @Singleton

@@ -37,12 +37,24 @@ class ServerSettingsStore @Inject constructor(
             prefs.edit().putLong(KEY_SERVER_LAST_PULL_AT, value.coerceAtLeast(0L)).apply()
         }
 
+    val isServerMigrationComplete: Boolean
+        get() = prefs.getBoolean(KEY_SERVER_MIGRATION_COMPLETE, false)
+
     fun serverBaseHttpUrl(): HttpUrl? = serverBaseUrl?.toHttpUrlOrNull()
+
+    fun markServerMigrationComplete() {
+        prefs.edit().putBoolean(KEY_SERVER_MIGRATION_COMPLETE, true).apply()
+    }
+
+    fun resetServerMigration() {
+        prefs.edit().remove(KEY_SERVER_MIGRATION_COMPLETE).apply()
+    }
 
     companion object {
         private const val KEY_SERVER_BASE_URL = "ongaku_server_base_url"
         private const val KEY_SERVER_PULL_CURSOR = "ongaku_server_pull_cursor"
         private const val KEY_SERVER_LAST_PULL_AT = "ongaku_server_last_pull_at"
+        private const val KEY_SERVER_MIGRATION_COMPLETE = "ongaku_server_migration_complete"
 
         fun normalizeBaseUrl(value: String?): String? {
             val trimmed = value?.trim().orEmpty()

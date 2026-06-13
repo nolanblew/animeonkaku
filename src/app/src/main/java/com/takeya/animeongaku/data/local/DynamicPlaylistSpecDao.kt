@@ -21,6 +21,9 @@ interface DynamicPlaylistSpecDao {
     suspend fun getAllAuto(): List<DynamicPlaylistSpecEntity>
 
     @Query("SELECT * FROM dynamic_playlist_spec")
+    suspend fun getAll(): List<DynamicPlaylistSpecEntity>
+
+    @Query("SELECT * FROM dynamic_playlist_spec")
     fun observeAll(): Flow<List<DynamicPlaylistSpecEntity>>
 
     @Query("DELETE FROM dynamic_playlist_spec WHERE playlistId = :id")
