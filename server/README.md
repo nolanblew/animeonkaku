@@ -1,11 +1,11 @@
 # Anime Ongaku Server
 
-Self-hosted API server for the Anime Ongaku Android app. Design docs live in [`../.planing/`](../.planing/FINAL_PLAN.md) — this milestone (S1) is the skeleton: Fastify + Postgres + drizzle migrations + Kitsu-backed session auth (stubbed Kitsu client until S2).
+Self-hosted API server for the Anime Ongaku Android app. Design docs live in [`../.planing/`](../.planing/FINAL_PLAN.md). The current server includes the S1 skeleton plus S2 upstream clients for Kitsu and AnimeThemes.
 
 ## Run with Docker
 
 ```bash
-cp .env.example .env   # edit DB_PASSWORD
+cp .env.example .env   # edit DB_PASSWORD; leave KITSU_AUTH_MODE=stub for local smoke tests
 docker compose up -d --build
 curl http://localhost:8080/healthz
 ```
@@ -35,6 +35,6 @@ Schema changes: edit `src/db/schema.ts`, then `npm run db:generate` (never edit 
 | `POST /v1/auth/logout` | bearer | revoke current session |
 | `DELETE /v1/auth/devices/:id` | bearer | revoke another device session |
 
-With `KITSU_AUTH_MODE=stub` (default until S2), any non-empty credentials log in and the user id is `stub-<username>`.
+With `KITSU_AUTH_MODE=stub` (compose default), any non-empty credentials log in and the user id is `stub-<username>`. Set `KITSU_AUTH_MODE=real` to use Kitsu OAuth; the public Kitsu client id/secret default from `../.planing/02-external-apis.md` are already in `.env.example`.
 
 Errors use the envelope `{ "error": { "code": "...", "message": "..." } }`. Full API spec: [`../.planing/04-api-spec.md`](../.planing/04-api-spec.md).
