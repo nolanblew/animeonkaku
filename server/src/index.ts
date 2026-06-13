@@ -3,6 +3,12 @@ import { statfs } from "node:fs/promises";
 import { join } from "node:path";
 import { buildApp } from "./app.js";
 import { AnimeThemesClient } from "./animethemes/client.js";
+import { DrizzleClientApiService } from "./api/drizzleClientApiService.js";
+import { DrizzleMediaApiRepository } from "./api/drizzleMediaApiRepository.js";
+import { JobSyncApiService } from "./api/jobSyncApiService.js";
+import { MediaStreamingService } from "./api/mediaRoutes.js";
+import { CachedProxyService } from "./api/proxyRoutes.js";
+import { UpstreamProxyService } from "./api/upstreamProxyService.js";
 import { AuthService } from "./auth/service.js";
 import { DrizzleAuthRepo } from "./auth/drizzleAuthRepo.js";
 import { StubKitsuAuthClient } from "./auth/stubKitsuAuthClient.js";
@@ -50,10 +56,12 @@ const animeThemesHttp = new UpstreamHttp({
   breaker: new CircuitBreaker(),
   name: "animethemes",
 });
+const kitsuClient = new KitsuClient({ http: kitsuHttp });
+const animeThemesClient = new AnimeThemesClient({ http: animeThemesHttp });
 const syncPipeline = new LibrarySyncPipeline({
   repo: syncRepo,
-  kitsu: new KitsuClient({ http: kitsuHttp }),
-  animeThemes: new AnimeThemesClient({ http: animeThemesHttp }),
+  kitsu: kitsuClient,
+  animeThemes: animeThemesClient,
   queue: jobQueue,
 });
 const mediaStore = new MediaStore({
@@ -103,6 +111,16 @@ const app = buildApp({
     mediaRoot: config.MEDIA_ROOT,
   },
   jobs: jobQueue,
+  clientApi: new DrizzleClientApiService(db, jobQueue),
+  mediaApi: new MediaStreamingService({
+    repo: new DrizzleMediaApiRepository(db),
+    queue: jobQueue,
+    mediaRoot: config.MEDIA_ROOT,
+  }),
+  syncApi: new JobSyncApiService(jobQueue),
+  proxyApi: new CachedProxyService({
+    upstream: new UpstreamProxyService(animeThemesClient, kitsuClient),
+  }),
   onLogin: async (result) => {
     if (!result.isNewUser) return;
     await jobQueue.enqueue({

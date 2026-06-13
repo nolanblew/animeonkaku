@@ -110,6 +110,29 @@ export class KitsuClient {
     return details;
   }
 
+  async searchAnimeByText(query: string): Promise<KitsuAnimeEntry[]> {
+    if (query.trim().length === 0) return [];
+    const document = await this.getJson("anime", {
+      "filter[text]": query.trim(),
+      "page[limit]": "5",
+    });
+    return asArray(document.data)
+      .filter((resource) => resource.type === "anime")
+      .flatMap((resource) => {
+        const id = idOf(resource);
+        if (!id) return [];
+        return [
+          {
+            id,
+            ...parseAnimeCatalog(resource),
+            watchingStatus: null,
+            userRating: null,
+            libraryUpdatedAt: null,
+          },
+        ];
+      });
+  }
+
   async getAnimeMappings(ids: string[]): Promise<Map<string, Record<string, string>>> {
     const result = new Map<string, Record<string, string>>();
     for (const batch of chunks(unique(ids), BATCH_LIMIT)) {

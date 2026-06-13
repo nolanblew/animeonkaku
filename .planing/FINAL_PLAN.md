@@ -94,6 +94,8 @@ Tasks:
 
 **Deliverable:** every endpoint in doc 04 live.
 
+**Status:** Implemented in [PR #28](https://github.com/nolanblew/animeonkaku/pull/28).
+
 Tasks:
 1. `GET /v1/library?since=` delta feed with `serverTime`, tombstones, `audioState` join against `media_files`.
 2. Media streaming: PartialContent (Range/206) for READY files; 302+URGENT-enqueue on miss; ETag/immutable headers; `HEAD` probe; `POST /media/audio/{id}/request`.

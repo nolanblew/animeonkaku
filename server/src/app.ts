@@ -5,16 +5,24 @@ import {
   validatorCompiler,
 } from "fastify-type-provider-zod";
 import { registerAuthRoutes } from "./api/authRoutes.js";
+import { registerClientRoutes, type ClientApiService } from "./api/clientRoutes.js";
 import { ApiError, errorEnvelope } from "./api/errors.js";
 import { registerHealthRoutes, type HealthDeps } from "./api/healthRoutes.js";
+import { registerMediaRoutes, type MediaStreamingService } from "./api/mediaRoutes.js";
+import { registerProxyRoutes, type ProxyApiService } from "./api/proxyRoutes.js";
 import type { AuthService, LoginResult } from "./auth/service.js";
 import { KitsuAuthError } from "./auth/types.js";
 import { registerJobAdminRoutes, type JobAdminService } from "./jobs/adminRoutes.js";
+import { registerSyncRoutes, type SyncApiService } from "./api/syncRoutes.js";
 
 export interface AppDeps {
   authService: AuthService;
   health: HealthDeps;
   jobs?: JobAdminService;
+  clientApi?: ClientApiService;
+  mediaApi?: MediaStreamingService;
+  syncApi?: SyncApiService;
+  proxyApi?: ProxyApiService;
   onLogin?: (result: LoginResult) => Promise<void>;
   logger?: boolean;
 }
@@ -52,6 +60,18 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   registerHealthRoutes(app, deps.health);
   registerAuthRoutes(app, deps.authService, { onLogin: deps.onLogin });
+  if (deps.clientApi) {
+    registerClientRoutes(app, deps.authService, deps.clientApi);
+  }
+  if (deps.mediaApi) {
+    registerMediaRoutes(app, deps.authService, deps.mediaApi);
+  }
+  if (deps.syncApi) {
+    registerSyncRoutes(app, deps.authService, deps.syncApi);
+  }
+  if (deps.proxyApi) {
+    registerProxyRoutes(app, deps.authService, deps.proxyApi);
+  }
   if (deps.jobs) {
     registerJobAdminRoutes(app, deps.authService, deps.jobs);
   }
