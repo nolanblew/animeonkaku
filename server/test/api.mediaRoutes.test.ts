@@ -18,13 +18,14 @@ import { FakeJobRepository } from "./helpers/fakeJobRepository.js";
 
 class FakeMediaRepo implements MediaApiRepository {
   audio = new Map<number, Awaited<ReturnType<MediaApiRepository["findAudio"]>>>();
+  images = new Map<string, Awaited<ReturnType<MediaApiRepository["findImage"]>>>();
 
   async findAudio(themeId: number) {
     return this.audio.get(themeId) ?? null;
   }
 
-  async findImage(_kind: "ANIME_POSTER" | "ANIME_COVER" | "ARTIST_IMAGE", _refId: string) {
-    return null;
+  async findImage(kind: "ANIME_POSTER" | "ANIME_COVER" | "ARTIST_IMAGE", refId: string) {
+    return this.images.get(`${kind}:${refId}`) ?? null;
   }
 }
 
@@ -165,5 +166,22 @@ describe("media API routes", () => {
       priority: JobPriority.HIGH,
       dedupeKey: "FETCH_AUDIO:100",
     });
+  });
+
+  it("redirects missing image media without requiring bearer auth", async () => {
+    repo.images.set("ANIME_COVER:123", {
+      originUrl: "https://media.kitsu.test/anime-cover.jpg",
+      state: "MISSING",
+      filePath: null,
+      sha256: null,
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/media/images/anime/123/cover",
+    });
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe("https://media.kitsu.test/anime-cover.jpg");
   });
 });

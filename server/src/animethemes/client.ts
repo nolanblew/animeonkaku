@@ -22,6 +22,11 @@ const SINGLE_INCLUDE =
 const ARTIST_INCLUDE =
   "images,songs.animethemes.anime,songs.animethemes.animethemeentries.videos," +
   "songs.animethemes.animethemeentries.videos.audio,songs.artists";
+const REQUEST_HEADERS = {
+  Accept: "application/json",
+  "Accept-Language": "en-US,en;q=0.9",
+  "User-Agent": "AnimeOngaku/0.1 (+https://github.com/nolanblew/animeonkaku; personal self-hosted server)",
+};
 
 export class AnimeThemesApiError extends Error {
   constructor(
@@ -68,11 +73,16 @@ export class AnimeThemesClient {
   async searchByTitle(title: string): Promise<AnimeThemesLookupResult> {
     if (title.trim().length === 0) return emptyLookupResult();
     const result = emptyLookupResult();
-    const anime = await this.fetchAllPages("anime", {
-      q: title,
-      include: SEARCH_INCLUDE,
-      "page[size]": "5",
-    });
+    const page = parseAnimeThemesPage(
+      await this.getJson(
+        `${API_BASE_URL}/anime?${new URLSearchParams({
+          q: title,
+          include: SEARCH_INCLUDE,
+          "page[size]": "5",
+        })}`,
+      ),
+    );
+    const anime = page.anime;
     appendAnime(result, anime, "Kitsu");
     return result;
   }
@@ -121,7 +131,7 @@ export class AnimeThemesClient {
 
   private async getJson(url: string): Promise<unknown> {
     const response = await this.deps.http.request(url, {
-      headers: { Accept: "application/json" },
+      headers: REQUEST_HEADERS,
     });
     if (!response.ok) {
       throw new AnimeThemesApiError(response.status, await safeErrorText(response));

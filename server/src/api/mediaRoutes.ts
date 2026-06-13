@@ -220,7 +220,7 @@ export function registerMediaRoutes(
 
   app.get(
     "/v1/media/images/anime/:kitsuId/:variant",
-    { schema: { params: animeImageParams }, preHandler: requireAuth },
+    { schema: { params: animeImageParams } },
     async (request, reply) => {
       const kind = request.params.variant === "poster" ? "ANIME_POSTER" : "ANIME_COVER";
       return service.sendImage(kind, request.params.kitsuId, reply);
@@ -229,7 +229,7 @@ export function registerMediaRoutes(
 
   app.get(
     "/v1/media/images/artists/:slug",
-    { schema: { params: artistImageParams }, preHandler: requireAuth },
+    { schema: { params: artistImageParams } },
     async (request, reply) => service.sendImage("ARTIST_IMAGE", request.params.slug, reply),
   );
 }

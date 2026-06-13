@@ -44,6 +44,19 @@ function sampleAnime(id = 2984) {
 }
 
 describe("AnimeThemesClient query shapes", () => {
+  it("sends identifiable JSON request headers for AnimeThemes Cloudflare compatibility", async () => {
+    const { client, requests } = makeClient([
+      { match: "/search", response: { status: 200, body: JSON.stringify({ search: [] }) } },
+    ]);
+
+    await client.search("naruto");
+
+    const headers = requestHeaders(requests[0]!.init?.headers);
+    expect(headers.get("accept")).toBe("application/json");
+    expect(headers.get("accept-language")).toBe("en-US,en;q=0.9");
+    expect(headers.get("user-agent")).toContain("AnimeOngaku");
+  });
+
   it("fetches Kitsu ids in batches of 50 with the expected filters", async () => {
     const { client, requests } = makeClient([
       { match: "/anime", response: { status: 200, body: apiPage() } },
@@ -91,6 +104,19 @@ describe("AnimeThemesClient query shapes", () => {
     expect(requestUrl.searchParams.get("include")).toContain("animesynonyms");
   });
 
+  it("does not follow pagination for broad title fallback searches", async () => {
+    const next = "https://api.animethemes.moe/anime?page%5Bnumber%5D=2";
+    const { client, requests } = makeClient([
+      { match: "q=A+Silent+Voice", response: { status: 200, body: apiPage([sampleAnime(1)], { next }) } },
+      { match: "page%5Bnumber%5D=2", response: { status: 200, body: apiPage([sampleAnime(2)], { next: null }) } },
+    ]);
+
+    const result = await client.searchByTitle("A Silent Voice");
+
+    expect(requests).toHaveLength(1);
+    expect(result.themes.map((theme) => theme.animeId)).toEqual([1]);
+  });
+
   it("parses the single anime response shape", async () => {
     const { client, requests } = makeClient([
       { match: "/anime/2984", response: { status: 200, body: JSON.stringify({ anime: sampleAnime() }) } },
@@ -102,6 +128,10 @@ describe("AnimeThemesClient query shapes", () => {
     expect(themes.map((theme) => theme.themeId)).toEqual([3040]);
   });
 });
+
+function requestHeaders(headers: HeadersInit | undefined): Headers {
+  return new Headers(headers);
+}
 
 describe("AnimeThemesClient pagination", () => {
   it("follows links.next and combines all pages", async () => {
