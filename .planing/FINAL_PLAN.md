@@ -121,6 +121,8 @@ Tasks:
 
 **Pre-req:** S5 + A1. **Deliverable:** with a server URL configured, the app's library/playback/downloads run entirely through the server; legacy direct mode still intact as fallback.
 
+**Status:** Implemented in [PR #30](https://github.com/nolanblew/animeonkaku/pull/30).
+
 Tasks:
 1. `LibraryPullManager` (new, small): `GET /library?since=` → Room upserts + tombstones → dynamic playlist refresh. Wire to cold-start/resume/2h-loop triggers + new 6 h WorkManager periodic job (doc 07 §3 cadence mapping).
 2. Point `ThemeEntity.audioUrl` + artwork URLs at server on upsert; verify ExoPlayer plays READY (200/206) and PENDING (302→origin) tracks; verify `DownloadWorker` offline flow against both.

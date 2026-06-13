@@ -197,6 +197,6 @@ Document: fresh compose up, configure app Server URL, login using Kitsu credenti
 
 Run Android `gradlew.bat --no-daemon test`, server Vitest, server typecheck, and `docker compose build`.
 
-- [ ] **Step 2: Commit and push**
+- [x] **Step 2: Commit and push**
 
 Commit I1 implementation, push `codex/i1-client-server-integration`, open a stacked PR, then add the PR link under I1 in `FINAL_PLAN.md`.
