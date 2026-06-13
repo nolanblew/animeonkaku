@@ -1,15 +1,20 @@
 package com.takeya.animeongaku.ui.sync
 
 import android.content.Context
+import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.auth.KitsuAuthRepository
 import com.takeya.animeongaku.data.auth.AuthException
 import com.takeya.animeongaku.data.auth.KitsuTokenStore
+import com.takeya.animeongaku.data.auth.OngakuAuthRepository
+import com.takeya.animeongaku.data.remote.OngakuApi
+import com.takeya.animeongaku.data.remote.OngakuSyncRequest
 import com.takeya.animeongaku.data.repository.LibrarySyncProgress
 import com.takeya.animeongaku.data.repository.ThemeMappingProgress
 import com.takeya.animeongaku.data.repository.UserRepository
+import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.sync.LibrarySyncService
 import com.takeya.animeongaku.sync.SyncManager
 import com.takeya.animeongaku.sync.SyncPhase
@@ -26,9 +31,12 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class ImportViewModel @Inject constructor(
     private val authRepository: KitsuAuthRepository,
+    private val ongakuAuthRepository: OngakuAuthRepository,
+    private val ongakuApi: OngakuApi,
     private val userRepository: UserRepository,
     private val animeDao: AnimeDao,
     private val tokenStore: KitsuTokenStore,
+    private val serverSettingsStore: ServerSettingsStore,
     val syncManager: SyncManager,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
@@ -42,9 +50,15 @@ class ImportViewModel @Inject constructor(
     val anime = animeDao.observeAll()
 
     init {
-        val storedUsername = tokenStore.getUsername()
-        val storedUserId = tokenStore.getUserId()
-        val hasToken = authRepository.currentToken() != null
+        val useServer = serverSettingsStore.isConfigured
+        val serverSession = if (useServer) {
+            ongakuAuthRepository.currentSession()
+        } else {
+            null
+        }
+        val storedUsername = if (useServer) serverSession?.username else tokenStore.getUsername()
+        val storedUserId = if (useServer) serverSession?.kitsuUserId else tokenStore.getUserId()
+        val hasToken = if (useServer) serverSession != null else authRepository.currentToken() != null
         val isLinked = storedUsername != null && storedUserId != null
         _authState.value = AuthState(
             username = storedUsername ?: "",
@@ -116,6 +130,11 @@ class ImportViewModel @Inject constructor(
             return
         }
 
+        if (serverSettingsStore.isConfigured) {
+            signInToServer(username, password)
+            return
+        }
+
         viewModelScope.launch {
             _authState.value = _authState.value.copy(authError = null, isAuthenticating = true)
             try {
@@ -147,7 +166,40 @@ class ImportViewModel @Inject constructor(
         }
     }
 
+    private fun signInToServer(username: String, password: String) {
+        viewModelScope.launch {
+            _authState.value = _authState.value.copy(authError = null, isAuthenticating = true)
+            try {
+                val session = ongakuAuthRepository.login(
+                    username = username,
+                    password = password,
+                    deviceName = deviceName()
+                )
+                _authState.value = _authState.value.copy(
+                    username = session.username,
+                    password = "",
+                    userId = session.kitsuUserId,
+                    isSignedIn = true,
+                    isLinked = true,
+                    linkedUsername = session.username,
+                    isAuthenticating = false
+                )
+                runCatching { ongakuApi.startSync(OngakuSyncRequest(full = false)) }
+            } catch (exception: Exception) {
+                _authState.value = _authState.value.copy(
+                    authError = exception.toReadableMessage(prefix = "Server sign-in failed"),
+                    isAuthenticating = false
+                )
+            }
+        }
+    }
+
     private fun performSync(forceFullSync: Boolean) {
+        if (serverSettingsStore.isConfigured) {
+            performServerSync(forceFullSync)
+            return
+        }
+
         viewModelScope.launch {
             _authState.value = _authState.value.copy(authError = null, isAuthenticating = true)
             try {
@@ -185,12 +237,44 @@ class ImportViewModel @Inject constructor(
         }
     }
 
+    private fun performServerSync(forceFullSync: Boolean) {
+        viewModelScope.launch {
+            _authState.value = _authState.value.copy(authError = null, isAuthenticating = true)
+            try {
+                val session = ongakuAuthRepository.currentSession()
+                if (session == null) {
+                    _authState.value = _authState.value.copy(
+                        authError = "No server session found. Please sign in again.",
+                        isLinked = false,
+                        isSignedIn = false,
+                        isAuthenticating = false
+                    )
+                    return@launch
+                }
+                ongakuApi.startSync(OngakuSyncRequest(full = forceFullSync))
+                _authState.value = _authState.value.copy(
+                    userId = session.kitsuUserId,
+                    isSignedIn = true,
+                    isLinked = true,
+                    linkedUsername = session.username,
+                    isAuthenticating = false
+                )
+            } catch (exception: Exception) {
+                _authState.value = _authState.value.copy(
+                    authError = exception.toReadableMessage(prefix = "Server sync failed"),
+                    isAuthenticating = false
+                )
+            }
+        }
+    }
+
     private fun startSyncService(userId: String, forceFullSync: Boolean) {
         LibrarySyncService.start(appContext, userId, forceFullSync)
     }
 
     fun unlinkAccount() {
         authRepository.clearToken()
+        ongakuAuthRepository.clearSession()
         tokenStore.clearAll()
         syncManager.cancel()
         _authState.value = AuthState()
@@ -237,6 +321,12 @@ class ImportViewModel @Inject constructor(
         )
     }
 }
+
+private fun deviceName(): String =
+    listOf(Build.MANUFACTURER, Build.MODEL)
+        .joinToString(" ")
+        .trim()
+        .ifBlank { "Android" }
 
 private data class AuthState(
     val username: String = "",
