@@ -19,6 +19,9 @@ const SEARCH_INCLUDE =
 const SINGLE_INCLUDE =
   "resources,images,animesynonyms,animethemes,animethemes.animethemeentries.videos," +
   "animethemes.animethemeentries.videos.audio,animethemes.song,animethemes.song.artists";
+const ARTIST_INCLUDE =
+  "images,songs.animethemes.anime,songs.animethemes.animethemeentries.videos," +
+  "songs.animethemes.animethemeentries.videos.audio,songs.artists";
 
 export class AnimeThemesApiError extends Error {
   constructor(
@@ -80,6 +83,27 @@ export class AnimeThemesClient {
     );
     const anime = parseSingleAnime(json);
     return anime ? toThemeEntries(anime) : [];
+  }
+
+  async search(query: string): Promise<unknown> {
+    const trimmed = query.trim();
+    if (trimmed.length === 0) return { search: [] };
+    return this.getJson(
+      `${API_BASE_URL}/search?${new URLSearchParams({
+        q: trimmed,
+        "fields[search]": "anime,artists",
+        "include[anime]": SEARCH_INCLUDE,
+        "include[artist]": "images",
+      })}`,
+    );
+  }
+
+  async fetchArtist(slug: string): Promise<unknown> {
+    return this.getJson(
+      `${API_BASE_URL}/artist/${encodeURIComponent(slug)}?${new URLSearchParams({
+        include: ARTIST_INCLUDE,
+      })}`,
+    );
   }
 
   private async fetchAllPages(path: string, params: Record<string, string>): Promise<Record<string, unknown>[]> {
