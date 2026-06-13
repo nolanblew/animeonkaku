@@ -79,6 +79,8 @@ Tasks:
 
 **Deliverable:** `KITSU_FULL_SYNC`/`KITSU_DELTA_SYNC`/`MAP_THEMES`/`BACKFILL_SCAN`/`AUTO_PLAYLIST_REFRESH` jobs producing a correct catalog + per-user library.
 
+**Status:** Implemented in [PR #27](https://github.com/nolanblew/animeonkaku/pull/27).
+
 Tasks:
 1. Port `SyncManager.doSync` phase-by-phase (doc 01 lists all 11 phases) into `sync/LibrarySyncPipeline`, writing to the split schema (catalog vs `library_entries`) per doc 05. Drop the 1:1 claimed-id guards in favor of N:1 mapping (doc 05 decision 2); drop hash-fallback theme ids (reject non-numeric).
 2. Fallback chain: MAL-id lookup, strict title/synonym search with the same exact-match guards (`AnimeRepositoryImpl.searchAnimeThemesInternal` logic), `mapping_state=UNMATCHED` terminal state.
