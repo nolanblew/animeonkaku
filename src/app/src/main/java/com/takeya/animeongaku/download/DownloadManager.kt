@@ -263,6 +263,7 @@ class DownloadManager @Inject constructor(
             val downloads = downloadDao.getDownloadsByStatuses(listOf(
                 DownloadRequestEntity.STATUS_COMPLETED,
                 DownloadRequestEntity.STATUS_DOWNLOADING,
+                DownloadRequestEntity.STATUS_RETRYING,
                 DownloadRequestEntity.STATUS_PENDING,
                 DownloadRequestEntity.STATUS_PAUSED,
                 DownloadRequestEntity.STATUS_FAILED,
@@ -313,6 +314,7 @@ class DownloadManager @Inject constructor(
             val active = downloadDao.getDownloadsByStatuses(listOf(
                 DownloadRequestEntity.STATUS_PENDING,
                 DownloadRequestEntity.STATUS_DOWNLOADING,
+                DownloadRequestEntity.STATUS_RETRYING,
                 DownloadRequestEntity.STATUS_PAUSED,
                 DownloadRequestEntity.STATUS_WAITING_FOR_WIFI
             ))
@@ -375,6 +377,7 @@ class DownloadManager @Inject constructor(
             val existing = downloadDao.getDownloadForTheme(theme.id)
             if (existing?.status == DownloadRequestEntity.STATUS_COMPLETED) continue
             if (existing?.status == DownloadRequestEntity.STATUS_DOWNLOADING) continue
+            if (existing?.status == DownloadRequestEntity.STATUS_RETRYING) continue
             downloadDao.insertDownloadIfNotExists(
                 DownloadRequestEntity(themeId = theme.id, status = initialStatus)
             )
@@ -393,6 +396,10 @@ class DownloadManager @Inject constructor(
         }
         if (existing?.status == DownloadRequestEntity.STATUS_DOWNLOADING) {
             Log.d(TAG, "Theme ${theme.id} already downloading, skipping")
+            return
+        }
+        if (existing?.status == DownloadRequestEntity.STATUS_RETRYING) {
+            Log.d(TAG, "Theme ${theme.id} already scheduled to retry, skipping")
             return
         }
 

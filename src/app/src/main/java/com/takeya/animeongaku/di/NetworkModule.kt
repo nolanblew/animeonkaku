@@ -11,21 +11,13 @@ import com.takeya.animeongaku.BuildConfig
 import com.takeya.animeongaku.data.filter.CustomRange
 import com.takeya.animeongaku.data.filter.DateAnchor
 import com.takeya.animeongaku.data.filter.FilterNode
-import com.takeya.animeongaku.data.auth.KitsuAuthRepository
-import com.takeya.animeongaku.data.auth.KitsuAuthRepositoryImpl
-import com.takeya.animeongaku.data.auth.KitsuTokenStore
 import com.takeya.animeongaku.data.auth.OngakuAuthRepository
 import com.takeya.animeongaku.data.auth.OngakuAuthRepositoryImpl
 import com.takeya.animeongaku.data.auth.ServerTokenStore
-import com.takeya.animeongaku.data.remote.ApiConstants
-import com.takeya.animeongaku.data.remote.KitsuApi
-import com.takeya.animeongaku.data.remote.KitsuAuthApi
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.network.OngakuAuthInterceptor
 import com.takeya.animeongaku.network.OngakuBaseUrlInterceptor
-import com.takeya.animeongaku.network.KitsuAuthInterceptor
-import com.takeya.animeongaku.network.RateLimitInterceptor
 import com.takeya.animeongaku.network.RetryInterceptor
 import dagger.Module
 import dagger.Provides
@@ -108,7 +100,6 @@ object NetworkModule {
         }
 
         return OkHttpClient.Builder()
-            .addInterceptor(RateLimitInterceptor())
             .addInterceptor(RetryInterceptor())
             .addInterceptor(logging)
             .build()
@@ -118,32 +109,6 @@ object NetworkModule {
     @Singleton
     fun provideOkHttpClient(@Named("base") baseClient: OkHttpClient): OkHttpClient {
         return baseClient
-    }
-
-    @Provides
-    @Singleton
-    @Named("kitsu")
-    fun provideKitsuOkHttpClient(
-        @Named("base") baseClient: OkHttpClient,
-        kitsuAuthInterceptor: KitsuAuthInterceptor
-    ): OkHttpClient {
-        return baseClient.newBuilder()
-            .addInterceptor(kitsuAuthInterceptor)
-            .build()
-    }
-
-    @Provides
-    @Singleton
-    @Named("kitsu")
-    fun provideKitsuRetrofit(
-        @Named("kitsu") okHttpClient: OkHttpClient,
-        moshi: Moshi
-    ): Retrofit {
-        return Retrofit.Builder()
-            .baseUrl(ApiConstants.KITSU_BASE_URL)
-            .client(okHttpClient)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
-            .build()
     }
 
     @Provides
@@ -176,32 +141,6 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    @Named("auth")
-    fun provideAuthRetrofit(
-        @Named("base") okHttpClient: OkHttpClient,
-        moshi: Moshi
-    ): Retrofit {
-        return Retrofit.Builder()
-            .baseUrl(ApiConstants.KITSU_AUTH_URL)
-            .client(okHttpClient)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
-            .build()
-    }
-
-    @Provides
-    @Singleton
-    fun provideKitsuApi(@Named("kitsu") retrofit: Retrofit): KitsuApi {
-        return retrofit.create(KitsuApi::class.java)
-    }
-
-    @Provides
-    @Singleton
-    fun provideKitsuAuthApi(@Named("auth") retrofit: Retrofit): KitsuAuthApi {
-        return retrofit.create(KitsuAuthApi::class.java)
-    }
-
-    @Provides
-    @Singleton
     fun provideOngakuApi(@Named("ongaku") retrofit: Retrofit): OngakuApi {
         return retrofit.create(OngakuApi::class.java)
     }
@@ -225,12 +164,6 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideTokenStore(prefs: SharedPreferences): KitsuTokenStore {
-        return KitsuTokenStore(prefs)
-    }
-
-    @Provides
-    @Singleton
     fun provideServerSettingsStore(prefs: SharedPreferences): ServerSettingsStore {
         return ServerSettingsStore(prefs)
     }
@@ -240,12 +173,6 @@ object NetworkModule {
     fun provideServerTokenStore(prefs: SharedPreferences): ServerTokenStore {
         return ServerTokenStore(prefs)
     }
-
-    @Provides
-    @Singleton
-    fun provideKitsuAuthRepository(
-        impl: KitsuAuthRepositoryImpl
-    ): KitsuAuthRepository = impl
 
     @Provides
     @Singleton

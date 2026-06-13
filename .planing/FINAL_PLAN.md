@@ -134,6 +134,8 @@ Tasks:
 
 **Deliverable:** server mode is the only mode; dead code removed.
 
+**Status:** Implemented in [PR #31](https://github.com/nolanblew/animeonkaku/pull/31).
+
 Tasks:
 1. One-time migration for existing installs per doc 07 §Migration (push likes/plays/manual playlists/dynamic specs up; URL rewrite happens via pull).
 2. Delete legacy code (deletion list in doc 07) + their Hilt providers; remove `RateLimitInterceptor`; trim `KitsuTokenStore` to nothing or delete.

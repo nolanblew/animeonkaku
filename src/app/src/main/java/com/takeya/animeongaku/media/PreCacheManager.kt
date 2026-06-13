@@ -4,7 +4,9 @@ import android.util.Log
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.CacheKeyFactory
 import androidx.media3.datasource.cache.CacheWriter
+import androidx.media3.datasource.cache.ContentMetadata
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -98,9 +100,21 @@ class PreCacheManager @Inject constructor(
 
     private fun isCached(url: String): Boolean {
         val cache = audioCacheProvider.cache
-        val keys = cache.keys
-        // SimpleCache uses the URI as the cache key by default
-        return keys.contains(url)
+        val dataSpec = DataSpec.Builder()
+            .setUri(url)
+            .build()
+        val key = CacheKeyFactory.DEFAULT.buildCacheKey(dataSpec)
+        val contentLength = ContentMetadata.getContentLength(cache.getContentMetadata(key))
+
+        if (contentLength >= 0) {
+            val cachedBytes = if (cache.isCached(key, 0, contentLength)) contentLength else 0L
+            return isCacheComplete(contentLength, cachedBytes)
+        }
+
+        return isCacheComplete(
+            contentLength = contentLength,
+            cachedBytes = if (cache.keys.contains(key)) 1L else 0L
+        )
     }
 
     private fun startPeriodicEviction() {
@@ -149,5 +163,13 @@ class PreCacheManager @Inject constructor(
         } catch (e: Exception) {
             Log.w(TAG, "Eviction error", e)
         }
+    }
+}
+
+internal fun isCacheComplete(contentLength: Long, cachedBytes: Long): Boolean {
+    return if (contentLength >= 0L) {
+        cachedBytes >= contentLength
+    } else {
+        cachedBytes > 0L
     }
 }

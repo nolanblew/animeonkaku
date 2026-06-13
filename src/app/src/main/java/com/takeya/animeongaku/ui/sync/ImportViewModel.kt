@@ -1,28 +1,21 @@
 package com.takeya.animeongaku.ui.sync
 
-import android.content.Context
 import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.takeya.animeongaku.data.local.AnimeDao
-import com.takeya.animeongaku.data.auth.KitsuAuthRepository
-import com.takeya.animeongaku.data.auth.AuthException
-import com.takeya.animeongaku.data.auth.KitsuTokenStore
 import com.takeya.animeongaku.data.auth.OngakuAuthRepository
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.remote.OngakuSyncRequest
 import com.takeya.animeongaku.data.repository.LibrarySyncProgress
 import com.takeya.animeongaku.data.repository.ThemeMappingProgress
-import com.takeya.animeongaku.data.repository.UserRepository
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.sync.LibraryPullManager
-import com.takeya.animeongaku.sync.LibrarySyncService
-import com.takeya.animeongaku.sync.SyncManager
+import com.takeya.animeongaku.sync.ServerMigrationManager
 import com.takeya.animeongaku.sync.SyncPhase
 import com.takeya.animeongaku.sync.SyncState
 import com.takeya.animeongaku.sync.toSyncState
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,19 +26,14 @@ import kotlinx.coroutines.launch
 
 @HiltViewModel
 class ImportViewModel @Inject constructor(
-    private val authRepository: KitsuAuthRepository,
     private val ongakuAuthRepository: OngakuAuthRepository,
     private val ongakuApi: OngakuApi,
-    private val userRepository: UserRepository,
     private val animeDao: AnimeDao,
-    private val tokenStore: KitsuTokenStore,
     private val serverSettingsStore: ServerSettingsStore,
     private val libraryPullManager: LibraryPullManager,
-    val syncManager: SyncManager,
-    @ApplicationContext private val appContext: Context
+    private val serverMigrationManager: ServerMigrationManager
 ) : ViewModel() {
     companion object {
-        private const val TAG = "ImportViewModel"
         private const val SERVER_SYNC_POLL_INTERVAL_MS = 2_000L
     }
 
@@ -56,15 +44,10 @@ class ImportViewModel @Inject constructor(
     val anime = animeDao.observeAll()
 
     init {
-        val useServer = serverSettingsStore.isConfigured
-        val serverSession = if (useServer) {
-            ongakuAuthRepository.currentSession()
-        } else {
-            null
-        }
-        val storedUsername = if (useServer) serverSession?.username else tokenStore.getUsername()
-        val storedUserId = if (useServer) serverSession?.kitsuUserId else tokenStore.getUserId()
-        val hasToken = if (useServer) serverSession != null else authRepository.currentToken() != null
+        val serverSession = ongakuAuthRepository.currentSession()
+        val storedUsername = serverSession?.username
+        val storedUserId = serverSession?.kitsuUserId
+        val hasToken = serverSession != null
         val isLinked = storedUsername != null && storedUserId != null
         _authState.value = AuthState(
             username = storedUsername ?: "",
@@ -78,8 +61,8 @@ class ImportViewModel @Inject constructor(
 
         uiState = MutableStateFlow(ImportUiState()).also { flow ->
             viewModelScope.launch {
-                combine(_authState, syncManager.state, _serverSyncState) { auth, legacySync, serverSync ->
-                    val sync = if (serverSettingsStore.isConfigured) serverSync else legacySync
+                combine(_authState, _serverSyncState) { auth, serverSync ->
+                    val sync = serverSync
                     mapToUiState(auth, sync)
                 }.collect { flow.value = it }
             }
@@ -117,13 +100,12 @@ class ImportViewModel @Inject constructor(
 
     fun confirmForceFullSync() {
         _showResyncConfirmation.value = false
-        tokenStore.saveLastSyncedAt(0L)
         performSync(forceFullSync = true)
     }
 
-    fun pauseSync() = syncManager.pause()
-    fun resumeSync() = syncManager.resume()
-    fun cancelSync() = syncManager.cancel()
+    fun pauseSync() = Unit
+    fun resumeSync() = Unit
+    fun cancelSync() = Unit
 
     private fun signInAndSync() {
         val username = _authState.value.username.trim()
@@ -137,40 +119,13 @@ class ImportViewModel @Inject constructor(
             return
         }
 
-        if (serverSettingsStore.isConfigured) {
-            signInToServer(username, password)
+        if (!serverSettingsStore.isConfigured) {
+            _authState.value = _authState.value.copy(
+                authError = "Configure your Anime Ongaku server URL in Settings first."
+            )
             return
         }
-
-        viewModelScope.launch {
-            _authState.value = _authState.value.copy(authError = null, isAuthenticating = true)
-            try {
-                authRepository.login(username = username, password = password)
-                _authState.value = _authState.value.copy(isSignedIn = true)
-                val selfId = userRepository.getAuthenticatedUserId()
-                if (selfId == null) {
-                    _authState.value = _authState.value.copy(
-                        authError = "Signed in, but Kitsu profile could not be loaded.",
-                        isAuthenticating = false
-                    )
-                    return@launch
-                }
-                tokenStore.saveUsername(username)
-                tokenStore.saveUserId(selfId)
-                _authState.value = _authState.value.copy(
-                    isLinked = true,
-                    linkedUsername = username,
-                    userId = selfId,
-                    isAuthenticating = false
-                )
-                startSyncService(selfId, forceFullSync = false)
-            } catch (exception: Exception) {
-                _authState.value = _authState.value.copy(
-                    authError = exception.toReadableMessage(prefix = "Sign-in failed"),
-                    isAuthenticating = false
-                )
-            }
-        }
+        signInToServer(username, password)
     }
 
     private fun signInToServer(username: String, password: String) {
@@ -191,6 +146,7 @@ class ImportViewModel @Inject constructor(
                     linkedUsername = session.username,
                     isAuthenticating = false
                 )
+                serverMigrationManager.migrateIfNeeded()
                 performServerSync(forceFullSync = false)
             } catch (exception: Exception) {
                 _authState.value = _authState.value.copy(
@@ -202,46 +158,13 @@ class ImportViewModel @Inject constructor(
     }
 
     private fun performSync(forceFullSync: Boolean) {
-        if (serverSettingsStore.isConfigured) {
-            performServerSync(forceFullSync)
+        if (!serverSettingsStore.isConfigured) {
+            _authState.value = _authState.value.copy(
+                authError = "Configure your Anime Ongaku server URL in Settings first."
+            )
             return
         }
-
-        viewModelScope.launch {
-            _authState.value = _authState.value.copy(authError = null, isAuthenticating = true)
-            try {
-                val token = try {
-                    authRepository.refreshIfNeeded()
-                } catch (e: Exception) {
-                    null
-                }
-                val userId = tokenStore.getUserId()
-                if (userId == null) {
-                    _authState.value = _authState.value.copy(
-                        authError = "No linked account found. Please sign in again.",
-                        isAuthenticating = false
-                    )
-                    return@launch
-                }
-                if (token == null) {
-                    _authState.value = _authState.value.copy(
-                        authError = "Your session has expired. Please sign in again.",
-                        isLinked = false,
-                        isSignedIn = false,
-                        isAuthenticating = false
-                    )
-                    authRepository.clearToken()
-                    return@launch
-                }
-                _authState.value = _authState.value.copy(isAuthenticating = false)
-                startSyncService(userId, forceFullSync)
-            } catch (exception: Exception) {
-                _authState.value = _authState.value.copy(
-                    authError = exception.toReadableMessage(prefix = "Sync failed"),
-                    isAuthenticating = false
-                )
-            }
-        }
+        performServerSync(forceFullSync)
     }
 
     private fun performServerSync(forceFullSync: Boolean) {
@@ -310,15 +233,9 @@ class ImportViewModel @Inject constructor(
         }
     }
 
-    private fun startSyncService(userId: String, forceFullSync: Boolean) {
-        LibrarySyncService.start(appContext, userId, forceFullSync)
-    }
-
     fun unlinkAccount() {
-        authRepository.clearToken()
         ongakuAuthRepository.clearSession()
-        tokenStore.clearAll()
-        syncManager.cancel()
+        serverSettingsStore.resetServerMigration()
         _authState.value = AuthState()
     }
 
@@ -383,7 +300,6 @@ private data class AuthState(
 
 private fun Exception.toReadableMessage(prefix: String): String {
     return when (this) {
-        is AuthException -> "$prefix: ${message}"
         is retrofit2.HttpException -> "$prefix (HTTP ${code()}): ${message()}"
         else -> "$prefix: ${message}"
     }

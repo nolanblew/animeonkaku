@@ -16,7 +16,6 @@ import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.repository.AnimeRepository
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
-import com.takeya.animeongaku.data.repository.UserRepository
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
@@ -90,7 +89,6 @@ class AnimeDetailViewModel @Inject constructor(
     private val themeDao: ThemeDao,
     private val playlistDao: PlaylistDao,
     private val animeRepository: AnimeRepository,
-    private val userRepository: UserRepository,
     private val serverPlaylistWriter: ServerPlaylistWriter,
     val nowPlayingManager: NowPlayingManager,
     val downloadManager: DownloadManager,
@@ -160,7 +158,7 @@ class AnimeDetailViewModel @Inject constructor(
             _isLoading.value = true
             _fetchError.value = null
             try {
-                val syncResult = animeRepository.fetchAnimeByExternalIds("Kitsu", listOf(kitsuId))
+                val syncResult = animeRepository.fetchAnimeByKitsuId(kitsuId)
                 if (syncResult.themes.isNotEmpty()) {
                     _onlineEntries.value = syncResult.themes
                     _onlineThemes.value = sortThemes(syncResult.themes.map { entryToThemeEntity(it) })
@@ -184,33 +182,16 @@ class AnimeDetailViewModel @Inject constructor(
         }
     }
 
-    private suspend fun buildOnlineAnimeEntity(entry: AnimeThemeEntry, animeThemesId: Long): AnimeEntity {
-        return try {
-            val details = userRepository.getAnimeDetails(listOf(kitsuId))
-            val match = details.firstOrNull()
-            AnimeEntity(
-                kitsuId = kitsuId,
-                animeThemesId = animeThemesId,
-                title = match?.title ?: entry.animeName ?: "Unknown",
-                titleEn = match?.titleEn ?: entry.animeNameEn,
-                titleRomaji = match?.titleRomaji,
-                titleJa = match?.titleJa,
-                thumbnailUrl = match?.posterUrl ?: entry.coverUrl,
-                coverUrl = match?.coverUrl ?: entry.coverUrl,
-                syncedAt = System.currentTimeMillis()
-            )
-        } catch (_: Exception) {
-            AnimeEntity(
-                kitsuId = kitsuId,
-                animeThemesId = animeThemesId,
-                title = entry.animeName ?: "Unknown",
-                titleEn = entry.animeNameEn,
-                thumbnailUrl = entry.coverUrl,
-                coverUrl = entry.coverUrl,
-                syncedAt = System.currentTimeMillis()
-            )
-        }
-    }
+    private fun buildOnlineAnimeEntity(entry: AnimeThemeEntry, animeThemesId: Long): AnimeEntity =
+        AnimeEntity(
+            kitsuId = kitsuId,
+            animeThemesId = animeThemesId,
+            title = entry.animeNameEn ?: entry.animeName ?: "Unknown",
+            titleEn = entry.animeNameEn,
+            thumbnailUrl = entry.coverUrl,
+            coverUrl = entry.coverUrl,
+            syncedAt = System.currentTimeMillis()
+        )
 
     fun saveAllToLibrary() {
         viewModelScope.launch {

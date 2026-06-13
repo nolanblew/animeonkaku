@@ -35,6 +35,16 @@ class ServerStoresTest {
     }
 
     @Test
+    fun `server settings track one time migration completion`() {
+        val store = ServerSettingsStore(FakeSharedPreferences())
+
+        assertFalse(store.isServerMigrationComplete)
+        store.markServerMigrationComplete()
+
+        assertTrue(store.isServerMigrationComplete)
+    }
+
+    @Test
     fun `server token store saves session metadata and clears it`() {
         val store = ServerTokenStore(FakeSharedPreferences())
 

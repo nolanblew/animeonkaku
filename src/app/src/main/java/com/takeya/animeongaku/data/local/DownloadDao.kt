@@ -42,16 +42,16 @@ interface DownloadDao {
     @Query("SELECT COALESCE(SUM(fileSize), 0) FROM download_request WHERE status = '${DownloadRequestEntity.STATUS_COMPLETED}'")
     suspend fun getTotalDownloadSize(): Long
 
-    @Query("SELECT * FROM download_request WHERE status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_FAILED}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')")
+    @Query("SELECT * FROM download_request WHERE status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_RETRYING}', '${DownloadRequestEntity.STATUS_FAILED}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')")
     suspend fun getPendingAndFailedDownloads(): List<DownloadRequestEntity>
 
     @Query("SELECT COUNT(*) FROM download_request WHERE status = '${DownloadRequestEntity.STATUS_COMPLETED}'")
     fun observeCompletedCount(): Flow<Int>
 
-    @Query("SELECT COUNT(*) FROM download_request WHERE status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')")
+    @Query("SELECT COUNT(*) FROM download_request WHERE status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_RETRYING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')")
     fun observeActiveCount(): Flow<Int>
 
-    @Query("SELECT COUNT(*) FROM download_request WHERE status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')")
+    @Query("SELECT COUNT(*) FROM download_request WHERE status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_RETRYING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')")
     suspend fun getActiveDownloadCount(): Int
 
     // Batch-aware queries: only count themes in groups that still have active downloads.
@@ -62,7 +62,7 @@ interface DownloadDao {
         WHERE dgt.groupId IN (
             SELECT DISTINCT dgt2.groupId FROM download_group_theme dgt2
             INNER JOIN download_request dr ON dgt2.themeId = dr.themeId
-            WHERE dr.status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')
+            WHERE dr.status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_RETRYING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')
         )
     """)
     suspend fun getActiveBatchTotalCount(): Int
@@ -74,7 +74,7 @@ interface DownloadDao {
         AND dgt.groupId IN (
             SELECT DISTINCT dgt2.groupId FROM download_group_theme dgt2
             INNER JOIN download_request dr2 ON dgt2.themeId = dr2.themeId
-            WHERE dr2.status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')
+            WHERE dr2.status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_RETRYING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')
         )
     """)
     suspend fun getActiveBatchCompletedCount(): Int
@@ -84,7 +84,7 @@ interface DownloadDao {
         WHERE dgt.groupId IN (
             SELECT DISTINCT dgt2.groupId FROM download_group_theme dgt2
             INNER JOIN download_request dr ON dgt2.themeId = dr.themeId
-            WHERE dr.status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')
+            WHERE dr.status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_RETRYING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')
         )
     """)
     fun observeActiveBatchTotalCount(): Flow<Int>
@@ -96,7 +96,7 @@ interface DownloadDao {
         AND dgt.groupId IN (
             SELECT DISTINCT dgt2.groupId FROM download_group_theme dgt2
             INNER JOIN download_request dr2 ON dgt2.themeId = dr2.themeId
-            WHERE dr2.status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')
+            WHERE dr2.status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_RETRYING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')
         )
     """)
     fun observeActiveBatchCompletedCount(): Flow<Int>
@@ -122,13 +122,16 @@ interface DownloadDao {
     @Query("UPDATE download_request SET status = '${DownloadRequestEntity.STATUS_FAILED}', errorMessage = :error, updatedAt = :now WHERE themeId = :themeId")
     suspend fun markFailed(themeId: Long, error: String, now: Long = System.currentTimeMillis())
 
+    @Query("UPDATE download_request SET status = '${DownloadRequestEntity.STATUS_RETRYING}', errorMessage = :error, updatedAt = :now WHERE themeId = :themeId")
+    suspend fun markRetrying(themeId: Long, error: String, now: Long = System.currentTimeMillis())
+
     @Query("DELETE FROM download_request WHERE themeId = :themeId")
     suspend fun deleteDownload(themeId: Long)
 
     @Query("DELETE FROM download_request")
     suspend fun deleteAllDownloads()
 
-    @Query("UPDATE download_request SET status = '${DownloadRequestEntity.STATUS_PAUSED}', updatedAt = :now WHERE status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')")
+    @Query("UPDATE download_request SET status = '${DownloadRequestEntity.STATUS_PAUSED}', updatedAt = :now WHERE status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_RETRYING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')")
     suspend fun pauseAllActive(now: Long = System.currentTimeMillis())
 
     // --- DownloadGroup queries ---
@@ -194,7 +197,7 @@ interface DownloadDao {
 
     @Query("""
         SELECT themeId FROM download_request
-        WHERE status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')
+        WHERE status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_RETRYING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')
     """)
     fun observeDownloadingThemeIds(): Flow<List<Long>>
 

@@ -75,6 +75,9 @@ private class FakeUserPreferenceDao : UserPreferenceDao {
     override fun observeAllPreferences(): Flow<List<UserPreferenceEntity>> =
         flowOf(preferences.values.toList())
 
+    override suspend fun getAllPreferences(): List<UserPreferenceEntity> =
+        preferences.values.toList()
+
     override suspend fun insertOrUpdate(preference: UserPreferenceEntity) {
         preferences[preference.themeId] = preference
         saved += preference
@@ -124,8 +127,10 @@ private class RecordingOngakuApi : OngakuApi {
     override suspend fun revokeDevice(id: Long): Response<Unit> = Response.success(Unit)
     override suspend fun library(since: Long?): OngakuLibraryResponse = error("unused")
     override suspend fun anime(kitsuId: String): OngakuAnimeDetailResponse = error("unused")
-    override suspend fun search(query: String): Any = error("unused")
-    override suspend fun artist(slug: String): Any = error("unused")
+    override suspend fun search(query: String): com.takeya.animeongaku.data.remote.OngakuSearchResponse =
+        error("unused")
+    override suspend fun artist(slug: String): com.takeya.animeongaku.data.remote.AnimeThemesSingleArtistResponse =
+        error("unused")
     override suspend fun addAnime(request: OngakuManualAnimeRequest): OngakuManualAnimeResponse = error("unused")
     override suspend fun removeAnime(kitsuId: String): Response<Unit> = Response.success(Unit)
     override suspend fun themePrefs(): List<OngakuThemePrefDto> = error("unused")

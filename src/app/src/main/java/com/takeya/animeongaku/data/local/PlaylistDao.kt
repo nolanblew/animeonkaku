@@ -74,6 +74,9 @@ interface PlaylistDao {
     @Query("SELECT id FROM playlists WHERE isAuto = 1")
     suspend fun getAutoPlaylistIds(): List<Long>
 
+    @Query("SELECT * FROM playlists WHERE isAuto = 0 ORDER BY createdAt ASC")
+    suspend fun getManualPlaylists(): List<PlaylistEntity>
+
     @Query("""
         SELECT a.coverUrl, a.thumbnailUrl
         FROM playlist_entries pe

@@ -43,16 +43,6 @@
         </service>
 
         <service
-            android:name=".sync.LibrarySyncService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
-
-        <service
-            android:name=".sync.StatusSyncService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
-
-        <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             android:exported="false"
