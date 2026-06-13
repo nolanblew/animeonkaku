@@ -2,8 +2,8 @@
 
 **Date:** 2026-06-13
 **Branch audited:** `feature/server-initiative` (HEAD `6c497ad`)
-**Scope:** Server + Android client work delivered against `.planing/FINAL_PLAN.md` (milestones S1–S5, A1, I1, I2) and the QA cycle in `.planning/`.
-**Method:** Read the plan + spike docs (`.planing/01–08`, `FINAL_PLAN.md`) and both QA reports (`.planning/QA-report.md`, `QA-retest-report.md`); cross-checked the actual server and Android source; independently re-ran the server test suite and typecheck.
+**Scope:** Server + Android client work delivered against `.planning/FINAL_PLAN.md` (milestones S1–S5, A1, I1, I2) and the QA cycle in `.planning/`.
+**Method:** Read the plan + spike docs (`.planning/01–08`, `FINAL_PLAN.md`) and both QA reports (`.planning/QA-report.md`, `QA-retest-report.md`); cross-checked the actual server and Android source; independently re-ran the server test suite and typecheck.
 
 ---
 
@@ -12,6 +12,20 @@
 The initiative is **substantially complete and faithfully executed.** Every milestone the plan claims done (PRs #24–#31) is reflected in real code: the server exists with the full queue/media/sync/API surface, the Android client is a thin server client, and the doc 07 deletion list and doc 08 opportunistic bug fixes were actually carried out. The retest report's "Pass" claims line up with what's in the tree.
 
 The findings below are **not** "the work wasn't done" — they're a handful of real fragilities and hygiene gaps that should be tracked. The one that genuinely matters operationally is the **AnimeThemes Cloudflare 403** (Finding 1): the entire theme/media pipeline depends on a header-spoof workaround that can silently re-break the whole product.
+
+---
+
+## Resolution status (addressed on `feature/fixes`)
+
+| Finding | Status | What changed |
+|---|---|---|
+| 1 — AnimeThemes 403 single point of failure | **Addressed** | `UpstreamHttp.breakerStatuses` now opens the circuit on repeated AnimeThemes `403`/`451` (stops hammering); `/v1/sync/status` exposes `mapping` + `upstreamBlocked` so a 0-themes library is diagnosable; new `ANIMETHEMES_BASE_URL` egress lever; documented as the #1 risk in `server/README.md` + `.env.example`. Health-endpoint surfacing intentionally left out (would need breaker plumbing into `/healthz`) — sync-status is the client-visible path. |
+| 2 — image routes enqueue jobs on unauth miss | **Verified already mitigated; no code change** | `sendImage` calls `findImage` first, which returns `null` (→404) for any `refId` without a real catalog row, so unauthenticated callers cannot seed arbitrary `FETCH_IMAGE` jobs. The recommended "validate refId before enqueue" guard already exists. Unauthenticated image *reads* remain deliberate (Coil can't send a bearer) and within the LAN threat model. |
+| 3 — hard-coded media Content-Type | **Addressed (audio)** | Video-fallback audio (doc 08 #11) is now served as `video/webm` via the existing `media_files.video_fallback` flag instead of `audio/ogg`. Image content-type stays `image/jpeg` (fixing it properly needs a stored-content-type column / migration; deferred as genuinely Low). |
+| 4 — video URLs dropped | **No action (intentional per plan)** | Confirmed correct; webm-only themes remain playable through the audio route. |
+| 5 — stale `CURRENT_TASK.md` + misspelled folder | **Addressed** | Deleted the stale `CURRENT_TASK.md`; consolidated the typo'd `.planing/` into `.planning/` and updated all path references repo-wide. |
+
+> The original finding text below is preserved as written at audit time; the table above is the as-resolved view.
 
 ---
 
@@ -101,8 +115,8 @@ Per the retest's upstream-boundary audit and confirmed in code: server theme DTO
 
 ### 5. Planning-doc hygiene: stale `CURRENT_TASK.md` and a misspelled folder  🟡 Medium (will mislead the next dev)
 
-- `.planing/CURRENT_TASK.md` still says **"S2: Upstream clients (PAUSED mid-implementation)"** as of 2026-06-12, with "all S2 work is uncommitted." This is now badly out of date — S2 through I2 are all merged (PRs #25–#31) and S2's "next steps" (write `kitsuClient.ts`, AnimeThemes client, wire real auth) are all done. A future dev/agent who reads `CURRENT_TASK.md` first (as it instructs) will be actively misled. **Fix:** delete it, or rewrite it to "all milestones merged; see QA reports."
-- The plan/spike folder is named **`.planing`** (typo) while the QA folder is **`.planning`**. Two near-identical sibling directories is a footgun. Consider consolidating to one correctly-spelled `.planning/`.
+- `.planning/CURRENT_TASK.md` still says **"S2: Upstream clients (PAUSED mid-implementation)"** as of 2026-06-12, with "all S2 work is uncommitted." This is now badly out of date — S2 through I2 are all merged (PRs #25–#31) and S2's "next steps" (write `kitsuClient.ts`, AnimeThemes client, wire real auth) are all done. A future dev/agent who reads `CURRENT_TASK.md` first (as it instructs) will be actively misled. **Fix:** delete it, or rewrite it to "all milestones merged; see QA reports."
+- The plan/spike folder was named **`.planing`** (one `n`, a typo) while the QA folder was **`.planning`**. Two near-identical sibling directories is a footgun. Consolidate to one correctly-spelled `.planning/`. *(Resolved on `feature/fixes`.)*
 
 ---
 
@@ -124,8 +138,8 @@ The only behavioral risk is **runtime/operational** (Finding 1), not a missing p
 
 ## Suggested next actions
 
-1. **(High)** Address Finding 1 — make AnimeThemes-blocked state visible and recoverable. Until then, treat the green retest as "works while the IP isn't blocked," not "robust."
-2. **(Medium)** Finding 2 — gate `FETCH_IMAGE` enqueue behind a catalog-row existence check.
-3. **(Medium)** Finding 5 — fix/delete `.planing/CURRENT_TASK.md` and de-duplicate the planning folders.
-4. **(Low)** Findings 3 — persist & echo real media content types.
-5. Re-run the Android Gradle suite locally to independently confirm the client-side test claim (I only verified the server suite first-hand).
+1. ✅ **(High)** Finding 1 — done: blocked-state is now visible (`upstreamBlocked` on `/v1/sync/status`), repeated 403s open the breaker, and `ANIMETHEMES_BASE_URL` gives an egress lever. Remaining option for later: surface breaker state in `/healthz` too, and consider a full forward-proxy (needs an `undici` dependency).
+2. ✅ **(Medium)** Finding 2 — verified already mitigated by the `findImage`→404 gate; no change needed.
+3. ✅ **(Medium)** Finding 5 — done: stale `CURRENT_TASK.md` deleted, `.planing/` consolidated into `.planning/`.
+4. ◑ **(Low)** Finding 3 — audio webm fallback fixed; image content-type left as `image/jpeg` (proper fix needs a stored-content-type column).
+5. ⏳ Re-run the Android Gradle suite locally to independently confirm the client-side test claim (server suite verified first-hand; Android build cost was out of scope for this pass).

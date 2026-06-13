@@ -1,6 +1,6 @@
 # Anime Ongaku Server
 
-Self-hosted API server for the Anime Ongaku Android app. Design docs live in [`../.planing/`](../.planing/FINAL_PLAN.md). The current server includes the S1 skeleton plus S2 upstream clients for Kitsu and AnimeThemes.
+Self-hosted API server for the Anime Ongaku Android app. Design docs live in [`../.planning/`](../.planning/FINAL_PLAN.md). The current server includes the S1 skeleton plus S2 upstream clients for Kitsu and AnimeThemes.
 
 ## Run with Docker
 
@@ -35,9 +35,36 @@ Schema changes: edit `src/db/schema.ts`, then `npm run db:generate` (never edit 
 | `POST /v1/auth/logout` | bearer | revoke current session |
 | `DELETE /v1/auth/devices/:id` | bearer | revoke another device session |
 
-With `KITSU_AUTH_MODE=stub` (compose default), any non-empty credentials log in and the user id is `stub-<username>`. Set `KITSU_AUTH_MODE=real` to use Kitsu OAuth; the public Kitsu client id/secret default from `../.planing/02-external-apis.md` are already in `.env.example`.
+With `KITSU_AUTH_MODE=stub` (compose default), any non-empty credentials log in and the user id is `stub-<username>`. Set `KITSU_AUTH_MODE=real` to use Kitsu OAuth; the public Kitsu client id/secret default from `../.planning/02-external-apis.md` are already in `.env.example`.
 
-Errors use the envelope `{ "error": { "code": "...", "message": "..." } }`. Full API spec: [`../.planing/04-api-spec.md`](../.planing/04-api-spec.md).
+Errors use the envelope `{ "error": { "code": "...", "message": "..." } }`. Full API spec: [`../.planning/04-api-spec.md`](../.planning/04-api-spec.md).
+
+## Operational notes
+
+### AnimeThemes upstream blocks (most likely failure mode)
+
+The server is the only component that talks to AnimeThemes, and AnimeThemes sits
+behind Cloudflare. If this server's egress IP gets flagged, AnimeThemes returns
+**HTTP 403** and theme mapping cannot complete — the symptom is a library that
+imports anime but shows **0 themes** (no playback, downloads, likes, or search
+results). This is the single most likely thing to break in production.
+
+How the server handles it:
+
+- Repeated AnimeThemes `403`/`451` responses open that host's circuit breaker
+  (`breakerStatuses` in `src/index.ts`) so the job queue stops hammering a
+  blocked origin instead of burning retries.
+- `GET /v1/sync/status` reports the latest theme-mapping job via a `mapping`
+  object and an `upstreamBlocked: true` flag when the failure looks like a
+  block. Check this first when a library has 0 themes — it distinguishes
+  "blocked by upstream" from "nothing to map".
+
+Recovery levers:
+
+- Set `ANIMETHEMES_BASE_URL` to an operator-controlled mirror / reverse-proxy
+  with a different egress, then re-run a sync (`POST /v1/sync` with `full`).
+- Inspect failed jobs: `GET /v1/jobs?status=FAILED` and retry with
+  `POST /v1/jobs/{id}/retry` once egress is healthy.
 
 ## I1 Manual Android Smoke Test
 
