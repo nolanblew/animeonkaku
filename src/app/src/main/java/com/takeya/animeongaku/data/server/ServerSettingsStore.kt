@@ -8,11 +8,18 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 @Singleton
 class ServerSettingsStore @Inject constructor(
-    private val prefs: SharedPreferences
+    private val prefs: SharedPreferences,
+    compiledServerBaseUrl: String? = null
 ) {
+    private val compiledServerBaseUrl: String? = normalizeBaseUrl(compiledServerBaseUrl)
+
+    val isServerBaseUrlCompiled: Boolean
+        get() = compiledServerBaseUrl != null
+
     var serverBaseUrl: String?
-        get() = prefs.getString(KEY_SERVER_BASE_URL, null)
+        get() = compiledServerBaseUrl ?: prefs.getString(KEY_SERVER_BASE_URL, null)
         set(value) {
+            if (isServerBaseUrlCompiled) return
             val normalized = normalizeBaseUrl(value)
             prefs.edit()
                 .apply {

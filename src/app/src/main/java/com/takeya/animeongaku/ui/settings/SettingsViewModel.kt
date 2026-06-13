@@ -21,12 +21,18 @@ class SettingsViewModel @Inject constructor(
     private val _serverBaseUrl = MutableStateFlow(serverSettingsStore.serverBaseUrl.orEmpty())
     val serverBaseUrl: StateFlow<String> = _serverBaseUrl.asStateFlow()
 
+    val isServerBaseUrlCompiled: Boolean = serverSettingsStore.isServerBaseUrlCompiled
+
     fun setWifiOnly(enabled: Boolean) {
         downloadPreferences.wifiOnly = enabled
         _wifiOnly.value = enabled
     }
 
     fun setServerBaseUrl(value: String) {
+        if (serverSettingsStore.isServerBaseUrlCompiled) {
+            _serverBaseUrl.value = serverSettingsStore.serverBaseUrl.orEmpty()
+            return
+        }
         _serverBaseUrl.value = value
         serverSettingsStore.serverBaseUrl = value
     }

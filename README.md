@@ -30,6 +30,18 @@ Network sync, search, and playback of non-downloaded tracks require a configured
 
 Already-downloaded files remain playable offline because the Android app keeps its Room cache and downloaded audio files on device.
 
+### Build-Time Server URL
+
+For a personal or device-specific build, set `ONGAKU_SERVER_BASE_URL` before running Gradle. Gradle compiles that value into `BuildConfig.ONGAKU_SERVER_BASE_URL`; when present, the Android settings screen shows the server URL as read-only and the app ignores runtime edits to the server URL.
+
+```powershell
+cd .\src
+$env:ONGAKU_SERVER_BASE_URL = 'http://192.168.1.50:8080/api'
+.\gradlew.bat assembleDebug
+```
+
+Leave `ONGAKU_SERVER_BASE_URL` unset for the normal editable server URL field. The compiled value is visible to anyone who can inspect the APK, so treat it as a convenience for small private builds rather than secret storage.
+
 ## Local Development
 
 Open and build the `src/` Gradle project, not the repository root.

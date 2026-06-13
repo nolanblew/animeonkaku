@@ -67,6 +67,7 @@ fun SettingsScreen(
 ) {
     val wifiOnly by viewModel.wifiOnly.collectAsStateWithLifecycle()
     val serverBaseUrl by viewModel.serverBaseUrl.collectAsStateWithLifecycle()
+    val serverBaseUrlCompiled = viewModel.isServerBaseUrlCompiled
 
     Column(
         modifier = Modifier
@@ -113,9 +114,17 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(4.dp))
             OutlinedTextField(
                 value = serverBaseUrl,
-                onValueChange = viewModel::setServerBaseUrl,
-                label = { Text("Server URL") },
+                onValueChange = { value ->
+                    if (!serverBaseUrlCompiled) viewModel.setServerBaseUrl(value)
+                },
+                readOnly = serverBaseUrlCompiled,
+                label = { Text(if (serverBaseUrlCompiled) "Server URL (compiled)" else "Server URL") },
                 placeholder = { Text("https://ongaku.lan:8080") },
+                supportingText = if (serverBaseUrlCompiled) {
+                    { Text("Set by ONGAKU_SERVER_BASE_URL when this app was built") }
+                } else {
+                    null
+                },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = Mist100),

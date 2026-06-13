@@ -18,6 +18,14 @@ fun getDevVersion(): String {
     return "dev-$dateStr-${getGitHash()}"
 }
 
+fun String.toBuildConfigStringLiteral(): String {
+    val escaped = replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+    return "\"$escaped\""
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -33,6 +41,11 @@ val hasGoogleServicesConfig = listOf(
     file("src/debug/google-services.json"),
     file("src/release/google-services.json")
 ).any { it.exists() }
+
+val ongakuServerBaseUrl = providers.environmentVariable("ONGAKU_SERVER_BASE_URL")
+    .orNull
+    ?.trim()
+    .orEmpty()
 
 if (hasGoogleServicesConfig) {
     apply(plugin = "com.google.gms.google-services")
@@ -52,6 +65,7 @@ android {
         
         buildConfigField("String", "DISPLAY_VERSION", "\"1.0.3\"")
         buildConfigField("boolean", "UPDATER_ENABLED", "false")
+        buildConfigField("String", "ONGAKU_SERVER_BASE_URL", ongakuServerBaseUrl.toBuildConfigStringLiteral())
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -15,6 +15,7 @@ class ServerStoresTest {
         val store = ServerSettingsStore(FakeSharedPreferences())
 
         assertFalse(store.isConfigured)
+        assertFalse(store.isServerBaseUrlCompiled)
         store.serverBaseUrl = " localhost:8080 "
 
         assertEquals("https://localhost:8080/", store.serverBaseUrl)
@@ -22,6 +23,38 @@ class ServerStoresTest {
 
         store.serverBaseUrl = "http://192.168.1.5:8080/api"
         assertEquals("http://192.168.1.5:8080/api/", store.serverBaseUrl)
+    }
+
+    @Test
+    fun `compiled server url configures store without prefs and blocks runtime edits`() {
+        val store = ServerSettingsStore(
+            prefs = FakeSharedPreferences(),
+            compiledServerBaseUrl = " http://192.168.1.5:8080/api "
+        )
+
+        assertTrue(store.isServerBaseUrlCompiled)
+        assertTrue(store.isConfigured)
+        assertEquals("http://192.168.1.5:8080/api/", store.serverBaseUrl)
+
+        store.serverBaseUrl = "https://other.example/"
+
+        assertEquals("http://192.168.1.5:8080/api/", store.serverBaseUrl)
+    }
+
+    @Test
+    fun `blank compiled server url keeps persisted settings editable`() {
+        val store = ServerSettingsStore(
+            prefs = FakeSharedPreferences(),
+            compiledServerBaseUrl = " "
+        )
+
+        assertFalse(store.isServerBaseUrlCompiled)
+        assertFalse(store.isConfigured)
+
+        store.serverBaseUrl = "http://192.168.1.5:8080/api"
+
+        assertEquals("http://192.168.1.5:8080/api/", store.serverBaseUrl)
+        assertTrue(store.isConfigured)
     }
 
     @Test

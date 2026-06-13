@@ -165,7 +165,7 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideServerSettingsStore(prefs: SharedPreferences): ServerSettingsStore {
-        return ServerSettingsStore(prefs)
+        return ServerSettingsStore(prefs, BuildConfig.ONGAKU_SERVER_BASE_URL)
     }
 
     @Provides
