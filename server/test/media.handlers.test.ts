@@ -22,6 +22,7 @@ describe("fetch media handlers", () => {
           audioOriginUrl: "https://v.animethemes.moe/Fallback.webm",
           videoOriginUrl: "https://v.animethemes.moe/Fallback.webm",
         }),
+        listThemeMediaSources: async () => [],
         findImage: async () => null,
       },
       getDiskFreeBytes: async () => 3_000_000_000,
@@ -32,6 +33,7 @@ describe("fetch media handlers", () => {
     expect(store.calls[0]).toMatchObject({
       kind: "AUDIO",
       refId: "42",
+      variant: "SHORT",
       originUrl: "https://v.animethemes.moe/Fallback.webm",
       filePath: "audio/42.ogg",
       videoFallback: true,
@@ -48,6 +50,7 @@ describe("fetch media handlers", () => {
           audioOriginUrl: "https://a.animethemes.moe/Ready.ogg",
           videoOriginUrl: null,
         }),
+        listThemeMediaSources: async () => [],
         findImage: async () => null,
       },
       getDiskFreeBytes: async () => 1_000_000_000,

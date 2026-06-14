@@ -1,8 +1,11 @@
 import { RetryableJobError } from "../jobs/jobWorker.js";
 import type { JobHandler } from "../jobs/types.js";
 import type { MediaCatalogLookup } from "./catalogLookup.js";
+import { themeMediaFilePath } from "./mediaLayout.js";
 import type { MediaStore } from "./mediaStore.js";
-import type { MediaKind } from "./types.js";
+import { CANONICAL_AUDIO, IMAGE_VARIANT, type MediaKind } from "./types.js";
+
+type ImageKind = Exclude<MediaKind, "AUDIO" | "VIDEO">;
 
 const DEFAULT_MIN_FREE_BYTES = 2 * 1024 * 1024 * 1024;
 
@@ -30,6 +33,9 @@ export function createFetchMediaHandlers(deps: FetchMediaHandlersDeps): {
   const minFreeBytes = deps.minFreeBytes ?? DEFAULT_MIN_FREE_BYTES;
 
   return {
+    // Fetches the canonical (AUDIO, SHORT) variant. The variant model lets future
+    // jobs warm (AUDIO, FULL) / (VIDEO, FULL) through the same store; payloads stay
+    // backward-compatible ({ themeId }) and resolve to the canonical audio.
     FETCH_AUDIO: async (payload) => {
       await assertDiskFree(deps.getDiskFreeBytes, minFreeBytes);
       const themeId = requiredNumber(payload.themeId, "themeId");
@@ -38,10 +44,11 @@ export function createFetchMediaHandlers(deps: FetchMediaHandlersDeps): {
       const videoFallback =
         audio.videoOriginUrl !== null && audio.audioOriginUrl === audio.videoOriginUrl;
       await deps.mediaStore.fetchToMediaFile({
-        kind: "AUDIO",
+        kind: CANONICAL_AUDIO.kind,
         refId: String(themeId),
+        variant: CANONICAL_AUDIO.variant,
         originUrl: audio.audioOriginUrl,
-        filePath: `audio/${themeId}.ogg`,
+        filePath: themeMediaFilePath(CANONICAL_AUDIO.kind, CANONICAL_AUDIO.variant, String(themeId)),
         videoFallback,
       });
     },
@@ -54,6 +61,7 @@ export function createFetchMediaHandlers(deps: FetchMediaHandlersDeps): {
       await deps.mediaStore.fetchToMediaFile({
         kind,
         refId,
+        variant: IMAGE_VARIANT,
         originUrl: image.originUrl,
         filePath: imageFilePath(kind, refId),
         videoFallback: false,
@@ -79,14 +87,14 @@ function requiredString(value: unknown, name: string): string {
   throw new RetryableJobError(`Invalid ${name} in job payload`);
 }
 
-function requiredImageKind(value: unknown): Exclude<MediaKind, "AUDIO"> {
+function requiredImageKind(value: unknown): ImageKind {
   if (value === "ANIME_POSTER" || value === "ANIME_COVER" || value === "ARTIST_IMAGE") {
     return value;
   }
   throw new RetryableJobError("Invalid image kind in job payload");
 }
 
-function imageFilePath(kind: Exclude<MediaKind, "AUDIO">, refId: string): string {
+function imageFilePath(kind: ImageKind, refId: string): string {
   if (kind === "ANIME_POSTER") return `images/anime/${refId}/poster.jpg`;
   if (kind === "ANIME_COVER") return `images/anime/${refId}/cover.jpg`;
   return `images/artists/${refId}.jpg`;

@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { artists, kitsuAnime, mediaFiles, themes } from "../db/schema.js";
-import type { MediaState } from "../media/types.js";
+import { CANONICAL_AUDIO, IMAGE_VARIANT, type MediaState } from "../media/types.js";
 import type {
   ImageRouteKind,
   MediaApiRepository,
@@ -26,7 +26,11 @@ export class DrizzleMediaApiRepository implements MediaApiRepository {
       .from(themes)
       .leftJoin(
         mediaFiles,
-        and(eq(mediaFiles.kind, "AUDIO"), eq(mediaFiles.refId, String(themeId))),
+        and(
+          eq(mediaFiles.kind, CANONICAL_AUDIO.kind),
+          eq(mediaFiles.refId, String(themeId)),
+          eq(mediaFiles.variant, CANONICAL_AUDIO.variant),
+        ),
       )
       .where(eq(themes.id, themeId))
       .limit(1);
@@ -53,7 +57,13 @@ export class DrizzleMediaApiRepository implements MediaApiRepository {
         sha256: mediaFiles.sha256,
       })
       .from(mediaFiles)
-      .where(and(eq(mediaFiles.kind, kind), eq(mediaFiles.refId, refId)))
+      .where(
+        and(
+          eq(mediaFiles.kind, kind),
+          eq(mediaFiles.refId, refId),
+          eq(mediaFiles.variant, IMAGE_VARIANT),
+        ),
+      )
       .limit(1);
     const row = rows[0];
     return {

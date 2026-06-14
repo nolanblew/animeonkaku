@@ -26,6 +26,7 @@ import {
   users,
 } from "../db/schema.js";
 import type { KitsuAnimeEntry, KitsuGenre } from "../kitsu/types.js";
+import { CANONICAL_AUDIO } from "../media/types.js";
 import type { KitsuCatalogRecord, SyncRepository, SyncUserAuth } from "./types.js";
 
 type AutoPlaylistKind = "KITSU_LIBRARY" | "CURRENTLY_WATCHING" | "LIKED_SONGS";
@@ -424,7 +425,8 @@ export class DrizzleSyncRepository implements SyncRepository {
       .from(mediaFiles)
       .where(
         and(
-          eq(mediaFiles.kind, "AUDIO"),
+          eq(mediaFiles.kind, CANONICAL_AUDIO.kind),
+          eq(mediaFiles.variant, CANONICAL_AUDIO.variant),
           eq(mediaFiles.state, "READY"),
           inArray(mediaFiles.refId, themeIds.map(String)),
         ),
@@ -437,7 +439,13 @@ export class DrizzleSyncRepository implements SyncRepository {
     const rows = await this.db
       .select({ refId: mediaFiles.refId })
       .from(mediaFiles)
-      .where(and(eq(mediaFiles.kind, "AUDIO"), eq(mediaFiles.state, "FAILED")));
+      .where(
+        and(
+          eq(mediaFiles.kind, CANONICAL_AUDIO.kind),
+          eq(mediaFiles.variant, CANONICAL_AUDIO.variant),
+          eq(mediaFiles.state, "FAILED"),
+        ),
+      );
     return rows
       .map((row) => Number(row.refId))
       .filter((id) => Number.isInteger(id) && id > 0);
@@ -456,7 +464,13 @@ export class DrizzleSyncRepository implements SyncRepository {
         errorMessage: null,
         updatedAt: new Date(),
       })
-      .where(and(eq(mediaFiles.kind, "AUDIO"), inArray(mediaFiles.refId, ids)));
+      .where(
+        and(
+          eq(mediaFiles.kind, CANONICAL_AUDIO.kind),
+          eq(mediaFiles.variant, CANONICAL_AUDIO.variant),
+          inArray(mediaFiles.refId, ids),
+        ),
+      );
   }
 
   async listReadyMediaFilePaths(): Promise<string[]> {

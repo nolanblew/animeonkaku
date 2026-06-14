@@ -59,6 +59,7 @@ export class MediaStore {
         id: 0,
         kind: input.kind,
         refId: input.refId,
+        variant: input.variant,
         originUrl: input.originUrl,
         state: "READY",
         filePath: input.filePath,

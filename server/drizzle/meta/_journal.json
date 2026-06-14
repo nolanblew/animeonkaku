@@ -22,6 +22,13 @@
       "when": 1781316774957,
       "tag": "0002_wealthy_wild_child",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781397734491,
+      "tag": "0003_media_variants",
+      "breakpoints": true
     }
   ]
 }
