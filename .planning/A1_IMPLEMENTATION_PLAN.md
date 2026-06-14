@@ -12,7 +12,7 @@ Add the Android scaffold for server mode while preserving the legacy direct-Kits
 
 ## Tasks
 
-1. Add `OngakuApi` Retrofit service and Moshi DTOs for the v1 server contract from `.planing/04-api-spec.md`.
+1. Add `OngakuApi` Retrofit service and Moshi DTOs for the v1 server contract from `.planning/04-api-spec.md`.
 2. Add server connection/session storage:
    - `ServerSettingsStore` for base URL and pull cursor.
    - `ServerTokenStore` for opaque bearer session token and server user metadata.

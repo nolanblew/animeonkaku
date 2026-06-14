@@ -1,0 +1,2 @@
+06-13 14:33:22.857 27252 27744 I okhttp.OkHttpClient: --> GET https://ongaku.local/v1/search?q=naruto
+06-13 14:33:24.315 27252 27744 I okhttp.OkHttpClient: <-- HTTP FAILED: java.net.UnknownHostException: Unable to resolve host "ongaku.local": No address associated with hostname

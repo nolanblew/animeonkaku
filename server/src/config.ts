@@ -20,6 +20,13 @@ const EnvSchema = z.object({
   KITSU_AUTH_MODE: z.enum(["stub", "real"]).default("stub"),
   SYNC_INTERVAL_MINUTES: z.coerce.number().int().positive().default(360),
   AUDIO_BACKFILL_DELAY_SECONDS: z.coerce.number().int().nonnegative().default(8),
+  // Override the AnimeThemes API origin to route through an operator-controlled
+  // mirror/reverse-proxy when the public host hard-blocks this server's IP
+  // (Cloudflare 403). Defaults to the public API.
+  ANIMETHEMES_BASE_URL: z.preprocess(
+    blankToUndefined,
+    z.string().url().default("https://api.animethemes.moe"),
+  ),
 });
 
 export type Config = z.infer<typeof EnvSchema>;

@@ -14,7 +14,7 @@ import {
   unique,
 } from "drizzle-orm/pg-core";
 
-// Schema contract: .planing/05-server-data-model.md
+// Schema contract: .planning/05-server-data-model.md
 // Every change here goes through `npm run db:generate`; never edit applied migrations.
 
 const createdAt = () =>
@@ -232,7 +232,7 @@ export const mediaFiles = pgTable(
   (t) => [unique("media_files_kind_ref_id_unique").on(t.kind, t.refId)],
 );
 
-// ===== job queue (.planing/06-download-queue-design.md) =====
+// ===== job queue (.planning/06-download-queue-design.md) =====
 
 export const jobs = pgTable(
   "jobs",

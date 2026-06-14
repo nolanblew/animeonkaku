@@ -1,0 +1,2 @@
+06-13 14:37:21.236 28121 28172 I okhttp.OkHttpClient: --> GET https://ongaku.local/v1/anime/11
+06-13 14:37:21.267 28121 28172 I okhttp.OkHttpClient: <-- 200 OK http://127.0.0.1:8080/v1/anime/11 (30ms, 8406-byte body)

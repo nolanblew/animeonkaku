@@ -1,0 +1,13 @@
+06-13 14:51:06.577 30058 30145 D PreCacheManager: Pre-caching: http://127.0.0.1:8080/v1/media/audio/6664
+06-13 14:51:06.593 30058 30145 W PreCacheManager: Failed to pre-cache: http://127.0.0.1:8080/v1/media/audio/6664
+06-13 14:51:06.593 30058 30145 W PreCacheManager: androidx.media3.datasource.HttpDataSource$HttpDataSourceException: java.net.ConnectException: Failed to connect to /127.0.0.1:8080
+06-13 14:51:06.593 30058 30145 W PreCacheManager: Caused by: java.net.ConnectException: Failed to connect to /127.0.0.1:8080
+06-13 14:51:06.593 30058 30145 D PreCacheManager: Already cached: http://127.0.0.1:8080/v1/media/audio/4207
+06-13 14:51:06.711  1609  1939 I MediaFocusControl: requestAudioFocus() from uid/pid 10519/30058 AA=USAGE_MEDIA/CONTENT_TYPE_MUSIC clientId=android.media.AudioManager@1dc3c46androidx.media3.exoplayer.AudioFocusManager$AudioFocusListener@9472e07 callingPack=com.takeya.animeongaku req=1 flags=0x0 sdk=36
+06-13 14:51:06.805 30058 30058 W NotificationProvider: Failed to load bitmap: androidx.media3.datasource.HttpDataSource$HttpDataSourceException: java.net.ConnectException: Failed to connect to /127.0.0.1:8080
+06-13 14:51:06.810 30058 30058 W MediaSessionLegacyStub: Failed to load bitmap: java.net.ConnectException: Failed to connect to /127.0.0.1:8080
+06-13 14:51:06.985 30058 30058 W NotificationProvider: Failed to load bitmap: androidx.media3.datasource.HttpDataSource$HttpDataSourceException: java.net.ConnectException: Failed to connect to /127.0.0.1:8080
+06-13 14:51:07.064 30058 30058 W MediaSessionLegacyStub: Failed to load bitmap: androidx.media3.datasource.HttpDataSource$HttpDataSourceException: java.net.ConnectException: Failed to connect to /127.0.0.1:8080
+06-13 14:51:07.145 30058 30058 W NotificationProvider: Failed to load bitmap: androidx.media3.datasource.HttpDataSource$HttpDataSourceException: java.net.ConnectException: Failed to connect to /127.0.0.1:8080
+06-13 14:51:07.961  2362  2481 W MediaDataLoader: Invalid album art uri http://127.0.0.1:8080/v1/media/images/anime/10028/cover
+06-13 14:51:07.961  2362  2481 W MediaDataLoader: Invalid album art uri http://127.0.0.1:8080/v1/media/images/anime/10028/cover

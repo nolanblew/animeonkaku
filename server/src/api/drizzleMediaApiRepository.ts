@@ -21,6 +21,7 @@ export class DrizzleMediaApiRepository implements MediaApiRepository {
         filePath: mediaFiles.filePath,
         byteSize: mediaFiles.byteSize,
         sha256: mediaFiles.sha256,
+        videoFallback: mediaFiles.videoFallback,
       })
       .from(themes)
       .leftJoin(
@@ -38,6 +39,7 @@ export class DrizzleMediaApiRepository implements MediaApiRepository {
       filePath: row.filePath,
       byteSize: row.byteSize,
       sha256: row.sha256,
+      videoFallback: row.videoFallback ?? false,
     };
   }
 

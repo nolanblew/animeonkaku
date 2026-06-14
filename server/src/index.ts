@@ -55,9 +55,15 @@ const animeThemesHttp = new UpstreamHttp({
   bucket: new TokenBucket({ capacity: 3, refillPerSecond: 3 }),
   breaker: new CircuitBreaker(),
   name: "animethemes",
+  // Cloudflare hard-blocks with 403 (and occasionally 451); treat repeated
+  // blocks as breaker failures so the queue stops hammering a blocked origin.
+  breakerStatuses: [403, 451],
 });
 const kitsuClient = new KitsuClient({ http: kitsuHttp });
-const animeThemesClient = new AnimeThemesClient({ http: animeThemesHttp });
+const animeThemesClient = new AnimeThemesClient({
+  http: animeThemesHttp,
+  baseUrl: config.ANIMETHEMES_BASE_URL,
+});
 const syncPipeline = new LibrarySyncPipeline({
   repo: syncRepo,
   kitsu: kitsuClient,

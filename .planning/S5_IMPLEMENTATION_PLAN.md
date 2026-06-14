@@ -2,7 +2,7 @@
 
 ## Scope
 
-Implement every client-facing endpoint in `.planing/04-api-spec.md` on top of the S1-S4 server foundation.
+Implement every client-facing endpoint in `.planning/04-api-spec.md` on top of the S1-S4 server foundation.
 
 ## Shape
 
@@ -34,5 +34,5 @@ Implement every client-facing endpoint in `.planing/04-api-spec.md` on top of th
 
 ## Notes
 
-- The existing untracked `.planing/CURRENT_TASK.md` is stale S2 state and is intentionally left untouched.
+- The existing untracked `.planning/CURRENT_TASK.md` is stale S2 state and is intentionally left untouched.
 - This S5 branch is based on `feature/server-initiative` after PR #27 was merged.

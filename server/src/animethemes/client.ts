@@ -8,7 +8,7 @@ import {
 } from "./parse.js";
 import type { AnimeThemeEntry, AnimeThemesLookupResult } from "./types.js";
 
-const API_BASE_URL = "https://api.animethemes.moe";
+const DEFAULT_API_BASE_URL = "https://api.animethemes.moe";
 const BATCH_LIMIT = 50;
 const MAP_INCLUDE =
   "resources,animethemes,animethemes.animethemeentries.videos," +
@@ -40,10 +40,16 @@ export class AnimeThemesApiError extends Error {
 
 export interface AnimeThemesClientDeps {
   http: UpstreamHttp;
+  /** Override the API origin (no trailing slash). Defaults to the public host. */
+  baseUrl?: string;
 }
 
 export class AnimeThemesClient {
-  constructor(private readonly deps: AnimeThemesClientDeps) {}
+  private readonly baseUrl: string;
+
+  constructor(private readonly deps: AnimeThemesClientDeps) {
+    this.baseUrl = (deps.baseUrl ?? DEFAULT_API_BASE_URL).replace(/\/+$/, "");
+  }
 
   async fetchByKitsuIds(kitsuIds: string[]): Promise<AnimeThemesLookupResult> {
     return this.fetchByExternalIds("Kitsu", kitsuIds);
@@ -75,7 +81,7 @@ export class AnimeThemesClient {
     const result = emptyLookupResult();
     const page = parseAnimeThemesPage(
       await this.getJson(
-        `${API_BASE_URL}/anime?${new URLSearchParams({
+        `${this.baseUrl}/anime?${new URLSearchParams({
           q: title,
           include: SEARCH_INCLUDE,
           "page[size]": "5",
@@ -89,7 +95,7 @@ export class AnimeThemesClient {
 
   async fetchAnimeById(animeThemesId: number): Promise<AnimeThemeEntry[]> {
     const json = await this.getJson(
-      `${API_BASE_URL}/anime/${animeThemesId}?${new URLSearchParams({ include: SINGLE_INCLUDE })}`,
+      `${this.baseUrl}/anime/${animeThemesId}?${new URLSearchParams({ include: SINGLE_INCLUDE })}`,
     );
     const anime = parseSingleAnime(json);
     return anime ? toThemeEntries(anime) : [];
@@ -99,7 +105,7 @@ export class AnimeThemesClient {
     const trimmed = query.trim();
     if (trimmed.length === 0) return { search: [] };
     return this.getJson(
-      `${API_BASE_URL}/search?${new URLSearchParams({
+      `${this.baseUrl}/search?${new URLSearchParams({
         q: trimmed,
         "fields[search]": "anime,artists",
         "include[anime]": SEARCH_INCLUDE,
@@ -110,7 +116,7 @@ export class AnimeThemesClient {
 
   async fetchArtist(slug: string): Promise<unknown> {
     return this.getJson(
-      `${API_BASE_URL}/artist/${encodeURIComponent(slug)}?${new URLSearchParams({
+      `${this.baseUrl}/artist/${encodeURIComponent(slug)}?${new URLSearchParams({
         include: ARTIST_INCLUDE,
       })}`,
     );
@@ -118,12 +124,12 @@ export class AnimeThemesClient {
 
   private async fetchAllPages(path: string, params: Record<string, string>): Promise<Record<string, unknown>[]> {
     const anime: Record<string, unknown>[] = [];
-    let nextUrl: string | null = `${API_BASE_URL}/${path}?${new URLSearchParams(params)}`;
+    let nextUrl: string | null = `${this.baseUrl}/${path}?${new URLSearchParams(params)}`;
 
     while (nextUrl) {
       const page = parseAnimeThemesPage(await this.getJson(nextUrl));
       anime.push(...page.anime);
-      nextUrl = normalizeNextUrl(page.next);
+      nextUrl = normalizeNextUrl(page.next, this.baseUrl);
     }
 
     return anime;
@@ -159,10 +165,10 @@ function emptyLookupResult(): AnimeThemesLookupResult {
   return { themes: [], mappings: new Map() };
 }
 
-function normalizeNextUrl(next: string | null): string | null {
+function normalizeNextUrl(next: string | null, baseUrl: string): string | null {
   if (!next) return null;
   if (/^https?:\/\//i.test(next)) return next;
-  return `${API_BASE_URL}/${next.replace(/^\/+/, "")}`;
+  return `${baseUrl}/${next.replace(/^\/+/, "")}`;
 }
 
 function chunks<T>(items: T[], size: number): T[][] {

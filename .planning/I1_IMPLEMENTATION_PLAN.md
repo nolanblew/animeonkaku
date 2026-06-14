@@ -191,7 +191,7 @@ Document: fresh compose up, configure app Server URL, login using Kitsu credenti
 ## Task 7: Full Verification and PR
 
 **Files:**
-- Modify: `.planing/FINAL_PLAN.md` after PR creation.
+- Modify: `.planning/FINAL_PLAN.md` after PR creation.
 
 - [x] **Step 1: Run all checks**
 

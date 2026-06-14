@@ -69,7 +69,7 @@
 - Modify docs:
   - `README.md`
   - `CLAUDE.md`
-  - `.planing/FINAL_PLAN.md`
+  - `.planning/FINAL_PLAN.md`
 
 ---
 
@@ -594,7 +594,7 @@ Expected: PASS.
 **Files:**
 - Modify: `README.md`
 - Modify: `CLAUDE.md`
-- Modify: `.planing/FINAL_PLAN.md`
+- Modify: `.planning/FINAL_PLAN.md`
 - Maybe modify: `src/app/schemas/com.takeya.animeongaku.data.local.AppDatabase/21.json`
 
 - [x] **Step 1: Update docs**
@@ -644,7 +644,7 @@ From repo root:
 & 'C:\Program Files\Git\cmd\git.exe' status -sb
 ```
 
-Expected: no whitespace errors; only intentional files modified plus the stale untracked `.planing/CURRENT_TASK.md`.
+Expected: no whitespace errors; only intentional files modified plus the stale untracked `.planning/CURRENT_TASK.md`.
 
 - [x] **Step 6: Commit, push, and open stacked PR**
 

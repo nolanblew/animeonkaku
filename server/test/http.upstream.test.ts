@@ -36,6 +36,35 @@ describe("UpstreamHttp", () => {
     expect(breaker.canRequest()).toBe(true);
   });
 
+  it("does not count a configured blocking status (403) as a failure by default", async () => {
+    const time = new FakeTime();
+    const breaker = new CircuitBreaker({ threshold: 1, cooldownMs: 60_000, now: time.now });
+    const { fetch } = fakeFetch([{ status: 403 }]);
+    const http = new UpstreamHttp({ fetch, breaker, sleep: time.sleep, maxRetries: 0 });
+    const res = await http.request("https://x.test/a");
+    expect(res.status).toBe(403);
+    expect(breaker.canRequest()).toBe(true);
+  });
+
+  it("opens the breaker after consecutive blocking statuses when configured", async () => {
+    const time = new FakeTime();
+    const breaker = new CircuitBreaker({ threshold: 2, cooldownMs: 60_000, now: time.now });
+    const { fetch } = fakeFetch([{ status: 403 }]);
+    const http = new UpstreamHttp({
+      fetch,
+      breaker,
+      sleep: time.sleep,
+      maxRetries: 0,
+      breakerStatuses: [403],
+      name: "animethemes",
+    });
+    await http.request("https://api.animethemes.moe/anime");
+    await http.request("https://api.animethemes.moe/anime");
+    await expect(http.request("https://api.animethemes.moe/anime")).rejects.toBeInstanceOf(
+      CircuitOpenError,
+    );
+  });
+
   it("acquires a rate-limit token for every physical attempt", async () => {
     const time = new FakeTime();
     const bucket = new TokenBucket({ capacity: 1, refillPerSecond: 1, now: time.now, sleep: time.sleep });

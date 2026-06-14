@@ -1,7 +1,10 @@
 import { JobPriority, type JobQueue, type JobRecord, type JobType } from "../jobs/index.js";
-import type { SyncApiService, SyncStatusResponse } from "./syncRoutes.js";
+import type { SyncApiService, SyncMappingStatus, SyncStatusResponse } from "./syncRoutes.js";
 
 const SYNC_TYPES = new Set<JobType>(["KITSU_FULL_SYNC", "KITSU_DELTA_SYNC"]);
+
+/** Error signatures that indicate AnimeThemes blocked us rather than a transient bug. */
+const UPSTREAM_BLOCK_PATTERNS = [/\b403\b/, /\b451\b/, /circuit open/i, /cloudflare/i];
 
 export class JobSyncApiService implements SyncApiService {
   constructor(private readonly queue: JobQueue) {}
@@ -18,9 +21,11 @@ export class JobSyncApiService implements SyncApiService {
   }
 
   async getStatus(userId: string): Promise<SyncStatusResponse> {
-    const jobs = (await this.queue.list())
+    const all = await this.queue.list();
+    const jobs = all
       .filter((job) => SYNC_TYPES.has(job.type) && job.payload.userId === userId)
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || b.id - a.id);
+    const mapping = latestMappingStatus(all, userId);
     const active = jobs.find((job) => job.state === "RUNNING") ?? jobs.find((job) => job.state === "QUEUED");
     const latest = active ?? jobs[0] ?? null;
     const lastDone = jobs.find((job) => job.state === "DONE") ?? null;
@@ -31,13 +36,32 @@ export class JobSyncApiService implements SyncApiService {
         progress: {},
         lastCompletedAt: null,
         unmatched: [],
+        mapping,
+        upstreamBlocked: isUpstreamBlocked(mapping),
       };
     }
-    return statusFromJob(latest, lastDone);
+    return statusFromJob(latest, lastDone, mapping);
   }
 }
 
-function statusFromJob(job: JobRecord, lastDone: JobRecord | null): SyncStatusResponse {
+function latestMappingStatus(all: JobRecord[], userId: string): SyncMappingStatus | null {
+  const latest = all
+    .filter((job) => job.type === "MAP_THEMES" && job.payload.userId === userId)
+    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || b.id - a.id)[0];
+  if (!latest) return null;
+  return { state: latest.state, lastError: latest.lastError };
+}
+
+function isUpstreamBlocked(mapping: SyncMappingStatus | null): boolean {
+  if (!mapping || mapping.state !== "FAILED" || !mapping.lastError) return false;
+  return UPSTREAM_BLOCK_PATTERNS.some((pattern) => pattern.test(mapping.lastError!));
+}
+
+function statusFromJob(
+  job: JobRecord,
+  lastDone: JobRecord | null,
+  mapping: SyncMappingStatus | null,
+): SyncStatusResponse {
   const phase = typeof job.progress.phase === "string" ? job.progress.phase : null;
   const unmatched = Array.isArray(job.progress.unmatched)
     ? job.progress.unmatched.filter((item): item is string => typeof item === "string")
@@ -48,5 +72,7 @@ function statusFromJob(job: JobRecord, lastDone: JobRecord | null): SyncStatusRe
     progress: job.progress,
     lastCompletedAt: lastDone?.updatedAt.getTime() ?? (job.state === "DONE" ? job.updatedAt.getTime() : null),
     unmatched,
+    mapping,
+    upstreamBlocked: isUpstreamBlocked(mapping),
   };
 }

@@ -4,12 +4,25 @@ import { z } from "zod";
 import type { AuthService } from "../auth/service.js";
 import { makeRequireAuth } from "./requireAuth.js";
 
+export interface SyncMappingStatus {
+  state: string;
+  lastError: string | null;
+}
+
 export interface SyncStatusResponse {
   state: string;
   phase: string | null;
   progress: Record<string, unknown>;
   lastCompletedAt: number | null;
   unmatched: string[];
+  /** Latest theme-mapping job state for this user, or null if none ran yet. */
+  mapping: SyncMappingStatus | null;
+  /**
+   * True when the latest mapping failure looks like an upstream block
+   * (AnimeThemes Cloudflare 403/451 or an open circuit). Lets the client show
+   * "themes unavailable — upstream blocked" instead of a silent 0-themes library.
+   */
+  upstreamBlocked: boolean;
 }
 
 export interface SyncApiService {

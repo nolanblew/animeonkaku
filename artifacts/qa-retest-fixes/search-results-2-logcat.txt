@@ -1,0 +1,2 @@
+06-13 14:36:53.440 28121 28172 I okhttp.OkHttpClient: --> GET https://ongaku.local/v1/search?q=naruto
+06-13 14:36:57.306 28121 28172 I okhttp.OkHttpClient: <-- 200 OK http://127.0.0.1:8080/v1/search?q=naruto (3865ms, 166060-byte body)
