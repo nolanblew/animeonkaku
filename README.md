@@ -44,6 +44,8 @@ Invoke-RestMethod http://localhost:8080/healthz
 
 The compose stack starts the API on `http://localhost:8080` and Postgres in a sibling container. Database and media data use Docker named volumes (`pgdata` and `media`) so they survive container rebuilds. Migrations run automatically when the API starts.
 
+Postgres only applies `POSTGRES_PASSWORD` when the database volume is first initialized. If `.env` later changes `DB_PASSWORD`, the API will fail with `password authentication failed for user "ongaku"` and the DB health check will stay unhealthy. For disposable local data, run `docker compose down -v` from `server/` and then start the stack again. To preserve data, put the original password back in `.env`, start the DB, rotate the `ongaku` password inside Postgres, then update `.env` to the new value.
+
 For local Node development against the compose database:
 
 ```powershell

@@ -12,6 +12,8 @@ curl http://localhost:8080/healthz
 
 Database (`pgdata`) and media (`media`) live in named volumes and survive rebuilds/upgrades. Migrations run automatically on boot, before the server starts listening.
 
+Postgres only uses `POSTGRES_PASSWORD` when `pgdata` is first initialized. If you later change `DB_PASSWORD` in `.env`, the API will log `password authentication failed for user "ongaku"` and the DB health check will stay unhealthy. For disposable local data, run `docker compose down -v` and start again. To preserve data, restore the original password in `.env`, start the DB, rotate the `ongaku` password inside Postgres, then update `.env`.
+
 ## Deploy to LAN Server
 
 The repository includes deploy scripts for a personal LAN server using this layout:
