@@ -30,6 +30,38 @@ Network sync, search, and playback of non-downloaded tracks require a configured
 
 Already-downloaded files remain playable offline because the Android app keeps its Room cache and downloaded audio files on device.
 
+### Run the Server Locally
+
+The quickest local server path is Docker Compose from `server/`:
+
+```powershell
+cd .\server
+Copy-Item .env.example .env
+# Edit .env. Use KITSU_AUTH_MODE=real for real Kitsu login, or stub for local smoke tests.
+docker compose up -d --build
+Invoke-RestMethod http://localhost:8080/healthz
+```
+
+The compose stack starts the API on `http://localhost:8080` and Postgres in a sibling container. Database and media data use Docker named volumes (`pgdata` and `media`) so they survive container rebuilds. Migrations run automatically when the API starts.
+
+For local Node development against the compose database:
+
+```powershell
+cd .\server
+docker compose up -d db
+npm install
+$env:DATABASE_URL = "postgres://ongaku:ongaku-dev@localhost:5432/ongaku"
+$env:MEDIA_ROOT = ".\.media"
+$env:KITSU_AUTH_MODE = "stub"
+npm run dev
+```
+
+For an Android emulator, `http://10.0.2.2:8080/` reaches the host server. For a physical device, either use the computer's LAN IP, such as `http://192.168.1.50:8080/`, or use ADB reverse for USB testing:
+
+```powershell
+adb reverse tcp:8080 tcp:8080
+```
+
 ### Build-Time Server URL
 
 For a personal or device-specific build, set `ONGAKU_SERVER_BASE_URL` before running Gradle. Gradle compiles that value into `BuildConfig.ONGAKU_SERVER_BASE_URL`; when present, the Android settings screen shows the server URL as read-only and the app ignores runtime edits to the server URL.
@@ -41,6 +73,33 @@ $env:ONGAKU_SERVER_BASE_URL = 'http://192.168.1.50:8080/api'
 ```
 
 Leave `ONGAKU_SERVER_BASE_URL` unset for the normal editable server URL field. The compiled value is visible to anyone who can inspect the APK, so treat it as a convenience for small private builds rather than secret storage.
+
+### Deploy the Server to a LAN Host
+
+The deploy scripts target this host layout:
+
+- `/dockers/animeongaku`: Docker Compose files and server source used to build the image.
+- `/data/animeongaku`: persistent Postgres and media data.
+
+PowerShell from Windows:
+
+```powershell
+.\scripts\deploy-server.ps1 -SshTarget nolan@192.168.1.10 -EnvFile .\server\.env.production
+```
+
+Bash from Linux, macOS, or Git Bash:
+
+```bash
+scripts/deploy-server.sh --host nolan@192.168.1.10 --env-file server/.env.production
+```
+
+The scripts sync only server build inputs. They exclude `node_modules`, tests, artifacts, build output, and `.env` files, preferring `rsync` when available and otherwise uploading a small tarball. On the remote host they create the `/data/animeongaku` folders, preserve the remote `.env`, run:
+
+```bash
+docker compose -p animeongaku -f docker-compose.yml -f docker-compose.lan.yml up -d --build
+```
+
+and wait for `/healthz`. After the first deploy creates `/dockers/animeongaku/.env`, future deploys can omit `-EnvFile` / `--env-file`.
 
 ## Local Development
 

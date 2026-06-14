@@ -12,6 +12,29 @@ curl http://localhost:8080/healthz
 
 Database (`pgdata`) and media (`media`) live in named volumes and survive rebuilds/upgrades. Migrations run automatically on boot, before the server starts listening.
 
+## Deploy to LAN Server
+
+The repository includes deploy scripts for a personal LAN server using this layout:
+
+- Docker/build files: `/dockers/animeongaku`
+- Persistent data: `/data/animeongaku`
+
+PowerShell from Windows:
+
+```powershell
+.\scripts\deploy-server.ps1 -SshTarget nolan@192.168.1.10 -EnvFile .\server\.env.production
+```
+
+Bash from macOS/Linux/Git Bash:
+
+```bash
+scripts/deploy-server.sh --host nolan@192.168.1.10 --env-file server/.env.production
+```
+
+The scripts prefer `rsync` for minimal incremental uploads and fall back to a small tarball containing only server build inputs. They do not copy database or media data. On the remote host they create `/data/animeongaku/media` and `/data/animeongaku/postgres`, copy the server Docker files into `/dockers/animeongaku`, run `docker compose -f docker-compose.yml -f docker-compose.lan.yml up -d --build`, and wait for `/healthz`.
+
+Keep the production `.env` out of git. If `/dockers/animeongaku/.env` already exists, future deploys can omit `-EnvFile` / `--env-file`; the remote file is preserved.
+
 ## Develop locally
 
 ```bash
