@@ -24,6 +24,7 @@ import {
   themes,
 } from "../db/schema.js";
 import { JobPriority, type JobQueue } from "../jobs/index.js";
+import { CANONICAL_AUDIO } from "../media/types.js";
 import { ApiError } from "./errors.js";
 import type {
   AudioState,
@@ -518,7 +519,13 @@ export class DrizzleClientApiService implements ClientApiService {
         byteSize: mediaFiles.byteSize,
       })
       .from(mediaFiles)
-      .where(and(eq(mediaFiles.kind, "AUDIO"), inArray(mediaFiles.refId, themeIds.map(String))));
+      .where(
+        and(
+          eq(mediaFiles.kind, CANONICAL_AUDIO.kind),
+          eq(mediaFiles.variant, CANONICAL_AUDIO.variant),
+          inArray(mediaFiles.refId, themeIds.map(String)),
+        ),
+      );
     return new Map(
       rows
         .map((row) => [Number(row.refId), { state: row.state, byteSize: row.byteSize }] as const)

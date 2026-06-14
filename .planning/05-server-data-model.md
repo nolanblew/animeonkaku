@@ -143,10 +143,12 @@ CREATE TABLE playlist_entries (
 );
 
 -- ===== media =====
+-- variant + multi-binary-per-theme model: see doc 09-media-variants.md
 CREATE TABLE media_files (
   id            bigserial PRIMARY KEY,
-  kind          text NOT NULL,                      -- AUDIO | ANIME_POSTER | ANIME_COVER | ARTIST_IMAGE
+  kind          text NOT NULL,                      -- AUDIO | VIDEO | ANIME_POSTER | ANIME_COVER | ARTIST_IMAGE
   ref_id        text NOT NULL,                      -- themeId / kitsuId / artistSlug
+  variant       text NOT NULL DEFAULT 'DEFAULT',    -- SHORT | FULL (theme audio/video) | DEFAULT (images)
   origin_url    text NOT NULL,
   state         text NOT NULL DEFAULT 'MISSING',    -- MISSING | QUEUED | DOWNLOADING | READY | FAILED
   file_path     text,                               -- relative to MEDIA_ROOT
@@ -156,7 +158,8 @@ CREATE TABLE media_files (
   attempts      int NOT NULL DEFAULT 0,
   fetched_at    timestamptz,
   updated_at    timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (kind, ref_id)
+  video_fallback boolean NOT NULL DEFAULT false,    -- webm video served as audio (doc 08 #11)
+  UNIQUE (kind, ref_id, variant)                    -- canonical playable audio = (AUDIO, ref, SHORT)
 );
 
 -- ===== job queue (doc 06) =====

@@ -216,8 +216,12 @@ export const mediaFiles = pgTable(
   "media_files",
   {
     id: bigserial("id", { mode: "number" }).primaryKey(),
-    kind: text("kind").notNull(), // AUDIO | ANIME_POSTER | ANIME_COVER | ARTIST_IMAGE
+    kind: text("kind").notNull(), // AUDIO | VIDEO | ANIME_POSTER | ANIME_COVER | ARTIST_IMAGE
     refId: text("ref_id").notNull(), // themeId / kitsuId / artistSlug
+    // Which source/cut of (kind, ref_id) this row holds. Theme audio/video use
+    // SHORT (the ~90s AnimeThemes cut, the canonical playable audio) and, in the
+    // future, FULL (full-length). Images use DEFAULT. See .planning/09-media-variants.md.
+    variant: text("variant").notNull().default("DEFAULT"),
     originUrl: text("origin_url").notNull(),
     state: text("state").notNull().default("MISSING"), // MISSING | QUEUED | DOWNLOADING | READY | FAILED
     filePath: text("file_path"), // relative to MEDIA_ROOT
@@ -229,7 +233,7 @@ export const mediaFiles = pgTable(
     updatedAt: updatedAt(),
     videoFallback: boolean("video_fallback").notNull().default(false),
   },
-  (t) => [unique("media_files_kind_ref_id_unique").on(t.kind, t.refId)],
+  (t) => [unique("media_files_kind_ref_id_variant_unique").on(t.kind, t.refId, t.variant)],
 );
 
 // ===== job queue (.planning/06-download-queue-design.md) =====

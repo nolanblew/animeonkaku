@@ -14,10 +14,11 @@ class FakeMediaRepo implements MediaFileRepo {
   records = new Map<string, MediaFileRecord>();
 
   async markDownloading(input: SaveMediaFileInput): Promise<void> {
-    this.records.set(`${input.kind}:${input.refId}`, {
+    this.records.set(`${input.kind}:${input.refId}:${input.variant}`, {
       id: 1,
       kind: input.kind,
       refId: input.refId,
+      variant: input.variant,
       originUrl: input.originUrl,
       state: "DOWNLOADING",
       filePath: null,
@@ -32,10 +33,11 @@ class FakeMediaRepo implements MediaFileRepo {
   }
 
   async markReady(input: SaveMediaFileInput & { filePath: string; byteSize: number; sha256: string }): Promise<void> {
-    this.records.set(`${input.kind}:${input.refId}`, {
+    this.records.set(`${input.kind}:${input.refId}:${input.variant}`, {
       id: 1,
       kind: input.kind,
       refId: input.refId,
+      variant: input.variant,
       originUrl: input.originUrl,
       state: "READY",
       filePath: input.filePath,
@@ -50,12 +52,13 @@ class FakeMediaRepo implements MediaFileRepo {
   }
 
   async markFailed(input: SaveMediaFileInput & { errorMessage: string }): Promise<void> {
-    const key = `${input.kind}:${input.refId}`;
+    const key = `${input.kind}:${input.refId}:${input.variant}`;
     const existing = this.records.get(key);
     this.records.set(key, {
       id: existing?.id ?? 1,
       kind: input.kind,
       refId: input.refId,
+      variant: input.variant,
       originUrl: input.originUrl,
       state: "FAILED",
       filePath: null,
@@ -94,6 +97,7 @@ describe("MediaStore", () => {
     const ready = await store.fetchToMediaFile({
       kind: "AUDIO",
       refId: "3040",
+      variant: "SHORT",
       originUrl: "https://a.animethemes.moe/Toradora-OP1.ogg",
       filePath: "audio/3040.ogg",
       videoFallback: false,
@@ -120,13 +124,14 @@ describe("MediaStore", () => {
       store.fetchToMediaFile({
         kind: "AUDIO",
         refId: "3040",
+        variant: "SHORT",
         originUrl: "https://a.animethemes.moe/Toradora-OP1.ogg",
         filePath: "audio/3040.ogg",
         videoFallback: false,
       }),
     ).rejects.toBeInstanceOf(MediaValidationError);
 
-    expect(repo.records.get("AUDIO:3040")?.state).toBe("FAILED");
+    expect(repo.records.get("AUDIO:3040:SHORT")?.state).toBe("FAILED");
     expect(existsSync(join(mediaRoot, "audio", "3040.ogg"))).toBe(false);
   });
 });

@@ -49,16 +49,22 @@ export class DrizzleMediaFileRepo implements MediaFileRepo {
     input: SaveMediaFileInput,
     update: Partial<typeof mediaFiles.$inferInsert> & { incrementAttempts?: boolean },
   ) {
+    const match = and(
+      eq(mediaFiles.kind, input.kind),
+      eq(mediaFiles.refId, input.refId),
+      eq(mediaFiles.variant, input.variant),
+    );
     const existing = await this.db
       .select({ id: mediaFiles.id, attempts: mediaFiles.attempts })
       .from(mediaFiles)
-      .where(and(eq(mediaFiles.kind, input.kind), eq(mediaFiles.refId, input.refId)))
+      .where(match)
       .limit(1);
     const { incrementAttempts, ...columns } = update;
     if (existing.length === 0) {
       await this.db.insert(mediaFiles).values({
         kind: input.kind,
         refId: input.refId,
+        variant: input.variant,
         originUrl: input.originUrl,
         attempts: incrementAttempts ? 1 : 0,
         ...columns,
@@ -71,7 +77,7 @@ export class DrizzleMediaFileRepo implements MediaFileRepo {
           attempts: existing[0]!.attempts + (incrementAttempts ? 1 : 0),
           ...columns,
         })
-        .where(and(eq(mediaFiles.kind, input.kind), eq(mediaFiles.refId, input.refId)));
+        .where(match);
     }
   }
 }
