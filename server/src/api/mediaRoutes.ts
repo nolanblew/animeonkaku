@@ -1,7 +1,8 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import type { FastifyInstance, FastifyReply } from "fastify";
+import { Readable } from "node:stream";
+import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { AuthService } from "../auth/service.js";
@@ -63,6 +64,7 @@ export class MediaStreamingService {
     method: "GET" | "HEAD",
     rangeHeader: string | undefined,
     reply: FastifyReply,
+    log?: FastifyBaseLogger,
   ): Promise<FastifyReply> {
     const audio = await this.deps.repo.findAudio(themeId);
     if (!audio) throw new ApiError(404, "NOT_FOUND", "Theme not found.");
@@ -71,6 +73,16 @@ export class MediaStreamingService {
       const absolutePath = this.safeMediaPath(audio.filePath);
       const fileStat = await stat(absolutePath).catch(() => null);
       if (fileStat?.isFile()) {
+        log?.info(
+          {
+            themeId,
+            method,
+            range: rangeHeader,
+            byteSize: fileStat.size,
+            videoFallback: audio.videoFallback ?? false,
+          },
+          "serving cached audio file",
+        );
         return this.sendReadyFile({
           absolutePath,
           method,
@@ -86,7 +98,13 @@ export class MediaStreamingService {
     if (method === "GET") {
       await this.enqueueFetch(themeId, JobPriority.URGENT);
     }
-    return redirect(reply, audio.originUrl);
+    return this.proxyAudio({
+      audio,
+      method,
+      rangeHeader,
+      reply,
+      log,
+    });
   }
 
   async requestAudio(themeId: number): Promise<{ themeId: number; audioState: AudioState; jobId: number }> {
@@ -154,6 +172,81 @@ export class MediaStreamingService {
       .header("Content-Type", contentType)
       .header("Content-Length", String(body.length));
     return reply.send(body);
+  }
+
+  private async proxyAudio(input: {
+    audio: MediaAudioRecord;
+    method: "GET" | "HEAD";
+    rangeHeader: string | undefined;
+    reply: FastifyReply;
+    log: FastifyBaseLogger | undefined;
+  }): Promise<FastifyReply> {
+    const headers = new Headers();
+    if (input.rangeHeader) headers.set("Range", input.rangeHeader);
+
+    input.log?.info(
+      {
+        themeId: input.audio.themeId,
+        state: input.audio.state,
+        method: input.method,
+        range: input.rangeHeader,
+        originHost: originHost(input.audio.originUrl),
+      },
+      "audio cache miss; proxying origin stream",
+    );
+
+    const response = await this.fetchImpl(input.audio.originUrl, {
+      method: input.method,
+      headers,
+    });
+
+    const contentType = response.headers.get("content-type") ?? fallbackAudioContentType(input.audio);
+    input.log?.info(
+      {
+        themeId: input.audio.themeId,
+        method: input.method,
+        range: input.rangeHeader,
+        originHost: originHost(input.audio.originUrl),
+        status: response.status,
+        contentType,
+        contentLength: response.headers.get("content-length"),
+        contentRange: response.headers.get("content-range"),
+      },
+      "audio origin response",
+    );
+
+    if (!response.ok) {
+      input.log?.warn(
+        {
+          themeId: input.audio.themeId,
+          method: input.method,
+          range: input.rangeHeader,
+          originHost: originHost(input.audio.originUrl),
+          status: response.status,
+        },
+        "audio origin returned an error",
+      );
+      throw new ApiError(502, "UPSTREAM_FAILED", `Audio origin returned HTTP ${response.status}.`);
+    }
+    validateAudioContentType(contentType, input.audio.originUrl);
+
+    input.reply
+      .code(response.status)
+      .header("Cache-Control", "private, max-age=3600")
+      .header("Content-Type", contentType)
+      .header("Accept-Ranges", response.headers.get("accept-ranges") ?? "bytes");
+    copyHeader(response, input.reply, "content-length", "Content-Length");
+    copyHeader(response, input.reply, "content-range", "Content-Range");
+    copyHeader(response, input.reply, "etag", "ETag");
+    copyHeader(response, input.reply, "last-modified", "Last-Modified");
+
+    if (input.method === "HEAD") {
+      return input.reply.send();
+    }
+    if (!response.body) {
+      throw new ApiError(502, "UPSTREAM_FAILED", "Audio origin returned no body.");
+    }
+    return input.reply.send(Readable.fromWeb(response.body));
   }
 
   private sendReadyFile(input: {
@@ -231,6 +324,7 @@ export function registerMediaRoutes(
         "GET",
         headerValue(request.headers.range),
         reply,
+        request.log,
       ),
   );
 
@@ -243,6 +337,7 @@ export function registerMediaRoutes(
         "HEAD",
         headerValue(request.headers.range),
         reply,
+        request.log,
       ),
   );
 
@@ -317,6 +412,33 @@ function headerValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function redirect(reply: FastifyReply, location: string): FastifyReply {
-  return reply.code(302).header("Location", location).send();
+function copyHeader(response: Response, reply: FastifyReply, source: string, target: string): void {
+  const value = response.headers.get(source);
+  if (value) reply.header(target, value);
+}
+
+function fallbackAudioContentType(audio: MediaAudioRecord): string {
+  return audio.videoFallback || /\.webm($|\?)/i.test(audio.originUrl) ? "video/webm" : "audio/ogg";
+}
+
+function validateAudioContentType(contentType: string, originUrl: string): void {
+  const normalized = contentType.toLowerCase();
+  const valid =
+    normalized.startsWith("audio/") ||
+    normalized.startsWith("video/") ||
+    normalized.includes("application/octet-stream");
+  if (!valid) {
+    throw new ApiError(502, "UPSTREAM_FAILED", `Audio origin returned non-audio content: ${contentType}.`);
+  }
+  if (normalized.startsWith("video/") && !/\.webm($|\?)/i.test(originUrl)) {
+    throw new ApiError(502, "UPSTREAM_FAILED", `Audio origin returned unexpected video content: ${contentType}.`);
+  }
+}
+
+function originHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "unknown";
+  }
 }

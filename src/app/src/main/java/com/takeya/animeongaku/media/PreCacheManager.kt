@@ -7,6 +7,7 @@ import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheKeyFactory
 import androidx.media3.datasource.cache.CacheWriter
 import androidx.media3.datasource.cache.ContentMetadata
+import com.takeya.animeongaku.data.server.ServerSettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -25,7 +26,8 @@ import javax.inject.Singleton
 @Singleton
 class PreCacheManager @Inject constructor(
     private val audioCacheProvider: AudioCacheProvider,
-    private val nowPlayingManager: NowPlayingManager
+    private val nowPlayingManager: NowPlayingManager,
+    private val serverSettingsStore: ServerSettingsStore
 ) {
     companion object {
         private const val TAG = "PreCacheManager"
@@ -53,7 +55,7 @@ class PreCacheManager @Inject constructor(
                 .map { state ->
                     // Only react to changes in upcoming tracks or queue version
                     val upcoming = state.upcomingTracks.take(MAX_PRE_CACHE_TRACKS)
-                    upcoming.map { it.audioUrl }
+                    upcoming.map { it.playbackUriString(serverSettingsStore.serverBaseUrl) }
                 }
                 .distinctUntilChanged()
                 .collect { upcomingUrls ->
@@ -130,7 +132,7 @@ class PreCacheManager @Inject constructor(
         try {
             val cache = audioCacheProvider.cache
             val nowPlayingUrls = nowPlayingManager.state.value.nowPlaying
-                .map { it.audioUrl }
+                .map { it.playbackUriString(serverSettingsStore.serverBaseUrl) }
                 .toSet()
 
             val now = System.currentTimeMillis()

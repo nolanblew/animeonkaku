@@ -12,6 +12,7 @@ import { JobPriority, JobQueue } from "../src/jobs/index.js";
 import {
   MediaStreamingService,
   type MediaApiRepository,
+  type MediaStreamingServiceDeps,
 } from "../src/api/mediaRoutes.js";
 import { FakeAuthRepo } from "./helpers/fakeAuthRepo.js";
 import { FakeJobRepository } from "./helpers/fakeJobRepository.js";
@@ -34,6 +35,8 @@ let repo: FakeMediaRepo;
 let queue: JobQueue;
 let jobs: FakeJobRepository;
 let mediaRoot: string;
+let fetchCalls: Array<{ input: RequestInfo | URL; init?: RequestInit }>;
+let mediaFetch: NonNullable<MediaStreamingServiceDeps["fetch"]>;
 
 beforeEach(async () => {
   mediaRoot = mkdtempSync(join(tmpdir(), "ongaku-media-api-"));
@@ -41,6 +44,14 @@ beforeEach(async () => {
   repo = new FakeMediaRepo();
   jobs = new FakeJobRepository();
   queue = new JobQueue(jobs);
+  fetchCalls = [];
+  mediaFetch = async (input, init) => {
+    fetchCalls.push({ input, init });
+    return new Response(Buffer.from("jpeg-bytes"), {
+      status: 200,
+      headers: { "content-type": "image/jpeg" },
+    });
+  };
   app = buildApp({
     authService: new AuthService(new FakeAuthRepo(), new StubKitsuAuthClient()),
     health: { pingDb: async () => {}, mediaRoot },
@@ -48,11 +59,7 @@ beforeEach(async () => {
       repo,
       queue,
       mediaRoot,
-      fetch: async () =>
-        new Response(Buffer.from("jpeg-bytes"), {
-          status: 200,
-          headers: { "content-type": "image/jpeg" },
-        }),
+      fetch: (input, init) => mediaFetch(input, init),
     }),
   });
 });
@@ -145,7 +152,7 @@ describe("media API routes", () => {
     expect(res.headers["content-type"]).toBe("video/webm");
   });
 
-  it("redirects missing audio to origin and dedupes the URGENT fetch job", async () => {
+  it("streams missing audio through the server and dedupes the URGENT fetch job", async () => {
     repo.audio.set(100, {
       themeId: 100,
       originUrl: "https://a.animethemes.moe/Missing.ogg",
@@ -154,18 +161,37 @@ describe("media API routes", () => {
       byteSize: null,
       sha256: null,
     });
+    mediaFetch = async (input, init) => {
+      fetchCalls.push({ input, init });
+      return new Response(Buffer.from("2345"), {
+        status: 206,
+        headers: {
+          "accept-ranges": "bytes",
+          "content-length": "4",
+          "content-range": "bytes 2-5/16",
+          "content-type": "audio/ogg",
+        },
+      });
+    };
     const token = await bearer();
 
     for (let i = 0; i < 2; i += 1) {
       const res = await app.inject({
         method: "GET",
         url: "/v1/media/audio/100",
-        headers: { authorization: `Bearer ${token}` },
+        headers: { authorization: `Bearer ${token}`, range: "bytes=2-5" },
       });
-      expect(res.statusCode).toBe(302);
-      expect(res.headers.location).toBe("https://a.animethemes.moe/Missing.ogg");
+      expect(res.statusCode).toBe(206);
+      expect(res.headers.location).toBeUndefined();
+      expect(res.headers["accept-ranges"]).toBe("bytes");
+      expect(res.headers["content-range"]).toBe("bytes 2-5/16");
+      expect(res.headers["content-type"]).toBe("audio/ogg");
+      expect(res.body).toBe("2345");
     }
 
+    expect(fetchCalls).toHaveLength(2);
+    expect(String(fetchCalls[0]!.input)).toBe("https://a.animethemes.moe/Missing.ogg");
+    expect(headersOf(fetchCalls[0]!.init?.headers).get("range")).toBe("bytes=2-5");
     const queued = await queue.list("QUEUED");
     expect(queued).toHaveLength(1);
     expect(queued[0]).toMatchObject({
@@ -225,3 +251,7 @@ describe("media API routes", () => {
     });
   });
 });
+
+function headersOf(headers: HeadersInit | undefined): Headers {
+  return new Headers(headers);
+}
