@@ -407,7 +407,9 @@ class MediaControllerManager @Inject constructor(
     fun prepareForSessionResumption(restoredState: RestoredQueueState) {
         val npState = restoredState.nowPlayingState
         nowPlayingManager.restoreState(npState)
-        val playbackItems = npState.toPlaybackMediaItems()
+        val playbackItems = npState.toPlaybackMediaItems(
+            activeServerBaseUrl = serverSettingsStore.serverBaseUrl
+        )
 
         lastSyncedMediaIds = playbackItems.items.map { it.mediaId }
         lastSyncedVersion = npState.queueVersion
@@ -475,7 +477,8 @@ class MediaControllerManager @Inject constructor(
     private fun buildDesiredItems(npState: NowPlayingState): Pair<List<MediaItem>, Int> {
         val playbackItems = npState.toPlaybackMediaItems(
             shouldIncludeInPlayer = { idx, theme -> shouldIncludeInPlayer(idx, theme, npState) },
-            artworkDataForAnime = ::cachedArtworkDataForAnime
+            artworkDataForAnime = ::cachedArtworkDataForAnime,
+            activeServerBaseUrl = serverSettingsStore.serverBaseUrl
         )
         return playbackItems.items to playbackItems.currentIndex
     }

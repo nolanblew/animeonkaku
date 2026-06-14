@@ -6,6 +6,8 @@ import androidx.media3.common.MediaMetadata
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.local.primaryArtworkUrl
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 internal data class PlaybackMediaItems(
     val items: List<MediaItem>,
@@ -14,7 +16,8 @@ internal data class PlaybackMediaItems(
 
 internal fun NowPlayingState.toPlaybackMediaItems(
     shouldIncludeInPlayer: (Int, ThemeEntity) -> Boolean = { _, _ -> true },
-    artworkDataForAnime: (AnimeEntity) -> ByteArray? = { null }
+    artworkDataForAnime: (AnimeEntity) -> ByteArray? = { null },
+    activeServerBaseUrl: String? = null
 ): PlaybackMediaItems {
     val items = ArrayList<MediaItem>(nowPlayingEntries.size)
     var playbackCurrentIndex = 0
@@ -22,7 +25,7 @@ internal fun NowPlayingState.toPlaybackMediaItems(
     nowPlayingEntries.forEachIndexed { idx, entry ->
         if (shouldIncludeInPlayer(idx, entry.theme)) {
             if (idx < currentIndex) playbackCurrentIndex++
-            items.add(entry.toPlaybackMediaItem(animeMap, artworkDataForAnime))
+            items.add(entry.toPlaybackMediaItem(animeMap, artworkDataForAnime, activeServerBaseUrl))
         }
     }
 
@@ -34,16 +37,18 @@ internal fun NowPlayingState.toPlaybackMediaItems(
 
 internal fun QueueEntry.toPlaybackMediaItem(
     animeMap: Map<Long, AnimeEntity>,
-    artworkDataForAnime: (AnimeEntity) -> ByteArray? = { null }
-): MediaItem = theme.toPlaybackMediaItem(queueId.toString(), animeMap, artworkDataForAnime)
+    artworkDataForAnime: (AnimeEntity) -> ByteArray? = { null },
+    activeServerBaseUrl: String? = null
+): MediaItem = theme.toPlaybackMediaItem(queueId.toString(), animeMap, artworkDataForAnime, activeServerBaseUrl)
 
 internal fun ThemeEntity.toPlaybackMediaItem(
     mediaId: String,
     animeMap: Map<Long, AnimeEntity>,
-    artworkDataForAnime: (AnimeEntity) -> ByteArray? = { null }
+    artworkDataForAnime: (AnimeEntity) -> ByteArray? = { null },
+    activeServerBaseUrl: String? = null
 ): MediaItem {
     val anime = animeId?.let { animeMap[it] }
-    val artworkUrl = anime?.primaryArtworkUrl()
+    val artworkUrl = anime?.primaryArtworkUrl()?.let { rewriteServerMediaUrl(it, activeServerBaseUrl) }
     val artworkData = anime?.let(artworkDataForAnime)?.copyOf()
     val animeName = anime?.title
     val typeTag = themeType
@@ -59,7 +64,7 @@ internal fun ThemeEntity.toPlaybackMediaItem(
         else -> title
     }
 
-    val uri = playbackUriString()
+    val uri = playbackUriString(activeServerBaseUrl)
 
     return MediaItem.Builder()
         .setMediaId(mediaId)
@@ -82,12 +87,43 @@ internal fun ThemeEntity.toPlaybackMediaItem(
         .build()
 }
 
-internal fun ThemeEntity.playbackUriString(): String =
+internal fun ThemeEntity.playbackUriString(activeServerBaseUrl: String? = null): String =
     if (isDownloaded && !localFilePath.isNullOrBlank()) {
         if (localFilePath.startsWith("/")) "file://$localFilePath" else localFilePath
     } else {
-        audioUrl
+        rewriteServerMediaUrl(audioUrl, activeServerBaseUrl)
     }
+
+internal fun rewriteServerMediaUrl(url: String, activeServerBaseUrl: String?): String {
+    val trimmed = url.trim()
+    val activeBase = activeServerBaseUrl?.toHttpUrlOrNull() ?: return trimmed
+    val source = trimmed.toHttpUrlOrNull()
+    val rawPath = source?.encodedPath ?: trimmed.substringBefore("?")
+    val query = source?.encodedQuery ?: trimmed.substringAfter("?", missingDelimiterValue = "")
+    val mediaPath = rawPath.mediaRoutePathOrNull() ?: return trimmed
+    return activeBase.withJoinedPath(mediaPath, query)
+}
+
+private fun String.mediaRoutePathOrNull(): String? {
+    val marker = "/v1/media/"
+    val index = indexOf(marker)
+    if (index < 0) return null
+    return substring(index).trimStart('/')
+}
+
+private fun HttpUrl.withJoinedPath(path: String, query: String): String {
+    val basePath = encodedPath.trim('/')
+    val joinedPath = listOf(basePath, path.trimStart('/'))
+        .filter { it.isNotBlank() }
+        .joinToString(separator = "/", prefix = "/")
+    return newBuilder()
+        .encodedPath(joinedPath)
+        .apply {
+            if (query.isNotBlank()) encodedQuery(query)
+        }
+        .build()
+        .toString()
+}
 
 internal fun MediaItem.withArtworkData(artworkData: ByteArray): MediaItem {
     val updatedMetadata = mediaMetadata.buildUpon()
