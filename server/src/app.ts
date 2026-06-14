@@ -59,6 +59,19 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
 
   registerHealthRoutes(app, deps.health);
+  registerApiRoutes(app, deps);
+  app.register(
+    (api, _opts, done) => {
+      registerApiRoutes(api, deps);
+      done();
+    },
+    { prefix: "/api" },
+  );
+
+  return app;
+}
+
+function registerApiRoutes(app: FastifyInstance, deps: AppDeps): void {
   registerAuthRoutes(app, deps.authService, { onLogin: deps.onLogin });
   if (deps.clientApi) {
     registerClientRoutes(app, deps.authService, deps.clientApi);
@@ -75,6 +88,4 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   if (deps.jobs) {
     registerJobAdminRoutes(app, deps.authService, deps.jobs);
   }
-
-  return app;
 }
