@@ -23,6 +23,7 @@ import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.network.isServerUrl
+import com.takeya.animeongaku.network.rebaseServerMediaUrl
 import com.takeya.animeongaku.network.serverMediaRequestHeaders
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -135,8 +136,11 @@ class DownloadWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val themeId = inputData.getLong(KEY_THEME_ID, -1L)
-        val audioUrl = inputData.getString(KEY_AUDIO_URL)
-        val imageUrl = inputData.getString(KEY_IMAGE_URL)
+        // Re-host stored media URLs onto the live server base: a stale host (e.g. after a
+        // server URL change) otherwise makes the download retry against a dead address forever.
+        val serverBaseUrl = serverSettingsStore.serverBaseUrl
+        val audioUrl = inputData.getString(KEY_AUDIO_URL)?.let { rebaseServerMediaUrl(serverBaseUrl, it) }
+        val imageUrl = inputData.getString(KEY_IMAGE_URL)?.let { rebaseServerMediaUrl(serverBaseUrl, it) }
 
         if (themeId == -1L || audioUrl.isNullOrBlank()) {
             Log.e(TAG, "Invalid input: themeId=$themeId, audioUrl=$audioUrl")

@@ -330,6 +330,10 @@ export class DrizzleSyncRepository implements SyncRepository {
           animethemesAnimeId: theme.animeId,
           title: theme.animeName,
           titleEn: theme.animeNameEn,
+          // Online-only anime have no Kitsu sync yet; fall back to the AnimeThemes
+          // cover for both poster and cover so search/added results show artwork.
+          posterUrl: theme.coverUrl,
+          posterUrlLarge: theme.coverUrl,
           coverUrl: theme.coverUrl,
           coverUrlLarge: theme.coverUrl,
           mappingState: "MAPPED",
@@ -342,8 +346,12 @@ export class DrizzleSyncRepository implements SyncRepository {
             animethemesAnimeId: theme.animeId,
             title: theme.animeName ?? sql`${kitsuAnime.title}`,
             titleEn: theme.animeNameEn ?? sql`${kitsuAnime.titleEn}`,
-            coverUrl: theme.coverUrl ?? sql`${kitsuAnime.coverUrl}`,
-            coverUrlLarge: theme.coverUrl ?? sql`${kitsuAnime.coverUrlLarge}`,
+            // Only fill artwork when missing — never clobber real Kitsu artwork
+            // already synced for library anime.
+            posterUrl: sql`COALESCE(${kitsuAnime.posterUrl}, ${theme.coverUrl ?? null})`,
+            posterUrlLarge: sql`COALESCE(${kitsuAnime.posterUrlLarge}, ${theme.coverUrl ?? null})`,
+            coverUrl: sql`COALESCE(${kitsuAnime.coverUrl}, ${theme.coverUrl ?? null})`,
+            coverUrlLarge: sql`COALESCE(${kitsuAnime.coverUrlLarge}, ${theme.coverUrl ?? null})`,
             mappingState: "MAPPED",
             updatedAt: now,
             deletedAt: null,

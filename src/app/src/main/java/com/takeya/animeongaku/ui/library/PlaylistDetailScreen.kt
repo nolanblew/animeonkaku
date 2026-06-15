@@ -39,9 +39,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
@@ -116,7 +116,6 @@ fun PlaylistDetailScreen(
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val dynamicSpec by viewModel.dynamicSpec.collectAsStateWithLifecycle()
     val isDynamic by viewModel.isDynamic.collectAsStateWithLifecycle()
-    var showOverflowMenu by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val animeByThemesId = remember(anime) {
         anime.mapNotNull { entry -> entry.animeThemesId?.let { id -> id to entry } }.toMap()
@@ -129,9 +128,14 @@ fun PlaylistDetailScreen(
             config = ActionSheetConfig(
                 title = playlist?.name ?: "Playlist",
                 subtitle = "${tracks.size} tracks",
+                showSaveToPlaylist = false,
                 showDownload = !allDownloaded && !anyDownloading && tracks.isNotEmpty(),
                 showDownloading = anyDownloading && !allDownloaded,
-                showRemoveDownload = allDownloaded
+                showRemoveDownload = allDownloaded,
+                showEditFilters = isDynamic,
+                showRefresh = isDynamic && dynamicSpec?.mode == "SNAPSHOT",
+                showDelete = isDynamic || playlist?.isAuto != true,
+                deleteLabel = "Delete playlist"
             ),
             onDismiss = { showPlaylistSheet = false },
             onPlayNext = {
@@ -144,7 +148,10 @@ fun PlaylistDetailScreen(
             },
             onReplaceQueue = { viewModel.playAll(); onPlayTheme() },
             onDownload = { viewModel.downloadPlaylist() },
-            onRemoveDownload = { viewModel.removePlaylistDownload() }
+            onRemoveDownload = { viewModel.removePlaylistDownload() },
+            onEditFilters = { playlist?.id?.let { onEditFilters(it) } },
+            onRefresh = { viewModel.refreshDynamic() },
+            onDelete = { showDeleteConfirm = true }
         )
     }
 
@@ -285,58 +292,8 @@ fun PlaylistDetailScreen(
                             Icon(Icons.Rounded.Add, contentDescription = "Add tracks", tint = Mist100)
                         }
                     }
-                    Box {
-                        IconButton(onClick = { showOverflowMenu = true }) {
-                            Icon(Icons.Rounded.MoreVert, contentDescription = "More options", tint = Mist100)
-                        }
-                        DropdownMenu(
-                            expanded = showOverflowMenu,
-                            onDismissRequest = { showOverflowMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Playlist options") },
-                                onClick = {
-                                    showOverflowMenu = false
-                                    showPlaylistSheet = true
-                                }
-                            )
-                            if (isDynamic) {
-                                DropdownMenuItem(
-                                    leadingIcon = {
-                                        Icon(Icons.Rounded.FilterList, contentDescription = null)
-                                    },
-                                    text = { Text("Edit filters") },
-                                    onClick = {
-                                        showOverflowMenu = false
-                                        playlist?.id?.let { onEditFilters(it) }
-                                    }
-                                )
-                            }
-                            if (isDynamic && dynamicSpec?.mode == "SNAPSHOT") {
-                                DropdownMenuItem(
-                                    leadingIcon = {
-                                        Icon(Icons.Rounded.Refresh, contentDescription = null)
-                                    },
-                                    text = { Text("Refresh now") },
-                                    onClick = {
-                                        showOverflowMenu = false
-                                        viewModel.refreshDynamic()
-                                    }
-                                )
-                            }
-                            if (isDynamic || playlist?.isAuto != true) {
-                                DropdownMenuItem(
-                                    leadingIcon = {
-                                        Icon(Icons.Rounded.Delete, contentDescription = null, tint = Rose500)
-                                    },
-                                    text = { Text("Delete playlist", color = Rose500) },
-                                    onClick = {
-                                        showOverflowMenu = false
-                                        showDeleteConfirm = true
-                                    }
-                                )
-                            }
-                        }
+                    IconButton(onClick = { showPlaylistSheet = true }) {
+                        Icon(Icons.Rounded.MoreVert, contentDescription = "More options", tint = Mist100)
                     }
                 }
             }
