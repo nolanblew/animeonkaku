@@ -55,6 +55,8 @@ Schema changes: edit `src/db/schema.ts`, then `npm run db:generate` (never edit 
 | Endpoint | Auth | Description |
 |---|---|---|
 | `GET /healthz` | none | DB ping + media-disk free bytes |
+| `GET /status` | none | operator HTML dashboard with disk, media storage, and catalog counts |
+| `GET /v1/status` | none | JSON backing data for the status dashboard |
 | `POST /v1/auth/login` | none | `{username, password, deviceName?}` → `{token, user, isNewUser}` |
 | `GET /v1/auth/me` | bearer | user, kitsu auth state, device sessions |
 | `POST /v1/auth/logout` | bearer | revoke current session |

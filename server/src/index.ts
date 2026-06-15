@@ -34,6 +34,7 @@ import {
   LibrarySyncPipeline,
   SyncScheduler,
 } from "./sync/index.js";
+import { PgStatusDashboardService } from "./status/statusService.js";
 
 const config = loadConfig();
 const externalLogger = createJsonStdoutLogger();
@@ -132,6 +133,10 @@ const app = buildApp({
   syncApi: new JobSyncApiService(jobQueue),
   proxyApi: new CachedProxyService({
     upstream: new UpstreamProxyService(animeThemesClient, kitsuClient, syncRepo),
+  }),
+  status: new PgStatusDashboardService({
+    mediaRoot: config.MEDIA_ROOT,
+    query: async (text, values) => pool.query(text, values),
   }),
   onLogin: async (result) => {
     if (!result.isNewUser) return;
