@@ -21,6 +21,7 @@ import { UpstreamHttp } from "./http/upstream.js";
 import { JobPriority, JobQueue, JobWorker, PgJobRepository } from "./jobs/index.js";
 import { RealKitsuAuthClient } from "./kitsu/kitsuAuthClient.js";
 import { KitsuClient } from "./kitsu/kitsuClient.js";
+import { createJsonStdoutLogger } from "./logging.js";
 import {
   createFetchMediaHandlers,
   DrizzleMediaCatalogLookup,
@@ -35,6 +36,7 @@ import {
 } from "./sync/index.js";
 
 const config = loadConfig();
+const externalLogger = createJsonStdoutLogger();
 
 const { pool, db } = createDb(config.DATABASE_URL);
 
@@ -50,11 +52,13 @@ const kitsuHttp = new UpstreamHttp({
   bucket: new TokenBucket({ capacity: 2, refillPerSecond: 2 }),
   breaker: new CircuitBreaker(),
   name: "kitsu",
+  logger: externalLogger,
 });
 const animeThemesHttp = new UpstreamHttp({
   bucket: new TokenBucket({ capacity: 3, refillPerSecond: 3 }),
   breaker: new CircuitBreaker(),
   name: "animethemes",
+  logger: externalLogger,
   // Cloudflare hard-blocks with 403 (and occasionally 451); treat repeated
   // blocks as breaker failures so the queue stops hammering a blocked origin.
   breakerStatuses: [403, 451],
@@ -73,6 +77,7 @@ const syncPipeline = new LibrarySyncPipeline({
 const mediaStore = new MediaStore({
   mediaRoot: config.MEDIA_ROOT,
   repo: new DrizzleMediaFileRepo(db),
+  logger: externalLogger,
 });
 const fetchHandlers = createFetchMediaHandlers({
   mediaStore,
@@ -122,6 +127,7 @@ const app = buildApp({
     repo: new DrizzleMediaApiRepository(db),
     queue: jobQueue,
     mediaRoot: config.MEDIA_ROOT,
+    logger: externalLogger,
   }),
   syncApi: new JobSyncApiService(jobQueue),
   proxyApi: new CachedProxyService({
