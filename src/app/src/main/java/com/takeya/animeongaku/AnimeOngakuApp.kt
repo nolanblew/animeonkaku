@@ -3,6 +3,8 @@ package com.takeya.animeongaku
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import coil.ImageLoader
+import coil.ImageLoaderFactory
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.work.DynamicPlaylistWorkScheduler
 import com.takeya.animeongaku.work.LibraryPullScheduler
@@ -20,9 +22,10 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltAndroidApp
-class AnimeOngakuApp : Application(), Configuration.Provider {
+class AnimeOngakuApp : Application(), Configuration.Provider, ImageLoaderFactory {
 
     @Inject lateinit var workerFactory: HiltWorkerFactory
+    @Inject lateinit var imageLoader: ImageLoader
     @Inject lateinit var preCacheManager: PreCacheManager
     @Inject lateinit var nowPlayingPersistence: NowPlayingPersistence
     @Inject lateinit var mediaControllerManager: MediaControllerManager
@@ -39,6 +42,10 @@ class AnimeOngakuApp : Application(), Configuration.Provider {
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
             .build()
+
+    // Coil resolves its singleton loader from the Application when it implements
+    // ImageLoaderFactory, so every AsyncImage uses the server-media-rebasing loader.
+    override fun newImageLoader(): ImageLoader = imageLoader
 
     override fun onCreate() {
         super.onCreate()

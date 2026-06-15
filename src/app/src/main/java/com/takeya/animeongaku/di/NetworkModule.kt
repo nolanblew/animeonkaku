@@ -19,6 +19,8 @@ import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.network.OngakuAuthInterceptor
 import com.takeya.animeongaku.network.OngakuBaseUrlInterceptor
 import com.takeya.animeongaku.network.RetryInterceptor
+import com.takeya.animeongaku.network.ServerMediaRebaseInterceptor
+import coil.ImageLoader
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -143,6 +145,27 @@ object NetworkModule {
     @Singleton
     fun provideOngakuApi(@Named("ongaku") retrofit: Retrofit): OngakuApi {
         return retrofit.create(OngakuApi::class.java)
+    }
+
+    /**
+     * Coil image loader whose HTTP client rebases stale server-media URLs onto the
+     * current server base (see [ServerMediaRebaseInterceptor]). Installed as the app's
+     * default loader via [com.takeya.animeongaku.AnimeOngakuApp] so every AsyncImage
+     * survives a server host change instead of rendering broken artwork.
+     */
+    @Provides
+    @Singleton
+    fun provideImageLoader(
+        @ApplicationContext context: Context,
+        @Named("base") baseClient: OkHttpClient,
+        rebaseInterceptor: ServerMediaRebaseInterceptor
+    ): ImageLoader {
+        val client = baseClient.newBuilder()
+            .addInterceptor(rebaseInterceptor)
+            .build()
+        return ImageLoader.Builder(context)
+            .okHttpClient(client)
+            .build()
     }
 
     @Provides
