@@ -19,6 +19,9 @@ import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudDownload
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.FilterList
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.rounded.LibraryAdd
 import androidx.compose.material.icons.rounded.Movie
@@ -73,6 +76,10 @@ data class ActionSheetConfig(
     val showRemoveDislike: Boolean = false,
     val showUnskip: Boolean = false,
     val showRemoveFromQueue: Boolean = false,
+    val showEditFilters: Boolean = false,
+    val showRefresh: Boolean = false,
+    val showDelete: Boolean = false,
+    val deleteLabel: String = "Delete",
     val artistName: String? = null,
     val animeName: String? = null
 )
@@ -94,7 +101,10 @@ fun ActionSheet(
     onLike: () -> Unit = {},
     onRemoveDislike: () -> Unit = {},
     onUnskip: () -> Unit = {},
-    onRemoveFromQueue: () -> Unit = {}
+    onRemoveFromQueue: () -> Unit = {},
+    onEditFilters: () -> Unit = {},
+    onRefresh: () -> Unit = {},
+    onDelete: () -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -282,6 +292,27 @@ fun ActionSheet(
                     icon = { Icon(Icons.Rounded.CloudDone, contentDescription = null, tint = Rose500) },
                     label = "Remove download",
                     onClick = { onRemoveDownload(); onDismiss() }
+                )
+            }
+            if (config.showEditFilters) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.FilterList, contentDescription = null, tint = Mist100) },
+                    label = "Edit filters",
+                    onClick = { onEditFilters(); onDismiss() }
+                )
+            }
+            if (config.showRefresh) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.Refresh, contentDescription = null, tint = Mist100) },
+                    label = "Refresh now",
+                    onClick = { onRefresh(); onDismiss() }
+                )
+            }
+            if (config.showDelete) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = Rose500) },
+                    label = config.deleteLabel,
+                    onClick = { onDelete(); onDismiss() }
                 )
             }
         }

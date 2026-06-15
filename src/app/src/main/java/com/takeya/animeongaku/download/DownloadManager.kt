@@ -19,6 +19,7 @@ import com.takeya.animeongaku.data.local.DownloadGroupEntity
 import com.takeya.animeongaku.data.local.DownloadGroupThemeEntity
 import com.takeya.animeongaku.data.local.DownloadRequestEntity
 import com.takeya.animeongaku.data.local.PlaylistDao
+import com.takeya.animeongaku.data.local.PlaylistTrack
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.network.ConnectivityMonitor
@@ -26,15 +27,30 @@ import com.takeya.animeongaku.network.NetworkType as AppNetworkType
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * Themes present in a downloaded playlist that are not yet tracked for download.
+ * Pure so the "what changed" decision can be unit-tested independently of Room/WorkManager.
+ */
+internal fun newPlaylistDownloadThemeIds(
+    playlistThemeIds: List<Long>,
+    trackedThemeIds: Set<Long>
+): List<Long> = playlistThemeIds.distinct().filter { it !in trackedThemeIds }
 
 @Singleton
 class DownloadManager @Inject constructor(
@@ -54,6 +70,79 @@ class DownloadManager @Inject constructor(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val workManager = WorkManager.getInstance(context)
+    private val playlistSyncStarted = AtomicBoolean(false)
+
+    init {
+        startPlaylistDownloadSync()
+    }
+
+    // --- Automatic playlist download sync ---
+
+    /**
+     * Keep downloaded playlists in sync with their contents: whenever a playlist that
+     * is marked for download gains tracks (manual edits, server pull, or an auto-playlist
+     * refresh such as "Currently Watching"), the new tracks are enqueued automatically.
+     * Downloads still respect the Wi-Fi-only preference via [enqueueDownload]. Idempotent
+     * and safe to call repeatedly; only the first call starts the collector.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun startPlaylistDownloadSync() {
+        if (!playlistSyncStarted.compareAndSet(false, true)) return
+        scope.launch {
+            downloadDao.observeAllGroups()
+                .map { groups -> groups.filter { it.groupType == DownloadGroupEntity.TYPE_PLAYLIST } }
+                .distinctUntilChanged()
+                .flatMapLatest { playlistGroups ->
+                    if (playlistGroups.isEmpty()) {
+                        flowOf(emptyList<Pair<DownloadGroupEntity, List<PlaylistTrack>>>())
+                    } else {
+                        combine(
+                            playlistGroups.map { group ->
+                                val playlistId = group.groupId.toLongOrNull() ?: -1L
+                                playlistDao.observePlaylistTracks(playlistId)
+                                    .map { tracks -> group to tracks }
+                            }
+                        ) { it.toList() }
+                    }
+                }
+                .collect { snapshots ->
+                    for ((group, tracks) in snapshots) {
+                        try {
+                            reconcilePlaylistGroupDownloads(group, tracks)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to auto-download playlist '${group.label}'", e)
+                        }
+                    }
+                }
+        }
+    }
+
+    private suspend fun reconcilePlaylistGroupDownloads(
+        group: DownloadGroupEntity,
+        tracks: List<PlaylistTrack>
+    ) {
+        val tracked = downloadDao.getThemeIdsInGroup(group.id).toSet()
+        val newThemeIds = newPlaylistDownloadThemeIds(tracks.map { it.theme.id }, tracked)
+        if (newThemeIds.isEmpty()) return
+
+        val newTracks = tracks.filter { it.theme.id in newThemeIds.toSet() }
+            .distinctBy { it.theme.id }
+
+        // Resolve cover art per anime, mirroring downloadPlaylist().
+        val animeIds = newTracks.mapNotNull { it.theme.animeId }.distinct()
+        val animeMap = if (animeIds.isNotEmpty()) {
+            animeDao.getByAnimeThemesIds(animeIds).associateBy { it.animeThemesId }
+        } else emptyMap()
+
+        // Track the new themes under this group so later refreshes see them as already handled.
+        downloadDao.insertGroupThemes(newTracks.map { DownloadGroupThemeEntity(group.id, it.theme.id) })
+
+        for (track in newTracks) {
+            val imageUrl = track.theme.animeId?.let { animeMap[it] }?.primaryArtworkUrl()
+            enqueueDownload(track.theme, imageUrl)
+        }
+        Log.d(TAG, "Auto-queued ${newTracks.size} new track(s) for downloaded playlist '${group.label}'")
+    }
 
     // --- Public observation APIs ---
 

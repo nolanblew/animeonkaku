@@ -60,10 +60,10 @@ class MediaControllerManager @Inject constructor(
     private val userPreferencesRepository: UserPreferencesRepository,
     private val nowPlayingPersistence: NowPlayingPersistence,
     private val connectivityMonitor: ConnectivityMonitor,
-    private val serverSettingsStore: ServerSettingsStore
+    private val serverSettingsStore: ServerSettingsStore,
+    private val imageLoader: ImageLoader
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val imageLoader = ImageLoader(context)
     private val artworkDataCache = ArtworkDataCache()
 
     private var controller: MediaController? = null

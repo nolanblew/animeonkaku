@@ -74,6 +74,8 @@ describe("UpstreamProxyService catalog seeding", () => {
         kitsuId: "11",
         themeId: 1478,
         audioUrl: "https://a.animethemes.moe/Naruto-OP1.ogg",
+        // Anime cover must be seeded so the image route can serve it (not 404).
+        coverUrl: "https://i.animethemes.moe/covers/naruto.jpg",
       },
     ]);
     expect(catalog.artists).toEqual([

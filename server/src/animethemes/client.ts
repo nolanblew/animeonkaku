@@ -14,7 +14,7 @@ const MAP_INCLUDE =
   "resources,animethemes,animethemes.animethemeentries.videos," +
   "animethemes.animethemeentries.videos.audio,animethemes.song,animethemes.song.artists";
 const SEARCH_INCLUDE =
-  "resources,animesynonyms,animethemes,animethemes.animethemeentries.videos," +
+  "resources,images,animesynonyms,animethemes,animethemes.animethemeentries.videos," +
   "animethemes.animethemeentries.videos.audio,animethemes.song,animethemes.song.artists";
 const SINGLE_INCLUDE =
   "resources,images,animesynonyms,animethemes,animethemes.animethemeentries.videos," +

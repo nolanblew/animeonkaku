@@ -5,6 +5,7 @@ import com.takeya.animeongaku.data.auth.ServerTokenStore
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.network.OngakuAuthInterceptor
 import com.takeya.animeongaku.network.OngakuBaseUrlInterceptor
+import com.takeya.animeongaku.network.ServerMediaRebaseInterceptor
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Protocol
@@ -34,6 +35,49 @@ class OngakuInterceptorsTest {
         })
 
         assertEquals("http://192.168.1.5:8080/api/v1/auth/me?fresh=true", proceededRequest!!.url.toString())
+    }
+
+    @Test
+    fun `media rebase interceptor rehosts stale artwork url onto the current base`() {
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.50:8080/api"
+        }
+        val interceptor = ServerMediaRebaseInterceptor(settings)
+        var proceededRequest: Request? = null
+        val original = Request.Builder()
+            .url("http://127.0.0.1:8080/api/v1/media/images/anime/8403/cover")
+            .get()
+            .build()
+
+        interceptor.intercept(fakeChain(original) { request ->
+            proceededRequest = request
+            fakeResponse(200, request)
+        })
+
+        assertEquals(
+            "http://192.168.1.50:8080/api/v1/media/images/anime/8403/cover",
+            proceededRequest!!.url.toString()
+        )
+    }
+
+    @Test
+    fun `media rebase interceptor leaves non-server-media urls untouched`() {
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.50:8080/api"
+        }
+        val interceptor = ServerMediaRebaseInterceptor(settings)
+        var proceededRequest: Request? = null
+        val original = Request.Builder()
+            .url("https://i.animethemes.moe/covers/naruto.jpg")
+            .get()
+            .build()
+
+        interceptor.intercept(fakeChain(original) { request ->
+            proceededRequest = request
+            fakeResponse(200, request)
+        })
+
+        assertEquals("https://i.animethemes.moe/covers/naruto.jpg", proceededRequest!!.url.toString())
     }
 
     @Test

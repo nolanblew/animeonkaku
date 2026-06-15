@@ -118,6 +118,11 @@ export class MediaStreamingService {
   async requestAudio(themeId: number): Promise<{ themeId: number; audioState: AudioState; jobId: number }> {
     const audio = await this.deps.repo.findAudio(themeId);
     if (!audio) throw new ApiError(404, "NOT_FOUND", "Theme not found.");
+    // Already cached locally — never re-hit AnimeThemes for media the server owns.
+    // jobId 0 signals "no fetch needed"; clients warm-poll this until audioState is READY.
+    if (audio.state === "READY" && audio.filePath) {
+      return { themeId, audioState: "READY", jobId: 0 };
+    }
     const job = await this.enqueueFetch(themeId, JobPriority.HIGH);
     return { themeId, audioState: audioState(audio.state), jobId: job.id };
   }
