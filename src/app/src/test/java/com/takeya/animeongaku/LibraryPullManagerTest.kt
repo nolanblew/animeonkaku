@@ -20,6 +20,7 @@ import com.takeya.animeongaku.data.remote.OngakuAnimeDetailResponse
 import com.takeya.animeongaku.data.remote.OngakuAnimeDto
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.remote.OngakuAudioRequestResponse
+import com.takeya.animeongaku.data.remote.OngakuChangesResponse
 import com.takeya.animeongaku.data.remote.OngakuLibraryResponse
 import com.takeya.animeongaku.data.remote.OngakuLoginRequest
 import com.takeya.animeongaku.data.remote.OngakuLoginResponse
@@ -419,6 +420,7 @@ private class FakeOngakuApi(
     private val autoPlaylistResponse: List<OngakuPlaylistDto>,
     private val events: MutableList<String> = mutableListOf()
 ) : OngakuApi {
+    override suspend fun changes(since: Long?): OngakuChangesResponse = error("unused")
     var requestedSince: Long? = null
     var playlistsCalled = false
     var autoPlaylistsCalled = false

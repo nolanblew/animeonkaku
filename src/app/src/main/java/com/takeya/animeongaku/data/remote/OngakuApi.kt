@@ -25,6 +25,9 @@ interface OngakuApi {
     @GET("v1/library")
     suspend fun library(@Query("since") since: Long? = null): OngakuLibraryResponse
 
+    @GET("v1/changes")
+    suspend fun changes(@Query("since") since: Long? = null): OngakuChangesResponse
+
     @GET("v1/anime/{kitsuId}")
     suspend fun anime(@Path("kitsuId") kitsuId: String): OngakuAnimeDetailResponse
 

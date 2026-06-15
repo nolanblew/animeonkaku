@@ -72,6 +72,8 @@ interruption between).
       writes) and `DrizzleSyncRepository` (background AUTO_PLAYLIST_REFRESH / library-sync jobs).
 
 ### A4 — Client wiring
+- [x] `OngakuPlaylistDto`/`OngakuPlaylistRequest` carry `isDynamic`/`dynamicSpecJson`/
+      `dynamicSortJson`/`autoUpdate` so the client can send and receive dynamic playlists.
 - [ ] `DynamicPlaylistRepository.createDynamic/update` write through the server (spec + sort +
       autoUpdate); local Room remains a cache.
 - [ ] `LibraryPullManager` ingests dynamic playlists as first-class (spec, entries) from the feed.
@@ -94,25 +96,26 @@ interruption between).
       integration needs a real-DB harness (server tests use fakes) — deferred to manual/instrumented.
 
 ### B2 — Client: outbox + local clocks
-- [ ] `pending_ops` Room table + DAO (FIFO, attempts, dedupe per entityKey+opType where safe).
-- [ ] Add `updatedAt` (local op clock) to user-mutable Room rows: `user_preferences`, `playlists`,
-      `playlist_entries` set, library (`anime` already has `libraryUpdatedAt`; add op clock).
-- [ ] Mutation repositories enqueue ops + apply optimistic local change with `opTs = now`.
-      (`UserPreferencesRepository`, `ServerPlaylistWriter`, `DynamicPlaylistRepository`,
-      library add/remove, plays already queue.)
+- [x] `pending_ops` Room table (`PendingOpEntity`) + DAO (FIFO `oldest`, `deleteByIds`,
+      `incrementAttempts`, `deleteSuperseded`, `remapEntityKey`) + migration 20→21.
+- [x] `OngakuApi.changes` + `OngakuChangesResponse`; pref/playlist DTOs carry `opTs`/dynamic fields.
+- [x] Like/dislike write-through stamps `opTs` (headline conflict case works end-to-end with server LWW).
+- [ ] Add `updatedAt` (local op clock) columns to `user_preferences`/`playlists` for incoming-delta LWW.
+- [ ] Route the remaining mutations (playlist create/rename/reorder/delete, dynamic edits,
+      library add/remove) through the outbox so they survive offline.
 
 ### B3 — Client: SyncEngine
-- [ ] `SyncEngine.push()` — drain `pending_ops` FIFO; send with `opTs`; on success delete op; on
-      server-newer response reconcile local row; on network failure stop (stay queued), backoff.
-- [ ] `SyncEngine.pull()` — `GET /v1/changes?since=cursor`; apply incoming LWW vs local `updatedAt`;
-      persist new cursor; honor tombstones.
-- [ ] Offline-created playlist id remap (temp negative id → server id across rows + queued ops).
-- [ ] Trigger on: connectivity regained, app foreground, post-mutation (debounced), periodic worker.
-- [ ] Replace bespoke write-throughs (likes, playlist edits) with outbox enqueues.
+- [x] Pure rules `sync/OfflineSync.kt` (`shouldApplyIncoming` LWW, temp-id alloc, `remapId`) + unit tests.
+- [ ] `SyncEngine.push()` — drain `pending_ops` FIFO; send with `opTs`; delete on success; reconcile
+      on server-newer; stay queued + backoff on network failure.
+- [ ] `SyncEngine.pull()` — `GET /v1/changes?since=cursor`; apply incoming LWW vs local clock;
+      persist cursor; honor tombstones.
+- [ ] Offline-created playlist id remap wired through `pending_ops.remapEntityKey` + entry rewrite.
+- [ ] Trigger on connectivity regained / app foreground / post-mutation (debounced) / periodic worker.
 
 ### B4 — Tests / verification
-- [ ] Server vitest green (`tsc --noEmit` + vitest run).
-- [ ] Android unit tests green (outbox ordering, LWW apply, id remap as pure functions).
+- [x] Server `tsc --noEmit` + vitest green (151 passed).
+- [x] Android `:app:testDebugUnitTest` green incl. new `OfflineSyncTest`.
 - [ ] Manual/instrumented: make changes airplane-mode, reconnect, verify convergence.
 
 ---

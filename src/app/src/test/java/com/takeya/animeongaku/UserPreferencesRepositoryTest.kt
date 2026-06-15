@@ -5,6 +5,7 @@ import com.takeya.animeongaku.data.local.UserPreferenceEntity
 import com.takeya.animeongaku.data.remote.OngakuAnimeDetailResponse
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.remote.OngakuAudioRequestResponse
+import com.takeya.animeongaku.data.remote.OngakuChangesResponse
 import com.takeya.animeongaku.data.remote.OngakuLibraryResponse
 import com.takeya.animeongaku.data.remote.OngakuLoginRequest
 import com.takeya.animeongaku.data.remote.OngakuLoginResponse
@@ -29,6 +30,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import retrofit2.Response
 
@@ -47,7 +49,11 @@ class UserPreferencesRepositoryTest {
 
         assertEquals(UserPreferenceEntity(themeId = 100L, isLiked = true, isDisliked = false), dao.saved.single())
         assertEquals(100L, api.updatedThemeId)
-        assertEquals(OngakuThemePrefPatch(liked = true, disliked = false), api.updatedThemePref)
+        val patch = api.updatedThemePref!!
+        assertEquals(true, patch.liked)
+        assertEquals(false, patch.disliked)
+        // opTs is stamped (client op clock for last-write-wins); exact value is wall-clock.
+        assertTrue((patch.opTs ?: 0L) > 0L)
         assertEquals(1, refresher.refreshCount)
     }
 
@@ -131,6 +137,7 @@ private class RecordingOngakuApi : OngakuApi {
     override suspend fun me(): OngakuMeResponse = error("unused")
     override suspend fun revokeDevice(id: Long): Response<Unit> = Response.success(Unit)
     override suspend fun library(since: Long?): OngakuLibraryResponse = error("unused")
+    override suspend fun changes(since: Long?): OngakuChangesResponse = error("unused")
     override suspend fun anime(kitsuId: String): OngakuAnimeDetailResponse = error("unused")
     override suspend fun search(query: String): com.takeya.animeongaku.data.remote.OngakuSearchResponse =
         error("unused")

@@ -38,6 +38,15 @@ data class OngakuLibraryResponse(
     val themes: List<OngakuThemeDto>
 )
 
+/** Unified delta feed: library + theme prefs + playlists changed since the client's cursor. */
+data class OngakuChangesResponse(
+    val serverTime: Long,
+    val anime: List<OngakuAnimeDto>,
+    val themes: List<OngakuThemeDto>,
+    val prefs: List<OngakuThemePrefDto>,
+    val playlists: List<OngakuPlaylistDto>
+)
+
 data class OngakuAnimeDetailResponse(
     val anime: OngakuAnimeDto,
     val themes: List<OngakuThemeDto>
@@ -126,12 +135,16 @@ data class OngakuThemePrefDto(
     val liked: Boolean,
     val disliked: Boolean,
     val playCount: Int,
-    val lastPlayedAt: Long?
+    val lastPlayedAt: Long?,
+    val updatedAt: Long = 0L,
+    val deleted: Boolean = false
 )
 
 data class OngakuThemePrefPatch(
     val liked: Boolean? = null,
-    val disliked: Boolean? = null
+    val disliked: Boolean? = null,
+    // Client op-timestamp (epoch ms) of when the user toggled; drives server last-write-wins.
+    val opTs: Long? = null
 )
 
 data class OngakuPlayEvent(
@@ -149,13 +162,20 @@ data class OngakuPlaylistDto(
     val entries: List<Long>,
     val isAuto: Boolean,
     val updatedAt: Long,
-    val dynamicSpecJson: Any?
+    val dynamicSpecJson: Any?,
+    val isDynamic: Boolean = false,
+    val autoUpdate: Boolean = true,
+    val deleted: Boolean = false,
+    val dynamicSortJson: Any? = null
 )
 
 data class OngakuPlaylistRequest(
     val name: String? = null,
     val entries: List<Long>? = null,
-    val dynamicSpecJson: Any? = null
+    val dynamicSpecJson: Any? = null,
+    val dynamicSortJson: Any? = null,
+    val autoUpdate: Boolean? = null,
+    val opTs: Long? = null
 )
 
 data class OngakuPlaylistResponse(

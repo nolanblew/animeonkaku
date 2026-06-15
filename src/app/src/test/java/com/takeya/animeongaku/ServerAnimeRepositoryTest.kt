@@ -19,6 +19,7 @@ import com.takeya.animeongaku.data.remote.OngakuAnimeDetailResponse
 import com.takeya.animeongaku.data.remote.OngakuAnimeDto
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.remote.OngakuAudioRequestResponse
+import com.takeya.animeongaku.data.remote.OngakuChangesResponse
 import com.takeya.animeongaku.data.remote.OngakuLibraryResponse
 import com.takeya.animeongaku.data.remote.OngakuLoginRequest
 import com.takeya.animeongaku.data.remote.OngakuLoginResponse
@@ -244,6 +245,7 @@ private class SearchRecordingOngakuApi(
     override suspend fun me(): OngakuMeResponse = error("unused")
     override suspend fun revokeDevice(id: Long): Response<Unit> = Response.success(Unit)
     override suspend fun library(since: Long?): OngakuLibraryResponse = error("unused")
+    override suspend fun changes(since: Long?): OngakuChangesResponse = error("unused")
     override suspend fun addAnime(request: OngakuManualAnimeRequest): OngakuManualAnimeResponse = error("unused")
     override suspend fun removeAnime(kitsuId: String): Response<Unit> = Response.success(Unit)
     override suspend fun themePrefs(): List<OngakuThemePrefDto> = error("unused")

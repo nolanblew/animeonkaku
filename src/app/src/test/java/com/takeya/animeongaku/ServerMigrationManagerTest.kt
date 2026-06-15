@@ -15,6 +15,7 @@ import com.takeya.animeongaku.data.local.UserPreferenceEntity
 import com.takeya.animeongaku.data.remote.OngakuAnimeDetailResponse
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.remote.OngakuAudioRequestResponse
+import com.takeya.animeongaku.data.remote.OngakuChangesResponse
 import com.takeya.animeongaku.data.remote.OngakuLibraryResponse
 import com.takeya.animeongaku.data.remote.OngakuLoginRequest
 import com.takeya.animeongaku.data.remote.OngakuLoginResponse
@@ -217,6 +218,7 @@ private class MigrationRecordingOngakuApi : OngakuApi {
     override suspend fun me(): OngakuMeResponse = error("unused")
     override suspend fun revokeDevice(id: Long): Response<Unit> = Response.success(Unit)
     override suspend fun library(since: Long?): OngakuLibraryResponse = error("unused")
+    override suspend fun changes(since: Long?): OngakuChangesResponse = error("unused")
     override suspend fun anime(kitsuId: String): OngakuAnimeDetailResponse = error("unused")
     override suspend fun search(query: String): com.takeya.animeongaku.data.remote.OngakuSearchResponse =
         error("unused")
