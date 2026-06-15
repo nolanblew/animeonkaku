@@ -52,10 +52,11 @@ interruption between).
 ## Task A — Server-authoritative dynamic playlists
 
 ### A1 — Server data model & spec storage
-- [ ] Extend `playlists`: treat dynamic playlists as `is_auto=false` but `is_dynamic=true` with
+- [x] Extend `playlists`: treat dynamic playlists as `is_auto=false` but `is_dynamic=true` with
       `dynamic_spec_json` (filter), `dynamic_sort_json` (sort), `dynamic_auto_update` (bool),
-      `dynamic_spec_updated_at`. Migration via `npm run db:generate`.
-- [ ] `PlaylistDto` carries `isDynamic`, `dynamicSpecJson`, `dynamicSortJson`, `autoUpdate`.
+      `dynamic_spec_updated_at`. Migration `0004_nifty_purifiers.sql`.
+- [x] `PlaylistDto` carries `isDynamic`, `dynamicSpecJson`, `dynamicSortJson`, `autoUpdate` (+ `deleted`);
+      create/update persist them.
 
 ### A2 — Port filter/sort DSL to TypeScript
 - [ ] `server/src/playlists/filterTypes.ts` — FilterNode/DateAnchor/SortSpec types matching the
@@ -82,12 +83,15 @@ interruption between).
 ## Task B — Offline-first resilient sync (LWW)
 
 ### B1 — Server: LWW + tombstones + delta
-- [ ] Add `deleted_at` tombstone to `theme_prefs`; expose `updatedAt`/`deleted` on pref DTOs.
-- [ ] All user-state write endpoints accept optional `opTs` (client op timestamp) and apply LWW
-      (`prefs`, `playlists` create/update/spec/delete, `library` add/remove). Return authoritative row.
-- [ ] `GET /v1/prefs/themes?since=` and `GET /v1/playlists?since=` return deltas incl. tombstones.
-- [ ] `GET /v1/changes?since=` composing library + prefs + playlists + serverTime.
-- [ ] vitest coverage: LWW accepts newer / rejects older / returns authoritative; tombstone in delta.
+- [x] Pure LWW primitive `sync/lww.ts` (`shouldApplyWrite`, `resolveOpTs`) + unit tests.
+- [x] Add `deleted_at` tombstone + dedicated `liked_updated_at` clock to `theme_prefs`; expose
+      `updatedAt`/`deleted` on pref DTOs. (Separate clock so additive play counts don't reject likes.)
+- [x] `updateThemePref` and `updatePlaylist` accept `opTs` and apply LWW; return authoritative row.
+- [~] `library` add/remove still stamp server-now (LWW-safe, no explicit `opTs` param yet).
+- [x] `GET /v1/prefs/themes?since=` and `GET /v1/playlists?since=` return deltas incl. tombstones.
+- [x] `GET /v1/changes?since=` composing library + prefs + playlists + serverTime.
+- [x] vitest: pure LWW (newer applies / stale rejected / tie idempotent). Route-level LWW
+      integration needs a real-DB harness (server tests use fakes) — deferred to manual/instrumented.
 
 ### B2 — Client: outbox + local clocks
 - [ ] `pending_ops` Room table + DAO (FIFO, attempts, dedupe per entityKey+opType where safe).

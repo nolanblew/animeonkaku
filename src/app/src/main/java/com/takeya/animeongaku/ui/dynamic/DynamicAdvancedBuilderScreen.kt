@@ -996,6 +996,7 @@ private fun AttributeTypePickerSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 12.dp)
                 .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(12.dp)
