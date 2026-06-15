@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
@@ -26,6 +27,7 @@ import com.takeya.animeongaku.network.serverMediaRequestHeaders
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -34,6 +36,30 @@ import java.io.File
 import java.io.FileOutputStream
 
 internal const val DOWNLOAD_MAX_ATTEMPTS = 3
+
+/** What to do next while waiting for the server to cache a track's audio. */
+internal enum class AudioWarmupDecision { READY, FAILED, WAIT }
+
+/** Outcome of waiting for the server-side cache before downloading. */
+internal enum class ServerAudioReadiness { PROCEED, FAILED, RETRY_LATER }
+
+/** Total in-worker budget spent polling the server cache before deferring to a later retry. */
+private const val MAX_WARMUP_WAIT_MS = 45_000L
+private const val INITIAL_WARMUP_POLL_MS = 1_000L
+private const val MAX_WARMUP_POLL_MS = 5_000L
+
+/**
+ * Maps a server-reported audio state to a warm-up action. Anything that is not a
+ * terminal READY/FAILED keeps us waiting, so the client only ever downloads once the
+ * server has the media locally — instead of racing the cache and forcing the server to
+ * proxy AnimeThemes on every attempt. Unknown states wait (fail-safe) rather than
+ * proceeding into a guaranteed origin hit.
+ */
+internal fun audioWarmupDecision(audioState: String): AudioWarmupDecision = when (audioState) {
+    "READY" -> AudioWarmupDecision.READY
+    "FAILED" -> AudioWarmupDecision.FAILED
+    else -> AudioWarmupDecision.WAIT
+}
 
 internal fun downloadFailureStatus(
     runAttemptCount: Int,
@@ -129,7 +155,13 @@ class DownloadWorker @AssistedInject constructor(
             val downloadsDir = File(applicationContext.filesDir, "downloads")
             if (!downloadsDir.exists()) downloadsDir.mkdirs()
 
-            warmServerAudioIfNeeded(themeId)
+            when (awaitServerAudioReady(themeId)) {
+                ServerAudioReadiness.PROCEED -> Unit
+                ServerAudioReadiness.FAILED ->
+                    return@withContext retryOrFail(themeId, "Server reported audio unavailable")
+                ServerAudioReadiness.RETRY_LATER ->
+                    return@withContext retryOrFail(themeId, "Server audio not cached yet")
+            }
 
             // Download audio file
             val extension = downloadFileExtension(audioUrl, defaultExtension = "ogg")
@@ -199,13 +231,36 @@ class DownloadWorker @AssistedInject constructor(
         }
     }
 
-    private suspend fun warmServerAudioIfNeeded(themeId: Long) {
-        if (!serverSettingsStore.isConfigured) return
-        try {
-            ongakuApi.requestAudio(themeId)
-        } catch (e: Exception) {
-            Log.w(TAG, "Server audio warm-up failed for theme $themeId", e)
-            throw e
+    /**
+     * Wait for the server to cache the track locally before downloading it. The server
+     * only fetches from AnimeThemes on a cache miss, so by polling until the audio is
+     * READY we guarantee the subsequent download is served from the server's local cache
+     * (the origin is hit at most once, by the server's background fetch) instead of
+     * forcing a slow/blocked AnimeThemes proxy on every download attempt.
+     */
+    private suspend fun awaitServerAudioReady(themeId: Long): ServerAudioReadiness {
+        if (!serverSettingsStore.isConfigured) return ServerAudioReadiness.PROCEED
+        val deadline = SystemClock.elapsedRealtime() + MAX_WARMUP_WAIT_MS
+        var pollDelayMs = INITIAL_WARMUP_POLL_MS
+        while (true) {
+            val state = try {
+                ongakuApi.requestAudio(themeId).audioState
+            } catch (e: Exception) {
+                Log.w(TAG, "Server audio warm-up failed for theme $themeId", e)
+                return ServerAudioReadiness.RETRY_LATER
+            }
+            when (audioWarmupDecision(state)) {
+                AudioWarmupDecision.READY -> return ServerAudioReadiness.PROCEED
+                AudioWarmupDecision.FAILED -> return ServerAudioReadiness.FAILED
+                AudioWarmupDecision.WAIT -> {
+                    if (SystemClock.elapsedRealtime() >= deadline) {
+                        Log.d(TAG, "Theme $themeId still $state after warm-up window; retrying later")
+                        return ServerAudioReadiness.RETRY_LATER
+                    }
+                    delay(pollDelayMs)
+                    pollDelayMs = (pollDelayMs * 2).coerceAtMost(MAX_WARMUP_POLL_MS)
+                }
+            }
         }
     }
 
