@@ -25,6 +25,7 @@ import {
 } from "../db/schema.js";
 import { JobPriority, type JobQueue } from "../jobs/index.js";
 import { CANONICAL_AUDIO } from "../media/types.js";
+import { DrizzleDynamicPlaylistEvaluator } from "../playlists/dynamicPlaylistEvaluator.js";
 import { DrizzleAutoPlaylistRefresher } from "../sync/autoPlaylistRefresher.js";
 import { resolveOpTs, shouldApplyWrite } from "../sync/lww.js";
 import { ApiError } from "./errors.js";
@@ -44,6 +45,7 @@ import type {
 
 export class DrizzleClientApiService implements ClientApiService {
   private readonly autoPlaylistRefresher: DrizzleAutoPlaylistRefresher;
+  private readonly dynamicPlaylistEvaluator: DrizzleDynamicPlaylistEvaluator;
 
   constructor(
     private readonly db: Db,
@@ -51,6 +53,7 @@ export class DrizzleClientApiService implements ClientApiService {
     private readonly now: () => Date = () => new Date(),
   ) {
     this.autoPlaylistRefresher = new DrizzleAutoPlaylistRefresher(db);
+    this.dynamicPlaylistEvaluator = new DrizzleDynamicPlaylistEvaluator(db, now);
   }
 
   async getLibrary(userId: string, since: number | null): Promise<LibraryResponse> {
@@ -288,6 +291,8 @@ export class DrizzleClientApiService implements ClientApiService {
 
   async refreshAutoPlaylists(userId: string): Promise<void> {
     await this.autoPlaylistRefresher.refresh(userId);
+    // Dynamic (smart) playlists materialize on the same triggers as the built-in auto playlists.
+    await this.dynamicPlaylistEvaluator.refresh(userId);
   }
 
   async recordPlays(

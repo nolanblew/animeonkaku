@@ -24,14 +24,17 @@ import {
 } from "../db/schema.js";
 import type { KitsuAnimeEntry, KitsuGenre } from "../kitsu/types.js";
 import { CANONICAL_AUDIO } from "../media/types.js";
+import { DrizzleDynamicPlaylistEvaluator } from "../playlists/dynamicPlaylistEvaluator.js";
 import { DrizzleAutoPlaylistRefresher } from "./autoPlaylistRefresher.js";
 import type { KitsuCatalogRecord, SyncRepository, SyncUserAuth } from "./types.js";
 
 export class DrizzleSyncRepository implements SyncRepository {
   private readonly autoPlaylistRefresher: DrizzleAutoPlaylistRefresher;
+  private readonly dynamicPlaylistEvaluator: DrizzleDynamicPlaylistEvaluator;
 
   constructor(private readonly db: Db) {
     this.autoPlaylistRefresher = new DrizzleAutoPlaylistRefresher(db);
+    this.dynamicPlaylistEvaluator = new DrizzleDynamicPlaylistEvaluator(db);
   }
 
   async getUserSyncAuth(userId: string): Promise<SyncUserAuth | null> {
@@ -195,6 +198,7 @@ export class DrizzleSyncRepository implements SyncRepository {
 
   async refreshAutoPlaylists(userId: string): Promise<void> {
     await this.autoPlaylistRefresher.refresh(userId);
+    await this.dynamicPlaylistEvaluator.refresh(userId);
   }
 
   async getKitsuAnimeForMapping(kitsuIds: string[]): Promise<KitsuCatalogRecord[]> {

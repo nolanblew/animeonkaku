@@ -59,17 +59,17 @@ interruption between).
       create/update persist them.
 
 ### A2 — Port filter/sort DSL to TypeScript
-- [ ] `server/src/playlists/filterTypes.ts` — FilterNode/DateAnchor/SortSpec types matching the
-      Moshi `"type"` discriminator + enum-name wire format.
-- [ ] `server/src/playlists/evaluateFilter.ts` — port of `FilterEvaluator.matches` + anchors.
-- [ ] `server/src/playlists/sortThemes.ts` — port of `SortComparators`.
-- [ ] Unit tests mirroring `FilterEvaluatorSortTest`, `FilterNodeSerializationTest`,
-      `ThemeSortOrderTest` to guard Kotlin↔TS parity.
+- [x] `server/src/playlists/evaluate.ts` — FilterNode/DateAnchor/SortSpec evaluated directly from
+      the Moshi `"type"` JSON; `matches` + anchors + sort comparators ported from Kotlin, including
+      the deterministic RANDOM shuffle (BigInt 64-bit) and categorical/default ordering.
+- [x] `test/playlists.evaluate.test.ts` — 15 parity cases (operators, leaves, anchors, sort,
+      nulls-last, RANDOM determinism). `downloaded`/`DOWNLOADED` are empty server-side by design.
 
 ### A3 — Evaluator + materialization
-- [ ] `DrizzleDynamicPlaylistEvaluator`: load user catalog/library/prefs context, evaluate spec,
-      write `playlist_entries` (mirrors `DrizzleAutoPlaylistRefresher.saveAutoPlaylist`).
-- [ ] Hook into `refreshAutoPlaylists(userId)` and the sync pipeline triggers (library/prefs/plays).
+- [x] `DrizzleDynamicPlaylistEvaluator`: loads user library/catalog/prefs context, evaluates each
+      auto-update dynamic playlist, writes `playlist_entries` (mirrors the auto-playlist refresher).
+- [x] Hooked into `refreshAutoPlaylists` on both paths: `DrizzleClientApiService` (pref/library
+      writes) and `DrizzleSyncRepository` (background AUTO_PLAYLIST_REFRESH / library-sync jobs).
 
 ### A4 — Client wiring
 - [ ] `DynamicPlaylistRepository.createDynamic/update` write through the server (spec + sort +
