@@ -5,6 +5,8 @@ import { dirname, join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { FetchLike } from "../http/types.js";
+import type { AppLogger } from "../logging.js";
+import { safeExternalUrl } from "../logging.js";
 import type { MediaFileRecord, MediaFileRepo, SaveMediaFileInput } from "./types.js";
 
 const DEFAULT_MIN_BYTES = 1024;
@@ -20,6 +22,7 @@ export interface MediaStoreOptions {
   mediaRoot: string;
   repo: MediaFileRepo;
   fetch?: FetchLike;
+  logger?: AppLogger;
   minBytes?: number;
 }
 
@@ -40,8 +43,25 @@ export class MediaStore {
     await mkdir(tmpDir, { recursive: true });
     await this.options.repo.markDownloading(input);
 
+    const logData = {
+      kind: input.kind,
+      refId: input.refId,
+      variant: input.variant,
+      url: safeExternalUrl(input.originUrl),
+    };
+
     try {
+      this.options.logger?.info(logData, "external media download request");
       const response = await this.fetchImpl(input.originUrl);
+      this.options.logger?.info(
+        {
+          ...logData,
+          status: response.status,
+          contentType: response.headers.get("content-type"),
+          contentLength: response.headers.get("content-length"),
+        },
+        "external media download response",
+      );
       if (!response.ok) {
         throw new MediaValidationError(`Origin returned HTTP ${response.status}`);
       }
@@ -55,6 +75,15 @@ export class MediaStore {
       await rename(tmpPath, finalPath);
       await this.options.repo.markReady({ ...input, byteSize, sha256 });
       const saved = await stat(finalPath);
+      this.options.logger?.info(
+        {
+          ...logData,
+          byteSize: saved.size,
+          sha256,
+          filePath: input.filePath,
+        },
+        "external media download saved",
+      );
       return {
         id: 0,
         kind: input.kind,
@@ -75,6 +104,7 @@ export class MediaStore {
       await rm(tmpPath, { force: true });
       await rm(finalPath, { force: true });
       const err = error instanceof Error ? error : new Error(String(error));
+      this.options.logger?.warn?.({ ...logData, error: err.message }, "external media download failed");
       await this.options.repo.markFailed({ ...input, errorMessage: err.message });
       throw err;
     }

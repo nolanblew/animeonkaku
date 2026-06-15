@@ -6,6 +6,41 @@ import { FakeTime } from "./helpers/fakeTime.js";
 import { fakeFetch } from "./helpers/fakeFetch.js";
 
 describe("UpstreamHttp", () => {
+  it("logs external URL requests and responses", async () => {
+    const logs: Array<{ data: unknown; message: string }> = [];
+    const { fetch } = fakeFetch([{ status: 200 }]);
+    const http = new UpstreamHttp({
+      fetch,
+      maxRetries: 0,
+      name: "animethemes",
+      logger: {
+        info: (data, message) => logs.push({ data, message }),
+      },
+    });
+
+    await http.request("https://api.animethemes.moe/anime?filter%5Bname%5D=Toradora");
+
+    expect(logs).toEqual([
+      {
+        data: {
+          upstream: "animethemes",
+          method: "GET",
+          url: "https://api.animethemes.moe/anime?filter%5Bname%5D=Toradora",
+        },
+        message: "external upstream request",
+      },
+      {
+        data: {
+          upstream: "animethemes",
+          method: "GET",
+          url: "https://api.animethemes.moe/anime?filter%5Bname%5D=Toradora",
+          status: 200,
+        },
+        message: "external upstream response",
+      },
+    ]);
+  });
+
   it("rejects immediately with CircuitOpenError when the breaker is open", async () => {
     const time = new FakeTime();
     const breaker = new CircuitBreaker({ threshold: 1, cooldownMs: 60_000, now: time.now });

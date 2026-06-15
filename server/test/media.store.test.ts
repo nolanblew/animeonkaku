@@ -87,10 +87,14 @@ describe("MediaStore", () => {
   it("streams to tmp, validates, hashes, atomically moves, and marks READY", async () => {
     mediaRoot = mkdtempSync(join(tmpdir(), "ongaku-media-"));
     const repo = new FakeMediaRepo();
+    const logs: Array<{ data: unknown; message: string }> = [];
     const store = new MediaStore({
       mediaRoot,
       repo,
       fetch: async () => response("abcdef", { "content-type": "audio/ogg", "content-length": "6" }),
+      logger: {
+        info: (data, message) => logs.push({ data, message }),
+      },
       minBytes: 4,
     });
 
@@ -108,6 +112,24 @@ describe("MediaStore", () => {
     expect(ready.sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(await readFile(join(mediaRoot, "audio", "3040.ogg"), "utf8")).toBe("abcdef");
     expect(readdirSync(join(mediaRoot, "audio", "tmp"))).toEqual([]);
+    expect(logs.map((entry) => entry.message)).toEqual([
+      "external media download request",
+      "external media download response",
+      "external media download saved",
+    ]);
+    expect(logs[0]?.data).toMatchObject({
+      kind: "AUDIO",
+      refId: "3040",
+      variant: "SHORT",
+      url: "https://a.animethemes.moe/Toradora-OP1.ogg",
+    });
+    expect(logs[1]?.data).toMatchObject({
+      kind: "AUDIO",
+      refId: "3040",
+      variant: "SHORT",
+      url: "https://a.animethemes.moe/Toradora-OP1.ogg",
+      status: 200,
+    });
   });
 
   it("rejects HTML responses and never marks a partial file READY", async () => {

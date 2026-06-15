@@ -8,6 +8,8 @@ import { z } from "zod";
 import type { AuthService } from "../auth/service.js";
 import type { FetchLike } from "../http/types.js";
 import { JobPriority, type JobQueue } from "../jobs/index.js";
+import type { AppLogger } from "../logging.js";
+import { safeExternalUrl } from "../logging.js";
 import type { MediaState } from "../media/types.js";
 import type { AudioState } from "./clientRoutes.js";
 import { ApiError } from "./errors.js";
@@ -43,6 +45,7 @@ export interface MediaStreamingServiceDeps {
   queue: JobQueue;
   mediaRoot: string;
   fetch?: FetchLike;
+  logger?: AppLogger;
 }
 
 interface ByteRange {
@@ -114,7 +117,12 @@ export class MediaStreamingService {
     return { themeId, audioState: audioState(audio.state), jobId: job.id };
   }
 
-  async sendImage(kind: ImageRouteKind, refId: string, reply: FastifyReply): Promise<FastifyReply> {
+  async sendImage(
+    kind: ImageRouteKind,
+    refId: string,
+    reply: FastifyReply,
+    log?: FastifyBaseLogger,
+  ): Promise<FastifyReply> {
     const image = await this.deps.repo.findImage(kind, refId);
     if (!image) throw new ApiError(404, "NOT_FOUND", "Image not found.");
 
@@ -135,7 +143,7 @@ export class MediaStreamingService {
     }
 
     await this.enqueueImageFetch(kind, refId, JobPriority.NORMAL);
-    return this.proxyImage(reply, image.originUrl);
+    return this.proxyImage(reply, image.originUrl, { kind, refId, log });
   }
 
   private async enqueueFetch(themeId: number, priority: number) {
@@ -156,9 +164,31 @@ export class MediaStreamingService {
     });
   }
 
-  private async proxyImage(reply: FastifyReply, originUrl: string): Promise<FastifyReply> {
+  private async proxyImage(
+    reply: FastifyReply,
+    originUrl: string,
+    input: { kind: ImageRouteKind; refId: string; log: FastifyBaseLogger | undefined },
+  ): Promise<FastifyReply> {
+    const logger = this.deps.logger ?? input.log;
+    const logData = {
+      kind: input.kind,
+      refId: input.refId,
+      originHost: originHost(originUrl),
+      originUrl: safeExternalUrl(originUrl),
+    };
+    logger?.info(logData, "external image origin request");
     const response = await this.fetchImpl(originUrl);
+    logger?.info(
+      {
+        ...logData,
+        status: response.status,
+        contentType: response.headers.get("content-type"),
+        contentLength: response.headers.get("content-length"),
+      },
+      "external image origin response",
+    );
     if (!response.ok) {
+      logger?.warn?.({ ...logData, status: response.status }, "external image origin returned an error");
       throw new ApiError(502, "UPSTREAM_FAILED", `Image origin returned HTTP ${response.status}.`);
     }
     const contentType = response.headers.get("content-type") ?? "image/jpeg";
@@ -183,16 +213,18 @@ export class MediaStreamingService {
   }): Promise<FastifyReply> {
     const headers = new Headers();
     if (input.rangeHeader) headers.set("Range", input.rangeHeader);
+    const logger = this.deps.logger ?? input.log;
 
-    input.log?.info(
+    logger?.info(
       {
         themeId: input.audio.themeId,
         state: input.audio.state,
         method: input.method,
         range: input.rangeHeader,
         originHost: originHost(input.audio.originUrl),
+        originUrl: safeExternalUrl(input.audio.originUrl),
       },
-      "audio cache miss; proxying origin stream",
+      "external audio origin request",
     );
 
     const response = await this.fetchImpl(input.audio.originUrl, {
@@ -201,12 +233,13 @@ export class MediaStreamingService {
     });
 
     const contentType = response.headers.get("content-type") ?? fallbackAudioContentType(input.audio);
-    input.log?.info(
+    logger?.info(
       {
         themeId: input.audio.themeId,
         method: input.method,
         range: input.rangeHeader,
         originHost: originHost(input.audio.originUrl),
+        originUrl: safeExternalUrl(input.audio.originUrl),
         status: response.status,
         contentType,
         contentLength: response.headers.get("content-length"),
@@ -216,12 +249,13 @@ export class MediaStreamingService {
     );
 
     if (!response.ok) {
-      input.log?.warn(
+      logger?.warn?.(
         {
           themeId: input.audio.themeId,
           method: input.method,
           range: input.rangeHeader,
           originHost: originHost(input.audio.originUrl),
+          originUrl: safeExternalUrl(input.audio.originUrl),
           status: response.status,
         },
         "audio origin returned an error",
@@ -352,14 +386,14 @@ export function registerMediaRoutes(
     { schema: { params: animeImageParams } },
     async (request, reply) => {
       const kind = request.params.variant === "poster" ? "ANIME_POSTER" : "ANIME_COVER";
-      return service.sendImage(kind, request.params.kitsuId, reply);
+      return service.sendImage(kind, request.params.kitsuId, reply, request.log);
     },
   );
 
   app.get(
     "/v1/media/images/artists/:slug",
     { schema: { params: artistImageParams } },
-    async (request, reply) => service.sendImage("ARTIST_IMAGE", request.params.slug, reply),
+    async (request, reply) => service.sendImage("ARTIST_IMAGE", request.params.slug, reply, request.log),
   );
 }
 

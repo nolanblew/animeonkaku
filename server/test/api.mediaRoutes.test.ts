@@ -37,6 +37,7 @@ let jobs: FakeJobRepository;
 let mediaRoot: string;
 let fetchCalls: Array<{ input: RequestInfo | URL; init?: RequestInit }>;
 let mediaFetch: NonNullable<MediaStreamingServiceDeps["fetch"]>;
+let logs: Array<{ data: unknown; message: string }>;
 
 beforeEach(async () => {
   mediaRoot = mkdtempSync(join(tmpdir(), "ongaku-media-api-"));
@@ -45,6 +46,7 @@ beforeEach(async () => {
   jobs = new FakeJobRepository();
   queue = new JobQueue(jobs);
   fetchCalls = [];
+  logs = [];
   mediaFetch = async (input, init) => {
     fetchCalls.push({ input, init });
     return new Response(Buffer.from("jpeg-bytes"), {
@@ -60,6 +62,9 @@ beforeEach(async () => {
       queue,
       mediaRoot,
       fetch: (input, init) => mediaFetch(input, init),
+      logger: {
+        info: (data, message) => logs.push({ data, message }),
+      },
     }),
   });
 });
@@ -217,6 +222,17 @@ describe("media API routes", () => {
     expect(fetchCalls).toHaveLength(2);
     expect(String(fetchCalls[0]!.input)).toBe("https://a.animethemes.moe/Missing.ogg");
     expect(headersOf(fetchCalls[0]!.init?.headers).get("range")).toBe("bytes=2-5");
+    expect(logs).toContainEqual({
+      data: {
+        themeId: 100,
+        state: "MISSING",
+        method: "GET",
+        range: "bytes=2-5",
+        originHost: "a.animethemes.moe",
+        originUrl: "https://a.animethemes.moe/Missing.ogg",
+      },
+      message: "external audio origin request",
+    });
     const queued = await queue.list("QUEUED");
     expect(queued).toHaveLength(1);
     expect(queued[0]).toMatchObject({

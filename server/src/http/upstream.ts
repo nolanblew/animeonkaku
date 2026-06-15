@@ -2,6 +2,8 @@ import type { CircuitBreaker } from "./circuitBreaker.js";
 import { fetchWithRetry, type RetryOptions } from "./retry.js";
 import type { TokenBucket } from "./tokenBucket.js";
 import { realSleep, type FetchLike, type Sleep } from "./types.js";
+import type { AppLogger } from "../logging.js";
+import { safeExternalUrl } from "../logging.js";
 
 export class CircuitOpenError extends Error {
   constructor(name: string) {
@@ -16,6 +18,7 @@ export interface UpstreamHttpOptions {
   breaker?: CircuitBreaker;
   sleep?: Sleep;
   name?: string;
+  logger?: AppLogger;
   maxRetries?: number;
   /**
    * Non-5xx response statuses that should additionally count as breaker
@@ -39,6 +42,7 @@ export class UpstreamHttp {
   private readonly breaker: CircuitBreaker | undefined;
   private readonly sleep: Sleep;
   private readonly name: string;
+  private readonly logger: AppLogger | undefined;
   private readonly retryOptions: RetryOptions;
   private readonly breakerStatuses: Set<number>;
 
@@ -48,6 +52,7 @@ export class UpstreamHttp {
     this.breaker = options.breaker;
     this.sleep = options.sleep ?? realSleep;
     this.name = options.name ?? "upstream";
+    this.logger = options.logger;
     this.breakerStatuses = new Set(options.breakerStatuses ?? []);
     this.retryOptions = {
       sleep: this.sleep,
@@ -56,7 +61,15 @@ export class UpstreamHttp {
   }
 
   async request(url: string, init?: RequestInit): Promise<Response> {
+    const method = init?.method ?? "GET";
+    const logData = {
+      upstream: this.name,
+      method,
+      url: safeExternalUrl(url),
+    };
+
     if (this.breaker && !this.breaker.canRequest()) {
+      this.logger?.warn?.(logData, "external upstream circuit open");
       throw new CircuitOpenError(this.name);
     }
 
@@ -66,7 +79,9 @@ export class UpstreamHttp {
     };
 
     try {
+      this.logger?.info(logData, "external upstream request");
       const response = await fetchWithRetry(limitedFetch, url, init, this.retryOptions);
+      this.logger?.info({ ...logData, status: response.status }, "external upstream response");
       if (response.status >= 500 || this.breakerStatuses.has(response.status)) {
         this.breaker?.recordFailure();
       } else {
@@ -75,6 +90,13 @@ export class UpstreamHttp {
       return response;
     } catch (error) {
       this.breaker?.recordFailure();
+      this.logger?.warn?.(
+        {
+          ...logData,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "external upstream request failed",
+      );
       throw error;
     }
   }
