@@ -5,6 +5,7 @@ import com.takeya.animeongaku.data.local.UserPreferenceEntity
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.remote.OngakuThemePrefPatch
 import com.takeya.animeongaku.data.server.ServerSettingsStore
+import com.takeya.animeongaku.sync.ServerUserStateRefresher
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -13,7 +14,8 @@ import javax.inject.Singleton
 class UserPreferencesRepository @Inject constructor(
     private val preferenceDao: UserPreferenceDao,
     private val ongakuApi: OngakuApi,
-    private val serverSettingsStore: ServerSettingsStore
+    private val serverSettingsStore: ServerSettingsStore,
+    private val serverUserStateRefresher: ServerUserStateRefresher
 ) {
     fun observePreference(themeId: Long): Flow<UserPreferenceEntity?> {
         return preferenceDao.observePreference(themeId)
@@ -81,6 +83,7 @@ class UserPreferencesRepository @Inject constructor(
                     disliked = preference.isDisliked
                 )
             )
+            serverUserStateRefresher.refreshAfterPreferenceWrite()
         }
     }
 }

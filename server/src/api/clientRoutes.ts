@@ -100,6 +100,7 @@ export interface ClientApiService {
   removeLibraryAnime(userId: string, kitsuId: string): Promise<boolean>;
   getThemePrefs(userId: string): Promise<ThemePrefDto[]>;
   updateThemePref(userId: string, themeId: number, patch: ThemePrefPatch): Promise<ThemePrefDto>;
+  refreshAutoPlaylists(userId: string): Promise<void>;
   recordPlays(
     userId: string,
     plays: Array<{ themeId: number; playedAt: number }>,
@@ -195,18 +196,25 @@ export function registerClientRoutes(
   app.post(
     "/v1/library/anime",
     { schema: { body: manualAddBody }, preHandler: requireAuth },
-    async (request) => service.addLibraryAnime(request.auth!.user.kitsuUserId, request.body),
+    async (request) => {
+      const userId = request.auth!.user.kitsuUserId;
+      const result = await service.addLibraryAnime(userId, request.body);
+      await service.refreshAutoPlaylists(userId);
+      return result;
+    },
   );
 
   app.delete(
     "/v1/library/anime/:kitsuId",
     { schema: { params: kitsuParams }, preHandler: requireAuth },
     async (request, reply) => {
+      const userId = request.auth!.user.kitsuUserId;
       const removed = await service.removeLibraryAnime(
-        request.auth!.user.kitsuUserId,
+        userId,
         request.params.kitsuId,
       );
       if (!removed) throw new ApiError(404, "NOT_FOUND", "Library entry not found.");
+      await service.refreshAutoPlaylists(userId);
       return reply.code(204).send();
     },
   );
@@ -218,8 +226,12 @@ export function registerClientRoutes(
   app.put(
     "/v1/prefs/themes/:id",
     { schema: { params: idParams, body: prefPatchBody }, preHandler: requireAuth },
-    async (request) =>
-      service.updateThemePref(request.auth!.user.kitsuUserId, request.params.id, request.body),
+    async (request) => {
+      const userId = request.auth!.user.kitsuUserId;
+      const pref = await service.updateThemePref(userId, request.params.id, request.body);
+      await service.refreshAutoPlaylists(userId);
+      return pref;
+    },
   );
 
   app.post(

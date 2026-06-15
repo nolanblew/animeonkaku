@@ -108,6 +108,21 @@ describe("media API routes", () => {
     expect(res.headers["accept-ranges"]).toBe("bytes");
     expect(res.headers["content-range"]).toBe("bytes 2-5/16");
     expect(res.body).toBe("2345");
+    expect(fetchCalls).toHaveLength(0);
+    expect(logs).toContainEqual({
+      data: {
+        themeId: 100,
+        state: "READY",
+        method: "GET",
+        range: "bytes=2-5",
+        originHost: "a.animethemes.moe",
+        originUrl: "https://a.animethemes.moe/Ready.ogg",
+        externalHit: false,
+        byteSize: contents.length,
+        videoFallback: false,
+      },
+      message: "serving cached audio file",
+    });
   });
 
   it("supports api-prefixed base URLs for READY audio playback", async () => {
@@ -230,6 +245,7 @@ describe("media API routes", () => {
         range: "bytes=2-5",
         originHost: "a.animethemes.moe",
         originUrl: "https://a.animethemes.moe/Missing.ogg",
+        externalHit: true,
       },
       message: "external audio origin request",
     });
@@ -284,6 +300,16 @@ describe("media API routes", () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toBe("image/jpeg");
     expect(res.body).toBe("jpeg-bytes");
+    expect(logs).toContainEqual({
+      data: {
+        kind: "ANIME_COVER",
+        refId: "123",
+        originHost: "media.kitsu.test",
+        originUrl: "https://media.kitsu.test/anime-cover.jpg",
+        externalHit: true,
+      },
+      message: "external image origin request",
+    });
     expect((await queue.list("QUEUED"))[0]).toMatchObject({
       type: "FETCH_IMAGE",
       priority: JobPriority.NORMAL,

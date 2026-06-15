@@ -76,11 +76,16 @@ export class MediaStreamingService {
       const absolutePath = this.safeMediaPath(audio.filePath);
       const fileStat = await stat(absolutePath).catch(() => null);
       if (fileStat?.isFile()) {
-        log?.info(
+        const logger = this.deps.logger ?? log;
+        logger?.info(
           {
             themeId,
+            state: audio.state,
             method,
             range: rangeHeader,
+            originHost: originHost(audio.originUrl),
+            originUrl: safeExternalUrl(audio.originUrl),
+            externalHit: false,
             byteSize: fileStat.size,
             videoFallback: audio.videoFallback ?? false,
           },
@@ -175,6 +180,7 @@ export class MediaStreamingService {
       refId: input.refId,
       originHost: originHost(originUrl),
       originUrl: safeExternalUrl(originUrl),
+      externalHit: true,
     };
     logger?.info(logData, "external image origin request");
     const response = await this.fetchImpl(originUrl);
@@ -223,6 +229,7 @@ export class MediaStreamingService {
         range: input.rangeHeader,
         originHost: originHost(input.audio.originUrl),
         originUrl: safeExternalUrl(input.audio.originUrl),
+        externalHit: true,
       },
       "external audio origin request",
     );
@@ -240,6 +247,7 @@ export class MediaStreamingService {
         range: input.rangeHeader,
         originHost: originHost(input.audio.originUrl),
         originUrl: safeExternalUrl(input.audio.originUrl),
+        externalHit: true,
         status: response.status,
         contentType,
         contentLength: response.headers.get("content-length"),
@@ -256,6 +264,7 @@ export class MediaStreamingService {
           range: input.rangeHeader,
           originHost: originHost(input.audio.originUrl),
           originUrl: safeExternalUrl(input.audio.originUrl),
+          externalHit: true,
           status: response.status,
         },
         "audio origin returned an error",

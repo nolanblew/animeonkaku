@@ -48,6 +48,7 @@ export class MediaStore {
       refId: input.refId,
       variant: input.variant,
       url: safeExternalUrl(input.originUrl),
+      externalHit: true,
     };
 
     try {
