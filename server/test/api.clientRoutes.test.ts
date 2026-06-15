@@ -20,6 +20,7 @@ const mediaRoot = mkdtempSync(join(tmpdir(), "ongaku-test-"));
 
 class FakeClientApi implements ClientApiService {
   libraryCalls: Array<{ userId: string; since: number | null }> = [];
+  autoRefreshes: string[] = [];
   prefs = new Map<number, { liked: boolean; disliked: boolean; playCount: number; lastPlayedAt: number | null }>();
   playlists = new Map<number, {
     id: number;
@@ -131,6 +132,23 @@ class FakeClientApi implements ClientApiService {
     const updated = { ...current, ...patch };
     this.prefs.set(themeId, updated);
     return { themeId, ...updated };
+  }
+
+  async refreshAutoPlaylists(userId: string) {
+    this.autoRefreshes.push(userId);
+    const likedThemeIds = [...this.prefs.entries()]
+      .filter(([, pref]) => pref.liked)
+      .map(([themeId]) => themeId);
+    const existing = [...this.playlists.values()].find((playlist) => playlist.name === "Liked Songs");
+    const playlist = {
+      id: existing?.id ?? this.nextPlaylistId++,
+      name: "Liked Songs",
+      entries: likedThemeIds,
+      isAuto: true,
+      updatedAt: Date.now(),
+      dynamicSpecJson: null,
+    };
+    this.playlists.set(playlist.id, playlist);
   }
 
   async recordPlays(_userId: string, plays: Array<{ themeId: number; playedAt: number }>) {
@@ -303,6 +321,63 @@ describe("client API routes", () => {
     expect(prefs.json()).toEqual([
       { themeId: 100, liked: true, disliked: false, playCount: 3, lastPlayedAt: 20 },
     ]);
+  });
+
+  it("refreshes server auto playlists before returning from a theme preference write", async () => {
+    const token = await bearer();
+    const pref = await app.inject({
+      method: "PUT",
+      url: "/v1/prefs/themes/100",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { liked: true },
+    });
+
+    expect(pref.statusCode).toBe(200);
+    expect(clientApi.autoRefreshes).toEqual(["stub-nolan"]);
+
+    const playlists = await app.inject({
+      method: "GET",
+      url: "/v1/playlists",
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(playlists.statusCode).toBe(200);
+    expect(playlists.json()).toContainEqual(
+      expect.objectContaining({
+        name: "Liked Songs",
+        isAuto: true,
+        entries: [100],
+      }),
+    );
+  });
+
+  it("refreshes server auto playlists before returning from manual library mutations", async () => {
+    const token = await bearer();
+
+    const added = await app.inject({
+      method: "POST",
+      url: "/v1/library/anime",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { kitsuId: "1" },
+    });
+    expect(added.statusCode).toBe(200);
+    expect(clientApi.autoRefreshes).toEqual(["stub-nolan"]);
+
+    const removed = await app.inject({
+      method: "DELETE",
+      url: "/v1/library/anime/1",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(removed.statusCode).toBe(204);
+    expect(clientApi.autoRefreshes).toEqual(["stub-nolan", "stub-nolan"]);
+
+    const missing = await app.inject({
+      method: "DELETE",
+      url: "/v1/library/anime/does-not-exist",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(clientApi.autoRefreshes).toEqual(["stub-nolan", "stub-nolan"]);
   });
 
   it("creates, updates, stores specs, and deletes manual playlists", async () => {

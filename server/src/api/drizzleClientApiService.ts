@@ -25,6 +25,7 @@ import {
 } from "../db/schema.js";
 import { JobPriority, type JobQueue } from "../jobs/index.js";
 import { CANONICAL_AUDIO } from "../media/types.js";
+import { DrizzleAutoPlaylistRefresher } from "../sync/autoPlaylistRefresher.js";
 import { ApiError } from "./errors.js";
 import type {
   AudioState,
@@ -40,11 +41,15 @@ import type {
 } from "./clientRoutes.js";
 
 export class DrizzleClientApiService implements ClientApiService {
+  private readonly autoPlaylistRefresher: DrizzleAutoPlaylistRefresher;
+
   constructor(
     private readonly db: Db,
     private readonly queue: JobQueue,
     private readonly now: () => Date = () => new Date(),
-  ) {}
+  ) {
+    this.autoPlaylistRefresher = new DrizzleAutoPlaylistRefresher(db);
+  }
 
   async getLibrary(userId: string, since: number | null): Promise<LibraryResponse> {
     const sinceDate = millisToDate(since);
@@ -236,6 +241,10 @@ export class DrizzleClientApiService implements ClientApiService {
       dedupeKey: `AUTO_PLAYLIST_REFRESH:${userId}`,
     });
     return pref!;
+  }
+
+  async refreshAutoPlaylists(userId: string): Promise<void> {
+    await this.autoPlaylistRefresher.refresh(userId);
   }
 
   async recordPlays(

@@ -4,6 +4,8 @@ import com.takeya.animeongaku.data.repository.AnimeRepository
 import com.takeya.animeongaku.data.repository.ArtistRepository
 import com.takeya.animeongaku.data.repository.ArtistRepositoryImpl
 import com.takeya.animeongaku.data.repository.ServerAnimeRepository
+import com.takeya.animeongaku.sync.LibraryPullServerUserStateRefresher
+import com.takeya.animeongaku.sync.ServerUserStateRefresher
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -20,4 +22,10 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindArtistRepository(impl: ArtistRepositoryImpl): ArtistRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindServerUserStateRefresher(
+        impl: LibraryPullServerUserStateRefresher
+    ): ServerUserStateRefresher
 }

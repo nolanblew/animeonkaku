@@ -23,6 +23,7 @@ import com.takeya.animeongaku.data.remote.OngakuThemePrefDto
 import com.takeya.animeongaku.data.remote.OngakuThemePrefPatch
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.data.server.ServerSettingsStore
+import com.takeya.animeongaku.sync.ServerUserStateRefresher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
@@ -39,13 +40,15 @@ class UserPreferencesRepositoryTest {
         val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
             serverBaseUrl = "http://192.168.1.5:8080/api"
         }
-        val repository = UserPreferencesRepository(dao, api, settings)
+        val refresher = RecordingServerUserStateRefresher()
+        val repository = UserPreferencesRepository(dao, api, settings, refresher)
 
         repository.toggleLike(themeId = 100L)
 
         assertEquals(UserPreferenceEntity(themeId = 100L, isLiked = true, isDisliked = false), dao.saved.single())
         assertEquals(100L, api.updatedThemeId)
         assertEquals(OngakuThemePrefPatch(liked = true, disliked = false), api.updatedThemePref)
+        assertEquals(1, refresher.refreshCount)
     }
 
     @Test
@@ -53,12 +56,14 @@ class UserPreferencesRepositoryTest {
         val dao = FakeUserPreferenceDao()
         val api = RecordingOngakuApi()
         val settings = ServerSettingsStore(FakeSharedPreferences())
-        val repository = UserPreferencesRepository(dao, api, settings)
+        val refresher = RecordingServerUserStateRefresher()
+        val repository = UserPreferencesRepository(dao, api, settings, refresher)
 
         repository.toggleDislike(themeId = 100L)
 
         assertEquals(UserPreferenceEntity(themeId = 100L, isLiked = false, isDisliked = true), dao.saved.single())
         assertFalse(api.updateCalled)
+        assertEquals(0, refresher.refreshCount)
     }
 }
 
@@ -144,4 +149,12 @@ private class RecordingOngakuApi : OngakuApi {
     override suspend fun requestAudio(themeId: Long): OngakuAudioRequestResponse = error("unused")
     override suspend fun startSync(request: OngakuSyncRequest): OngakuSyncQueuedResponse = error("unused")
     override suspend fun syncStatus(): OngakuSyncStatusResponse = error("unused")
+}
+
+private class RecordingServerUserStateRefresher : ServerUserStateRefresher {
+    var refreshCount = 0
+
+    override suspend fun refreshAfterPreferenceWrite() {
+        refreshCount += 1
+    }
 }

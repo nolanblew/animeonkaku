@@ -66,6 +66,7 @@ export class UpstreamHttp {
       upstream: this.name,
       method,
       url: safeExternalUrl(url),
+      externalHit: true,
     };
 
     if (this.breaker && !this.breaker.canRequest()) {

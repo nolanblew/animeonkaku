@@ -122,6 +122,7 @@ describe("MediaStore", () => {
       refId: "3040",
       variant: "SHORT",
       url: "https://a.animethemes.moe/Toradora-OP1.ogg",
+      externalHit: true,
     });
     expect(logs[1]?.data).toMatchObject({
       kind: "AUDIO",
