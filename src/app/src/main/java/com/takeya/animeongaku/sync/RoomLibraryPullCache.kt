@@ -100,27 +100,58 @@ class RoomLibraryPullCache @Inject constructor(
         playCounts: List<PlayCountEntity>
     ) {
         database.withTransaction {
-            if (preferences.isNotEmpty()) {
-                userPreferenceDao.upsertAll(preferences)
+            val appliedPreferenceIds = if (preferences.isNotEmpty()) {
+                val localById = userPreferenceDao
+                    .getPreferencesByIdsIncludingDeleted(preferences.map { it.themeId })
+                    .associateBy { it.themeId }
+                val applied = preferences.filter { incoming ->
+                    val local = localById[incoming.themeId]
+                    local == null || incoming.updatedAt >= local.updatedAt
+                }
+                if (applied.isNotEmpty()) {
+                    userPreferenceDao.upsertAll(applied)
+                }
+                applied.map { it.themeId }.toSet()
+            } else {
+                emptySet()
             }
-            if (playCounts.isNotEmpty()) {
-                playCountDao.upsertAll(playCounts)
+            val appliedPlayCounts = playCounts.filter { it.themeId in appliedPreferenceIds }
+            if (appliedPlayCounts.isNotEmpty()) {
+                playCountDao.upsertAll(appliedPlayCounts)
             }
         }
     }
 
     override suspend fun applyAutoPlaylists(
         deletedPlaylistIds: List<Long>,
+        deletedPlaylists: List<PlaylistEntity>,
         pruneMissingAutoPlaylists: Boolean,
         playlists: List<PlaylistEntity>,
         entries: List<PlaylistEntryEntity>,
         dynamicSpecs: List<DynamicPlaylistSpecEntity>
     ) {
         database.withTransaction {
+            val deletedById = deletedPlaylists.associateBy { it.id }
+            val incomingIds = (deletedPlaylistIds + playlists.map { it.id }).distinct()
+            val localById = if (incomingIds.isNotEmpty()) {
+                playlistDao.getPlaylistsByIdsIncludingDeleted(incomingIds).associateBy { it.id }
+            } else {
+                emptyMap()
+            }
+
             deletedPlaylistIds.forEach { playlistId ->
-                playlistDao.deletePlaylistEntries(playlistId)
-                dynamicPlaylistSpecDao.delete(playlistId)
-                playlistDao.deletePlaylist(playlistId)
+                val incoming = deletedById[playlistId]
+                val incomingUpdatedAt = incoming?.updatedAt ?: 0L
+                val local = localById[playlistId]
+                if (local == null || incomingUpdatedAt >= local.updatedAt) {
+                    playlistDao.deletePlaylistEntries(playlistId)
+                    dynamicPlaylistSpecDao.delete(playlistId)
+                    playlistDao.tombstonePlaylist(
+                        playlistId = playlistId,
+                        updatedAt = incomingUpdatedAt,
+                        deletedAt = incomingUpdatedAt
+                    )
+                }
             }
 
             if (pruneMissingAutoPlaylists) {
@@ -134,7 +165,11 @@ class RoomLibraryPullCache @Inject constructor(
             }
 
             val dynamicSpecByPlaylistId = dynamicSpecs.associateBy { it.playlistId }
-            playlists.forEach { playlist ->
+            val appliedPlaylistIds = playlists.mapNotNull { playlist ->
+                val local = localById[playlist.id]
+                if (local != null && playlist.updatedAt < local.updatedAt) {
+                    return@mapNotNull null
+                }
                 playlistDao.insertPlaylist(playlist)
                 playlistDao.deletePlaylistEntries(playlist.id)
                 val dynamicSpec = dynamicSpecByPlaylistId[playlist.id]
@@ -143,9 +178,11 @@ class RoomLibraryPullCache @Inject constructor(
                 } else {
                     dynamicPlaylistSpecDao.delete(playlist.id)
                 }
+                playlist.id
             }
-            if (entries.isNotEmpty()) {
-                playlistDao.insertEntries(entries)
+            val appliedEntries = entries.filter { it.playlistId in appliedPlaylistIds }
+            if (appliedEntries.isNotEmpty()) {
+                playlistDao.insertEntries(appliedEntries)
             }
         }
     }

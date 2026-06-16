@@ -1,5 +1,8 @@
 package com.takeya.animeongaku
 
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import com.takeya.animeongaku.data.local.PendingOpEntity
 import com.takeya.animeongaku.data.local.UserPreferenceDao
 import com.takeya.animeongaku.data.local.UserPreferenceEntity
 import com.takeya.animeongaku.data.remote.OngakuAnimeDetailResponse
@@ -24,7 +27,8 @@ import com.takeya.animeongaku.data.remote.OngakuThemePrefDto
 import com.takeya.animeongaku.data.remote.OngakuThemePrefPatch
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.data.server.ServerSettingsStore
-import com.takeya.animeongaku.sync.ServerUserStateRefresher
+import com.takeya.animeongaku.sync.SyncEngine
+import com.takeya.animeongaku.sync.SyncEngineStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
@@ -39,38 +43,56 @@ class UserPreferencesRepositoryTest {
     fun `toggle like writes through to server when server mode is configured`() = runBlocking {
         val dao = FakeUserPreferenceDao()
         val api = RecordingOngakuApi()
+        val store = PreferenceSyncStore()
         val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
             serverBaseUrl = "http://192.168.1.5:8080/api"
         }
-        val refresher = RecordingServerUserStateRefresher()
-        val repository = UserPreferencesRepository(dao, api, settings, refresher)
+        val repository = UserPreferencesRepository(dao, syncEngine(store, api, settings))
 
         repository.toggleLike(themeId = 100L)
 
-        assertEquals(UserPreferenceEntity(themeId = 100L, isLiked = true, isDisliked = false), dao.saved.single())
+        val saved = dao.saved.single()
+        assertEquals(100L, saved.themeId)
+        assertEquals(true, saved.isLiked)
+        assertEquals(false, saved.isDisliked)
+        assertTrue(saved.updatedAt > 0L)
         assertEquals(100L, api.updatedThemeId)
         val patch = api.updatedThemePref!!
         assertEquals(true, patch.liked)
         assertEquals(false, patch.disliked)
-        // opTs is stamped (client op clock for last-write-wins); exact value is wall-clock.
-        assertTrue((patch.opTs ?: 0L) > 0L)
-        assertEquals(1, refresher.refreshCount)
+        assertEquals(saved.updatedAt, patch.opTs)
+        assertTrue(store.ops.isEmpty())
     }
 
     @Test
-    fun `toggle dislike stays local when server mode is not configured`() = runBlocking {
+    fun `toggle dislike is retained in outbox when server mode is not configured`() = runBlocking {
         val dao = FakeUserPreferenceDao()
         val api = RecordingOngakuApi()
+        val store = PreferenceSyncStore()
         val settings = ServerSettingsStore(FakeSharedPreferences())
-        val refresher = RecordingServerUserStateRefresher()
-        val repository = UserPreferencesRepository(dao, api, settings, refresher)
+        val repository = UserPreferencesRepository(dao, syncEngine(store, api, settings))
 
         repository.toggleDislike(themeId = 100L)
 
-        assertEquals(UserPreferenceEntity(themeId = 100L, isLiked = false, isDisliked = true), dao.saved.single())
+        val saved = dao.saved.single()
+        assertEquals(100L, saved.themeId)
+        assertEquals(false, saved.isLiked)
+        assertEquals(true, saved.isDisliked)
         assertFalse(api.updateCalled)
-        assertEquals(0, refresher.refreshCount)
+        assertEquals(PendingOpEntity.ENTITY_THEME_PREF, store.ops.single().entityType)
     }
+
+    private fun syncEngine(
+        store: PreferenceSyncStore,
+        api: RecordingOngakuApi,
+        settings: ServerSettingsStore
+    ): SyncEngine =
+        SyncEngine(
+            store = store,
+            api = api,
+            settings = settings,
+            moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+        )
 }
 
 private class FakeUserPreferenceDao : UserPreferenceDao {
@@ -88,6 +110,9 @@ private class FakeUserPreferenceDao : UserPreferenceDao {
 
     override suspend fun getAllPreferences(): List<UserPreferenceEntity> =
         preferences.values.toList()
+
+    override suspend fun getPreferencesByIdsIncludingDeleted(themeIds: List<Long>): List<UserPreferenceEntity> =
+        preferences.filterKeys { it in themeIds }.values.toList()
 
     override suspend fun insertOrUpdate(preference: UserPreferenceEntity) {
         preferences[preference.themeId] = preference
@@ -152,16 +177,37 @@ private class RecordingOngakuApi : OngakuApi {
     override suspend fun createPlaylist(request: OngakuPlaylistRequest): OngakuPlaylistResponse = error("unused")
     override suspend fun updatePlaylist(id: Long, request: OngakuPlaylistRequest): OngakuPlaylistResponse = error("unused")
     override suspend fun updatePlaylistSpec(id: Long, spec: Any): OngakuPlaylistResponse = error("unused")
-    override suspend fun deletePlaylist(id: Long): Response<Unit> = Response.success(Unit)
+    override suspend fun deletePlaylist(id: Long, opTs: Long?): Response<Unit> = Response.success(Unit)
     override suspend fun requestAudio(themeId: Long): OngakuAudioRequestResponse = error("unused")
     override suspend fun startSync(request: OngakuSyncRequest): OngakuSyncQueuedResponse = error("unused")
     override suspend fun syncStatus(): OngakuSyncStatusResponse = error("unused")
 }
 
-private class RecordingServerUserStateRefresher : ServerUserStateRefresher {
-    var refreshCount = 0
+private class PreferenceSyncStore : SyncEngineStore {
+    val ops = mutableListOf<PendingOpEntity>()
+    private var nextId = 1L
 
-    override suspend fun refreshAfterPreferenceWrite() {
-        refreshCount += 1
+    override suspend fun insertPendingOp(op: PendingOpEntity): Long {
+        val stored = op.copy(id = nextId++)
+        ops += stored
+        return stored.id
     }
+
+    override suspend fun deleteSupersededPendingOp(entityType: String, entityKey: String, opType: String) {
+        ops.removeAll { it.entityType == entityType && it.entityKey == entityKey && it.opType == opType }
+    }
+
+    override suspend fun oldestPendingOps(limit: Int): List<PendingOpEntity> =
+        ops.sortedWith(compareBy<PendingOpEntity> { it.createdAt }.thenBy { it.id }).take(limit)
+
+    override suspend fun deletePendingOps(ids: List<Long>) {
+        ops.removeAll { it.id in ids }
+    }
+
+    override suspend fun incrementPendingOpAttempts(id: Long) {
+        val index = ops.indexOfFirst { it.id == id }
+        if (index >= 0) ops[index] = ops[index].copy(attempts = ops[index].attempts + 1)
+    }
+
+    override suspend fun remapPlaylistId(tempId: Long, serverPlaylist: OngakuPlaylistDto) = Unit
 }

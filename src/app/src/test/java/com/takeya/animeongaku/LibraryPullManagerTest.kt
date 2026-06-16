@@ -52,7 +52,7 @@ import retrofit2.Response
 
 class LibraryPullManagerTest {
     @Test
-    fun `pull uses cursor maps library and reconciles server user state`() = runBlocking {
+    fun `pull uses changes cursor maps library and reconciles server user state`() = runBlocking {
         val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
             serverBaseUrl = "http://192.168.1.5:8080/api"
             serverPullCursor = 123L
@@ -138,8 +138,9 @@ class LibraryPullManagerTest {
         val result = manager.pullNow(forceFull = false)
 
         assertTrue(result.applied)
-        assertEquals(123L, api.requestedSince)
-        assertEquals(123L, api.requestedPlaylistSince)
+        assertEquals(123L, api.requestedChangesSince)
+        assertEquals(null, api.requestedSince)
+        assertEquals(null, api.requestedPlaylistSince)
         assertEquals(1760000000000, settings.serverPullCursor)
         assertEquals(listOf("gone"), cache.deletedKitsuIds)
         assertEquals(listOf(101L), cache.deletedThemeIds)
@@ -151,7 +152,8 @@ class LibraryPullManagerTest {
         assertEquals(listOf("music"), cache.genres.map { it.slug })
         assertEquals(true, cache.preferences.single().isLiked)
         assertEquals(7, cache.playCounts.single().playCount)
-        assertTrue(api.playlistsCalled)
+        assertTrue(api.changesCalled)
+        assertFalse(api.playlistsCalled)
         assertFalse(api.autoPlaylistsCalled)
         assertEquals(listOf(111L), cache.deletedPlaylistIds)
         assertEquals(false, cache.pruneMissingAutoPlaylists)
@@ -164,6 +166,7 @@ class LibraryPullManagerTest {
         assertEquals("SIMPLE", cache.dynamicSpecs.single().createdMode)
         assertEquals("""{"keys":[{"attribute":"TITLE","direction":"ASC"}]}""", cache.dynamicSpecs.single().sortJson)
         assertEquals("""{"likedOnly":true}""", cache.dynamicSpecs.single().simpleStateJson)
+        assertTrue(cache.dynamicSpecs.single().serverManaged)
     }
 
     @Test
@@ -184,7 +187,7 @@ class LibraryPullManagerTest {
         manager.pullNow(forceFull = true)
 
         assertEquals(
-            listOf("flush", "library", "applyLibrary", "applyPrefs", "applyAuto", "refreshDynamic"),
+            listOf("flush", "changes", "applyLibrary", "applyPrefs", "applyAuto", "refreshDynamic"),
             events
         )
         assertEquals(true, cache.pruneMissingAutoPlaylists)
@@ -200,7 +203,7 @@ class LibraryPullManagerTest {
         val result = manager.pullNow(forceFull = false)
 
         assertFalse(result.applied)
-        assertEquals(null, api.requestedSince)
+        assertEquals(null, api.requestedChangesSince)
         assertEquals(0L, settings.serverPullCursor)
     }
 
@@ -224,7 +227,7 @@ class LibraryPullManagerTest {
         val staleResult = manager.pullIfStale(minIntervalMs = 5_000L, now = 15_001L)
 
         assertTrue(staleResult.applied)
-        assertEquals(123L, api.requestedSince)
+        assertEquals(123L, api.requestedChangesSince)
         assertEquals(15_001L, settings.serverLastPullAt)
     }
 
@@ -365,6 +368,7 @@ private class FakeLibraryPullCache(
 
     override suspend fun applyAutoPlaylists(
         deletedPlaylistIds: List<Long>,
+        deletedPlaylists: List<PlaylistEntity>,
         pruneMissingAutoPlaylists: Boolean,
         playlists: List<PlaylistEntity>,
         entries: List<PlaylistEntryEntity>,
@@ -439,11 +443,25 @@ private class FakeOngakuApi(
     private val autoPlaylistResponse: List<OngakuPlaylistDto>,
     private val events: MutableList<String> = mutableListOf()
 ) : OngakuApi {
-    override suspend fun changes(since: Long?): OngakuChangesResponse = error("unused")
     var requestedSince: Long? = null
+    var requestedChangesSince: Long? = null
     var requestedPlaylistSince: Long? = null
+    var changesCalled = false
     var playlistsCalled = false
     var autoPlaylistsCalled = false
+
+    override suspend fun changes(since: Long?): OngakuChangesResponse {
+        events += "changes"
+        changesCalled = true
+        requestedChangesSince = since
+        return OngakuChangesResponse(
+            serverTime = libraryResponse.serverTime,
+            anime = libraryResponse.anime,
+            themes = libraryResponse.themes,
+            prefs = prefsResponse,
+            playlists = autoPlaylistResponse
+        )
+    }
 
     override suspend fun login(request: OngakuLoginRequest): OngakuLoginResponse = error("unused")
     override suspend fun logout(): Response<Unit> = Response.success(Unit)
@@ -476,7 +494,7 @@ private class FakeOngakuApi(
     override suspend fun createPlaylist(request: OngakuPlaylistRequest): OngakuPlaylistResponse = error("unused")
     override suspend fun updatePlaylist(id: Long, request: OngakuPlaylistRequest): OngakuPlaylistResponse = error("unused")
     override suspend fun updatePlaylistSpec(id: Long, spec: Any): OngakuPlaylistResponse = error("unused")
-    override suspend fun deletePlaylist(id: Long): Response<Unit> = Response.success(Unit)
+    override suspend fun deletePlaylist(id: Long, opTs: Long?): Response<Unit> = Response.success(Unit)
     override suspend fun requestAudio(themeId: Long): OngakuAudioRequestResponse = error("unused")
     override suspend fun startSync(request: OngakuSyncRequest): OngakuSyncQueuedResponse = error("unused")
     override suspend fun syncStatus(): OngakuSyncStatusResponse = error("unused")

@@ -135,7 +135,7 @@ export interface ClientApiService {
   createPlaylist(userId: string, input: PlaylistCreateInput): Promise<PlaylistDto>;
   updatePlaylist(userId: string, id: number, input: PlaylistInput): Promise<PlaylistDto | null>;
   updatePlaylistSpec(userId: string, id: number, spec: unknown): Promise<PlaylistDto | null>;
-  deletePlaylist(userId: string, id: number): Promise<boolean>;
+  deletePlaylist(userId: string, id: number, opTs?: number | null): Promise<boolean>;
 }
 
 const sinceQuery = z.object({
@@ -205,6 +205,10 @@ const playlistUpdateBody = z
       value.autoUpdate !== undefined,
     { message: "At least one playlist field is required" },
   );
+
+const playlistDeleteQuery = z.object({
+  opTs: z.coerce.number().int().nonnegative().optional(),
+});
 
 export function registerClientRoutes(
   fastify: FastifyInstance,
@@ -335,9 +339,13 @@ export function registerClientRoutes(
 
   app.delete(
     "/v1/playlists/:id",
-    { schema: { params: idParams }, preHandler: requireAuth },
+    { schema: { params: idParams, querystring: playlistDeleteQuery }, preHandler: requireAuth },
     async (request, reply) => {
-      const deleted = await service.deletePlaylist(request.auth!.user.kitsuUserId, request.params.id);
+      const deleted = await service.deletePlaylist(
+        request.auth!.user.kitsuUserId,
+        request.params.id,
+        request.query.opTs ?? null,
+      );
       if (!deleted) throw new ApiError(404, "NOT_FOUND", "Playlist not found.");
       return reply.code(204).send();
     },

@@ -77,7 +77,10 @@ interface OngakuApi {
     ): OngakuPlaylistResponse
 
     @DELETE("v1/playlists/{id}")
-    suspend fun deletePlaylist(@Path("id") id: Long): Response<Unit>
+    suspend fun deletePlaylist(
+        @Path("id") id: Long,
+        @Query("opTs") opTs: Long? = null
+    ): Response<Unit>
 
     @POST("v1/media/audio/{themeId}/request")
     suspend fun requestAudio(@Path("themeId") themeId: Long): OngakuAudioRequestResponse

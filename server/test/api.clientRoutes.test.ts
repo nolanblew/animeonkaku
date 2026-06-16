@@ -34,6 +34,7 @@ class FakeClientApi implements ClientApiService {
     dynamicSpecJson: unknown | null;
     dynamicSortJson: unknown | null;
   }>();
+  deletedPlaylistCalls: Array<{ userId: string; id: number; opTs: number | null }> = [];
   private nextPlaylistId = 1;
 
   private prefDto(themeId: number, pref: { liked: boolean; disliked: boolean; playCount: number; lastPlayedAt: number | null }) {
@@ -236,7 +237,8 @@ class FakeClientApi implements ClientApiService {
     return updated;
   }
 
-  async deletePlaylist(_userId: string, id: number) {
+  async deletePlaylist(userId: string, id: number, opTs: number | null = null) {
+    this.deletedPlaylistCalls.push({ userId, id, opTs });
     const existing = this.playlists.get(id);
     if (!existing || existing.isAuto) return false;
     this.playlists.delete(id);
@@ -437,6 +439,27 @@ describe("client API routes", () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(deleted.statusCode).toBe(204);
+  });
+
+  it("accepts opTs on playlist delete for last-write-wins conflict resolution", async () => {
+    const token = await bearer();
+    await app.inject({
+      method: "POST",
+      url: "/v1/playlists",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: "Road Trip", entries: [100] },
+    });
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: "/v1/playlists/1?opTs=1760000000123",
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(deleted.statusCode).toBe(204);
+    expect(clientApi.deletedPlaylistCalls).toEqual([
+      { userId: "stub-nolan", id: 1, opTs: 1_760_000_000_123 },
+    ]);
   });
 
   it("enqueues manual sync and returns status progress", async () => {

@@ -15,14 +15,13 @@ import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.model.OnlineAnimeResult
 import com.takeya.animeongaku.data.model.OnlineArtistResult
-import com.takeya.animeongaku.data.remote.OngakuApi
-import com.takeya.animeongaku.data.remote.OngakuManualAnimeRequest
 import com.takeya.animeongaku.data.repository.AnimeRepository
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.sync.LibraryPullManager
+import com.takeya.animeongaku.sync.SyncEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlin.math.abs
@@ -49,8 +48,8 @@ class SearchViewModel @Inject constructor(
     private val artistDao: ArtistDao,
     private val playlistDao: PlaylistDao,
     private val animeRepository: AnimeRepository,
-    private val ongakuApi: OngakuApi,
     private val libraryPullManager: LibraryPullManager,
+    private val syncEngine: SyncEngine,
     val nowPlayingManager: NowPlayingManager,
     val downloadManager: DownloadManager,
     private val downloadDao: DownloadDao,
@@ -281,13 +280,12 @@ class SearchViewModel @Inject constructor(
 
     private suspend fun requestServerLibraryAdd(entry: AnimeThemeEntry) {
         val animeThemesId = entry.animeId.toLongOrNull()
-        runCatching {
-            ongakuApi.addAnime(
-                OngakuManualAnimeRequest(
-                    kitsuId = entry.kitsuId,
-                    animeThemesId = if (entry.kitsuId == null) animeThemesId else null
-                )
-            )
+        syncEngine.enqueueLibraryAdd(
+            kitsuId = entry.kitsuId,
+            animeThemesId = if (entry.kitsuId == null) animeThemesId else null
+        )
+        val result = syncEngine.pushPendingWrites()
+        if (!result.failed) {
             libraryPullManager.pullNow(forceFull = true)
         }
     }

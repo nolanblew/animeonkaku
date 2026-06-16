@@ -365,7 +365,7 @@ export function registerMediaRoutes(
 
   app.get(
     "/v1/media/audio/:themeId",
-    { schema: { params: audioParams }, preHandler: requireAuth, exposeHeadRoute: false },
+    { schema: { params: audioParams }, exposeHeadRoute: false },
     async (request, reply) =>
       service.sendAudio(
         request.params.themeId,
@@ -378,7 +378,7 @@ export function registerMediaRoutes(
 
   app.head(
     "/v1/media/audio/:themeId",
-    { schema: { params: audioParams }, preHandler: requireAuth },
+    { schema: { params: audioParams } },
     async (request, reply) =>
       service.sendAudio(
         request.params.themeId,

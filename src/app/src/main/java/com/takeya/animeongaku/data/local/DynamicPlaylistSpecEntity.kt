@@ -24,5 +24,6 @@ data class DynamicPlaylistSpecEntity(
     val lastResultCount: Int = 0,
     val schemaVersion: Int = 1,
     val sortJson: String? = null,
-    val simpleStateJson: String? = null
+    val simpleStateJson: String? = null,
+    val serverManaged: Boolean = false
 )

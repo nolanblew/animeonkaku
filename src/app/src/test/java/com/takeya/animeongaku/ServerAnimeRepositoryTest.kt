@@ -258,7 +258,7 @@ private class SearchRecordingOngakuApi(
     override suspend fun updatePlaylist(id: Long, request: OngakuPlaylistRequest): OngakuPlaylistResponse =
         error("unused")
     override suspend fun updatePlaylistSpec(id: Long, spec: Any): OngakuPlaylistResponse = error("unused")
-    override suspend fun deletePlaylist(id: Long): Response<Unit> = Response.success(Unit)
+    override suspend fun deletePlaylist(id: Long, opTs: Long?): Response<Unit> = Response.success(Unit)
     override suspend fun requestAudio(themeId: Long): OngakuAudioRequestResponse = error("unused")
     override suspend fun startSync(request: OngakuSyncRequest): OngakuSyncQueuedResponse = error("unused")
     override suspend fun syncStatus(): OngakuSyncStatusResponse = error("unused")

@@ -405,12 +405,17 @@ export class DrizzleClientApiService implements ClientApiService {
     return this.updatePlaylist(userId, id, { dynamicSpecJson: spec });
   }
 
-  async deletePlaylist(userId: string, id: number): Promise<boolean> {
-    const existing = await this.findMutablePlaylist(userId, id);
+  async deletePlaylist(userId: string, id: number, opTs: number | null = null): Promise<boolean> {
+    const existing = await this.mutablePlaylistRow(userId, id);
     if (!existing) return false;
+    const now = this.now();
+    const resolvedOpTs = resolveOpTs(opTs, now.getTime());
+    if (!shouldApplyWrite(resolvedOpTs, existing.updatedAt.getTime())) {
+      return true;
+    }
     await this.db
       .update(playlists)
-      .set({ deletedAt: this.now(), updatedAt: this.now() })
+      .set({ deletedAt: now, updatedAt: now })
       .where(eq(playlists.id, id));
     return true;
   }

@@ -9,5 +9,7 @@ data class PlaylistEntity(
     val name: String,
     val createdAt: Long,
     val isAuto: Boolean = false,
-    val gradientSeed: Int = 0
+    val gradientSeed: Int = 0,
+    val updatedAt: Long = createdAt,
+    val deletedAt: Long? = null
 )

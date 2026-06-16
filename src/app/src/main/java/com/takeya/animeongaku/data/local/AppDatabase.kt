@@ -24,7 +24,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PendingPlayEntity::class,
         PendingOpEntity::class
     ],
-    version = 21,
+    version = 22,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -218,6 +218,17 @@ abstract class AppDatabase : RoomDatabase() {
                     )
                 """.trimIndent())
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_pending_ops_createdAt` ON `pending_ops` (`createdAt`)")
+            }
+        }
+
+        val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `user_preferences` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `user_preferences` ADD COLUMN `deletedAt` INTEGER")
+                db.execSQL("ALTER TABLE `playlists` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE `playlists` SET `updatedAt` = `createdAt` WHERE `updatedAt` = 0")
+                db.execSQL("ALTER TABLE `playlists` ADD COLUMN `deletedAt` INTEGER")
+                db.execSQL("ALTER TABLE `dynamic_playlist_spec` ADD COLUMN `serverManaged` INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

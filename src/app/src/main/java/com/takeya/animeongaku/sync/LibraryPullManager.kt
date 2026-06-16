@@ -44,16 +44,16 @@ class LibraryPullManager @Inject constructor(
         sideEffects.flushPendingWrites()
 
         val since = settings.serverPullCursor.takeIf { !forceFull && it > 0L }
-        val library = api.library(since = since)
+        val changes = api.changes(since = since)
 
-        val activeAnime = library.anime.filterNot { it.deleted }
-        val activeThemes = library.themes.filterNot { it.deleted }
+        val activeAnime = changes.anime.filterNot { it.deleted }
+        val activeThemes = changes.themes.filterNot { it.deleted }
         val existingThemes = cache.existingThemes(activeThemes.map { it.id })
         val genreRows = activeAnime.map { it.toGenreRows() }
 
         cache.applyLibraryPull(
-            deletedKitsuIds = library.anime.filter { it.deleted }.map { it.kitsuId },
-            deletedThemeIds = library.themes.filter { it.deleted }.map { it.id },
+            deletedKitsuIds = changes.anime.filter { it.deleted }.map { it.kitsuId },
+            deletedThemeIds = changes.themes.filter { it.deleted }.map { it.id },
             anime = activeAnime.map { it.toAnimeEntity(serverBaseUrl) },
             themes = activeThemes.map { theme ->
                 theme.toThemeEntity(serverBaseUrl, existingThemes[theme.id])
@@ -63,16 +63,17 @@ class LibraryPullManager @Inject constructor(
             genreRefs = genreRows.flatMap { it.second }.distinct()
         )
 
-        val prefs = api.themePrefs()
         cache.applyThemePrefs(
-            preferences = prefs.map {
+            preferences = changes.prefs.map {
                 UserPreferenceEntity(
                     themeId = it.themeId,
                     isLiked = it.liked,
-                    isDisliked = it.disliked
+                    isDisliked = it.disliked,
+                    updatedAt = it.updatedAt,
+                    deletedAt = it.updatedAt.takeIf { _ -> it.deleted }
                 )
             },
-            playCounts = prefs.map {
+            playCounts = changes.prefs.map {
                 PlayCountEntity(
                     themeId = it.themeId,
                     playCount = it.playCount,
@@ -81,10 +82,11 @@ class LibraryPullManager @Inject constructor(
             }
         )
 
-        val playlists = api.playlists(since = since)
+        val playlists = changes.playlists
         val activePlaylists = playlists.filterNot { it.deleted }
         cache.applyAutoPlaylists(
             deletedPlaylistIds = playlists.filter { it.deleted }.map { it.id },
+            deletedPlaylists = playlists.filter { it.deleted }.map { it.toPlaylistEntity() },
             pruneMissingAutoPlaylists = since == null,
             playlists = activePlaylists.map { it.toPlaylistEntity() },
             entries = activePlaylists.flatMap { playlist ->
@@ -99,13 +101,13 @@ class LibraryPullManager @Inject constructor(
             dynamicSpecs = activePlaylists.mapNotNull { it.toDynamicSpecEntity(anyAdapter) }
         )
 
-        settings.serverPullCursor = library.serverTime
+        settings.serverPullCursor = changes.serverTime
         sideEffects.refreshDynamicPlaylists()
         return LibraryPullResult(
             applied = true,
             animeCount = activeAnime.size,
             themeCount = activeThemes.size,
-            serverTime = library.serverTime
+            serverTime = changes.serverTime
         )
     }
 }
@@ -115,7 +117,9 @@ private fun OngakuPlaylistDto.toPlaylistEntity(): PlaylistEntity =
         id = id,
         name = name,
         createdAt = updatedAt,
-        isAuto = isAuto || dynamicSpecJson != null
+        isAuto = isAuto || dynamicSpecJson != null,
+        updatedAt = updatedAt,
+        deletedAt = updatedAt.takeIf { deleted }
     )
 
 private fun OngakuPlaylistDto.toDynamicSpecEntity(anyAdapter: JsonAdapter<Any>): DynamicPlaylistSpecEntity? {
@@ -128,7 +132,8 @@ private fun OngakuPlaylistDto.toDynamicSpecEntity(anyAdapter: JsonAdapter<Any>):
         createdMode = spec.stringField("createdMode") ?: "ADVANCED",
         schemaVersion = spec.numberField("schemaVersion") ?: 1,
         sortJson = spec.jsonField("sortJson", anyAdapter),
-        simpleStateJson = spec.jsonField("simpleStateJson", anyAdapter)
+        simpleStateJson = spec.jsonField("simpleStateJson", anyAdapter),
+        serverManaged = true
     )
 }
 
