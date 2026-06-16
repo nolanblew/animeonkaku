@@ -1,6 +1,7 @@
 package com.takeya.animeongaku.data.local
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
@@ -13,7 +14,10 @@ import androidx.room.PrimaryKey
  * Keeping the outbox separate from the mirrored entities means "offline" (device offline,
  * server down, or anything in between) is just "the queue hasn't drained yet".
  */
-@Entity(tableName = "pending_ops")
+@Entity(
+    tableName = "pending_ops",
+    indices = [Index(value = ["createdAt"], name = "index_pending_ops_createdAt")]
+)
 data class PendingOpEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     /** Logical entity family: [ENTITY_THEME_PREF], [ENTITY_PLAYLIST], [ENTITY_LIBRARY], [ENTITY_PLAY]. */

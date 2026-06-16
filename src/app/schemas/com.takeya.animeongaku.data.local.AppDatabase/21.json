@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 21,
-    "identityHash": "6195b202ca4587472935039fb28866cc",
+    "identityHash": "1ab736d6464559ad31273f10d013e51a",
     "entities": [
       {
         "tableName": "themes",
@@ -800,12 +800,23 @@
           "columnNames": [
             "id"
           ]
-        }
+        },
+        "indices": [
+          {
+            "name": "index_pending_ops_createdAt",
+            "unique": false,
+            "columnNames": [
+              "createdAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_pending_ops_createdAt` ON `${TABLE_NAME}` (`createdAt`)"
+          }
+        ]
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '6195b202ca4587472935039fb28866cc')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '1ab736d6464559ad31273f10d013e51a')"
     ]
   }
 }
