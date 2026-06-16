@@ -85,6 +85,51 @@ async function bearer(prefix = "") {
 }
 
 describe("media API routes", () => {
+  it("serves READY audio playback without bearer auth", async () => {
+    const contents = Buffer.from("0123456789abcdef");
+    writeFileSync(join(mediaRoot, "audio", "100.ogg"), contents);
+    repo.audio.set(100, {
+      themeId: 100,
+      originUrl: "https://a.animethemes.moe/Ready.ogg",
+      state: "READY",
+      filePath: "audio/100.ogg",
+      byteSize: contents.length,
+      sha256: createHash("sha256").update(contents).digest("hex"),
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/media/audio/100",
+      headers: { range: "bytes=2-5" },
+    });
+
+    expect(res.statusCode).toBe(206);
+    expect(res.headers["content-range"]).toBe("bytes 2-5/16");
+    expect(res.body).toBe("2345");
+  });
+
+  it("returns HEAD audio metadata without bearer auth", async () => {
+    const contents = Buffer.from("0123456789abcdef");
+    writeFileSync(join(mediaRoot, "audio", "100.ogg"), contents);
+    repo.audio.set(100, {
+      themeId: 100,
+      originUrl: "https://a.animethemes.moe/Ready.ogg",
+      state: "READY",
+      filePath: "audio/100.ogg",
+      byteSize: contents.length,
+      sha256: "abc123",
+    });
+
+    const res = await app.inject({
+      method: "HEAD",
+      url: "/v1/media/audio/100",
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers.etag).toBe('"abc123"');
+    expect(res.body).toBe("");
+  });
+
   it("serves READY audio with byte range semantics", async () => {
     const contents = Buffer.from("0123456789abcdef");
     writeFileSync(join(mediaRoot, "audio", "100.ogg"), contents);

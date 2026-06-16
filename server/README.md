@@ -59,6 +59,8 @@ Schema changes: edit `src/db/schema.ts`, then `npm run db:generate` (never edit 
 | `GET /v1/auth/me` | bearer | user, kitsu auth state, device sessions |
 | `POST /v1/auth/logout` | bearer | revoke current session |
 | `DELETE /v1/auth/devices/:id` | bearer | revoke another device session |
+| `GET`/`HEAD /v1/media/audio/:themeId` | none | stream stable audio URLs for player clients |
+| `POST /v1/media/audio/:themeId/request` | bearer | prioritize server-side audio warming for downloads |
 
 With `KITSU_AUTH_MODE=stub` (compose default), any non-empty credentials log in and the user id is `stub-<username>`. Set `KITSU_AUTH_MODE=real` to use Kitsu OAuth; the public Kitsu client id/secret default from `../.planning/02-external-apis.md` are already in `.env.example`.
 
