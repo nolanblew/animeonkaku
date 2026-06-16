@@ -20,6 +20,7 @@ import com.takeya.animeongaku.data.remote.OngakuAnimeDetailResponse
 import com.takeya.animeongaku.data.remote.OngakuAnimeDto
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.remote.OngakuAudioRequestResponse
+import com.takeya.animeongaku.data.remote.OngakuChangesResponse
 import com.takeya.animeongaku.data.remote.OngakuLibraryResponse
 import com.takeya.animeongaku.data.remote.OngakuLoginRequest
 import com.takeya.animeongaku.data.remote.OngakuLoginResponse
@@ -119,6 +120,15 @@ class LibraryPullManagerTest {
                             "likedOnly" to true
                         )
                     )
+                ),
+                OngakuPlaylistDto(
+                    id = 111L,
+                    name = "Deleted Manual",
+                    entries = emptyList(),
+                    isAuto = false,
+                    updatedAt = 1760000000003,
+                    dynamicSpecJson = null,
+                    deleted = true
                 )
             )
         )
@@ -129,6 +139,7 @@ class LibraryPullManagerTest {
 
         assertTrue(result.applied)
         assertEquals(123L, api.requestedSince)
+        assertEquals(123L, api.requestedPlaylistSince)
         assertEquals(1760000000000, settings.serverPullCursor)
         assertEquals(listOf("gone"), cache.deletedKitsuIds)
         assertEquals(listOf(101L), cache.deletedThemeIds)
@@ -142,6 +153,8 @@ class LibraryPullManagerTest {
         assertEquals(7, cache.playCounts.single().playCount)
         assertTrue(api.playlistsCalled)
         assertFalse(api.autoPlaylistsCalled)
+        assertEquals(listOf(111L), cache.deletedPlaylistIds)
+        assertEquals(false, cache.pruneMissingAutoPlaylists)
         assertEquals(listOf("Server Auto", "Manual Mix", "Smart Mix"), cache.autoPlaylists.map { it.name })
         assertEquals(listOf(true, false, true), cache.autoPlaylists.map { it.isAuto })
         assertEquals(listOf(100L, 100L, 100L), cache.autoEntries.map { it.themeId })
@@ -174,6 +187,7 @@ class LibraryPullManagerTest {
             listOf("flush", "library", "applyLibrary", "applyPrefs", "applyAuto", "refreshDynamic"),
             events
         )
+        assertEquals(true, cache.pruneMissingAutoPlaylists)
     }
 
     @Test
@@ -312,6 +326,8 @@ private class FakeLibraryPullCache(
     var genreRefs: List<AnimeGenreCrossRef> = emptyList()
     var preferences: List<UserPreferenceEntity> = emptyList()
     var playCounts: List<PlayCountEntity> = emptyList()
+    var deletedPlaylistIds: List<Long> = emptyList()
+    var pruneMissingAutoPlaylists: Boolean? = null
     var autoPlaylists: List<PlaylistEntity> = emptyList()
     var autoEntries: List<PlaylistEntryEntity> = emptyList()
     var dynamicSpecs: List<DynamicPlaylistSpecEntity> = emptyList()
@@ -348,11 +364,15 @@ private class FakeLibraryPullCache(
     }
 
     override suspend fun applyAutoPlaylists(
+        deletedPlaylistIds: List<Long>,
+        pruneMissingAutoPlaylists: Boolean,
         playlists: List<PlaylistEntity>,
         entries: List<PlaylistEntryEntity>,
         dynamicSpecs: List<DynamicPlaylistSpecEntity>
     ) {
         events += "applyAuto"
+        this.deletedPlaylistIds = deletedPlaylistIds
+        this.pruneMissingAutoPlaylists = pruneMissingAutoPlaylists
         this.autoPlaylists = playlists
         this.autoEntries = entries
         this.dynamicSpecs = dynamicSpecs
@@ -419,7 +439,9 @@ private class FakeOngakuApi(
     private val autoPlaylistResponse: List<OngakuPlaylistDto>,
     private val events: MutableList<String> = mutableListOf()
 ) : OngakuApi {
+    override suspend fun changes(since: Long?): OngakuChangesResponse = error("unused")
     var requestedSince: Long? = null
+    var requestedPlaylistSince: Long? = null
     var playlistsCalled = false
     var autoPlaylistsCalled = false
 
@@ -442,8 +464,9 @@ private class FakeOngakuApi(
     override suspend fun themePrefs(): List<OngakuThemePrefDto> = prefsResponse
     override suspend fun updateThemePref(themeId: Long, request: OngakuThemePrefPatch): OngakuThemePrefDto = error("unused")
     override suspend fun recordPlays(plays: List<OngakuPlayEvent>): OngakuPlayAcceptedResponse = error("unused")
-    override suspend fun playlists(): List<OngakuPlaylistDto> {
+    override suspend fun playlists(since: Long?): List<OngakuPlaylistDto> {
         playlistsCalled = true
+        requestedPlaylistSince = since
         return autoPlaylistResponse
     }
     override suspend fun autoPlaylists(): List<OngakuPlaylistDto> {

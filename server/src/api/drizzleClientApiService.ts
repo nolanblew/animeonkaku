@@ -25,10 +25,13 @@ import {
 } from "../db/schema.js";
 import { JobPriority, type JobQueue } from "../jobs/index.js";
 import { CANONICAL_AUDIO } from "../media/types.js";
+import { DrizzleDynamicPlaylistEvaluator } from "../playlists/dynamicPlaylistEvaluator.js";
 import { DrizzleAutoPlaylistRefresher } from "../sync/autoPlaylistRefresher.js";
+import { resolveOpTs, shouldApplyWrite } from "../sync/lww.js";
 import { ApiError } from "./errors.js";
 import type {
   AudioState,
+  ChangesResponse,
   ClientApiService,
   LibraryAnimeDto,
   LibraryResponse,
@@ -42,6 +45,7 @@ import type {
 
 export class DrizzleClientApiService implements ClientApiService {
   private readonly autoPlaylistRefresher: DrizzleAutoPlaylistRefresher;
+  private readonly dynamicPlaylistEvaluator: DrizzleDynamicPlaylistEvaluator;
 
   constructor(
     private readonly db: Db,
@@ -49,6 +53,7 @@ export class DrizzleClientApiService implements ClientApiService {
     private readonly now: () => Date = () => new Date(),
   ) {
     this.autoPlaylistRefresher = new DrizzleAutoPlaylistRefresher(db);
+    this.dynamicPlaylistEvaluator = new DrizzleDynamicPlaylistEvaluator(db, now);
   }
 
   async getLibrary(userId: string, since: number | null): Promise<LibraryResponse> {
@@ -193,7 +198,14 @@ export class DrizzleClientApiService implements ClientApiService {
     return true;
   }
 
-  async getThemePrefs(userId: string): Promise<ThemePrefDto[]> {
+  async getThemePrefs(userId: string, since: number | null = null): Promise<ThemePrefDto[]> {
+    const sinceDate = millisToDate(since);
+    const conditions = [eq(themePrefs.userId, userId)];
+    if (sinceDate) {
+      conditions.push(or(gt(themePrefs.updatedAt, sinceDate), gt(themePrefs.deletedAt, sinceDate))!);
+    } else {
+      conditions.push(isNull(themePrefs.deletedAt));
+    }
     const rows = await this.db
       .select({
         themeId: themePrefs.themeId,
@@ -201,9 +213,11 @@ export class DrizzleClientApiService implements ClientApiService {
         disliked: themePrefs.disliked,
         playCount: themePrefs.playCount,
         lastPlayedAt: themePrefs.lastPlayedAt,
+        updatedAt: themePrefs.updatedAt,
+        deletedAt: themePrefs.deletedAt,
       })
       .from(themePrefs)
-      .where(eq(themePrefs.userId, userId))
+      .where(and(...conditions))
       .orderBy(asc(themePrefs.themeId));
     return rows.map((row) => ({
       themeId: row.themeId,
@@ -211,26 +225,58 @@ export class DrizzleClientApiService implements ClientApiService {
       disliked: row.disliked,
       playCount: row.playCount,
       lastPlayedAt: dateMillis(row.lastPlayedAt),
+      updatedAt: Math.max(dateMillis(row.updatedAt) ?? 0, dateMillis(row.deletedAt) ?? 0),
+      deleted: row.deletedAt !== null,
     }));
+  }
+
+  async getChanges(userId: string, since: number | null): Promise<ChangesResponse> {
+    const library = await this.getLibrary(userId, since);
+    const prefs = await this.getThemePrefs(userId, since);
+    const playlistList = await this.listPlaylists(userId, { since });
+    return {
+      serverTime: library.serverTime,
+      anime: library.anime,
+      themes: library.themes,
+      prefs,
+      playlists: playlistList,
+    };
   }
 
   async updateThemePref(userId: string, themeId: number, patch: ThemePrefPatch): Promise<ThemePrefDto> {
     const now = this.now();
-    const set = normalizedPrefPatch(patch, now);
-    await this.db
-      .insert(themePrefs)
-      .values({
-        userId,
-        themeId,
-        liked: set.liked ?? false,
-        disliked: set.disliked ?? false,
-        playCount: 0,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: [themePrefs.userId, themePrefs.themeId],
-        set,
-      });
+    const opTs = resolveOpTs(patch.opTs ?? null, now.getTime());
+    const opDate = new Date(opTs);
+
+    // Last-write-wins on the liked/disliked pair using its dedicated clock, so a stale
+    // toggle that arrives after a newer one is ignored (additive play counts are untouched).
+    const [existing] = await this.db
+      .select({ likedUpdatedAt: themePrefs.likedUpdatedAt })
+      .from(themePrefs)
+      .where(and(eq(themePrefs.userId, userId), eq(themePrefs.themeId, themeId)))
+      .limit(1);
+    const storedLikedTs = existing?.likedUpdatedAt ? existing.likedUpdatedAt.getTime() : null;
+
+    if (shouldApplyWrite(opTs, storedLikedTs)) {
+      const set = normalizedPrefPatch(patch, now);
+      set.likedUpdatedAt = opDate;
+      await this.db
+        .insert(themePrefs)
+        .values({
+          userId,
+          themeId,
+          liked: set.liked ?? false,
+          disliked: set.disliked ?? false,
+          playCount: 0,
+          likedUpdatedAt: opDate,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [themePrefs.userId, themePrefs.themeId],
+          set,
+        });
+    }
+
     const [pref] = await this.getThemePrefs(userId).then((prefs) =>
       prefs.filter((item) => item.themeId === themeId),
     );
@@ -245,6 +291,8 @@ export class DrizzleClientApiService implements ClientApiService {
 
   async refreshAutoPlaylists(userId: string): Promise<void> {
     await this.autoPlaylistRefresher.refresh(userId);
+    // Dynamic (smart) playlists materialize on the same triggers as the built-in auto playlists.
+    await this.dynamicPlaylistEvaluator.refresh(userId);
   }
 
   async recordPlays(
@@ -277,17 +325,21 @@ export class DrizzleClientApiService implements ClientApiService {
     return { accepted: plays.length };
   }
 
-  async listPlaylists(userId: string, options: { autoOnly?: boolean } = {}): Promise<PlaylistDto[]> {
-    const conditions = [eq(playlists.userId, userId), isNull(playlists.deletedAt)];
+  async listPlaylists(
+    userId: string,
+    options: { autoOnly?: boolean; since?: number | null } = {},
+  ): Promise<PlaylistDto[]> {
+    const sinceDate = millisToDate(options.since ?? null);
+    const conditions = [eq(playlists.userId, userId)];
     if (options.autoOnly) conditions.push(eq(playlists.isAuto, true));
+    if (sinceDate) {
+      // updatedAt is bumped on delete too, so tombstones surface in the delta.
+      conditions.push(gt(playlists.updatedAt, sinceDate));
+    } else {
+      conditions.push(isNull(playlists.deletedAt));
+    }
     const rows = await this.db
-      .select({
-        id: playlists.id,
-        name: playlists.name,
-        isAuto: playlists.isAuto,
-        updatedAt: playlists.updatedAt,
-        dynamicSpecJson: playlists.dynamicSpecJson,
-      })
+      .select(playlistColumns)
       .from(playlists)
       .where(and(...conditions))
       .orderBy(asc(playlists.isAuto), asc(playlists.name));
@@ -300,13 +352,18 @@ export class DrizzleClientApiService implements ClientApiService {
     input: PlaylistCreateInput,
   ): Promise<PlaylistDto> {
     const now = this.now();
+    const isDynamic = input.dynamicSpecJson !== undefined && input.dynamicSpecJson !== null;
     const [row] = await this.db
       .insert(playlists)
       .values({
         userId,
         name: input.name,
         isAuto: false,
+        isDynamic,
+        dynamicAutoUpdate: input.autoUpdate ?? true,
         dynamicSpecJson: stringifySpec(input.dynamicSpecJson),
+        dynamicSortJson: stringifySpec(input.dynamicSortJson),
+        dynamicSpecUpdatedAt: isDynamic ? now : null,
         updatedAt: now,
       })
       .returning({ id: playlists.id });
@@ -316,11 +373,27 @@ export class DrizzleClientApiService implements ClientApiService {
   }
 
   async updatePlaylist(userId: string, id: number, input: PlaylistInput): Promise<PlaylistDto | null> {
-    const existing = await this.findMutablePlaylist(userId, id);
+    const existing = await this.mutablePlaylistRow(userId, id);
     if (!existing) return null;
-    const set: Partial<typeof playlists.$inferInsert> = { updatedAt: this.now() };
+
+    const now = this.now();
+    const opTs = resolveOpTs(input.opTs ?? null, now.getTime());
+    const storedTs = existing.updatedAt.getTime();
+    // Last-write-wins: a stale edit arriving after a newer one is dropped, but we still
+    // return the authoritative row so the caller reconciles.
+    if (!shouldApplyWrite(opTs, storedTs)) {
+      return this.findPlaylist(userId, id);
+    }
+
+    const set: Partial<typeof playlists.$inferInsert> = { updatedAt: now };
     if (input.name !== undefined) set.name = input.name;
-    if (input.dynamicSpecJson !== undefined) set.dynamicSpecJson = stringifySpec(input.dynamicSpecJson);
+    if (input.autoUpdate !== undefined) set.dynamicAutoUpdate = input.autoUpdate;
+    if (input.dynamicSortJson !== undefined) set.dynamicSortJson = stringifySpec(input.dynamicSortJson);
+    if (input.dynamicSpecJson !== undefined) {
+      set.dynamicSpecJson = stringifySpec(input.dynamicSpecJson);
+      set.isDynamic = input.dynamicSpecJson !== null;
+      set.dynamicSpecUpdatedAt = now;
+    }
     await this.db.update(playlists).set(set).where(eq(playlists.id, id));
     if (input.entries !== undefined) {
       await this.replacePlaylistEntries(id, input.entries);
@@ -574,8 +647,16 @@ export class DrizzleClientApiService implements ClientApiService {
   }
 
   private async findMutablePlaylist(userId: string, id: number): Promise<boolean> {
+    return (await this.mutablePlaylistRow(userId, id)) !== null;
+  }
+
+  /** A user-owned, non-auto (manual or dynamic), non-deleted playlist row, or null. */
+  private async mutablePlaylistRow(
+    userId: string,
+    id: number,
+  ): Promise<{ id: number; updatedAt: Date } | null> {
     const rows = await this.db
-      .select({ id: playlists.id })
+      .select({ id: playlists.id, updatedAt: playlists.updatedAt })
       .from(playlists)
       .where(
         and(
@@ -586,18 +667,12 @@ export class DrizzleClientApiService implements ClientApiService {
         ),
       )
       .limit(1);
-    return rows.length > 0;
+    return rows[0] ?? null;
   }
 
   private async findPlaylist(userId: string, id: number): Promise<PlaylistDto | null> {
     const rows = await this.db
-      .select({
-        id: playlists.id,
-        name: playlists.name,
-        isAuto: playlists.isAuto,
-        updatedAt: playlists.updatedAt,
-        dynamicSpecJson: playlists.dynamicSpecJson,
-      })
+      .select(playlistColumns)
       .from(playlists)
       .where(and(eq(playlists.id, id), eq(playlists.userId, userId), isNull(playlists.deletedAt)))
       .limit(1);
@@ -788,8 +863,30 @@ function groupPlays(plays: Array<{ themeId: number; playedAt: number }>) {
   return [...map.values()];
 }
 
+const playlistColumns = {
+  id: playlists.id,
+  name: playlists.name,
+  isAuto: playlists.isAuto,
+  isDynamic: playlists.isDynamic,
+  autoUpdate: playlists.dynamicAutoUpdate,
+  updatedAt: playlists.updatedAt,
+  deletedAt: playlists.deletedAt,
+  dynamicSpecJson: playlists.dynamicSpecJson,
+  dynamicSortJson: playlists.dynamicSortJson,
+} as const;
+
 function playlistDto(
-  row: { id: number; name: string; isAuto: boolean; updatedAt: Date; dynamicSpecJson: string | null },
+  row: {
+    id: number;
+    name: string;
+    isAuto: boolean;
+    isDynamic: boolean;
+    autoUpdate: boolean;
+    updatedAt: Date;
+    deletedAt: Date | null;
+    dynamicSpecJson: string | null;
+    dynamicSortJson: string | null;
+  },
   entries: number[],
 ): PlaylistDto {
   return {
@@ -797,8 +894,12 @@ function playlistDto(
     name: row.name,
     entries,
     isAuto: row.isAuto,
-    updatedAt: row.updatedAt.getTime(),
+    isDynamic: row.isDynamic,
+    autoUpdate: row.autoUpdate,
+    updatedAt: Math.max(dateMillis(row.updatedAt) ?? 0, dateMillis(row.deletedAt) ?? 0),
+    deleted: row.deletedAt !== null,
     dynamicSpecJson: parseSpec(row.dynamicSpecJson),
+    dynamicSortJson: parseSpec(row.dynamicSortJson),
   };
 }
 

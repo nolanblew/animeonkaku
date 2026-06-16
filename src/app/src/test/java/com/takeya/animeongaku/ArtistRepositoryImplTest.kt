@@ -9,6 +9,7 @@ import com.takeya.animeongaku.data.remote.ApiSearchArtist
 import com.takeya.animeongaku.data.remote.OngakuAnimeDetailResponse
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.remote.OngakuAudioRequestResponse
+import com.takeya.animeongaku.data.remote.OngakuChangesResponse
 import com.takeya.animeongaku.data.remote.OngakuLibraryResponse
 import com.takeya.animeongaku.data.remote.OngakuLoginRequest
 import com.takeya.animeongaku.data.remote.OngakuLoginResponse
@@ -100,6 +101,7 @@ private class FakeArtistOngakuApi(
     override suspend fun me(): OngakuMeResponse = error("unused")
     override suspend fun revokeDevice(id: Long): Response<Unit> = Response.success(Unit)
     override suspend fun library(since: Long?): OngakuLibraryResponse = error("unused")
+    override suspend fun changes(since: Long?): OngakuChangesResponse = error("unused")
     override suspend fun anime(kitsuId: String): OngakuAnimeDetailResponse = error("unused")
     override suspend fun artist(slug: String): AnimeThemesSingleArtistResponse = error("unused")
     override suspend fun addAnime(request: OngakuManualAnimeRequest): OngakuManualAnimeResponse = error("unused")
@@ -108,7 +110,7 @@ private class FakeArtistOngakuApi(
     override suspend fun updateThemePref(themeId: Long, request: OngakuThemePrefPatch): OngakuThemePrefDto =
         error("unused")
     override suspend fun recordPlays(plays: List<OngakuPlayEvent>): OngakuPlayAcceptedResponse = error("unused")
-    override suspend fun playlists(): List<OngakuPlaylistDto> = error("unused")
+        override suspend fun playlists(since: Long?): List<OngakuPlaylistDto> = error("unused")
     override suspend fun autoPlaylists(): List<OngakuPlaylistDto> = error("unused")
     override suspend fun createPlaylist(request: OngakuPlaylistRequest): OngakuPlaylistResponse = error("unused")
     override suspend fun updatePlaylist(id: Long, request: OngakuPlaylistRequest): OngakuPlaylistResponse =

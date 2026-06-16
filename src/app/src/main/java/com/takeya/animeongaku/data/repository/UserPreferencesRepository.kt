@@ -80,7 +80,10 @@ class UserPreferencesRepository @Inject constructor(
                 preference.themeId,
                 OngakuThemePrefPatch(
                     liked = preference.isLiked,
-                    disliked = preference.isDisliked
+                    disliked = preference.isDisliked,
+                    // Stamp the moment the user acted so the server can resolve a stalled write
+                    // that lands after a newer toggle (last-write-wins).
+                    opTs = System.currentTimeMillis()
                 )
             )
             serverUserStateRefresher.refreshAfterPreferenceWrite()

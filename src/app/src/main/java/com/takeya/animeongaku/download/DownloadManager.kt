@@ -10,10 +10,8 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
-import androidx.work.workDataOf
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.AnimeEntity
-import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.DownloadGroupEntity
 import com.takeya.animeongaku.data.local.DownloadGroupThemeEntity
@@ -29,7 +27,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -39,6 +36,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -65,7 +63,6 @@ class DownloadManager @Inject constructor(
     companion object {
         private const val TAG = "DownloadManager"
         private const val WORK_TAG_DOWNLOAD = "download"
-        private const val BATCH_DELAY_MS = 500L
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -128,19 +125,12 @@ class DownloadManager @Inject constructor(
         val newTracks = tracks.filter { it.theme.id in newThemeIds.toSet() }
             .distinctBy { it.theme.id }
 
-        // Resolve cover art per anime, mirroring downloadPlaylist().
-        val animeIds = newTracks.mapNotNull { it.theme.animeId }.distinct()
-        val animeMap = if (animeIds.isNotEmpty()) {
-            animeDao.getByAnimeThemesIds(animeIds).associateBy { it.animeThemesId }
-        } else emptyMap()
-
         // Track the new themes under this group so later refreshes see them as already handled.
         downloadDao.insertGroupThemes(newTracks.map { DownloadGroupThemeEntity(group.id, it.theme.id) })
 
-        for (track in newTracks) {
-            val imageUrl = track.theme.animeId?.let { animeMap[it] }?.primaryArtworkUrl()
-            enqueueDownload(track.theme, imageUrl)
-        }
+        // Pre-insert request rows then kick the single batch worker (it resolves cover art per track).
+        prepareDownloads(newTracks.map { it.theme })
+        triggerBatchWorker()
         Log.d(TAG, "Auto-queued ${newTracks.size} new track(s) for downloaded playlist '${group.label}'")
     }
 
@@ -191,8 +181,6 @@ class DownloadManager @Inject constructor(
 
     fun downloadSong(theme: ThemeEntity, anime: AnimeEntity? = null) {
         scope.launch {
-            val imageUrl = anime?.primaryArtworkUrl()
-
             // Create or find single group
             var group = downloadDao.findGroup(DownloadGroupEntity.TYPE_SINGLE, theme.id.toString())
             if (group == null) {
@@ -209,7 +197,8 @@ class DownloadManager @Inject constructor(
                 }
             }
 
-            enqueueDownload(theme, imageUrl)
+            prepareDownloads(listOf(theme))
+            triggerBatchWorker()
         }
     }
 
@@ -223,7 +212,6 @@ class DownloadManager @Inject constructor(
             if (themes.isEmpty()) return@launch
 
             val label = anime.title ?: anime.titleEn ?: "Anime"
-            val imageUrl = anime.primaryArtworkUrl()
 
             // Create anime group
             var group = downloadDao.findGroup(DownloadGroupEntity.TYPE_ANIME, kitsuId)
@@ -242,14 +230,10 @@ class DownloadManager @Inject constructor(
             val groupThemes = themes.map { DownloadGroupThemeEntity(group.id, it.id) }
             downloadDao.insertGroupThemes(groupThemes)
 
-            // Pre-insert all download requests so the total count is immediately known
+            // Pre-insert all download requests so the total count is immediately known,
+            // then kick the single batch worker that drains them.
             prepareDownloads(themes)
-
-            // Enqueue each theme with rate limiting
-            for ((i, theme) in themes.withIndex()) {
-                enqueueDownload(theme, imageUrl)
-                if (i < themes.lastIndex) delay(BATCH_DELAY_MS)
-            }
+            triggerBatchWorker()
         }
     }
 
@@ -280,21 +264,10 @@ class DownloadManager @Inject constructor(
             val groupThemes = themes.map { DownloadGroupThemeEntity(group.id, it.id) }
             downloadDao.insertGroupThemes(groupThemes)
 
-            // Pre-insert all download requests so the total count is immediately known
+            // Pre-insert all download requests so the total count is immediately known,
+            // then kick the single batch worker that drains them (it resolves cover art per track).
             prepareDownloads(themes)
-
-            // Enqueue each theme, resolving cover art per anime
-            val animeIds = themes.mapNotNull { it.animeId }.distinct()
-            val animeMap = if (animeIds.isNotEmpty()) {
-                animeDao.getByAnimeThemesIds(animeIds).associateBy { it.animeThemesId }
-            } else emptyMap()
-
-            for ((i, theme) in themes.withIndex()) {
-                val anime = theme.animeId?.let { animeMap[it] }
-                val imageUrl = anime?.primaryArtworkUrl()
-                enqueueDownload(theme, imageUrl)
-                if (i < themes.lastIndex) delay(BATCH_DELAY_MS)
-            }
+            triggerBatchWorker()
         }
     }
 
@@ -389,9 +362,8 @@ class DownloadManager @Inject constructor(
             )
             for (dl in paused) {
                 downloadDao.updateStatus(dl.themeId, DownloadRequestEntity.STATUS_PENDING)
-                val theme = themeDao.getByIds(listOf(dl.themeId)).firstOrNull() ?: continue
-                enqueueDownload(theme, null)
             }
+            if (paused.isNotEmpty()) triggerBatchWorker()
             Log.d(TAG, "Resumed ${paused.size} downloads")
         }
     }
@@ -441,9 +413,8 @@ class DownloadManager @Inject constructor(
             Log.d(TAG, "Retrying ${failed.size} failed/pending downloads")
             for (dl in failed) {
                 downloadDao.updateStatus(dl.themeId, DownloadRequestEntity.STATUS_PENDING)
-                val theme = themeDao.getByIds(listOf(dl.themeId)).firstOrNull() ?: continue
-                enqueueDownload(theme, null)
             }
+            triggerBatchWorker()
         }
     }
 
@@ -476,52 +447,24 @@ class DownloadManager @Inject constructor(
         }
     }
 
-    private suspend fun enqueueDownload(theme: ThemeEntity, imageUrl: String?) {
-        // Check if already completed
-        val existing = downloadDao.getDownloadForTheme(theme.id)
-        if (existing?.status == DownloadRequestEntity.STATUS_COMPLETED) {
-            Log.d(TAG, "Theme ${theme.id} already downloaded, skipping")
-            return
-        }
-        if (existing?.status == DownloadRequestEntity.STATUS_DOWNLOADING) {
-            Log.d(TAG, "Theme ${theme.id} already downloading, skipping")
-            return
-        }
-        if (existing?.status == DownloadRequestEntity.STATUS_RETRYING) {
-            Log.d(TAG, "Theme ${theme.id} already scheduled to retry, skipping")
-            return
-        }
-
+    /**
+     * Ensure the single batch [DownloadWorker] is scheduled. One unique foreground worker drains
+     * every pending request, so adding tracks while it runs is picked up by its next DB poll and
+     * does not spin up additional foreground services (which previously raced and crashed the app).
+     * [ExistingWorkPolicy.KEEP] avoids piling up workers; a finished worker is replaced by a fresh
+     * drain pass.
+     */
+    private suspend fun triggerBatchWorker() {
         val isWifiOnly = downloadPreferences.wifiOnly
         val currentNetwork = connectivityMonitor.networkType.value
 
-        // Determine initial status
-        val initialStatus = if (isWifiOnly && currentNetwork != AppNetworkType.WIFI) {
-            DownloadRequestEntity.STATUS_WAITING_FOR_WIFI
-        } else {
-            DownloadRequestEntity.STATUS_PENDING
-        }
-
-        // Show toast if waiting for wifi
-        if (initialStatus == DownloadRequestEntity.STATUS_WAITING_FOR_WIFI) {
+        // Surface the Wi-Fi-only deferral once per kick rather than per track.
+        if (isWifiOnly && currentNetwork != AppNetworkType.WIFI) {
             withContext(Dispatchers.Main) {
                 Toast.makeText(context, "Will download when on Wi-Fi", Toast.LENGTH_SHORT).show()
             }
         }
 
-        // Insert or update download request
-        downloadDao.insertDownloadIfNotExists(
-            DownloadRequestEntity(
-                themeId = theme.id,
-                status = initialStatus
-            )
-        )
-        // If it already existed but was failed/paused, update status
-        if (existing != null) {
-            downloadDao.updateStatus(theme.id, initialStatus)
-        }
-
-        // Build constraints
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(
                 if (isWifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
@@ -529,37 +472,23 @@ class DownloadManager @Inject constructor(
             .build()
 
         val workRequest = OneTimeWorkRequestBuilder<DownloadWorker>()
-            .setInputData(
-                workDataOf(
-                    DownloadWorker.KEY_THEME_ID to theme.id,
-                    DownloadWorker.KEY_AUDIO_URL to theme.audioUrl,
-                    DownloadWorker.KEY_IMAGE_URL to (imageUrl ?: "")
-                )
-            )
             .setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .addTag(WORK_TAG_DOWNLOAD)
-            .addTag("download_${theme.id}")
             .build()
 
         workManager.enqueueUniqueWork(
-            "download_${theme.id}",
+            DownloadWorker.UNIQUE_WORK_NAME,
             ExistingWorkPolicy.KEEP,
             workRequest
-        )
-
-        // Store workManager ID
-        downloadDao.updateDownload(
-            (downloadDao.getDownloadForTheme(theme.id) ?: return).copy(
-                workManagerId = workRequest.id.toString()
-            )
         )
     }
 
     private suspend fun cleanupOrphanedTheme(themeId: Long) {
         val remainingGroups = downloadDao.countGroupsForTheme(themeId)
         if (remainingGroups == 0) {
-            // No groups reference this theme — delete the download
-            workManager.cancelUniqueWork("download_$themeId")
+            // No groups reference this theme — delete the download. The running batch worker
+            // re-checks the DB before each track and skips rows that have been removed.
             val dl = downloadDao.getDownloadForTheme(themeId) ?: return
             deleteFiles(dl)
             resetThemeEntity(themeId)

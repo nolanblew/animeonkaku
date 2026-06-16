@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   bigint,
   bigserial,
@@ -12,6 +13,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 // Schema contract: .planning/05-server-data-model.md
@@ -171,7 +173,12 @@ export const themePrefs = pgTable(
     disliked: boolean("disliked").notNull().default(false),
     playCount: integer("play_count").notNull().default(0),
     lastPlayedAt: timestamp("last_played_at", { withTimezone: true }),
+    // Dedicated last-write-wins clock for the liked/disliked pair. Kept separate from
+    // updatedAt (which any change, including additive play counts, bumps) so a play event
+    // cannot reject an older like via row-level LWW. See sync/lww.ts.
+    likedUpdatedAt: timestamp("liked_updated_at", { withTimezone: true }),
     updatedAt: updatedAt(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }), // tombstone for client delta
   },
   (t) => [primaryKey({ columns: [t.userId, t.themeId] })],
 );
@@ -187,12 +194,23 @@ export const playlists = pgTable(
     isAuto: boolean("is_auto").notNull().default(false),
     autoKind: text("auto_kind"), // KITSU_LIBRARY | CURRENTLY_WATCHING | LIKED_SONGS | null
     gradientSeed: integer("gradient_seed").notNull().default(0),
-    dynamicSpecJson: text("dynamic_spec_json"), // opaque client filter spec (backup only, v1)
+    // Dynamic (smart) playlists: server-authoritative spec + sort, materialized like auto
+    // playlists when dynamicAutoUpdate is true. dynamicSpecJson is the filter tree; a
+    // non-null spec marks the playlist as dynamic.
+    dynamicSpecJson: text("dynamic_spec_json"), // filter tree (FilterNode) JSON
+    dynamicSortJson: text("dynamic_sort_json"), // sort spec (SortSpec) JSON
+    isDynamic: boolean("is_dynamic").notNull().default(false),
+    dynamicAutoUpdate: boolean("dynamic_auto_update").notNull().default(true),
+    dynamicSpecUpdatedAt: timestamp("dynamic_spec_updated_at", { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
-  (t) => [unique("playlists_user_id_name_unique").on(t.userId, t.name)],
+  (t) => [
+    uniqueIndex("playlists_user_id_name_active_unique")
+      .on(t.userId, t.name)
+      .where(sql`${t.deletedAt} is null`),
+  ],
 );
 
 export const playlistEntries = pgTable(

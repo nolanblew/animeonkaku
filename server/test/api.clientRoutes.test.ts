@@ -27,10 +27,18 @@ class FakeClientApi implements ClientApiService {
     name: string;
     entries: number[];
     isAuto: boolean;
+    isDynamic: boolean;
+    autoUpdate: boolean;
     updatedAt: number;
+    deleted: boolean;
     dynamicSpecJson: unknown | null;
+    dynamicSortJson: unknown | null;
   }>();
   private nextPlaylistId = 1;
+
+  private prefDto(themeId: number, pref: { liked: boolean; disliked: boolean; playCount: number; lastPlayedAt: number | null }) {
+    return { themeId, ...pref, updatedAt: 1, deleted: false };
+  }
 
   async getLibrary(userId: string, since: number | null): Promise<LibraryResponse> {
     this.libraryCalls.push({ userId, since });
@@ -118,8 +126,19 @@ class FakeClientApi implements ClientApiService {
     return kitsuId === "1";
   }
 
-  async getThemePrefs(_userId: string) {
-    return [...this.prefs.entries()].map(([themeId, pref]) => ({ themeId, ...pref }));
+  async getThemePrefs(_userId: string, _since: number | null = null) {
+    return [...this.prefs.entries()].map(([themeId, pref]) => this.prefDto(themeId, pref));
+  }
+
+  async getChanges(userId: string, since: number | null) {
+    const library = await this.getLibrary(userId, since);
+    return {
+      serverTime: library.serverTime,
+      anime: library.anime,
+      themes: library.themes,
+      prefs: await this.getThemePrefs(userId, since),
+      playlists: await this.listPlaylists(userId, { since }),
+    };
   }
 
   async updateThemePref(_userId: string, themeId: number, patch: ThemePrefPatch) {
@@ -129,9 +148,10 @@ class FakeClientApi implements ClientApiService {
       playCount: 0,
       lastPlayedAt: null,
     };
-    const updated = { ...current, ...patch };
+    const { opTs: _opTs, ...prefPatch } = patch;
+    const updated = { ...current, ...prefPatch };
     this.prefs.set(themeId, updated);
-    return { themeId, ...updated };
+    return this.prefDto(themeId, updated);
   }
 
   async refreshAutoPlaylists(userId: string) {
@@ -145,8 +165,12 @@ class FakeClientApi implements ClientApiService {
       name: "Liked Songs",
       entries: likedThemeIds,
       isAuto: true,
+      isDynamic: false,
+      autoUpdate: true,
       updatedAt: Date.now(),
+      deleted: false,
       dynamicSpecJson: null,
+      dynamicSortJson: null,
     };
     this.playlists.set(playlist.id, playlist);
   }
@@ -168,18 +192,23 @@ class FakeClientApi implements ClientApiService {
     return { accepted: plays.length };
   }
 
-  async listPlaylists(_userId: string, options: { autoOnly?: boolean } = {}) {
+  async listPlaylists(_userId: string, options: { autoOnly?: boolean; since?: number | null } = {}) {
     return [...this.playlists.values()].filter((playlist) => !options.autoOnly || playlist.isAuto);
   }
 
   async createPlaylist(_userId: string, input: PlaylistCreateInput) {
+    const isDynamic = input.dynamicSpecJson !== undefined && input.dynamicSpecJson !== null;
     const playlist = {
       id: this.nextPlaylistId++,
       name: input.name,
       entries: input.entries ?? [],
       isAuto: false,
+      isDynamic,
+      autoUpdate: input.autoUpdate ?? true,
       updatedAt: Date.now(),
+      deleted: false,
       dynamicSpecJson: input.dynamicSpecJson ?? null,
+      dynamicSortJson: input.dynamicSortJson ?? null,
     };
     this.playlists.set(playlist.id, playlist);
     return playlist;
@@ -319,7 +348,7 @@ describe("client API routes", () => {
 
     expect(prefs.statusCode).toBe(200);
     expect(prefs.json()).toEqual([
-      { themeId: 100, liked: true, disliked: false, playCount: 3, lastPlayedAt: 20 },
+      { themeId: 100, liked: true, disliked: false, playCount: 3, lastPlayedAt: 20, updatedAt: 1, deleted: false },
     ]);
   });
 

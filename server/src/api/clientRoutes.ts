@@ -59,11 +59,15 @@ export interface ThemePrefDto {
   disliked: boolean;
   playCount: number;
   lastPlayedAt: number | null;
+  updatedAt: number;
+  deleted: boolean;
 }
 
 export interface ThemePrefPatch {
   liked?: boolean | undefined;
   disliked?: boolean | undefined;
+  // Client op-timestamp (epoch ms) of when the user made this change; drives last-write-wins.
+  opTs?: number | undefined;
 }
 
 export interface PlaylistDto {
@@ -71,24 +75,43 @@ export interface PlaylistDto {
   name: string;
   entries: number[];
   isAuto: boolean;
+  isDynamic: boolean;
+  autoUpdate: boolean;
   updatedAt: number;
+  deleted: boolean;
   dynamicSpecJson: unknown | null;
+  dynamicSortJson: unknown | null;
 }
 
 export interface PlaylistInput {
   name?: string | undefined;
   entries?: number[] | undefined;
   dynamicSpecJson?: unknown;
+  dynamicSortJson?: unknown;
+  autoUpdate?: boolean | undefined;
+  opTs?: number | undefined;
 }
 
 export interface PlaylistCreateInput {
   name: string;
   entries?: number[] | undefined;
   dynamicSpecJson?: unknown;
+  dynamicSortJson?: unknown;
+  autoUpdate?: boolean | undefined;
+  opTs?: number | undefined;
+}
+
+export interface ChangesResponse {
+  serverTime: number;
+  anime: LibraryAnimeDto[];
+  themes: LibraryThemeDto[];
+  prefs: ThemePrefDto[];
+  playlists: PlaylistDto[];
 }
 
 export interface ClientApiService {
   getLibrary(userId: string, since: number | null): Promise<LibraryResponse>;
+  getChanges(userId: string, since: number | null): Promise<ChangesResponse>;
   getAnime(
     userId: string,
     kitsuId: string,
@@ -98,14 +121,17 @@ export interface ClientApiService {
     input: { kitsuId?: string | undefined; animeThemesId?: number | undefined },
   ): Promise<{ accepted: boolean; queuedJobIds: number[] }>;
   removeLibraryAnime(userId: string, kitsuId: string): Promise<boolean>;
-  getThemePrefs(userId: string): Promise<ThemePrefDto[]>;
+  getThemePrefs(userId: string, since?: number | null): Promise<ThemePrefDto[]>;
   updateThemePref(userId: string, themeId: number, patch: ThemePrefPatch): Promise<ThemePrefDto>;
   refreshAutoPlaylists(userId: string): Promise<void>;
   recordPlays(
     userId: string,
     plays: Array<{ themeId: number; playedAt: number }>,
   ): Promise<{ accepted: number }>;
-  listPlaylists(userId: string, options?: { autoOnly?: boolean }): Promise<PlaylistDto[]>;
+  listPlaylists(
+    userId: string,
+    options?: { autoOnly?: boolean; since?: number | null },
+  ): Promise<PlaylistDto[]>;
   createPlaylist(userId: string, input: PlaylistCreateInput): Promise<PlaylistDto>;
   updatePlaylist(userId: string, id: number, input: PlaylistInput): Promise<PlaylistDto | null>;
   updatePlaylistSpec(userId: string, id: number, spec: unknown): Promise<PlaylistDto | null>;
@@ -137,6 +163,7 @@ const prefPatchBody = z
   .object({
     liked: z.boolean().optional(),
     disliked: z.boolean().optional(),
+    opTs: z.number().int().nonnegative().optional(),
   })
   .refine((value) => value.liked !== undefined || value.disliked !== undefined, {
     message: "At least one preference field is required",
@@ -155,6 +182,9 @@ const playlistCreateBody = z.object({
   name: z.string().min(1).max(100),
   entries: z.array(z.number().int().positive()).optional(),
   dynamicSpecJson: z.unknown().optional(),
+  dynamicSortJson: z.unknown().optional(),
+  autoUpdate: z.boolean().optional(),
+  opTs: z.number().int().nonnegative().optional(),
 });
 
 const playlistUpdateBody = z
@@ -162,12 +192,17 @@ const playlistUpdateBody = z
     name: z.string().min(1).max(100).optional(),
     entries: z.array(z.number().int().positive()).optional(),
     dynamicSpecJson: z.unknown().optional(),
+    dynamicSortJson: z.unknown().optional(),
+    autoUpdate: z.boolean().optional(),
+    opTs: z.number().int().nonnegative().optional(),
   })
   .refine(
     (value) =>
       value.name !== undefined ||
       value.entries !== undefined ||
-      value.dynamicSpecJson !== undefined,
+      value.dynamicSpecJson !== undefined ||
+      value.dynamicSortJson !== undefined ||
+      value.autoUpdate !== undefined,
     { message: "At least one playlist field is required" },
   );
 
@@ -181,6 +216,13 @@ export function registerClientRoutes(
 
   app.get("/v1/library", { schema: { querystring: sinceQuery }, preHandler: requireAuth }, async (request) =>
     service.getLibrary(request.auth!.user.kitsuUserId, request.query.since ?? null),
+  );
+
+  // Unified delta feed: one round-trip reconciles library + prefs + playlists. `since=null`
+  // is a full snapshot; `since=<cursor>` returns only rows changed after the cursor (incl.
+  // tombstones). Clients persist serverTime as the next cursor.
+  app.get("/v1/changes", { schema: { querystring: sinceQuery }, preHandler: requireAuth }, async (request) =>
+    service.getChanges(request.auth!.user.kitsuUserId, request.query.since ?? null),
   );
 
   app.get(
@@ -219,8 +261,11 @@ export function registerClientRoutes(
     },
   );
 
-  app.get("/v1/prefs/themes", { preHandler: requireAuth }, async (request) =>
-    service.getThemePrefs(request.auth!.user.kitsuUserId),
+  app.get(
+    "/v1/prefs/themes",
+    { schema: { querystring: sinceQuery }, preHandler: requireAuth },
+    async (request) =>
+      service.getThemePrefs(request.auth!.user.kitsuUserId, request.query.since ?? null),
   );
 
   app.put(
@@ -244,8 +289,11 @@ export function registerClientRoutes(
     service.listPlaylists(request.auth!.user.kitsuUserId, { autoOnly: true }),
   );
 
-  app.get("/v1/playlists", { preHandler: requireAuth }, async (request) =>
-    service.listPlaylists(request.auth!.user.kitsuUserId),
+  app.get(
+    "/v1/playlists",
+    { schema: { querystring: sinceQuery }, preHandler: requireAuth },
+    async (request) =>
+      service.listPlaylists(request.auth!.user.kitsuUserId, { since: request.query.since ?? null }),
   );
 
   app.post(

@@ -13,13 +13,14 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
-import androidx.work.workDataOf
 import com.takeya.animeongaku.MainActivity
 import com.takeya.animeongaku.R
 import com.takeya.animeongaku.data.auth.ServerTokenStore
+import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.DownloadRequestEntity
 import com.takeya.animeongaku.data.local.ThemeDao
+import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.network.isServerUrl
@@ -48,6 +49,19 @@ internal enum class ServerAudioReadiness { PROCEED, FAILED, RETRY_LATER }
 private const val MAX_WARMUP_WAIT_MS = 45_000L
 private const val INITIAL_WARMUP_POLL_MS = 1_000L
 private const val MAX_WARMUP_POLL_MS = 5_000L
+
+/** Backoff between in-worker download attempts for a single track. */
+private const val DOWNLOAD_RETRY_BACKOFF_MS = 2_000L
+
+/**
+ * How many times the whole batch may be retried by WorkManager while tracks are still
+ * deferred (e.g. server cache not warm yet). Caps exponential backoff so a permanently
+ * unavailable track cannot keep the batch rescheduling forever.
+ */
+private const val MAX_BATCH_ATTEMPTS = 5
+
+/** Outcome of attempting to download a single tracked theme. */
+internal enum class ThemeDownloadOutcome { COMPLETED, FAILED, DEFERRED, SKIPPED }
 
 /**
  * Maps a server-reported audio state to a warm-up action. Anything that is not a
@@ -85,12 +99,23 @@ internal fun downloadFileExtension(url: String, defaultExtension: String): Strin
         ?: defaultExtension
 }
 
+/**
+ * Single foreground worker that drains the entire download queue.
+ *
+ * Earlier this enqueued one foreground worker per track. Many short-lived foreground workers
+ * sharing one [androidx.work.impl.foreground.SystemForegroundService] churned the foreground
+ * service start/stop cycle; a start from one worker could race the teardown of another and the
+ * framework killed the app with [android.app.RemoteServiceException.ForegroundServiceDidNotStartInTimeException].
+ * A single batch worker means exactly one foreground-service lifecycle per batch, eliminating
+ * that race. All per-track state lives in [DownloadDao], which the UI observes directly.
+ */
 @HiltWorker
 class DownloadWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val downloadDao: DownloadDao,
     private val themeDao: ThemeDao,
+    private val animeDao: AnimeDao,
     private val okHttpClient: OkHttpClient,
     private val ongakuApi: OngakuApi,
     private val serverSettingsStore: ServerSettingsStore,
@@ -99,12 +124,9 @@ class DownloadWorker @AssistedInject constructor(
 
     companion object {
         private const val TAG = "DownloadWorker"
-        const val KEY_THEME_ID = "theme_id"
-        const val KEY_AUDIO_URL = "audio_url"
-        const val KEY_IMAGE_URL = "image_url"
+        const val UNIQUE_WORK_NAME = "download_batch"
         const val CHANNEL_ID = "downloads"
         const val NOTIFICATION_ID = 9003
-        const val PROGRESS_KEY = "download_progress"
     }
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
@@ -135,103 +157,155 @@ class DownloadWorker @AssistedInject constructor(
     }
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        val themeId = inputData.getLong(KEY_THEME_ID, -1L)
-        // Re-host stored media URLs onto the live server base: a stale host (e.g. after a
-        // server URL change) otherwise makes the download retry against a dead address forever.
-        val serverBaseUrl = serverSettingsStore.serverBaseUrl
-        val audioUrl = inputData.getString(KEY_AUDIO_URL)?.let { rebaseServerMediaUrl(serverBaseUrl, it) }
-        val imageUrl = inputData.getString(KEY_IMAGE_URL)?.let { rebaseServerMediaUrl(serverBaseUrl, it) }
+        // One foreground-service lifecycle for the whole batch. Best-effort: if the app is
+        // backgrounded and promotion is disallowed, keep downloading without foreground rather
+        // than failing the batch.
+        setForegroundSafely()
 
-        if (themeId == -1L || audioUrl.isNullOrBlank()) {
-            Log.e(TAG, "Invalid input: themeId=$themeId, audioUrl=$audioUrl")
-            return@withContext Result.failure()
-        }
-
-        Log.d(TAG, "Starting download for theme $themeId: $audioUrl")
+        // Themes attempted in this pass so a track that fails or defers does not loop forever.
+        val processed = mutableSetOf<Long>()
+        var deferredAny = false
 
         try {
-            // Promote to foreground service with dataSync type
-            setForeground(getForegroundInfo())
-
-            downloadDao.updateStatus(themeId, DownloadRequestEntity.STATUS_DOWNLOADING)
-            showAggregateNotification()
-
-            val downloadsDir = File(applicationContext.filesDir, "downloads")
-            if (!downloadsDir.exists()) downloadsDir.mkdirs()
-
-            when (awaitServerAudioReady(themeId)) {
-                ServerAudioReadiness.PROCEED -> Unit
-                ServerAudioReadiness.FAILED ->
-                    return@withContext retryOrFail(themeId, "Server reported audio unavailable")
-                ServerAudioReadiness.RETRY_LATER ->
-                    return@withContext retryOrFail(themeId, "Server audio not cached yet")
-            }
-
-            // Download audio file
-            val extension = downloadFileExtension(audioUrl, defaultExtension = "ogg")
-            val audioFile = File(downloadsDir, "${themeId}.$extension")
-            val audioSize = downloadFile(audioUrl, audioFile, themeId)
-
-            if (audioSize == -1L) {
-                return@withContext retryOrFail(themeId, "Audio download failed")
-            }
-
-            // Download cover image if available
-            var imagePath: String? = null
-            if (!imageUrl.isNullOrBlank()) {
-                val imagesDir = File(downloadsDir, "images")
-                if (!imagesDir.exists()) imagesDir.mkdirs()
-                val imageExtension = downloadFileExtension(imageUrl, defaultExtension = "jpg")
-                val imageFile = File(imagesDir, "${themeId}.$imageExtension")
-                val imageSize = downloadFile(imageUrl, imageFile, themeId, reportProgress = false)
-                if (imageSize > 0) {
-                    imagePath = imageFile.absolutePath
+            while (true) {
+                val next = downloadDao.getNextDownloadable(processed.toList()) ?: break
+                processed += next.themeId
+                when (downloadTheme(next.themeId)) {
+                    ThemeDownloadOutcome.DEFERRED -> deferredAny = true
+                    ThemeDownloadOutcome.COMPLETED,
+                    ThemeDownloadOutcome.FAILED,
+                    ThemeDownloadOutcome.SKIPPED -> Unit
                 }
+                showAggregateNotification()
             }
-
-            // Mark as completed in DB
-            downloadDao.markCompleted(
-                themeId = themeId,
-                filePath = audioFile.absolutePath,
-                imagePath = imagePath,
-                fileSize = audioSize
-            )
-
-            // Update the ThemeEntity to reflect downloaded status
-            val theme = themeDao.getByIds(listOf(themeId)).firstOrNull()
-            if (theme != null) {
-                themeDao.upsertAll(listOf(theme.copy(
-                    isDownloaded = true,
-                    localFilePath = audioFile.absolutePath
-                )))
-            }
-
-            cancelNotification()
-            Log.d(TAG, "Download complete for theme $themeId: ${audioFile.absolutePath} ($audioSize bytes)")
-            Result.success()
-
         } catch (e: kotlinx.coroutines.CancellationException) {
-            Log.d(TAG, "Download cancelled for theme $themeId")
-            downloadDao.updateStatus(themeId, DownloadRequestEntity.STATUS_PAUSED)
-            // Don't cancel notification — other workers may still be running
+            // Pause/cancel/remove flows update DB status themselves; just release the
+            // notification since this single worker owns it.
+            applicationContext.getSystemService(NotificationManager::class.java)
+                .cancel(NOTIFICATION_ID)
             throw e
-        } catch (e: Exception) {
-            Log.e(TAG, "Download failed for theme $themeId", e)
-            retryOrFail(themeId, e.message ?: "Unknown error")
+        }
+
+        cancelNotification()
+
+        // Reschedule (with WorkManager backoff) only while tracks are still waiting on the
+        // server cache, and only up to the attempt cap.
+        if (deferredAny && runAttemptCount < MAX_BATCH_ATTEMPTS - 1) {
+            Result.retry()
+        } else {
+            Result.success()
         }
     }
 
-    private suspend fun retryOrFail(themeId: Long, error: String): Result {
-        return when (downloadFailureStatus(runAttemptCount)) {
-            DownloadRequestEntity.STATUS_RETRYING -> {
-                downloadDao.markRetrying(themeId, error)
-                Result.retry()
+    /**
+     * Downloads a single tracked theme, resolving its media/artwork URLs from the database and
+     * rebasing them onto the live server host (a stale host — e.g. after a server URL change —
+     * would otherwise download against a dead address forever). Retries transient failures
+     * in-line; returns [ThemeDownloadOutcome.DEFERRED] when the server has not cached the audio
+     * yet so the batch can retry later.
+     */
+    private suspend fun downloadTheme(themeId: Long): ThemeDownloadOutcome {
+        val request = downloadDao.getDownloadForTheme(themeId)
+        // Row removed (cancelled) or already finished while we were draining — nothing to do.
+        if (request == null || request.status == DownloadRequestEntity.STATUS_COMPLETED) {
+            return ThemeDownloadOutcome.SKIPPED
+        }
+
+        val serverBaseUrl = serverSettingsStore.serverBaseUrl
+        val theme = themeDao.getByIds(listOf(themeId)).firstOrNull()
+        val audioUrl = theme?.audioUrl?.let { rebaseServerMediaUrl(serverBaseUrl, it) }
+        if (theme == null || audioUrl.isNullOrBlank()) {
+            Log.e(TAG, "Missing audio URL for theme $themeId")
+            downloadDao.markFailed(themeId, "Missing audio URL")
+            return ThemeDownloadOutcome.FAILED
+        }
+
+        Log.d(TAG, "Starting download for theme $themeId: $audioUrl")
+        downloadDao.updateStatus(themeId, DownloadRequestEntity.STATUS_DOWNLOADING)
+        showAggregateNotification()
+
+        when (awaitServerAudioReady(themeId)) {
+            ServerAudioReadiness.PROCEED -> Unit
+            ServerAudioReadiness.FAILED -> {
+                downloadDao.markFailed(themeId, "Server reported audio unavailable")
+                return ThemeDownloadOutcome.FAILED
             }
-            else -> {
-                downloadDao.markFailed(themeId, error)
-                cancelNotification()
-                Result.failure()
+            ServerAudioReadiness.RETRY_LATER -> {
+                downloadDao.markRetrying(themeId, "Server audio not cached yet")
+                return ThemeDownloadOutcome.DEFERRED
             }
+        }
+
+        val downloadsDir = File(applicationContext.filesDir, "downloads")
+        if (!downloadsDir.exists()) downloadsDir.mkdirs()
+        val extension = downloadFileExtension(audioUrl, defaultExtension = "ogg")
+        val audioFile = File(downloadsDir, "${themeId}.$extension")
+
+        var lastError = "Audio download failed"
+        repeat(DOWNLOAD_MAX_ATTEMPTS) { attempt ->
+            try {
+                val audioSize = downloadFile(audioUrl, audioFile, themeId)
+                if (audioSize > 0) {
+                    val imagePath = downloadArtwork(theme, downloadsDir, serverBaseUrl, themeId)
+                    downloadDao.markCompleted(
+                        themeId = themeId,
+                        filePath = audioFile.absolutePath,
+                        imagePath = imagePath,
+                        fileSize = audioSize
+                    )
+                    themeDao.getByIds(listOf(themeId)).firstOrNull()?.let { current ->
+                        themeDao.upsertAll(listOf(current.copy(
+                            isDownloaded = true,
+                            localFilePath = audioFile.absolutePath
+                        )))
+                    }
+                    Log.d(TAG, "Download complete for theme $themeId: ${audioFile.absolutePath} ($audioSize bytes)")
+                    return ThemeDownloadOutcome.COMPLETED
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                lastError = e.message ?: "Unknown error"
+                Log.w(TAG, "Attempt ${attempt + 1} failed for theme $themeId", e)
+            }
+            if (attempt < DOWNLOAD_MAX_ATTEMPTS - 1) {
+                downloadDao.markRetrying(themeId, lastError)
+                delay(DOWNLOAD_RETRY_BACKOFF_MS * (attempt + 1))
+            }
+        }
+
+        Log.e(TAG, "Download failed for theme $themeId after $DOWNLOAD_MAX_ATTEMPTS attempts")
+        downloadDao.markFailed(themeId, lastError)
+        return ThemeDownloadOutcome.FAILED
+    }
+
+    /** Downloads the cover image for [theme], returning the saved path or null. */
+    private suspend fun downloadArtwork(
+        theme: com.takeya.animeongaku.data.local.ThemeEntity,
+        downloadsDir: File,
+        serverBaseUrl: String?,
+        themeId: Long
+    ): String? {
+        val imageUrl = theme.animeId
+            ?.let { animeId -> animeDao.getByAnimeThemesIds(listOf(animeId)).firstOrNull()?.primaryArtworkUrl() }
+            ?.let { rebaseServerMediaUrl(serverBaseUrl, it) }
+        if (imageUrl.isNullOrBlank()) return null
+
+        val imagesDir = File(downloadsDir, "images")
+        if (!imagesDir.exists()) imagesDir.mkdirs()
+        val imageExtension = downloadFileExtension(imageUrl, defaultExtension = "jpg")
+        val imageFile = File(imagesDir, "${themeId}.$imageExtension")
+        val imageSize = downloadFile(imageUrl, imageFile, themeId, reportProgress = false)
+        return if (imageSize > 0) imageFile.absolutePath else null
+    }
+
+    private suspend fun setForegroundSafely() {
+        try {
+            setForeground(getForegroundInfo())
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to enter foreground; continuing in background", e)
         }
     }
 
@@ -316,7 +390,6 @@ class DownloadWorker @AssistedInject constructor(
                                 DownloadRequestEntity.STATUS_DOWNLOADING,
                                 progress
                             )
-                            setProgress(workDataOf(PROGRESS_KEY to progress))
                             showAggregateNotification()
                         }
                     }

@@ -9,6 +9,7 @@ import com.takeya.animeongaku.data.local.ArtistImageDao
 import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.DynamicPlaylistSpecDao
 import com.takeya.animeongaku.data.local.GenreDao
+import com.takeya.animeongaku.data.local.PendingOpDao
 import com.takeya.animeongaku.data.local.PendingPlayDao
 import com.takeya.animeongaku.data.local.PlayCountDao
 import com.takeya.animeongaku.data.local.PlaylistDao
@@ -51,7 +52,8 @@ object DatabaseModule {
         AppDatabase.MIGRATION_16_17,
         AppDatabase.MIGRATION_17_18,
         AppDatabase.MIGRATION_18_19,
-        AppDatabase.MIGRATION_19_20
+        AppDatabase.MIGRATION_19_20,
+        AppDatabase.MIGRATION_20_21
     ).build()
 
     @Provides
@@ -86,6 +88,9 @@ object DatabaseModule {
 
     @Provides
     fun providePendingPlayDao(database: AppDatabase): PendingPlayDao = database.pendingPlayDao()
+
+    @Provides
+    fun providePendingOpDao(database: AppDatabase): PendingOpDao = database.pendingOpDao()
 
     @Provides
     @Singleton

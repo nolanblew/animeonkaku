@@ -36,6 +36,21 @@ interface DownloadDao {
     @Query("SELECT * FROM download_request WHERE status IN (:statuses)")
     suspend fun getDownloadsByStatuses(statuses: List<String>): List<DownloadRequestEntity>
 
+    /**
+     * Next track the batch [DownloadWorker] should download: any active request not already
+     * handled in the current drain pass. Returned oldest-first so downloads preserve enqueue
+     * order. WAITING_FOR_WIFI rows are included because the worker only runs once its network
+     * constraint is satisfied, at which point they are downloadable.
+     */
+    @Query("""
+        SELECT * FROM download_request
+        WHERE status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_RETRYING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')
+          AND themeId NOT IN (:excludedThemeIds)
+        ORDER BY createdAt ASC
+        LIMIT 1
+    """)
+    suspend fun getNextDownloadable(excludedThemeIds: List<Long>): DownloadRequestEntity?
+
     @Query("SELECT COALESCE(SUM(fileSize), 0) FROM download_request WHERE status = '${DownloadRequestEntity.STATUS_COMPLETED}'")
     fun observeTotalDownloadSize(): Flow<Long>
 

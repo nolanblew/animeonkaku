@@ -29,6 +29,20 @@
       "when": 1781397734491,
       "tag": "0003_media_variants",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1781565223270,
+      "tag": "0004_nifty_purifiers",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781576998969,
+      "tag": "0005_sad_storm",
+      "breakpoints": true
     }
   ]
 }

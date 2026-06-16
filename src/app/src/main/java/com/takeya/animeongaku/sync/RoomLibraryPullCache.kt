@@ -110,18 +110,28 @@ class RoomLibraryPullCache @Inject constructor(
     }
 
     override suspend fun applyAutoPlaylists(
+        deletedPlaylistIds: List<Long>,
+        pruneMissingAutoPlaylists: Boolean,
         playlists: List<PlaylistEntity>,
         entries: List<PlaylistEntryEntity>,
         dynamicSpecs: List<DynamicPlaylistSpecEntity>
     ) {
         database.withTransaction {
-            val serverAutoIds = playlists
-                .filter { it.isAuto }
-                .map { it.id }
-                .toSet()
-            playlistDao.getAutoPlaylistIds()
-                .filterNot { it in serverAutoIds }
-                .forEach { playlistDao.deletePlaylist(it) }
+            deletedPlaylistIds.forEach { playlistId ->
+                playlistDao.deletePlaylistEntries(playlistId)
+                dynamicPlaylistSpecDao.delete(playlistId)
+                playlistDao.deletePlaylist(playlistId)
+            }
+
+            if (pruneMissingAutoPlaylists) {
+                val serverAutoIds = playlists
+                    .filter { it.isAuto }
+                    .map { it.id }
+                    .toSet()
+                playlistDao.getAutoPlaylistIds()
+                    .filterNot { it in serverAutoIds }
+                    .forEach { playlistDao.deletePlaylist(it) }
+            }
 
             val dynamicSpecByPlaylistId = dynamicSpecs.associateBy { it.playlistId }
             playlists.forEach { playlist ->

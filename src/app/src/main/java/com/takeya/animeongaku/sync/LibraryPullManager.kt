@@ -81,10 +81,13 @@ class LibraryPullManager @Inject constructor(
             }
         )
 
-        val autoPlaylists = api.playlists()
+        val playlists = api.playlists(since = since)
+        val activePlaylists = playlists.filterNot { it.deleted }
         cache.applyAutoPlaylists(
-            playlists = autoPlaylists.map { it.toPlaylistEntity() },
-            entries = autoPlaylists.flatMap { playlist ->
+            deletedPlaylistIds = playlists.filter { it.deleted }.map { it.id },
+            pruneMissingAutoPlaylists = since == null,
+            playlists = activePlaylists.map { it.toPlaylistEntity() },
+            entries = activePlaylists.flatMap { playlist ->
                 playlist.entries.mapIndexed { index, themeId ->
                     PlaylistEntryEntity(
                         playlistId = playlist.id,
@@ -93,7 +96,7 @@ class LibraryPullManager @Inject constructor(
                     )
                 }
             },
-            dynamicSpecs = autoPlaylists.mapNotNull { it.toDynamicSpecEntity(anyAdapter) }
+            dynamicSpecs = activePlaylists.mapNotNull { it.toDynamicSpecEntity(anyAdapter) }
         )
 
         settings.serverPullCursor = library.serverTime

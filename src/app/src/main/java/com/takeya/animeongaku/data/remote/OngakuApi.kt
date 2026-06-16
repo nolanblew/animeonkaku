@@ -25,6 +25,9 @@ interface OngakuApi {
     @GET("v1/library")
     suspend fun library(@Query("since") since: Long? = null): OngakuLibraryResponse
 
+    @GET("v1/changes")
+    suspend fun changes(@Query("since") since: Long? = null): OngakuChangesResponse
+
     @GET("v1/anime/{kitsuId}")
     suspend fun anime(@Path("kitsuId") kitsuId: String): OngakuAnimeDetailResponse
 
@@ -53,7 +56,7 @@ interface OngakuApi {
     suspend fun recordPlays(@Body plays: List<OngakuPlayEvent>): OngakuPlayAcceptedResponse
 
     @GET("v1/playlists")
-    suspend fun playlists(): List<OngakuPlaylistDto>
+    suspend fun playlists(@Query("since") since: Long? = null): List<OngakuPlaylistDto>
 
     @GET("v1/playlists/auto")
     suspend fun autoPlaylists(): List<OngakuPlaylistDto>

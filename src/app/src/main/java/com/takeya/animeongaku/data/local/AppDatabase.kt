@@ -21,9 +21,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         GenreEntity::class,
         AnimeGenreCrossRef::class,
         DynamicPlaylistSpecEntity::class,
-        PendingPlayEntity::class
+        PendingPlayEntity::class,
+        PendingOpEntity::class
     ],
-    version = 20,
+    version = 21,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -38,6 +39,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun genreDao(): GenreDao
     abstract fun dynamicPlaylistSpecDao(): DynamicPlaylistSpecDao
     abstract fun pendingPlayDao(): PendingPlayDao
+    abstract fun pendingOpDao(): PendingOpDao
 
     companion object {
         val MIGRATION_9_10 = object : Migration(9, 10) {
@@ -198,6 +200,24 @@ abstract class AppDatabase : RoomDatabase() {
                     )
                 """.trimIndent())
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_pending_plays_themeId` ON `pending_plays` (`themeId`)")
+            }
+        }
+
+        val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `pending_ops` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `entityType` TEXT NOT NULL,
+                        `entityKey` TEXT NOT NULL,
+                        `opType` TEXT NOT NULL,
+                        `payloadJson` TEXT NOT NULL,
+                        `opTs` INTEGER NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `attempts` INTEGER NOT NULL DEFAULT 0
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_pending_ops_createdAt` ON `pending_ops` (`createdAt`)")
             }
         }
     }
