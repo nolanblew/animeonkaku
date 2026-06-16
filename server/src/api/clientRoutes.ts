@@ -116,6 +116,8 @@ export interface ClientApiService {
     userId: string,
     kitsuId: string,
   ): Promise<{ anime: LibraryAnimeDto; themes: LibraryThemeDto[] } | null>;
+  ensureLibraryForUserData(userId: string): Promise<boolean>;
+  ensureLibraryForThemeIds(userId: string, themeIds: number[]): Promise<boolean>;
   addLibraryAnime(
     userId: string,
     input: { kitsuId?: string | undefined; animeThemesId?: number | undefined },
@@ -218,16 +220,24 @@ export function registerClientRoutes(
   const app = fastify.withTypeProvider<ZodTypeProvider>();
   const requireAuth = makeRequireAuth(authService);
 
-  app.get("/v1/library", { schema: { querystring: sinceQuery }, preHandler: requireAuth }, async (request) =>
-    service.getLibrary(request.auth!.user.kitsuUserId, request.query.since ?? null),
-  );
+  app.get("/v1/library", { schema: { querystring: sinceQuery }, preHandler: requireAuth }, async (request) => {
+    const userId = request.auth!.user.kitsuUserId;
+    if (await service.ensureLibraryForUserData(userId)) {
+      await service.refreshAutoPlaylists(userId);
+    }
+    return service.getLibrary(userId, request.query.since ?? null);
+  });
 
   // Unified delta feed: one round-trip reconciles library + prefs + playlists. `since=null`
   // is a full snapshot; `since=<cursor>` returns only rows changed after the cursor (incl.
   // tombstones). Clients persist serverTime as the next cursor.
-  app.get("/v1/changes", { schema: { querystring: sinceQuery }, preHandler: requireAuth }, async (request) =>
-    service.getChanges(request.auth!.user.kitsuUserId, request.query.since ?? null),
-  );
+  app.get("/v1/changes", { schema: { querystring: sinceQuery }, preHandler: requireAuth }, async (request) => {
+    const userId = request.auth!.user.kitsuUserId;
+    if (await service.ensureLibraryForUserData(userId)) {
+      await service.refreshAutoPlaylists(userId);
+    }
+    return service.getChanges(userId, request.query.since ?? null);
+  });
 
   app.get(
     "/v1/anime/:kitsuId",
@@ -277,6 +287,7 @@ export function registerClientRoutes(
     { schema: { params: idParams, body: prefPatchBody }, preHandler: requireAuth },
     async (request) => {
       const userId = request.auth!.user.kitsuUserId;
+      await service.ensureLibraryForThemeIds(userId, [request.params.id]);
       const pref = await service.updateThemePref(userId, request.params.id, request.body);
       await service.refreshAutoPlaylists(userId);
       return pref;
@@ -286,25 +297,44 @@ export function registerClientRoutes(
   app.post(
     "/v1/plays",
     { schema: { body: playsBody }, preHandler: requireAuth },
-    async (request) => service.recordPlays(request.auth!.user.kitsuUserId, request.body),
+    async (request) => {
+      const userId = request.auth!.user.kitsuUserId;
+      await service.ensureLibraryForThemeIds(userId, uniqueNumbers(request.body.map((play) => play.themeId)));
+      const result = await service.recordPlays(userId, request.body);
+      await service.refreshAutoPlaylists(userId);
+      return result;
+    },
   );
 
-  app.get("/v1/playlists/auto", { preHandler: requireAuth }, async (request) =>
-    service.listPlaylists(request.auth!.user.kitsuUserId, { autoOnly: true }),
-  );
+  app.get("/v1/playlists/auto", { preHandler: requireAuth }, async (request) => {
+    const userId = request.auth!.user.kitsuUserId;
+    if (await service.ensureLibraryForUserData(userId)) {
+      await service.refreshAutoPlaylists(userId);
+    }
+    return service.listPlaylists(userId, { autoOnly: true });
+  });
 
   app.get(
     "/v1/playlists",
     { schema: { querystring: sinceQuery }, preHandler: requireAuth },
-    async (request) =>
-      service.listPlaylists(request.auth!.user.kitsuUserId, { since: request.query.since ?? null }),
+    async (request) => {
+      const userId = request.auth!.user.kitsuUserId;
+      if (await service.ensureLibraryForUserData(userId)) {
+        await service.refreshAutoPlaylists(userId);
+      }
+      return service.listPlaylists(userId, { since: request.query.since ?? null });
+    },
   );
 
   app.post(
     "/v1/playlists",
     { schema: { body: playlistCreateBody }, preHandler: requireAuth },
     async (request, reply) => {
-      const playlist = await service.createPlaylist(request.auth!.user.kitsuUserId, request.body);
+      const userId = request.auth!.user.kitsuUserId;
+      const entries = request.body.entries ?? [];
+      const changed = await service.ensureLibraryForThemeIds(userId, entries);
+      const playlist = await service.createPlaylist(userId, request.body);
+      if (changed) await service.refreshAutoPlaylists(userId);
       return reply.code(201).send({ playlist });
     },
   );
@@ -313,12 +343,17 @@ export function registerClientRoutes(
     "/v1/playlists/:id",
     { schema: { params: idParams, body: playlistUpdateBody }, preHandler: requireAuth },
     async (request) => {
+      const userId = request.auth!.user.kitsuUserId;
+      const changed = request.body.entries === undefined
+        ? false
+        : await service.ensureLibraryForThemeIds(userId, request.body.entries);
       const playlist = await service.updatePlaylist(
-        request.auth!.user.kitsuUserId,
+        userId,
         request.params.id,
         request.body,
       );
       if (!playlist) throw new ApiError(404, "NOT_FOUND", "Playlist not found.");
+      if (changed) await service.refreshAutoPlaylists(userId);
       return { playlist };
     },
   );
@@ -350,4 +385,8 @@ export function registerClientRoutes(
       return reply.code(204).send();
     },
   );
+}
+
+function uniqueNumbers(items: number[]): number[] {
+  return [...new Set(items.filter((item) => Number.isInteger(item) && item > 0))];
 }
