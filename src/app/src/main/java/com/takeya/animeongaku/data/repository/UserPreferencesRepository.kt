@@ -2,6 +2,7 @@ package com.takeya.animeongaku.data.repository
 
 import com.takeya.animeongaku.data.local.UserPreferenceDao
 import com.takeya.animeongaku.data.local.UserPreferenceEntity
+import com.takeya.animeongaku.sync.ServerUserStateRefresher
 import com.takeya.animeongaku.sync.SyncEngine
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
@@ -10,7 +11,8 @@ import javax.inject.Singleton
 @Singleton
 class UserPreferencesRepository @Inject constructor(
     private val preferenceDao: UserPreferenceDao,
-    private val syncEngine: SyncEngine
+    private val syncEngine: SyncEngine,
+    private val serverUserStateRefresher: ServerUserStateRefresher
 ) {
     fun observePreference(themeId: Long): Flow<UserPreferenceEntity?> {
         return preferenceDao.observePreference(themeId)
@@ -45,7 +47,7 @@ class UserPreferencesRepository @Inject constructor(
         )
         preferenceDao.insertOrUpdate(updated)
         syncEngine.enqueueThemePreference(updated.themeId, updated.isLiked, updated.isDisliked, opTs)
-        syncEngine.pushPendingWrites()
+        pushPendingPreferenceWriteAndRefresh()
     }
 
     suspend fun toggleDislike(themeId: Long) {
@@ -61,7 +63,7 @@ class UserPreferencesRepository @Inject constructor(
         )
         preferenceDao.insertOrUpdate(updated)
         syncEngine.enqueueThemePreference(updated.themeId, updated.isLiked, updated.isDisliked, opTs)
-        syncEngine.pushPendingWrites()
+        pushPendingPreferenceWriteAndRefresh()
     }
 
     suspend fun removeDislike(themeId: Long) {
@@ -71,7 +73,7 @@ class UserPreferencesRepository @Inject constructor(
             val updated = current.copy(isDisliked = false, updatedAt = opTs, deletedAt = null)
             preferenceDao.insertOrUpdate(updated)
             syncEngine.enqueueThemePreference(updated.themeId, updated.isLiked, updated.isDisliked, opTs)
-            syncEngine.pushPendingWrites()
+            pushPendingPreferenceWriteAndRefresh()
         }
     }
     
@@ -87,7 +89,15 @@ class UserPreferencesRepository @Inject constructor(
             )
             preferenceDao.insertOrUpdate(updated)
             syncEngine.enqueueThemePreference(updated.themeId, updated.isLiked, updated.isDisliked, opTs)
-            syncEngine.pushPendingWrites()
+            pushPendingPreferenceWriteAndRefresh()
+        }
+    }
+
+    private suspend fun pushPendingPreferenceWriteAndRefresh() {
+        runCatching { serverUserStateRefresher.refreshLocalAfterPreferenceWrite() }
+        val result = syncEngine.pushPendingWrites()
+        if (!result.failed) {
+            runCatching { serverUserStateRefresher.refreshAfterPreferenceWrite() }
         }
     }
 }
