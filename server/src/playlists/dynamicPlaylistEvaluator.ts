@@ -47,9 +47,8 @@ export class DrizzleDynamicPlaylistEvaluator {
 
     const ctx = await this.loadContext(userId);
     for (const row of dynamicRows) {
-      const filter = parseJson(row.dynamicSpecJson);
+      const { filter, sort } = dynamicPlaylistPayload(row.dynamicSpecJson, row.dynamicSortJson);
       if (filter === null) continue;
-      const sort = parseJson(row.dynamicSortJson);
       const themeIds = evaluate(filter, sort, ctx);
       await this.saveEntries(row.id, themeIds);
     }
@@ -216,6 +215,23 @@ export class DrizzleDynamicPlaylistEvaluator {
   }
 }
 
+export function dynamicPlaylistPayload(
+  dynamicSpecJson: string | null,
+  dynamicSortJson: string | null,
+): { filter: unknown | null; sort: unknown | null } {
+  const spec = parseJson(dynamicSpecJson);
+  const sort = parseJson(dynamicSortJson);
+  if (!isJson(spec)) return { filter: spec, sort };
+  const envelopeFilter = spec.filterJson;
+  if (envelopeFilter !== undefined) {
+    return {
+      filter: parseMaybeJson(envelopeFilter),
+      sort: sort ?? parseMaybeJson(spec.sortJson),
+    };
+  }
+  return { filter: spec, sort };
+}
+
 function parseJson(value: string | null): unknown | null {
   if (value === null) return null;
   try {
@@ -223,4 +239,17 @@ function parseJson(value: string | null): unknown | null {
   } catch {
     return null;
   }
+}
+
+function parseMaybeJson(value: unknown): unknown | null {
+  if (typeof value !== "string") return value ?? null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function isJson(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

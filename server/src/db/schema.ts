@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   bigint,
   bigserial,
@@ -12,6 +13,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 // Schema contract: .planning/05-server-data-model.md
@@ -204,7 +206,11 @@ export const playlists = pgTable(
     updatedAt: updatedAt(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
-  (t) => [unique("playlists_user_id_name_unique").on(t.userId, t.name)],
+  (t) => [
+    uniqueIndex("playlists_user_id_name_active_unique")
+      .on(t.userId, t.name)
+      .where(sql`${t.deletedAt} is null`),
+  ],
 );
 
 export const playlistEntries = pgTable(

@@ -215,7 +215,7 @@ private class PlaylistRecordingOngakuApi(
     override suspend fun themePrefs(): List<OngakuThemePrefDto> = error("unused")
     override suspend fun updateThemePref(themeId: Long, request: OngakuThemePrefPatch): OngakuThemePrefDto = error("unused")
     override suspend fun recordPlays(plays: List<OngakuPlayEvent>): OngakuPlayAcceptedResponse = error("unused")
-    override suspend fun playlists(): List<OngakuPlaylistDto> = error("unused")
+    override suspend fun playlists(since: Long?): List<OngakuPlaylistDto> = error("unused")
     override suspend fun autoPlaylists(): List<OngakuPlaylistDto> = error("unused")
     override suspend fun updatePlaylistSpec(id: Long, spec: Any): OngakuPlaylistResponse = error("unused")
     override suspend fun deletePlaylist(id: Long): Response<Unit> = Response.success(Unit)

@@ -1,0 +1,2 @@
+ALTER TABLE "playlists" DROP CONSTRAINT "playlists_user_id_name_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX "playlists_user_id_name_active_unique" ON "playlists" USING btree ("user_id","name") WHERE "playlists"."deleted_at" is null;

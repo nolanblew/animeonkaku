@@ -56,7 +56,7 @@ interface OngakuApi {
     suspend fun recordPlays(@Body plays: List<OngakuPlayEvent>): OngakuPlayAcceptedResponse
 
     @GET("v1/playlists")
-    suspend fun playlists(): List<OngakuPlaylistDto>
+    suspend fun playlists(@Query("since") since: Long? = null): List<OngakuPlaylistDto>
 
     @GET("v1/playlists/auto")
     suspend fun autoPlaylists(): List<OngakuPlaylistDto>

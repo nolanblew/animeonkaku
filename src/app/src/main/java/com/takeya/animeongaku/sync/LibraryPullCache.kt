@@ -30,6 +30,8 @@ interface LibraryPullCache {
     )
 
     suspend fun applyAutoPlaylists(
+        deletedPlaylistIds: List<Long>,
+        pruneMissingAutoPlaylists: Boolean,
         playlists: List<PlaylistEntity>,
         entries: List<PlaylistEntryEntity>,
         dynamicSpecs: List<DynamicPlaylistSpecEntity>

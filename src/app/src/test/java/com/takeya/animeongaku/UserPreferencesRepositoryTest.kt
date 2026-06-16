@@ -147,7 +147,7 @@ private class RecordingOngakuApi : OngakuApi {
     override suspend fun removeAnime(kitsuId: String): Response<Unit> = Response.success(Unit)
     override suspend fun themePrefs(): List<OngakuThemePrefDto> = error("unused")
     override suspend fun recordPlays(plays: List<OngakuPlayEvent>): OngakuPlayAcceptedResponse = error("unused")
-    override suspend fun playlists(): List<OngakuPlaylistDto> = error("unused")
+        override suspend fun playlists(since: Long?): List<OngakuPlaylistDto> = error("unused")
     override suspend fun autoPlaylists(): List<OngakuPlaylistDto> = error("unused")
     override suspend fun createPlaylist(request: OngakuPlaylistRequest): OngakuPlaylistResponse = error("unused")
     override suspend fun updatePlaylist(id: Long, request: OngakuPlaylistRequest): OngakuPlaylistResponse = error("unused")
