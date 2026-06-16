@@ -66,6 +66,24 @@ class SyncEngineTest {
     }
 
     @Test
+    fun `failed pref write does not block independent newer pref write`() = runBlocking {
+        val store = FakeSyncEngineStore()
+        val api = SyncRecordingOngakuApi(failPrefThemeIds = setOf(12994L))
+        val engine = syncEngine(store, api)
+
+        engine.enqueueThemePreference(themeId = 12994L, liked = true, disliked = false, opTs = 10L)
+        engine.enqueueThemePreference(themeId = 6884L, liked = true, disliked = false, opTs = 20L)
+
+        val result = engine.pushPendingWrites()
+
+        assertEquals(1, result.opCount)
+        assertEquals(true, result.failed)
+        assertEquals(6884L to OngakuThemePrefPatch(liked = true, disliked = false, opTs = 20L), api.prefWrites.single())
+        assertEquals("12994", store.ops.single().entityKey)
+        assertEquals(1, store.ops.single().attempts)
+    }
+
+    @Test
     fun `offline playlist create remaps queued follow up ops to server id`() = runBlocking {
         val store = FakeSyncEngineStore()
         val api = SyncRecordingOngakuApi(
@@ -147,6 +165,7 @@ private class FakeSyncEngineStore : SyncEngineStore {
 
 private class SyncRecordingOngakuApi(
     private val failPrefWrite: Boolean = false,
+    private val failPrefThemeIds: Set<Long> = emptySet(),
     private val createPlaylistResponse: OngakuPlaylistDto = OngakuPlaylistDto(
         id = 1L,
         name = "Created",
@@ -161,7 +180,7 @@ private class SyncRecordingOngakuApi(
     var updatedPlaylistRequest: OngakuPlaylistRequest? = null
 
     override suspend fun updateThemePref(themeId: Long, request: OngakuThemePrefPatch): OngakuThemePrefDto {
-        if (failPrefWrite) error("network down")
+        if (failPrefWrite || themeId in failPrefThemeIds) error("network down")
         prefWrites += themeId to request
         return OngakuThemePrefDto(
             themeId = themeId,

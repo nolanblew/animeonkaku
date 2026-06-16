@@ -188,15 +188,20 @@ class SyncEngine @Inject constructor(
             if (acceptedIds.size < plays.size) break
         }
 
+        val blockedEntities = mutableSetOf<Pair<String, String>>()
         while (pushedOps < limit) {
-            val op = store.oldestPendingOps(1).firstOrNull() ?: break
+            val op = store.oldestPendingOps(limit)
+                .firstOrNull { (it.entityType to it.entityKey) !in blockedEntities }
+                ?: break
+
             val pushed = runCatching {
                 pushOp(op)
             }.isSuccess
             if (!pushed) {
                 store.incrementPendingOpAttempts(op.id)
+                blockedEntities += op.entityType to op.entityKey
                 failed = true
-                break
+                continue
             }
             store.deletePendingOps(listOf(op.id))
             pushedOps += 1

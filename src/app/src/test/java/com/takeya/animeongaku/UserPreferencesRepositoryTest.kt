@@ -27,6 +27,7 @@ import com.takeya.animeongaku.data.remote.OngakuThemePrefDto
 import com.takeya.animeongaku.data.remote.OngakuThemePrefPatch
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.data.server.ServerSettingsStore
+import com.takeya.animeongaku.sync.ServerUserStateRefresher
 import com.takeya.animeongaku.sync.SyncEngine
 import com.takeya.animeongaku.sync.SyncEngineStore
 import kotlinx.coroutines.flow.Flow
@@ -44,10 +45,11 @@ class UserPreferencesRepositoryTest {
         val dao = FakeUserPreferenceDao()
         val api = RecordingOngakuApi()
         val store = PreferenceSyncStore()
+        val refresher = RecordingServerUserStateRefresher()
         val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
             serverBaseUrl = "http://192.168.1.5:8080/api"
         }
-        val repository = UserPreferencesRepository(dao, syncEngine(store, api, settings))
+        val repository = UserPreferencesRepository(dao, syncEngine(store, api, settings), refresher)
 
         repository.toggleLike(themeId = 100L)
 
@@ -62,15 +64,18 @@ class UserPreferencesRepositoryTest {
         assertEquals(false, patch.disliked)
         assertEquals(saved.updatedAt, patch.opTs)
         assertTrue(store.ops.isEmpty())
+        assertEquals(1, refresher.localRefreshCalls)
+        assertEquals(1, refresher.remoteRefreshCalls)
     }
 
     @Test
-    fun `toggle dislike is retained in outbox when server mode is not configured`() = runBlocking {
+    fun `toggle dislike is retained in outbox and refreshes local user state when server is not configured`() = runBlocking {
         val dao = FakeUserPreferenceDao()
         val api = RecordingOngakuApi()
         val store = PreferenceSyncStore()
+        val refresher = RecordingServerUserStateRefresher()
         val settings = ServerSettingsStore(FakeSharedPreferences())
-        val repository = UserPreferencesRepository(dao, syncEngine(store, api, settings))
+        val repository = UserPreferencesRepository(dao, syncEngine(store, api, settings), refresher)
 
         repository.toggleDislike(themeId = 100L)
 
@@ -80,6 +85,27 @@ class UserPreferencesRepositoryTest {
         assertEquals(true, saved.isDisliked)
         assertFalse(api.updateCalled)
         assertEquals(PendingOpEntity.ENTITY_THEME_PREF, store.ops.single().entityType)
+        assertEquals(1, refresher.localRefreshCalls)
+        assertEquals(1, refresher.remoteRefreshCalls)
+    }
+
+    @Test
+    fun `failed preference push refreshes local user state without pulling stale server state`() = runBlocking {
+        val dao = FakeUserPreferenceDao()
+        val api = RecordingOngakuApi(failUpdate = true)
+        val store = PreferenceSyncStore()
+        val refresher = RecordingServerUserStateRefresher()
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+        }
+        val repository = UserPreferencesRepository(dao, syncEngine(store, api, settings), refresher)
+
+        repository.toggleLike(themeId = 100L)
+
+        assertEquals(1, refresher.localRefreshCalls)
+        assertEquals(0, refresher.remoteRefreshCalls)
+        assertEquals(PendingOpEntity.ENTITY_THEME_PREF, store.ops.single().entityType)
+        assertEquals(1, store.ops.single().attempts)
     }
 
     private fun syncEngine(
@@ -93,6 +119,19 @@ class UserPreferencesRepositoryTest {
             settings = settings,
             moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
         )
+}
+
+private class RecordingServerUserStateRefresher : ServerUserStateRefresher {
+    var localRefreshCalls = 0
+    var remoteRefreshCalls = 0
+
+    override suspend fun refreshLocalAfterPreferenceWrite() {
+        localRefreshCalls += 1
+    }
+
+    override suspend fun refreshAfterPreferenceWrite() {
+        remoteRefreshCalls += 1
+    }
 }
 
 private class FakeUserPreferenceDao : UserPreferenceDao {
@@ -136,7 +175,9 @@ private class FakeUserPreferenceDao : UserPreferenceDao {
         preferences.values.filter { it.isLiked }.map { it.themeId }
 }
 
-private class RecordingOngakuApi : OngakuApi {
+private class RecordingOngakuApi(
+    private val failUpdate: Boolean = false
+) : OngakuApi {
     var updateCalled = false
     var updatedThemeId: Long? = null
     var updatedThemePref: OngakuThemePrefPatch? = null
@@ -145,6 +186,7 @@ private class RecordingOngakuApi : OngakuApi {
         themeId: Long,
         request: OngakuThemePrefPatch
     ): OngakuThemePrefDto {
+        if (failUpdate) error("network down")
         updateCalled = true
         updatedThemeId = themeId
         updatedThemePref = request
