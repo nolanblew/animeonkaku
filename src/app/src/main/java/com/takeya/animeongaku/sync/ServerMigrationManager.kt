@@ -37,6 +37,7 @@ interface ServerMigrationStore {
     suspend fun preferences(): List<UserPreferenceEntity>
     suspend fun playCounts(): List<PlayCountEntity>
     suspend fun manualPlaylists(): List<PlaylistEntity>
+    suspend fun playlistById(playlistId: Long): PlaylistEntity?
     suspend fun themeIdsInPlaylist(playlistId: Long): List<Long>
     suspend fun dynamicSpecs(): List<DynamicPlaylistSpecEntity>
 }
@@ -56,6 +57,9 @@ class RoomServerMigrationStore @Inject constructor(
 
     override suspend fun manualPlaylists(): List<PlaylistEntity> =
         playlistDao.getManualPlaylists()
+
+    override suspend fun playlistById(playlistId: Long): PlaylistEntity? =
+        playlistDao.getPlaylistById(playlistId)
 
     override suspend fun themeIdsInPlaylist(playlistId: Long): List<Long> =
         playlistDao.getThemeIdsInPlaylist(playlistId)
@@ -163,8 +167,22 @@ class ServerMigrationManager @Inject constructor(
     private suspend fun uploadDynamicSpecs(playlistIdMap: Map<Long, Long>): Int {
         var uploaded = 0
         store.dynamicSpecs().forEach { spec ->
-            val serverPlaylistId = playlistIdMap[spec.playlistId] ?: spec.playlistId
-            ongakuApi.updatePlaylistSpec(serverPlaylistId, spec.toServerPayload())
+            val payload = spec.toServerPayload()
+            val serverPlaylistId = playlistIdMap[spec.playlistId]
+            if (serverPlaylistId != null) {
+                ongakuApi.updatePlaylistSpec(serverPlaylistId, payload)
+            } else {
+                val playlist = store.playlistById(spec.playlistId) ?: return@forEach
+                ongakuApi.createPlaylist(
+                    OngakuPlaylistRequest(
+                        name = playlist.name,
+                        entries = store.themeIdsInPlaylist(spec.playlistId),
+                        dynamicSpecJson = payload,
+                        dynamicSortJson = spec.sortJson?.let(::parseJsonField),
+                        autoUpdate = spec.mode == "AUTO"
+                    )
+                )
+            }
             uploaded += 1
         }
         return uploaded

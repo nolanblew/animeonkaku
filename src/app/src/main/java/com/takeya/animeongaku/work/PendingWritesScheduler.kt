@@ -4,7 +4,9 @@ import android.content.Context
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.takeya.animeongaku.data.server.ServerSettingsStore
@@ -33,6 +35,25 @@ class PendingWritesScheduler @Inject constructor(
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             PendingWritesFlushWorker.UNIQUE_WORK_NAME,
             ExistingPeriodicWorkPolicy.KEEP,
+            request
+        )
+    }
+
+    fun scheduleNow() {
+        if (!serverSettingsStore.isConfigured) return
+
+        val request = OneTimeWorkRequestBuilder<PendingWritesFlushWorker>()
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build()
+            )
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .build()
+
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "${PendingWritesFlushWorker.UNIQUE_WORK_NAME}_now",
+            ExistingWorkPolicy.REPLACE,
             request
         )
     }

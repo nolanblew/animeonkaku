@@ -21,8 +21,10 @@ import com.takeya.animeongaku.sync.DefaultLibraryPullSideEffects
 import com.takeya.animeongaku.sync.LibraryPullCache
 import com.takeya.animeongaku.sync.LibraryPullSideEffects
 import com.takeya.animeongaku.sync.RoomLibraryPullCache
+import com.takeya.animeongaku.sync.RoomSyncEngineStore
 import com.takeya.animeongaku.sync.RoomServerMigrationStore
 import com.takeya.animeongaku.sync.ServerMigrationStore
+import com.takeya.animeongaku.sync.SyncEngineStore
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -53,7 +55,8 @@ object DatabaseModule {
         AppDatabase.MIGRATION_17_18,
         AppDatabase.MIGRATION_18_19,
         AppDatabase.MIGRATION_19_20,
-        AppDatabase.MIGRATION_20_21
+        AppDatabase.MIGRATION_20_21,
+        AppDatabase.MIGRATION_21_22
     ).build()
 
     @Provides
@@ -104,6 +107,10 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun providePlaylistWriteStore(store: RoomPlaylistWriteStore): PlaylistWriteStore = store
+
+    @Provides
+    @Singleton
+    fun provideSyncEngineStore(store: RoomSyncEngineStore): SyncEngineStore = store
 
     @Provides
     @Singleton

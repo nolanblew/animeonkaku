@@ -2,6 +2,7 @@ package com.takeya.animeongaku.data.repository
 
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
+import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.data.filter.FilterEvaluator
 import com.takeya.animeongaku.data.filter.FilterNode
 import com.takeya.animeongaku.data.filter.SimpleSectionsState
@@ -13,6 +14,7 @@ import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.PlaylistTrack
 import com.takeya.animeongaku.data.local.ThemeDao
+import com.takeya.animeongaku.sync.SyncEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -26,7 +28,9 @@ class DynamicPlaylistRepository @Inject constructor(
     private val playlistDao: PlaylistDao,
     private val evaluator: FilterEvaluator,
     private val themeDao: ThemeDao,
-    private val moshi: Moshi
+    private val moshi: Moshi,
+    private val serverSettingsStore: ServerSettingsStore,
+    private val syncEngine: SyncEngine
 ) {
     private val filterAdapter: JsonAdapter<FilterNode> by lazy {
         moshi.adapter(FilterNode::class.java)
@@ -38,6 +42,9 @@ class DynamicPlaylistRepository @Inject constructor(
 
     private val simpleStateAdapter: JsonAdapter<SimpleSectionsState> by lazy {
         moshi.adapter(SimpleSectionsState::class.java)
+    }
+    private val anyAdapter: JsonAdapter<Any> by lazy {
+        moshi.adapter(Any::class.java)
     }
 
     private fun serializeFilter(filter: FilterNode): String = filterAdapter.toJson(filter)
@@ -77,11 +84,12 @@ class DynamicPlaylistRepository @Inject constructor(
                 name = name,
                 createdAt = now,
                 isAuto = true,
-                gradientSeed = Random.nextInt()
+                gradientSeed = Random.nextInt(),
+                updatedAt = now,
+                deletedAt = null
             )
         )
-        specDao.upsert(
-            DynamicPlaylistSpecEntity(
+        val spec = DynamicPlaylistSpecEntity(
                 playlistId = id,
                 filterJson = serializeFilter(filter),
                 mode = mode,
@@ -91,9 +99,21 @@ class DynamicPlaylistRepository @Inject constructor(
                 schemaVersion = 1,
                 sortJson = serializeSort(sort),
                 simpleStateJson = simpleState?.let(::serializeSimpleState)
-            )
         )
+        specDao.upsert(spec)
         refreshOne(id)
+        if (serverSettingsStore.isConfigured) {
+            syncEngine.enqueuePlaylistCreate(
+                playlistId = id,
+                name = name,
+                entries = playlistDao.getThemeIdsInPlaylist(id),
+                dynamicSpecJson = spec.toServerSpecPayload(),
+                dynamicSortJson = spec.sortJson?.let(::parseJson),
+                autoUpdate = spec.mode == "AUTO",
+                opTs = now
+            )
+            syncEngine.pushPendingWrites()
+        }
         id
     }
 
@@ -111,17 +131,40 @@ class DynamicPlaylistRepository @Inject constructor(
             simpleStateJson = simpleState?.let(::serializeSimpleState) ?: existing.simpleStateJson
         )
         specDao.upsert(updated)
-        refreshOne(playlistId)
+        val opTs = System.currentTimeMillis()
+        playlistDao.touchPlaylist(playlistId, opTs)
+        if (!updated.serverManaged) {
+            refreshOne(playlistId)
+        }
+        if (serverSettingsStore.isConfigured) {
+            syncEngine.enqueueDynamicPlaylistUpsert(
+                playlistId = playlistId,
+                name = null,
+                entries = playlistDao.getThemeIdsInPlaylist(playlistId),
+                dynamicSpecJson = updated.toServerSpecPayload(),
+                dynamicSortJson = updated.sortJson?.let(::parseJson),
+                autoUpdate = updated.mode == "AUTO",
+                opTs = opTs
+            )
+            syncEngine.pushPendingWrites()
+        }
     }
 
     /** Delete a dynamic playlist (cascades via FK). */
     suspend fun deleteDynamic(playlistId: Long) = withContext(Dispatchers.IO) {
-        playlistDao.deletePlaylist(playlistId)
+        val opTs = System.currentTimeMillis()
+        playlistDao.deletePlaylistEntries(playlistId)
+        playlistDao.tombstonePlaylist(playlistId, opTs, opTs)
+        if (serverSettingsStore.isConfigured) {
+            syncEngine.enqueuePlaylistDelete(playlistId, opTs)
+            syncEngine.pushPendingWrites()
+        }
     }
 
     /** Re-evaluate and re-populate the playlist entries for one spec. */
     suspend fun refreshOne(playlistId: Long) = withContext(Dispatchers.IO) {
         val spec = specDao.getById(playlistId) ?: return@withContext
+        if (spec.serverManaged) return@withContext
         val filter = runCatching { deserializeFilter(spec.filterJson) }
             .getOrElse { return@withContext }
             ?: return@withContext
@@ -176,4 +219,17 @@ class DynamicPlaylistRepository @Inject constructor(
                 PlaylistTrack(theme = theme, orderIndex = index)
             }
         }
+
+    private fun DynamicPlaylistSpecEntity.toServerSpecPayload(): Map<String, Any?> =
+        buildMap {
+            put("filterJson", parseJson(filterJson))
+            put("mode", mode)
+            put("createdMode", createdMode)
+            put("schemaVersion", schemaVersion)
+            sortJson?.let { put("sortJson", parseJson(it)) }
+            simpleStateJson?.let { put("simpleStateJson", parseJson(it)) }
+        }
+
+    private fun parseJson(json: String): Any? =
+        runCatching { anyAdapter.fromJson(json) }.getOrNull()
 }

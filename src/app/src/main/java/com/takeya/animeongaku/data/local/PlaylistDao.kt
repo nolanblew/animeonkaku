@@ -15,13 +15,14 @@ interface PlaylistDao {
         SELECT p.*, COUNT(pe.themeId) AS trackCount
         FROM playlists p
         LEFT JOIN playlist_entries pe ON p.id = pe.playlistId
+        WHERE p.deletedAt IS NULL
         GROUP BY p.id
         ORDER BY p.createdAt DESC
         """
     )
     fun observePlaylists(): Flow<List<PlaylistWithCount>>
 
-    @Query("SELECT * FROM playlists WHERE id = :playlistId LIMIT 1")
+    @Query("SELECT * FROM playlists WHERE id = :playlistId AND deletedAt IS NULL LIMIT 1")
     fun observePlaylist(playlistId: Long): Flow<PlaylistEntity?>
 
     @Query(
@@ -29,7 +30,9 @@ interface PlaylistDao {
         SELECT t.*, pe.orderIndex AS orderIndex
         FROM playlist_entries pe
         JOIN themes t ON t.id = pe.themeId
+        JOIN playlists p ON p.id = pe.playlistId
         WHERE pe.playlistId = :playlistId
+          AND p.deletedAt IS NULL
         ORDER BY pe.orderIndex ASC
         """
     )
@@ -56,33 +59,50 @@ interface PlaylistDao {
     @Query("UPDATE playlists SET name = :newName WHERE id = :playlistId")
     suspend fun renamePlaylist(playlistId: Long, newName: String)
 
-    @Query("SELECT * FROM playlists WHERE id = :playlistId LIMIT 1")
+    @Query("UPDATE playlists SET name = :newName, updatedAt = :updatedAt, deletedAt = NULL WHERE id = :playlistId")
+    suspend fun renamePlaylistWithUpdatedAt(playlistId: Long, newName: String, updatedAt: Long)
+
+    @Query("UPDATE playlists SET updatedAt = :updatedAt, deletedAt = NULL WHERE id = :playlistId")
+    suspend fun touchPlaylist(playlistId: Long, updatedAt: Long)
+
+    @Query("UPDATE playlists SET updatedAt = :updatedAt, deletedAt = :deletedAt WHERE id = :playlistId")
+    suspend fun tombstonePlaylist(playlistId: Long, updatedAt: Long, deletedAt: Long)
+
+    @Query("SELECT * FROM playlists WHERE id = :playlistId AND deletedAt IS NULL LIMIT 1")
     suspend fun getPlaylistById(playlistId: Long): PlaylistEntity?
+
+    @Query("SELECT * FROM playlists WHERE id = :playlistId LIMIT 1")
+    suspend fun getPlaylistByIdIncludingDeleted(playlistId: Long): PlaylistEntity?
+
+    @Query("SELECT * FROM playlists WHERE id IN (:playlistIds)")
+    suspend fun getPlaylistsByIdsIncludingDeleted(playlistIds: List<Long>): List<PlaylistEntity>
 
     @Query("SELECT themeId FROM playlist_entries WHERE playlistId = :playlistId ORDER BY orderIndex ASC")
     suspend fun getThemeIdsInPlaylist(playlistId: Long): List<Long>
 
-    @Query("SELECT id FROM playlists WHERE name = :name LIMIT 1")
+    @Query("SELECT id FROM playlists WHERE name = :name AND deletedAt IS NULL LIMIT 1")
     suspend fun findPlaylistByName(name: String): Long?
 
     @Query("UPDATE playlists SET isAuto = 1 WHERE id = :playlistId")
     suspend fun markPlaylistAsAuto(playlistId: Long)
 
-    @Query("SELECT * FROM playlists WHERE isAuto = 1 AND name = :name LIMIT 1")
+    @Query("SELECT * FROM playlists WHERE isAuto = 1 AND name = :name AND deletedAt IS NULL LIMIT 1")
     suspend fun findAutoPlaylistByName(name: String): PlaylistEntity?
 
-    @Query("SELECT id FROM playlists WHERE isAuto = 1")
+    @Query("SELECT id FROM playlists WHERE isAuto = 1 AND deletedAt IS NULL")
     suspend fun getAutoPlaylistIds(): List<Long>
 
-    @Query("SELECT * FROM playlists WHERE isAuto = 0 ORDER BY createdAt ASC")
+    @Query("SELECT * FROM playlists WHERE isAuto = 0 AND deletedAt IS NULL ORDER BY createdAt ASC")
     suspend fun getManualPlaylists(): List<PlaylistEntity>
 
     @Query("""
         SELECT a.coverUrl, a.thumbnailUrl
         FROM playlist_entries pe
+        JOIN playlists p ON p.id = pe.playlistId
         JOIN themes t ON t.id = pe.themeId
         JOIN anime a ON a.animeThemesId = t.animeId
         WHERE pe.playlistId = :playlistId
+          AND p.deletedAt IS NULL
           AND (NULLIF(a.coverUrl, '') IS NOT NULL OR NULLIF(a.thumbnailUrl, '') IS NOT NULL)
         GROUP BY a.animeThemesId
         ORDER BY MIN(pe.orderIndex)
@@ -93,9 +113,11 @@ interface PlaylistDao {
     @Query("""
         SELECT a.coverUrl, a.thumbnailUrl
         FROM playlist_entries pe
+        JOIN playlists p ON p.id = pe.playlistId
         JOIN themes t ON t.id = pe.themeId
         JOIN anime a ON a.animeThemesId = t.animeId
         WHERE pe.playlistId = :playlistId
+          AND p.deletedAt IS NULL
           AND (NULLIF(a.coverUrl, '') IS NOT NULL OR NULLIF(a.thumbnailUrl, '') IS NOT NULL)
         GROUP BY a.animeThemesId
         ORDER BY MIN(pe.orderIndex)
@@ -106,9 +128,11 @@ interface PlaylistDao {
     @Query("""
         SELECT pe.playlistId, a.coverUrl, a.thumbnailUrl
         FROM playlist_entries pe
+        JOIN playlists p ON p.id = pe.playlistId
         JOIN themes t ON t.id = pe.themeId
         JOIN anime a ON a.animeThemesId = t.animeId
         WHERE (NULLIF(a.coverUrl, '') IS NOT NULL OR NULLIF(a.thumbnailUrl, '') IS NOT NULL)
+          AND p.deletedAt IS NULL
         GROUP BY pe.playlistId, a.animeThemesId
         ORDER BY pe.playlistId, MIN(pe.orderIndex)
     """)
@@ -119,6 +143,7 @@ interface PlaylistDao {
         FROM playlists p
         LEFT JOIN playlist_entries pe ON p.id = pe.playlistId
         WHERE p.name LIKE '%' || :query || '%'
+          AND p.deletedAt IS NULL
         GROUP BY p.id
         ORDER BY p.createdAt DESC
         LIMIT 50

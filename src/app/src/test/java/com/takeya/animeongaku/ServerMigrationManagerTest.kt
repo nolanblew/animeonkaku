@@ -114,6 +114,50 @@ class ServerMigrationManagerTest {
         assertEquals(1, api.createPlaylistCallCount)
     }
 
+    @Test
+    fun `migration creates standalone smart playlist instead of updating old local id`() = runBlocking {
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+        }
+        val api = MigrationRecordingOngakuApi()
+        val manager = serverMigrationManager(
+            settings = settings,
+            api = api,
+            session = ServerSession("token", "123", "nblewtest"),
+            playlists = listOf(PlaylistEntity(id = 42L, name = "Smart Local", createdAt = 1L, isAuto = true)),
+            playlistEntries = mapOf(42L to listOf(10L, 11L)),
+            specs = listOf(
+                DynamicPlaylistSpecEntity(
+                    playlistId = 42L,
+                    filterJson = """{"type":"liked"}""",
+                    mode = "AUTO",
+                    createdMode = "SIMPLE",
+                    sortJson = """{"orders":[]}""",
+                    simpleStateJson = """{"rows":[]}"""
+                )
+            )
+        )
+
+        val result = manager.migrateIfNeeded()
+
+        assertTrue(result.migrated)
+        assertEquals(1, result.uploadedSpecs)
+        assertEquals("Smart Local", api.createdPlaylists.single().name)
+        assertEquals(listOf(10L, 11L), api.createdPlaylists.single().entries)
+        assertEquals(
+            mapOf(
+                "filterJson" to mapOf("type" to "liked"),
+                "mode" to "AUTO",
+                "createdMode" to "SIMPLE",
+                "sortJson" to mapOf("orders" to emptyList<Any>()),
+                "simpleStateJson" to mapOf("rows" to emptyList<Any>()),
+                "schemaVersion" to 1
+            ),
+            api.createdPlaylists.single().dynamicSpecJson
+        )
+        assertTrue(api.updatedSpecs.isEmpty())
+    }
+
     private fun serverMigrationManager(
         settings: ServerSettingsStore,
         api: MigrationRecordingOngakuApi,
@@ -151,7 +195,9 @@ private class FakeServerMigrationStore(
 ) : ServerMigrationStore {
     override suspend fun preferences(): List<UserPreferenceEntity> = preferences
     override suspend fun playCounts(): List<PlayCountEntity> = playCounts
-    override suspend fun manualPlaylists(): List<PlaylistEntity> = playlists
+    override suspend fun manualPlaylists(): List<PlaylistEntity> = playlists.filterNot { it.isAuto }
+    override suspend fun playlistById(playlistId: Long): PlaylistEntity? =
+        playlists.firstOrNull { it.id == playlistId }
     override suspend fun themeIdsInPlaylist(playlistId: Long): List<Long> = playlistEntries[playlistId].orEmpty()
     override suspend fun dynamicSpecs(): List<DynamicPlaylistSpecEntity> = specs
 }
@@ -231,7 +277,7 @@ private class MigrationRecordingOngakuApi : OngakuApi {
     override suspend fun autoPlaylists(): List<OngakuPlaylistDto> = error("unused")
     override suspend fun updatePlaylist(id: Long, request: OngakuPlaylistRequest): OngakuPlaylistResponse =
         error("unused")
-    override suspend fun deletePlaylist(id: Long): Response<Unit> = Response.success(Unit)
+    override suspend fun deletePlaylist(id: Long, opTs: Long?): Response<Unit> = Response.success(Unit)
     override suspend fun requestAudio(themeId: Long): OngakuAudioRequestResponse = error("unused")
     override suspend fun startSync(request: OngakuSyncRequest): OngakuSyncQueuedResponse = error("unused")
     override suspend fun syncStatus(): OngakuSyncStatusResponse = error("unused")
