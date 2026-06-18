@@ -50,6 +50,13 @@
       "when": 1781817450413,
       "tag": "0006_motionless_william_stryker",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1781818419843,
+      "tag": "0007_keen_blizzard",
+      "breakpoints": true
     }
   ]
 }

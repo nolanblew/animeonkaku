@@ -497,6 +497,7 @@ export class DrizzleClientApiService implements ClientApiService {
     input: PlaylistCreateInput,
   ): Promise<PlaylistDto> {
     const now = this.now();
+    const opDate = new Date(resolveOpTs(input.opTs ?? null, now.getTime()));
     const isDynamic = input.dynamicSpecJson !== undefined && input.dynamicSpecJson !== null;
     const [row] = await this.db
       .insert(playlists)
@@ -509,6 +510,7 @@ export class DrizzleClientApiService implements ClientApiService {
         dynamicSpecJson: stringifySpec(input.dynamicSpecJson),
         dynamicSortJson: stringifySpec(input.dynamicSortJson),
         dynamicSpecUpdatedAt: isDynamic ? now : null,
+        mutationUpdatedAt: opDate,
         updatedAt: now,
       })
       .returning({ id: playlists.id });
@@ -523,14 +525,15 @@ export class DrizzleClientApiService implements ClientApiService {
 
     const now = this.now();
     const opTs = resolveOpTs(input.opTs ?? null, now.getTime());
-    const storedTs = existing.updatedAt.getTime();
+    const opDate = new Date(opTs);
+    const storedTs = existing.mutationUpdatedAt.getTime();
     // Last-write-wins: a stale edit arriving after a newer one is dropped, but we still
     // return the authoritative row so the caller reconciles.
     if (!shouldApplyWrite(opTs, storedTs)) {
       return this.findPlaylist(userId, id);
     }
 
-    const set: Partial<typeof playlists.$inferInsert> = { updatedAt: now };
+    const set: Partial<typeof playlists.$inferInsert> = { updatedAt: now, mutationUpdatedAt: opDate };
     if (input.name !== undefined) set.name = input.name;
     if (input.autoUpdate !== undefined) set.dynamicAutoUpdate = input.autoUpdate;
     if (input.dynamicSortJson !== undefined) set.dynamicSortJson = stringifySpec(input.dynamicSortJson);
@@ -555,12 +558,13 @@ export class DrizzleClientApiService implements ClientApiService {
     if (!existing) return false;
     const now = this.now();
     const resolvedOpTs = resolveOpTs(opTs, now.getTime());
-    if (!shouldApplyWrite(resolvedOpTs, existing.updatedAt.getTime())) {
+    if (!shouldApplyWrite(resolvedOpTs, existing.mutationUpdatedAt.getTime())) {
       return true;
     }
+    const opDate = new Date(resolvedOpTs);
     await this.db
       .update(playlists)
-      .set({ deletedAt: now, updatedAt: now })
+      .set({ deletedAt: now, updatedAt: now, mutationUpdatedAt: opDate })
       .where(eq(playlists.id, id));
     return true;
   }
@@ -779,9 +783,9 @@ export class DrizzleClientApiService implements ClientApiService {
   private async mutablePlaylistRow(
     userId: string,
     id: number,
-  ): Promise<{ id: number; updatedAt: Date } | null> {
+  ): Promise<{ id: number; mutationUpdatedAt: Date } | null> {
     const rows = await this.db
-      .select({ id: playlists.id, updatedAt: playlists.updatedAt })
+      .select({ id: playlists.id, mutationUpdatedAt: playlists.mutationUpdatedAt })
       .from(playlists)
       .where(
         and(

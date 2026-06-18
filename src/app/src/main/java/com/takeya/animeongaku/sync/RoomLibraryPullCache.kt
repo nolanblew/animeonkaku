@@ -100,24 +100,19 @@ class RoomLibraryPullCache @Inject constructor(
         playCounts: List<PlayCountEntity>
     ) {
         database.withTransaction {
-            val appliedPreferenceIds = if (preferences.isNotEmpty()) {
-                val localById = userPreferenceDao
+            val localById = if (preferences.isNotEmpty()) {
+                userPreferenceDao
                     .getPreferencesByIdsIncludingDeleted(preferences.map { it.themeId })
                     .associateBy { it.themeId }
-                val applied = preferences.filter { incoming ->
-                    val local = localById[incoming.themeId]
-                    local == null || incoming.updatedAt >= local.updatedAt
-                }
-                if (applied.isNotEmpty()) {
-                    userPreferenceDao.upsertAll(applied)
-                }
-                applied.map { it.themeId }.toSet()
             } else {
-                emptySet()
+                emptyMap()
             }
-            val appliedPlayCounts = playCounts.filter { it.themeId in appliedPreferenceIds }
-            if (appliedPlayCounts.isNotEmpty()) {
-                playCountDao.upsertAll(appliedPlayCounts)
+            val plan = planThemePrefApply(preferences, playCounts, localById)
+            if (plan.preferences.isNotEmpty()) {
+                userPreferenceDao.upsertAll(plan.preferences)
+            }
+            if (plan.playCounts.isNotEmpty()) {
+                playCountDao.upsertAll(plan.playCounts)
             }
         }
     }
@@ -186,4 +181,24 @@ class RoomLibraryPullCache @Inject constructor(
             }
         }
     }
+}
+
+internal data class ThemePrefApplyPlan(
+    val preferences: List<UserPreferenceEntity>,
+    val playCounts: List<PlayCountEntity>
+)
+
+internal fun planThemePrefApply(
+    preferences: List<UserPreferenceEntity>,
+    playCounts: List<PlayCountEntity>,
+    localById: Map<Long, UserPreferenceEntity>
+): ThemePrefApplyPlan {
+    val appliedPreferences = preferences.filter { incoming ->
+        val local = localById[incoming.themeId]
+        local == null || incoming.updatedAt >= local.updatedAt
+    }
+    return ThemePrefApplyPlan(
+        preferences = appliedPreferences,
+        playCounts = playCounts
+    )
 }

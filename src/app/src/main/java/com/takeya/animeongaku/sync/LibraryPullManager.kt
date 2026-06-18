@@ -123,16 +123,17 @@ private fun OngakuPlaylistDto.toPlaylistEntity(): PlaylistEntity =
     )
 
 private fun OngakuPlaylistDto.toDynamicSpecEntity(anyAdapter: JsonAdapter<Any>): DynamicPlaylistSpecEntity? {
-    val spec = dynamicSpecJson as? Map<*, *> ?: return null
-    val filterJson = spec.jsonField("filterJson", anyAdapter) ?: return null
+    val specValue = dynamicSpecJson ?: return null
+    val spec = specValue as? Map<*, *>
+    val filterJson = spec?.jsonField("filterJson", anyAdapter) ?: specValue.jsonValue(anyAdapter)
     return DynamicPlaylistSpecEntity(
         playlistId = id,
         filterJson = filterJson,
-        mode = spec.stringField("mode") ?: "AUTO",
-        createdMode = spec.stringField("createdMode") ?: "ADVANCED",
-        schemaVersion = spec.numberField("schemaVersion") ?: 1,
-        sortJson = spec.jsonField("sortJson", anyAdapter),
-        simpleStateJson = spec.jsonField("simpleStateJson", anyAdapter),
+        mode = spec?.stringField("mode") ?: "AUTO",
+        createdMode = spec?.stringField("createdMode") ?: "ADVANCED",
+        schemaVersion = spec?.numberField("schemaVersion") ?: 1,
+        sortJson = dynamicSortJson?.jsonValue(anyAdapter) ?: spec?.jsonField("sortJson", anyAdapter),
+        simpleStateJson = spec?.jsonField("simpleStateJson", anyAdapter),
         serverManaged = true
     )
 }
@@ -149,8 +150,12 @@ private fun Map<*, *>.numberField(key: String): Int? =
 
 private fun Map<*, *>.jsonField(key: String, anyAdapter: JsonAdapter<Any>): String? {
     val value = this[key] ?: return null
-    return when (value) {
-        is String -> value
-        else -> anyAdapter.toJson(value)
+    return value.jsonValue(anyAdapter)
+}
+
+private fun Any.jsonValue(anyAdapter: JsonAdapter<Any>): String {
+    return when (this) {
+        is String -> this
+        else -> anyAdapter.toJson(this)
     }
 }

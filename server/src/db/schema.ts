@@ -226,6 +226,7 @@ export const playlists = pgTable(
     dynamicSpecUpdatedAt: timestamp("dynamic_spec_updated_at", { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    mutationUpdatedAt: timestamp("mutation_updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => [

@@ -75,8 +75,16 @@ export class DrizzleAutoPlaylistRefresher {
     themeIds: number[],
   ): Promise<void> {
     const spec = AUTO_PLAYLISTS.find((playlist) => playlist.kind === kind)!;
+    const gradient = gradientSeed(spec.kind);
+    const nextThemeIds = uniqueNumbers(themeIds);
     const existing = await this.db
-      .select({ id: playlists.id })
+      .select({
+        id: playlists.id,
+        isAuto: playlists.isAuto,
+        autoKind: playlists.autoKind,
+        gradientSeed: playlists.gradientSeed,
+        deletedAt: playlists.deletedAt,
+      })
       .from(playlists)
       .where(and(eq(playlists.userId, userId), eq(playlists.name, spec.name)))
       .limit(1);
@@ -91,37 +99,66 @@ export class DrizzleAutoPlaylistRefresher {
             name: spec.name,
             isAuto: true,
             autoKind: spec.kind,
-            gradientSeed: gradientSeed(spec.kind),
+            gradientSeed: gradient,
             deletedAt: null,
           })
           .returning({ id: playlists.id })
       )[0]!.id;
+
+    const existingRow = existing[0] ?? null;
+    const existingThemeIds = existingRow ? await this.autoPlaylistThemeIds(playlistId) : [];
+    const metadataChanged =
+      existingRow === null ||
+      !existingRow.isAuto ||
+      existingRow.autoKind !== spec.kind ||
+      existingRow.gradientSeed !== gradient ||
+      existingRow.deletedAt !== null;
+    const entriesChanged = !orderedThemeIdsMatch(existingThemeIds, nextThemeIds);
+    if (!metadataChanged && !entriesChanged) {
+      return;
+    }
 
     await this.db
       .update(playlists)
       .set({
         isAuto: true,
         autoKind: spec.kind,
-        gradientSeed: gradientSeed(spec.kind),
+        gradientSeed: gradient,
         deletedAt: null,
         updatedAt: new Date(),
       })
       .where(eq(playlists.id, playlistId));
 
-    await this.db.delete(playlistEntries).where(eq(playlistEntries.playlistId, playlistId));
-    const entries = uniqueNumbers(themeIds).map((themeId, index) => ({
-      playlistId,
-      themeId,
-      orderIndex: index,
-    }));
-    if (entries.length > 0) {
-      await this.db.insert(playlistEntries).values(entries);
+    if (entriesChanged) {
+      await this.db.delete(playlistEntries).where(eq(playlistEntries.playlistId, playlistId));
+      const entries = nextThemeIds.map((themeId, index) => ({
+        playlistId,
+        themeId,
+        orderIndex: index,
+      }));
+      if (entries.length > 0) {
+        await this.db.insert(playlistEntries).values(entries);
+      }
     }
+  }
+
+  private async autoPlaylistThemeIds(playlistId: number): Promise<number[]> {
+    const rows = await this.db
+      .select({ themeId: playlistEntries.themeId })
+      .from(playlistEntries)
+      .where(eq(playlistEntries.playlistId, playlistId))
+      .orderBy(asc(playlistEntries.orderIndex));
+    return rows.map((row) => row.themeId);
   }
 }
 
 function uniqueNumbers(items: number[]): number[] {
   return [...new Set(items.filter((item) => Number.isInteger(item) && item > 0))];
+}
+
+export function orderedThemeIdsMatch(current: number[], next: number[]): boolean {
+  if (current.length !== next.length) return false;
+  return current.every((themeId, index) => themeId === next[index]);
 }
 
 function gradientSeed(kind: AutoPlaylistKind): number {
