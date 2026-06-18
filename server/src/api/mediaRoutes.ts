@@ -103,6 +103,10 @@ export class MediaStreamingService {
       }
     }
 
+    if (audio.state === "FAILED") {
+      throw new ApiError(503, "AUDIO_UNAVAILABLE", "Audio is currently unavailable after a failed cache fetch.");
+    }
+
     if (method === "GET") {
       await this.enqueueFetch(themeId, JobPriority.URGENT);
     }
@@ -122,6 +126,9 @@ export class MediaStreamingService {
     // jobId 0 signals "no fetch needed"; clients warm-poll this until audioState is READY.
     if (audio.state === "READY" && audio.filePath) {
       return { themeId, audioState: "READY", jobId: 0 };
+    }
+    if (audio.state === "FAILED") {
+      return { themeId, audioState: "FAILED", jobId: 0 };
     }
     const job = await this.enqueueFetch(themeId, JobPriority.HIGH);
     return { themeId, audioState: audioState(audio.state), jobId: job.id };

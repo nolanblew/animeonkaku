@@ -58,6 +58,52 @@ describe("JobSyncApiService.getStatus upstream-blocked surfacing", () => {
     expect(status.mapping?.state).toBe("DONE");
   });
 
+  it("keeps sync running while theme mapping is still queued after Kitsu sync completes", async () => {
+    const { repo, queue, service } = setup();
+    const sync = await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.HIGH,
+      payload: { userId: USER },
+      dedupeKey: `KITSU_FULL_SYNC:${USER}`,
+    });
+    await repo.complete(sync.id);
+    await queue.enqueue({
+      type: "MAP_THEMES",
+      priority: JobPriority.NORMAL,
+      payload: { kitsuIds: ["1"], userId: USER },
+      dedupeKey: `MAP_THEMES:${USER}:1`,
+    });
+
+    const status = await service.getStatus(USER);
+    expect(status.state).toBe("QUEUED");
+    expect(status.phase).toBe("MAPPING_THEMES");
+    expect(status.mapping?.state).toBe("QUEUED");
+  });
+
+  it("keeps sync running while theme mapping is running after Kitsu sync completes", async () => {
+    const { repo, queue, service } = setup();
+    const sync = await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.HIGH,
+      payload: { userId: USER },
+      dedupeKey: `KITSU_FULL_SYNC:${USER}`,
+    });
+    await repo.complete(sync.id);
+    const map = await queue.enqueue({
+      type: "MAP_THEMES",
+      priority: JobPriority.NORMAL,
+      payload: { kitsuIds: ["1"], userId: USER },
+      dedupeKey: `MAP_THEMES:${USER}:1`,
+    });
+    await repo.claimNext(new Date());
+
+    const status = await service.getStatus(USER);
+    expect(map.id).toBeGreaterThan(0);
+    expect(status.state).toBe("RUNNING");
+    expect(status.phase).toBe("MAPPING_THEMES");
+    expect(status.mapping?.state).toBe("RUNNING");
+  });
+
   it("treats a non-block mapping failure as not upstreamBlocked", async () => {
     const { repo, queue, service } = setup();
     const map = await queue.enqueue({

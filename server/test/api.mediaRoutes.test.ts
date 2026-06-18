@@ -327,6 +327,63 @@ describe("media API routes", () => {
     expect(fetchCalls).toHaveLength(0);
   });
 
+  it("returns a stable failure for FAILED audio without re-hitting the origin", async () => {
+    repo.audio.set(100, {
+      themeId: 100,
+      originUrl: "https://a.animethemes.moe/Failed.ogg",
+      state: "FAILED",
+      filePath: null,
+      byteSize: null,
+      sha256: null,
+    });
+    mediaFetch = async (input, init) => {
+      fetchCalls.push({ input, init });
+      return new Response(Buffer.from("blocked"), {
+        status: 403,
+        headers: { "content-type": "text/html" },
+      });
+    };
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/media/audio/100",
+      headers: { range: "bytes=0-" },
+    });
+
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toEqual({
+      error: {
+        code: "AUDIO_UNAVAILABLE",
+        message: "Audio is currently unavailable after a failed cache fetch.",
+      },
+    });
+    expect(fetchCalls).toHaveLength(0);
+    expect(await queue.list("QUEUED")).toHaveLength(0);
+  });
+
+  it("does not reset the failed fetch loop on explicit audio request", async () => {
+    repo.audio.set(100, {
+      themeId: 100,
+      originUrl: "https://a.animethemes.moe/Failed.ogg",
+      state: "FAILED",
+      filePath: null,
+      byteSize: null,
+      sha256: null,
+    });
+    const token = await bearer();
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/media/audio/100/request",
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ themeId: 100, audioState: "FAILED", jobId: 0 });
+    expect(await queue.list("QUEUED")).toHaveLength(0);
+    expect(fetchCalls).toHaveLength(0);
+  });
+
   it("explicit audio requests enqueue HIGH priority and return current state", async () => {
     repo.audio.set(100, {
       themeId: 100,

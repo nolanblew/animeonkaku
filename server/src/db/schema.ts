@@ -49,7 +49,9 @@ export const deviceSessions = pgTable("device_sessions", {
   createdAt: createdAt(),
   lastUsedAt: timestamp("last_used_at", { withTimezone: true }).notNull().defaultNow(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-});
+}, (t) => [
+  index("device_sessions_user_id_idx").on(t.userId),
+]);
 
 // ===== global catalog =====
 
@@ -85,7 +87,10 @@ export const kitsuAnime = pgTable("kitsu_anime", {
   mappingState: text("mapping_state").notNull().default("UNMAPPED"), // UNMAPPED | MAPPED | UNMATCHED
   updatedAt: updatedAt(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
-});
+}, (t) => [
+  index("kitsu_anime_animethemes_anime_id_idx").on(t.animethemesAnimeId),
+  index("kitsu_anime_updated_at_idx").on(t.updatedAt),
+]);
 
 export const themes = pgTable("themes", {
   id: bigint("id", { mode: "number" }).primaryKey(), // AnimeThemes theme id (numeric only)
@@ -99,7 +104,10 @@ export const themes = pgTable("themes", {
   durationSeconds: integer("duration_seconds"),
   updatedAt: updatedAt(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
-});
+}, (t) => [
+  index("themes_animethemes_anime_id_idx").on(t.animethemesAnimeId, t.id),
+  index("themes_updated_at_idx").on(t.updatedAt),
+]);
 
 export const themeArtists = pgTable(
   "theme_artists",
@@ -157,7 +165,14 @@ export const libraryEntries = pgTable(
     updatedAt: updatedAt(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }), // tombstone for client delta
   },
-  (t) => [primaryKey({ columns: [t.userId, t.kitsuId] })],
+  (t) => [
+    primaryKey({ columns: [t.userId, t.kitsuId] }),
+    index("library_entries_user_updated_idx").on(t.userId, t.updatedAt),
+    index("library_entries_user_deleted_idx").on(t.userId, t.deletedAt),
+    index("library_entries_user_status_active_idx")
+      .on(t.userId, t.watchingStatus, t.kitsuId)
+      .where(sql`${t.deletedAt} is null`),
+  ],
 );
 
 export const themePrefs = pgTable(
@@ -180,7 +195,14 @@ export const themePrefs = pgTable(
     updatedAt: updatedAt(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }), // tombstone for client delta
   },
-  (t) => [primaryKey({ columns: [t.userId, t.themeId] })],
+  (t) => [
+    primaryKey({ columns: [t.userId, t.themeId] }),
+    index("theme_prefs_user_updated_idx").on(t.userId, t.updatedAt),
+    index("theme_prefs_user_deleted_idx").on(t.userId, t.deletedAt),
+    index("theme_prefs_user_liked_active_idx")
+      .on(t.userId, t.liked, t.themeId)
+      .where(sql`${t.deletedAt} is null`),
+  ],
 );
 
 export const playlists = pgTable(
@@ -207,6 +229,13 @@ export const playlists = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => [
+    index("playlists_user_updated_idx").on(t.userId, t.updatedAt),
+    index("playlists_user_auto_active_idx")
+      .on(t.userId, t.isAuto, t.name)
+      .where(sql`${t.deletedAt} is null`),
+    index("playlists_user_dynamic_active_idx")
+      .on(t.userId, t.isDynamic, t.dynamicAutoUpdate)
+      .where(sql`${t.deletedAt} is null`),
     uniqueIndex("playlists_user_id_name_active_unique")
       .on(t.userId, t.name)
       .where(sql`${t.deletedAt} is null`),
@@ -225,7 +254,11 @@ export const playlistEntries = pgTable(
     orderIndex: integer("order_index").notNull(),
   },
   // duplicates of a song allowed at different positions
-  (t) => [primaryKey({ columns: [t.playlistId, t.themeId, t.orderIndex] })],
+  (t) => [
+    primaryKey({ columns: [t.playlistId, t.themeId, t.orderIndex] }),
+    index("playlist_entries_playlist_order_idx").on(t.playlistId, t.orderIndex),
+    index("playlist_entries_theme_id_idx").on(t.themeId),
+  ],
 );
 
 // ===== media =====
