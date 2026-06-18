@@ -113,6 +113,138 @@ export class DrizzleClientApiService implements ClientApiService {
     };
   }
 
+  async ensureLibraryForUserData(userId: string): Promise<boolean> {
+    const prefRows = await this.db
+      .select({ themeId: themePrefs.themeId })
+      .from(themePrefs)
+      .where(and(eq(themePrefs.userId, userId), isNull(themePrefs.deletedAt)));
+    const playlistRows = await this.db
+      .select({ themeId: playlistEntries.themeId })
+      .from(playlists)
+      .innerJoin(playlistEntries, eq(playlists.id, playlistEntries.playlistId))
+      .where(and(eq(playlists.userId, userId), eq(playlists.isAuto, false), isNull(playlists.deletedAt)));
+
+    return this.ensureLibraryForThemeIds(
+      userId,
+      uniqueNumbers([
+        ...prefRows.map((row) => row.themeId),
+        ...playlistRows.map((row) => row.themeId),
+      ]),
+    );
+  }
+
+  async ensureLibraryForThemeIds(userId: string, themeIds: number[]): Promise<boolean> {
+    const ids = uniqueNumbers(themeIds);
+    if (ids.length === 0) return false;
+
+    const now = this.now();
+    const themeRows = await this.db
+      .select({
+        themeId: themes.id,
+        animeThemesId: themes.animethemesAnimeId,
+        animeName: animethemesAnime.name,
+        animeNameEn: animethemesAnime.nameEn,
+      })
+      .from(themes)
+      .innerJoin(animethemesAnime, eq(themes.animethemesAnimeId, animethemesAnime.id))
+      .where(and(inArray(themes.id, ids), isNull(themes.deletedAt)));
+
+    const animeThemesIds = uniqueNumbers(themeRows.map((row) => row.animeThemesId));
+    if (animeThemesIds.length === 0) return false;
+
+    const existingKitsuRows = await this.db
+      .select({
+        kitsuId: kitsuAnime.kitsuId,
+        animeThemesId: kitsuAnime.animethemesAnimeId,
+      })
+      .from(kitsuAnime)
+      .where(and(inArray(kitsuAnime.animethemesAnimeId, animeThemesIds), isNull(kitsuAnime.deletedAt)))
+      .orderBy(asc(kitsuAnime.kitsuId));
+
+    const kitsuIdByAnimeThemesId = preferredKitsuIdByAnimeThemesId(existingKitsuRows);
+    const themeRowByAnimeThemesId = new Map(themeRows.map((row) => [row.animeThemesId, row]));
+    const syntheticRows = animeThemesIds
+      .filter((animeThemesId) => !kitsuIdByAnimeThemesId.has(animeThemesId))
+      .map((animeThemesId) => {
+        const row = themeRowByAnimeThemesId.get(animeThemesId);
+        return {
+          kitsuId: syntheticKitsuId(animeThemesId),
+          animethemesAnimeId: animeThemesId,
+          title: row?.animeNameEn ?? row?.animeName ?? null,
+          titleEn: row?.animeNameEn ?? null,
+          mappingState: "MAPPED",
+          updatedAt: now,
+          deletedAt: null,
+        };
+      });
+
+    if (syntheticRows.length > 0) {
+      await this.db
+        .insert(kitsuAnime)
+        .values(syntheticRows)
+        .onConflictDoUpdate({
+          target: kitsuAnime.kitsuId,
+          set: {
+            animethemesAnimeId: sql`excluded.animethemes_anime_id`,
+            title: sql`excluded.title`,
+            titleEn: sql`excluded.title_en`,
+            mappingState: "MAPPED",
+            updatedAt: now,
+            deletedAt: null,
+          },
+        });
+      for (const row of syntheticRows) {
+        kitsuIdByAnimeThemesId.set(row.animethemesAnimeId, row.kitsuId);
+      }
+    }
+
+    const targetKitsuIds = unique(
+      themeRows.flatMap((row) => {
+        const kitsuId = kitsuIdByAnimeThemesId.get(row.animeThemesId);
+        return kitsuId ? [kitsuId] : [];
+      }),
+    );
+    if (targetKitsuIds.length === 0) return syntheticRows.length > 0;
+
+    const existingLibraryRows = await this.db
+      .select({
+        kitsuId: libraryEntries.kitsuId,
+        isManuallyAdded: libraryEntries.isManuallyAdded,
+        deletedAt: libraryEntries.deletedAt,
+      })
+      .from(libraryEntries)
+      .where(and(eq(libraryEntries.userId, userId), inArray(libraryEntries.kitsuId, targetKitsuIds)));
+    const existingLibraryByKitsuId = new Map(existingLibraryRows.map((row) => [row.kitsuId, row]));
+    const rowsToUpsert = targetKitsuIds.filter((kitsuId) => {
+      const row = existingLibraryByKitsuId.get(kitsuId);
+      return row === undefined || row.deletedAt !== null || !row.isManuallyAdded;
+    });
+
+    if (rowsToUpsert.length > 0) {
+      await this.db
+        .insert(libraryEntries)
+        .values(
+          rowsToUpsert.map((kitsuId) => ({
+            userId,
+            kitsuId,
+            isManuallyAdded: true,
+            updatedAt: now,
+            deletedAt: null,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [libraryEntries.userId, libraryEntries.kitsuId],
+          set: {
+            isManuallyAdded: true,
+            updatedAt: now,
+            deletedAt: null,
+          },
+        });
+    }
+
+    return syntheticRows.length > 0 || rowsToUpsert.length > 0;
+  }
+
   async addLibraryAnime(
     userId: string,
     input: { kitsuId?: string; animeThemesId?: number },
@@ -695,7 +827,14 @@ export class DrizzleClientApiService implements ClientApiService {
       .where(and(eq(kitsuAnime.animethemesAnimeId, animeThemesId), isNull(kitsuAnime.deletedAt)))
       .orderBy(asc(kitsuAnime.kitsuId))
       .limit(1);
-    return rows[0]?.kitsuId ?? null;
+    if (rows[0]?.kitsuId) return rows[0].kitsuId;
+
+    const existingAnimeThemes = await this.db
+      .select({ id: animethemesAnime.id })
+      .from(animethemesAnime)
+      .where(eq(animethemesAnime.id, animeThemesId))
+      .limit(1);
+    return existingAnimeThemes.length > 0 ? syntheticKitsuId(animeThemesId) : null;
   }
 
   private async catalogAnime(kitsuIdOrAnimeThemesId: string): Promise<{ anime: LibraryAnimeDto; themes: LibraryThemeDto[] } | null> {
@@ -995,4 +1134,33 @@ function unique(items: string[]): string[] {
 
 function uniqueNumbers(items: number[]): number[] {
   return [...new Set(items.filter((item) => Number.isInteger(item) && item > 0))];
+}
+
+function preferredKitsuIdByAnimeThemesId(
+  rows: Array<{ kitsuId: string; animeThemesId: number | null }>,
+): Map<number, string> {
+  const grouped = new Map<number, string[]>();
+  for (const row of rows) {
+    if (row.animeThemesId === null) continue;
+    const ids = grouped.get(row.animeThemesId) ?? [];
+    ids.push(row.kitsuId);
+    grouped.set(row.animeThemesId, ids);
+  }
+  return new Map(
+    [...grouped.entries()].map(([animeThemesId, kitsuIds]) => [
+      animeThemesId,
+      kitsuIds.sort(preferRealKitsuId)[0]!,
+    ]),
+  );
+}
+
+function preferRealKitsuId(a: string, b: string): number {
+  const aSynthetic = a.startsWith("animethemes-");
+  const bSynthetic = b.startsWith("animethemes-");
+  if (aSynthetic !== bSynthetic) return aSynthetic ? 1 : -1;
+  return a.localeCompare(b);
+}
+
+function syntheticKitsuId(animeThemesId: number): string {
+  return `animethemes-${animeThemesId}`;
 }

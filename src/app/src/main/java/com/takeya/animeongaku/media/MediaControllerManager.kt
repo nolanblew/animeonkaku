@@ -461,9 +461,9 @@ class MediaControllerManager @Inject constructor(
             ctrl.playWhenReady = true
             ctrl.prepare()
         } else {
-            // Current track is unchanged — apply a minimal diff so the session metadata and
-            // Bluetooth receivers don't see unnecessary churn.
-            applyDiffOps(ctrl, desiredItems, desiredIds)
+            // Current track is unchanged — apply a minimal diff that preserves the active media
+            // item so shuffle/unshuffle does not force the playing song to reload from 0:00.
+            applyDiffOps(ctrl, desiredItems, desiredIds, controllerCurrentId, desiredCurrentIndex)
         }
 
         lastSyncedMediaIds = desiredIds
@@ -492,8 +492,20 @@ class MediaControllerManager @Inject constructor(
     private fun artworkCacheKey(anime: AnimeEntity, urls: List<String>): String =
         "${anime.animeThemesId ?: anime.kitsuId}:${urls.joinToString("|")}"
 
-    private fun applyDiffOps(ctrl: MediaController, desiredItems: List<MediaItem>, desiredIds: List<String>) {
-        val ops = computeQueueOps(lastSyncedMediaIds, desiredIds)
+    private fun applyDiffOps(
+        ctrl: MediaController,
+        desiredItems: List<MediaItem>,
+        desiredIds: List<String>,
+        currentMediaId: String?,
+        desiredCurrentIndex: Int
+    ) {
+        val currentIds = ctrl.mediaIds()
+        val ops = computeQueueOpsPreservingCurrent(
+            old = currentIds.ifEmpty { lastSyncedMediaIds },
+            new = desiredIds,
+            currentMediaId = currentMediaId,
+            desiredCurrentIndex = desiredCurrentIndex
+        )
         if (ops.isEmpty()) return
 
         val itemsById = desiredItems.associateBy { it.mediaId }
@@ -509,6 +521,9 @@ class MediaControllerManager @Inject constructor(
             }
         }
     }
+
+    private fun MediaController.mediaIds(): List<String> =
+        (0 until mediaItemCount).map { index -> getMediaItemAt(index).mediaId }
 
     private fun startPositionPolling() {
         scope.launch {

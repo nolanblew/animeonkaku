@@ -20,7 +20,10 @@ const mediaRoot = mkdtempSync(join(tmpdir(), "ongaku-test-"));
 
 class FakeClientApi implements ClientApiService {
   libraryCalls: Array<{ userId: string; since: number | null }> = [];
+  ensureUserDataCalls: string[] = [];
+  ensureThemeCalls: Array<{ userId: string; themeIds: number[] }> = [];
   autoRefreshes: string[] = [];
+  events: string[] = [];
   prefs = new Map<number, { liked: boolean; disliked: boolean; playCount: number; lastPlayedAt: number | null }>();
   playlists = new Map<number, {
     id: number;
@@ -42,6 +45,7 @@ class FakeClientApi implements ClientApiService {
   }
 
   async getLibrary(userId: string, since: number | null): Promise<LibraryResponse> {
+    this.events.push("library");
     this.libraryCalls.push({ userId, since });
     return {
       serverTime: 1_760_000_000_000,
@@ -132,6 +136,7 @@ class FakeClientApi implements ClientApiService {
   }
 
   async getChanges(userId: string, since: number | null) {
+    this.events.push("changes");
     const library = await this.getLibrary(userId, since);
     return {
       serverTime: library.serverTime,
@@ -143,6 +148,7 @@ class FakeClientApi implements ClientApiService {
   }
 
   async updateThemePref(_userId: string, themeId: number, patch: ThemePrefPatch) {
+    this.events.push("pref");
     const current = this.prefs.get(themeId) ?? {
       liked: false,
       disliked: false,
@@ -156,6 +162,7 @@ class FakeClientApi implements ClientApiService {
   }
 
   async refreshAutoPlaylists(userId: string) {
+    this.events.push("refresh");
     this.autoRefreshes.push(userId);
     const likedThemeIds = [...this.prefs.entries()]
       .filter(([, pref]) => pref.liked)
@@ -177,6 +184,7 @@ class FakeClientApi implements ClientApiService {
   }
 
   async recordPlays(_userId: string, plays: Array<{ themeId: number; playedAt: number }>) {
+    this.events.push("plays");
     for (const play of plays) {
       const current = this.prefs.get(play.themeId) ?? {
         liked: false,
@@ -194,10 +202,12 @@ class FakeClientApi implements ClientApiService {
   }
 
   async listPlaylists(_userId: string, options: { autoOnly?: boolean; since?: number | null } = {}) {
+    this.events.push("playlists");
     return [...this.playlists.values()].filter((playlist) => !options.autoOnly || playlist.isAuto);
   }
 
   async createPlaylist(_userId: string, input: PlaylistCreateInput) {
+    this.events.push("create-playlist");
     const isDynamic = input.dynamicSpecJson !== undefined && input.dynamicSpecJson !== null;
     const playlist = {
       id: this.nextPlaylistId++,
@@ -216,6 +226,7 @@ class FakeClientApi implements ClientApiService {
   }
 
   async updatePlaylist(_userId: string, id: number, input: PlaylistInput) {
+    this.events.push("update-playlist");
     const existing = this.playlists.get(id);
     if (!existing || existing.isAuto) return null;
     const updated = {
@@ -243,6 +254,18 @@ class FakeClientApi implements ClientApiService {
     if (!existing || existing.isAuto) return false;
     this.playlists.delete(id);
     return true;
+  }
+
+  async ensureLibraryForUserData(userId: string) {
+    this.events.push("ensure-user-data");
+    this.ensureUserDataCalls.push(userId);
+    return true;
+  }
+
+  async ensureLibraryForThemeIds(userId: string, themeIds: number[]) {
+    this.events.push(`ensure-themes:${themeIds.join(",")}`);
+    this.ensureThemeCalls.push({ userId, themeIds });
+    return themeIds.length > 0;
   }
 }
 
@@ -318,6 +341,21 @@ describe("client API routes", () => {
     });
   });
 
+  it("repairs library membership from existing user data before returning a resync snapshot", async () => {
+    const token = await bearer();
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/changes",
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(clientApi.ensureUserDataCalls).toEqual(["stub-nolan"]);
+    expect(clientApi.autoRefreshes).toEqual(["stub-nolan"]);
+    expect(clientApi.events.slice(0, 3)).toEqual(["ensure-user-data", "refresh", "changes"]);
+  });
+
   it("records plays additively while prefs stay last-write-wins", async () => {
     const token = await bearer();
     await app.inject({
@@ -364,7 +402,9 @@ describe("client API routes", () => {
     });
 
     expect(pref.statusCode).toBe(200);
+    expect(clientApi.ensureThemeCalls).toEqual([{ userId: "stub-nolan", themeIds: [100] }]);
     expect(clientApi.autoRefreshes).toEqual(["stub-nolan"]);
+    expect(clientApi.events.slice(0, 3)).toEqual(["ensure-themes:100", "pref", "refresh"]);
 
     const playlists = await app.inject({
       method: "GET",
@@ -380,6 +420,25 @@ describe("client API routes", () => {
         entries: [100],
       }),
     );
+  });
+
+  it("ensures played themes are in the library before recording play counts", async () => {
+    const token = await bearer();
+    const played = await app.inject({
+      method: "POST",
+      url: "/v1/plays",
+      headers: { authorization: `Bearer ${token}` },
+      payload: [
+        { themeId: 100, playedAt: 10 },
+        { themeId: 100, playedAt: 20 },
+        { themeId: 101, playedAt: 30 },
+      ],
+    });
+
+    expect(played.statusCode).toBe(200);
+    expect(clientApi.ensureThemeCalls).toEqual([{ userId: "stub-nolan", themeIds: [100, 101] }]);
+    expect(clientApi.autoRefreshes).toEqual(["stub-nolan"]);
+    expect(clientApi.events.slice(0, 3)).toEqual(["ensure-themes:100,101", "plays", "refresh"]);
   });
 
   it("refreshes server auto playlists before returning from manual library mutations", async () => {
@@ -420,6 +479,7 @@ describe("client API routes", () => {
       payload: { name: "Road Trip", entries: [100, 101] },
     });
     expect(created.statusCode).toBe(201);
+    expect(clientApi.ensureThemeCalls).toContainEqual({ userId: "stub-nolan", themeIds: [100, 101] });
     expect(created.json().playlist).toMatchObject({ id: 1, name: "Road Trip", entries: [100, 101] });
 
     const updated = await app.inject({

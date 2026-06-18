@@ -12,9 +12,10 @@ import kotlinx.coroutines.flow.Flow
 interface PlaylistDao {
     @Query(
         """
-        SELECT p.*, COUNT(pe.themeId) AS trackCount
+        SELECT p.*, COUNT(t.id) AS trackCount
         FROM playlists p
         LEFT JOIN playlist_entries pe ON p.id = pe.playlistId
+        LEFT JOIN themes t ON t.id = pe.themeId
         WHERE p.deletedAt IS NULL
         GROUP BY p.id
         ORDER BY p.createdAt DESC
@@ -139,9 +140,10 @@ interface PlaylistDao {
     fun observeAllPlaylistCoverUrls(): Flow<List<PlaylistCoverRow>>
 
     @Query("""
-        SELECT p.*, COUNT(pe.themeId) AS trackCount
+        SELECT p.*, COUNT(t.id) AS trackCount
         FROM playlists p
         LEFT JOIN playlist_entries pe ON p.id = pe.playlistId
+        LEFT JOIN themes t ON t.id = pe.themeId
         WHERE p.name LIKE '%' || :query || '%'
           AND p.deletedAt IS NULL
         GROUP BY p.id
