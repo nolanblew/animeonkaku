@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
@@ -59,6 +60,7 @@ import com.takeya.animeongaku.ui.library.ArtistDetailScreen
 import com.takeya.animeongaku.ui.library.LibraryScreen
 import com.takeya.animeongaku.ui.library.PlaylistDetailScreen
 import com.takeya.animeongaku.ui.onboarding.OnboardingScreen
+import com.takeya.animeongaku.ui.onboarding.ReconnectBanner
 import com.takeya.animeongaku.ui.player.PlayerContainer
 import com.takeya.animeongaku.ui.player.MiniPlayerHeight
 import com.takeya.animeongaku.ui.search.SearchScreen
@@ -118,6 +120,13 @@ fun AnimeOngakuApp(
     if (sessionState is SessionState.LoggedOut) {
         LoggedOutGate()
         return
+    }
+
+    val isReauthRequired = sessionState is SessionState.ReauthRequired
+    var showReconnect by rememberSaveable { mutableStateOf(false) }
+
+    androidx.compose.runtime.LaunchedEffect(sessionState) {
+        if (sessionState is SessionState.Active) showReconnect = false
     }
 
     val navController = rememberNavController()
@@ -496,6 +505,21 @@ fun AnimeOngakuApp(
                 navController.navigate(artistDetailRoute(artistName))
             }
         )
+
+        if (isReauthRequired) {
+            ReconnectBanner(
+                onReconnect = { showReconnect = true },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+            )
+        }
+    }
+
+    if (isReauthRequired && showReconnect) {
+        Box(Modifier.fillMaxSize()) {
+            OnboardingScreen(onOpenServerSettings = {})
+        }
     }
 }
 
