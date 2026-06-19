@@ -3,6 +3,9 @@ package com.takeya.animeongaku
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.adapters.PolymorphicJsonAdapterFactory
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import com.takeya.animeongaku.data.auth.ServerSession
+import com.takeya.animeongaku.data.auth.ServerTokenStore
+import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.filter.CustomRange
 import com.takeya.animeongaku.data.filter.DateAnchor
 import com.takeya.animeongaku.data.filter.FilterNode
@@ -133,7 +136,7 @@ class LibraryPullManagerTest {
             )
         )
         val cache = FakeLibraryPullCache(mapOf(100L to existingDownloaded))
-        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(), testMoshi())
+        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(), testMoshi(), activeSessionStateManager())
 
         val result = manager.pullNow(forceFull = false)
 
@@ -182,7 +185,7 @@ class LibraryPullManagerTest {
             events = events
         )
         val cache = FakeLibraryPullCache(emptyMap(), events)
-        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(events), testMoshi())
+        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(events), testMoshi(), activeSessionStateManager())
 
         manager.pullNow(forceFull = true)
 
@@ -224,7 +227,7 @@ class LibraryPullManagerTest {
             )
         )
         val cache = FakeLibraryPullCache(emptyMap())
-        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(), testMoshi())
+        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(), testMoshi(), activeSessionStateManager())
 
         manager.pullNow(forceFull = true)
 
@@ -239,7 +242,7 @@ class LibraryPullManagerTest {
         val settings = ServerSettingsStore(FakeSharedPreferences())
         val api = FakeOngakuApi(libraryResponse(), emptyList(), emptyList())
         val cache = FakeLibraryPullCache(emptyMap())
-        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(), testMoshi())
+        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(), testMoshi(), activeSessionStateManager())
 
         val result = manager.pullNow(forceFull = false)
 
@@ -257,7 +260,7 @@ class LibraryPullManagerTest {
         }
         val api = FakeOngakuApi(libraryResponse(), emptyList(), emptyList())
         val cache = FakeLibraryPullCache(emptyMap())
-        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(), testMoshi())
+        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(), testMoshi(), activeSessionStateManager())
 
         val freshResult = manager.pullIfStale(minIntervalMs = 5_000L, now = 14_000L)
 
@@ -270,6 +273,48 @@ class LibraryPullManagerTest {
         assertTrue(staleResult.applied)
         assertEquals(123L, api.requestedChangesSince)
         assertEquals(15_001L, settings.serverLastPullAt)
+    }
+
+    @Test
+    fun `pullNow does nothing when session is not active`() = runBlocking {
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+            serverPullCursor = 123L
+        }
+        val api = FakeOngakuApi(libraryResponse(), emptyList(), emptyList())
+        val cache = FakeLibraryPullCache(emptyMap())
+        val tokenStore = ServerTokenStore(FakeSharedPreferences()).apply {
+            save(ServerSession("tok", "uid", "n"))
+        }
+        val sessionState = SessionStateManager(tokenStore).apply { markUnauthorized() }
+        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(), testMoshi(), sessionState)
+
+        val result = manager.pullNow(forceFull = true)
+
+        assertFalse(result.applied)
+        assertFalse(api.changesCalled)
+        assertEquals(123L, settings.serverPullCursor)
+    }
+
+    @Test
+    fun `pullIfStale does nothing when session is not active`() = runBlocking {
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+            serverPullCursor = 123L
+            serverLastPullAt = 0L
+        }
+        val api = FakeOngakuApi(libraryResponse(), emptyList(), emptyList())
+        val cache = FakeLibraryPullCache(emptyMap())
+        val tokenStore = ServerTokenStore(FakeSharedPreferences()).apply {
+            save(ServerSession("tok", "uid", "n"))
+        }
+        val sessionState = SessionStateManager(tokenStore).apply { markUnauthorized() }
+        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(), testMoshi(), sessionState)
+
+        val result = manager.pullIfStale(minIntervalMs = 0L, now = 100_000L)
+
+        assertFalse(result.applied)
+        assertFalse(api.changesCalled)
     }
 
     private fun libraryResponse() = OngakuLibraryResponse(
@@ -422,6 +467,13 @@ private class FakeLibraryPullCache(
         this.autoEntries = entries
         this.dynamicSpecs = dynamicSpecs
     }
+}
+
+private fun activeSessionStateManager(): SessionStateManager {
+    val tokenStore = ServerTokenStore(FakeSharedPreferences()).apply {
+        save(ServerSession("tok", "uid", "n"))
+    }
+    return SessionStateManager(tokenStore)
 }
 
 private fun testMoshi(): Moshi {
