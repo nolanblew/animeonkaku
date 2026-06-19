@@ -10,7 +10,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class NowPlayingManager @Inject constructor() {
+class NowPlayingManager @Inject constructor(
+    private val sessionStateManager: com.takeya.animeongaku.data.auth.SessionStateManager
+) {
 
     private val _state = MutableStateFlow(NowPlayingState())
     val state: StateFlow<NowPlayingState> = _state.asStateFlow()
@@ -56,8 +58,15 @@ class NowPlayingManager @Inject constructor() {
     ) {
         if (themes.isEmpty()) return
 
-        val originalEntries = createQueueEntries(themes)
-        val safeStart = if (shuffle && startIndex == 0 && themes.size > 1) {
+        val playable = if (sessionStateManager.isOnlineEnabled()) {
+            themes
+        } else {
+            themes.filter { it.isDownloaded && !it.localFilePath.isNullOrBlank() }
+        }
+        if (playable.isEmpty()) return
+
+        val originalEntries = createQueueEntries(playable)
+        val safeStart = if (shuffle && startIndex == 0 && playable.size > 1) {
             originalEntries.indices.random()
         } else {
             startIndex.coerceIn(0, originalEntries.lastIndex)

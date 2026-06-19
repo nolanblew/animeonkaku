@@ -1,5 +1,8 @@
 package com.takeya.animeongaku
 
+import com.takeya.animeongaku.data.auth.ServerSession
+import com.takeya.animeongaku.data.auth.ServerTokenStore
+import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.media.NowPlayingManager
@@ -40,7 +43,10 @@ class NowPlayingManagerTest {
 
     @Before
     fun setUp() {
-        manager = NowPlayingManager()
+        val tokenStore = ServerTokenStore(FakeSharedPreferences()).apply {
+            save(ServerSession("tok", "uid", "n"))
+        }
+        manager = NowPlayingManager(SessionStateManager(tokenStore))
     }
 
     // ─── play() ─────────────────────────────────────────────────────────
