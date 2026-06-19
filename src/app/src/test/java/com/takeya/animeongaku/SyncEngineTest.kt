@@ -2,6 +2,9 @@ package com.takeya.animeongaku
 
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import com.takeya.animeongaku.data.auth.ServerSession
+import com.takeya.animeongaku.data.auth.ServerTokenStore
+import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.local.PendingOpEntity
 import com.takeya.animeongaku.data.remote.OngakuAnimeDetailResponse
 import com.takeya.animeongaku.data.remote.OngakuApi
@@ -110,9 +113,26 @@ class SyncEngineTest {
         assertTrue(store.ops.isEmpty())
     }
 
+    @Test
+    fun `pushPendingWrites does not hit server when session is not active`() = runBlocking {
+        val store = FakeSyncEngineStore()
+        val api = SyncRecordingOngakuApi()
+        val engine = syncEngine(store, api, reauthSessionStateManager())
+
+        engine.enqueueThemePreference(themeId = 100L, liked = true, disliked = false, opTs = 10L)
+
+        val result = engine.pushPendingWrites()
+
+        assertEquals(0, result.opCount)
+        assertEquals(0, result.playCount)
+        assertTrue(api.prefWrites.isEmpty())
+        assertEquals(1, store.ops.size)
+    }
+
     private fun syncEngine(
         store: FakeSyncEngineStore,
-        api: SyncRecordingOngakuApi
+        api: SyncRecordingOngakuApi,
+        sessionStateManager: SessionStateManager = activeSessionStateManager()
     ): SyncEngine =
         SyncEngine(
             store = store,
@@ -120,8 +140,19 @@ class SyncEngineTest {
             settings = ServerSettingsStore(FakeSharedPreferences()).apply {
                 serverBaseUrl = "http://192.168.1.5:8080/api"
             },
+            sessionStateManager = sessionStateManager,
             moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
         )
+
+    private fun activeSessionStateManager(): SessionStateManager {
+        val tokenStore = ServerTokenStore(FakeSharedPreferences()).apply {
+            save(ServerSession("tok", "uid", "nblew"))
+        }
+        return SessionStateManager(tokenStore)
+    }
+
+    private fun reauthSessionStateManager(): SessionStateManager =
+        activeSessionStateManager().apply { markUnauthorized() }
 }
 
 private class FakeSyncEngineStore : SyncEngineStore {

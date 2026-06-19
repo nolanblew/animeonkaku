@@ -39,6 +39,9 @@ import com.takeya.animeongaku.data.remote.OngakuThemeArtistDto
 import com.takeya.animeongaku.data.remote.OngakuThemeDto
 import com.takeya.animeongaku.data.remote.OngakuThemePrefDto
 import com.takeya.animeongaku.data.remote.OngakuThemePrefPatch
+import com.takeya.animeongaku.data.auth.ServerSession
+import com.takeya.animeongaku.data.auth.ServerTokenStore
+import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.repository.ServerAnimeRepository
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import kotlinx.coroutines.runBlocking
@@ -186,12 +189,49 @@ class ServerAnimeRepositoryTest {
         assertNull(result.single().videoUrl)
     }
 
-    private fun serverAnimeRepository(api: SearchRecordingOngakuApi): ServerAnimeRepository {
+    @Test
+    fun `search returns empty and skips server while session is not active`() = runBlocking {
+        val api = SearchRecordingOngakuApi()
+        val repository = serverAnimeRepository(api, reauthSessionStateManager())
+
+        val result = repository.searchAnimeThemes("bocchi")
+
+        assertEquals(emptyList<String>(), api.searchQueries)
+        assertEquals(0, result.themes.size)
+        assertEquals(0, result.anime.size)
+        assertEquals(0, result.artists.size)
+    }
+
+    @Test
+    fun `artist lookup skips server while session is not active`() = runBlocking {
+        val api = SearchRecordingOngakuApi()
+        val repository = serverAnimeRepository(api, reauthSessionStateManager())
+
+        val result = repository.fetchArtistSlug("Kessoku Band")
+
+        assertNull(result)
+        assertEquals(emptyList<String>(), api.searchQueries)
+    }
+
+    private fun serverAnimeRepository(
+        api: SearchRecordingOngakuApi,
+        sessionStateManager: SessionStateManager = activeSessionStateManager()
+    ): ServerAnimeRepository {
         val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
             serverBaseUrl = "http://192.168.1.5:8080/api"
         }
-        return ServerAnimeRepository(api, settings)
+        return ServerAnimeRepository(api, settings, sessionStateManager)
     }
+
+    private fun activeSessionStateManager(): SessionStateManager {
+        val tokenStore = ServerTokenStore(FakeSharedPreferences()).apply {
+            save(ServerSession("tok", "uid", "nblew"))
+        }
+        return SessionStateManager(tokenStore)
+    }
+
+    private fun reauthSessionStateManager(): SessionStateManager =
+        activeSessionStateManager().apply { markUnauthorized() }
 }
 
 private fun apiAnime(

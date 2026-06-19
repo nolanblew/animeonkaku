@@ -19,6 +19,7 @@ import com.takeya.animeongaku.data.remote.OngakuAnimeDetailResponse
 import com.takeya.animeongaku.data.remote.OngakuAnimeDto
 import com.takeya.animeongaku.data.remote.OngakuThemeDto
 import com.takeya.animeongaku.data.server.ServerSettingsStore
+import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.sync.resolveServerUrl
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -26,10 +27,12 @@ import javax.inject.Singleton
 @Singleton
 class ServerAnimeRepository @Inject constructor(
     private val ongakuApi: OngakuApi,
-    private val serverSettingsStore: ServerSettingsStore
+    private val serverSettingsStore: ServerSettingsStore,
+    private val sessionStateManager: SessionStateManager
 ) : AnimeRepository {
     override suspend fun searchAnimeThemes(query: String): OnlineSearchResult {
         if (query.isBlank()) return OnlineSearchResult(emptyList(), emptyList(), emptyList())
+        if (!sessionStateManager.isOnlineEnabled()) return OnlineSearchResult(emptyList(), emptyList(), emptyList())
 
         val response = ongakuApi.search(query)
         val serverBaseUrl = serverBaseUrl()
@@ -59,10 +62,12 @@ class ServerAnimeRepository @Inject constructor(
     }
 
     override suspend fun fetchAnimeByKitsuId(kitsuId: String): AnimeThemeSyncResult {
+        if (!sessionStateManager.isOnlineEnabled()) return AnimeThemeSyncResult(emptyList(), emptyMap())
         return ongakuApi.anime(kitsuId).toSyncResult(serverBaseUrl())
     }
 
     override suspend fun fetchArtistSongs(artistSlug: String): List<AnimeThemeEntry> {
+        if (!sessionStateManager.isOnlineEnabled()) return emptyList()
         val response = ongakuApi.artist(artistSlug)
         val serverBaseUrl = serverBaseUrl()
         return response.artist?.songs.orEmpty().flatMap { song ->
@@ -72,6 +77,7 @@ class ServerAnimeRepository @Inject constructor(
 
     override suspend fun fetchArtistSlug(artistName: String): String? {
         if (artistName.isBlank()) return null
+        if (!sessionStateManager.isOnlineEnabled()) return null
         val artists = ongakuApi.search(artistName).animeThemes.search.artists
         return artists
             .firstOrNull { it.name.equals(artistName, ignoreCase = true) }

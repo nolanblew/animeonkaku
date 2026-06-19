@@ -10,6 +10,7 @@ import com.takeya.animeongaku.work.DynamicPlaylistWorkScheduler
 import com.takeya.animeongaku.work.LibraryPullScheduler
 import com.takeya.animeongaku.work.PendingWritesScheduler
 import com.takeya.animeongaku.download.DownloadPreferences
+import com.takeya.animeongaku.data.auth.SessionStorageMigrator
 import com.takeya.animeongaku.media.NowPlayingPersistence
 import com.takeya.animeongaku.media.MediaControllerManager
 import com.takeya.animeongaku.media.NowPlayingManager
@@ -35,7 +36,8 @@ class AnimeOngakuApp : Application(), Configuration.Provider, ImageLoaderFactory
     @Inject lateinit var dynamicPlaylistWorkScheduler: DynamicPlaylistWorkScheduler
     @Inject lateinit var libraryPullScheduler: LibraryPullScheduler
     @Inject lateinit var pendingWritesScheduler: PendingWritesScheduler
-    
+    @Inject lateinit var sessionStorageMigrator: SessionStorageMigrator
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override val workManagerConfiguration: Configuration
@@ -49,6 +51,7 @@ class AnimeOngakuApp : Application(), Configuration.Provider, ImageLoaderFactory
 
     override fun onCreate() {
         super.onCreate()
+        sessionStorageMigrator.migrateIfNeeded()
         dynamicPlaylistWorkScheduler.schedule()
         libraryPullScheduler.schedule()
         pendingWritesScheduler.schedule()

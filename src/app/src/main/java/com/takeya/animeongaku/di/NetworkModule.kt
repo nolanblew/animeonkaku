@@ -170,7 +170,8 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideEncryptedPreferences(
+    @Named("legacyEncrypted")
+    fun provideLegacyEncryptedPreferences(
         @ApplicationContext context: Context
     ): SharedPreferences {
         val masterKey = MasterKey.Builder(context)
@@ -187,13 +188,25 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideServerSettingsStore(prefs: SharedPreferences): ServerSettingsStore {
+    @Named("session")
+    fun provideSessionPreferences(
+        @ApplicationContext context: Context
+    ): SharedPreferences =
+        context.getSharedPreferences("ongaku_session_prefs", Context.MODE_PRIVATE)
+
+    @Provides
+    @Singleton
+    fun provideServerSettingsStore(
+        @Named("session") prefs: SharedPreferences
+    ): ServerSettingsStore {
         return ServerSettingsStore(prefs, BuildConfig.ONGAKU_SERVER_BASE_URL)
     }
 
     @Provides
     @Singleton
-    fun provideServerTokenStore(prefs: SharedPreferences): ServerTokenStore {
+    fun provideServerTokenStore(
+        @Named("session") prefs: SharedPreferences
+    ): ServerTokenStore {
         return ServerTokenStore(prefs)
     }
 

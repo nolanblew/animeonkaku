@@ -19,6 +19,7 @@ import com.takeya.animeongaku.data.remote.OngakuPlaylistDto
 import com.takeya.animeongaku.data.remote.OngakuPlaylistRequest
 import com.takeya.animeongaku.data.remote.OngakuThemePrefPatch
 import com.takeya.animeongaku.data.server.ServerSettingsStore
+import com.takeya.animeongaku.data.auth.SessionStateManager
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -44,6 +45,7 @@ class SyncEngine @Inject constructor(
     private val store: SyncEngineStore,
     private val api: OngakuApi,
     private val settings: ServerSettingsStore,
+    private val sessionStateManager: SessionStateManager,
     moshi: Moshi
 ) {
     private val mapAdapter = moshi.adapter<Map<String, Any?>>(
@@ -166,6 +168,7 @@ class SyncEngine @Inject constructor(
     }
 
     suspend fun pushPendingWrites(limit: Int = 100): SyncPushResult {
+        if (!sessionStateManager.isOnlineEnabled()) return SyncPushResult(opCount = 0, playCount = 0)
         if (!settings.isConfigured) return SyncPushResult(opCount = 0, playCount = 0)
 
         var pushedPlays = 0

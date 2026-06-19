@@ -2,6 +2,8 @@ package com.takeya.animeongaku
 
 import com.takeya.animeongaku.data.auth.ServerSession
 import com.takeya.animeongaku.data.auth.ServerTokenStore
+import com.takeya.animeongaku.data.auth.SessionState
+import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.network.OngakuAuthInterceptor
 import com.takeya.animeongaku.network.OngakuBaseUrlInterceptor
@@ -13,7 +15,6 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 class OngakuInterceptorsTest {
@@ -85,7 +86,7 @@ class OngakuInterceptorsTest {
         val tokenStore = ServerTokenStore(FakeSharedPreferences()).apply {
             save(ServerSession("opaque-token", "12345", "nblewtest"))
         }
-        val interceptor = OngakuAuthInterceptor(tokenStore)
+        val interceptor = OngakuAuthInterceptor(tokenStore, SessionStateManager(tokenStore))
         var proceededRequest: Request? = null
         val original = Request.Builder()
             .url("https://ongaku.local/v1/auth/me")
@@ -101,11 +102,12 @@ class OngakuInterceptorsTest {
     }
 
     @Test
-    fun `auth interceptor clears server session on 401`() {
+    fun `auth interceptor keeps token and flags reauth on 401`() {
         val tokenStore = ServerTokenStore(FakeSharedPreferences()).apply {
             save(ServerSession("opaque-token", "12345", "nblewtest"))
         }
-        val interceptor = OngakuAuthInterceptor(tokenStore)
+        val sessionState = SessionStateManager(tokenStore)
+        val interceptor = OngakuAuthInterceptor(tokenStore, sessionState)
         val original = Request.Builder()
             .url("https://ongaku.local/v1/auth/me")
             .get()
@@ -113,7 +115,23 @@ class OngakuInterceptorsTest {
 
         interceptor.intercept(fakeChain(original) { request -> fakeResponse(401, request) }).close()
 
-        assertNull(tokenStore.currentToken())
+        assertEquals("opaque-token", tokenStore.currentToken())
+        assertEquals(SessionState.ReauthRequired(ServerSession("opaque-token", "12345", "nblewtest")), sessionState.state.value)
+    }
+
+    @Test
+    fun `auth interceptor recovers reauth state on a successful response`() {
+        val tokenStore = ServerTokenStore(FakeSharedPreferences()).apply {
+            save(ServerSession("opaque-token", "12345", "nblewtest"))
+        }
+        val sessionState = SessionStateManager(tokenStore)
+        sessionState.markUnauthorized()
+        val interceptor = OngakuAuthInterceptor(tokenStore, sessionState)
+        val original = Request.Builder().url("https://ongaku.local/v1/auth/me").get().build()
+
+        interceptor.intercept(fakeChain(original) { request -> fakeResponse(200, request) }).close()
+
+        assert(sessionState.state.value is SessionState.Active)
     }
 
     private fun fakeChain(

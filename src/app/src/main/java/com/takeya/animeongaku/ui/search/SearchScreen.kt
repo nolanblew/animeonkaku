@@ -101,6 +101,7 @@ fun SearchScreen(
     val onlineArtists by viewModel.onlineArtists.collectAsStateWithLifecycle()
     val onlineState by viewModel.onlineState.collectAsStateWithLifecycle()
     val onlineError by viewModel.onlineError.collectAsStateWithLifecycle()
+    val onlineEnabled by viewModel.onlineEnabled.collectAsStateWithLifecycle()
     val allAnime by viewModel.anime.collectAsStateWithLifecycle()
     val allPlaylists by viewModel.playlists.collectAsStateWithLifecycle()
     val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
@@ -352,19 +353,31 @@ fun SearchScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     OnlineSearchButton(
                         state = onlineState,
+                        enabled = onlineEnabled,
                         onClick = { viewModel.searchOnline() }
                     )
                 }
 
-                // Online error
-                onlineError?.let { error ->
+                // Online error / reconnect prompt
+                if (!onlineEnabled) {
                     item {
                         Text(
-                            text = error,
+                            text = "Reconnect to search online.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Rose500,
+                            color = Mist200,
                             modifier = Modifier.padding(vertical = 4.dp)
                         )
+                    }
+                } else {
+                    onlineError?.let { error ->
+                        item {
+                            Text(
+                                text = error,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Rose500,
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            )
+                        }
                     }
                 }
 
@@ -642,7 +655,7 @@ private fun PlaylistRow(playlist: PlaylistWithCount, coverUrls: List<List<String
 }
 
 @Composable
-private fun OnlineSearchButton(state: OnlineSearchState, onClick: () -> Unit) {
+private fun OnlineSearchButton(state: OnlineSearchState, enabled: Boolean, onClick: () -> Unit) {
     val shape = RoundedCornerShape(24.dp)
     Row(
         modifier = Modifier
@@ -650,13 +663,18 @@ private fun OnlineSearchButton(state: OnlineSearchState, onClick: () -> Unit) {
             .clip(shape)
             .background(Ink800.copy(alpha = 0.6f), shape)
             .border(1.dp, Mist200.copy(alpha = 0.12f), shape)
-            .clickable(enabled = state != OnlineSearchState.Loading) { onClick() }
+            .clickable(enabled = enabled && state != OnlineSearchState.Loading) { onClick() }
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
     ) {
-        when (state) {
-            OnlineSearchState.Loading -> {
+        when {
+            !enabled -> {
+                Icon(Icons.Rounded.TravelExplore, contentDescription = null, tint = Mist200.copy(alpha = 0.5f), modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(10.dp))
+                Text("Reconnect to search online", style = MaterialTheme.typography.bodyMedium, color = Mist200.copy(alpha = 0.5f))
+            }
+            state == OnlineSearchState.Loading -> {
                 CircularProgressIndicator(
                     color = Rose500,
                     modifier = Modifier.size(18.dp),
@@ -665,7 +683,7 @@ private fun OnlineSearchButton(state: OnlineSearchState, onClick: () -> Unit) {
                 Spacer(modifier = Modifier.width(10.dp))
                 Text("Searching online…", style = MaterialTheme.typography.bodyMedium, color = Mist200)
             }
-            OnlineSearchState.Done -> {
+            state == OnlineSearchState.Done -> {
                 Icon(Icons.Rounded.TravelExplore, contentDescription = null, tint = Mist200, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(10.dp))
                 Text("Search online again", style = MaterialTheme.typography.bodyMedium, color = Mist200)

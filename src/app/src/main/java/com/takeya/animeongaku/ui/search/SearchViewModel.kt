@@ -9,6 +9,8 @@ import com.takeya.animeongaku.data.local.ArtistDao
 import com.takeya.animeongaku.data.local.ArtistTrackCount
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistWithCount
+import com.takeya.animeongaku.data.auth.SessionState
+import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.local.ThemeArtistCrossRef
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
@@ -54,8 +56,13 @@ class SearchViewModel @Inject constructor(
     val downloadManager: DownloadManager,
     private val downloadDao: DownloadDao,
     private val serverPlaylistWriter: ServerPlaylistWriter,
-    private val userPreferencesRepository: UserPreferencesRepository
+    private val userPreferencesRepository: UserPreferencesRepository,
+    private val sessionStateManager: SessionStateManager
 ) : ViewModel() {
+
+    val onlineEnabled: StateFlow<Boolean> = sessionStateManager.state
+        .map { it is SessionState.Active }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), sessionStateManager.isOnlineEnabled())
 
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
@@ -132,6 +139,11 @@ class SearchViewModel @Inject constructor(
     }
 
     fun searchOnline() {
+        if (!sessionStateManager.isOnlineEnabled()) {
+            _onlineError.value = "Reconnect to search online."
+            _onlineState.value = OnlineSearchState.Error
+            return
+        }
         val q = _query.value
         if (q.isBlank()) return
         if (_onlineState.value == OnlineSearchState.Loading) return

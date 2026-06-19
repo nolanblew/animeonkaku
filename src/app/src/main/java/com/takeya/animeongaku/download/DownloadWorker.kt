@@ -16,6 +16,7 @@ import androidx.work.WorkerParameters
 import com.takeya.animeongaku.MainActivity
 import com.takeya.animeongaku.R
 import com.takeya.animeongaku.data.auth.ServerTokenStore
+import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.DownloadRequestEntity
@@ -119,7 +120,8 @@ class DownloadWorker @AssistedInject constructor(
     private val okHttpClient: OkHttpClient,
     private val ongakuApi: OngakuApi,
     private val serverSettingsStore: ServerSettingsStore,
-    private val serverTokenStore: ServerTokenStore
+    private val serverTokenStore: ServerTokenStore,
+    private val sessionStateManager: SessionStateManager
 ) : CoroutineWorker(appContext, workerParams) {
 
     companion object {
@@ -318,6 +320,7 @@ class DownloadWorker @AssistedInject constructor(
      */
     private suspend fun awaitServerAudioReady(themeId: Long): ServerAudioReadiness {
         if (!serverSettingsStore.isConfigured) return ServerAudioReadiness.PROCEED
+        if (!sessionStateManager.isOnlineEnabled()) return ServerAudioReadiness.RETRY_LATER
         val deadline = SystemClock.elapsedRealtime() + MAX_WARMUP_WAIT_MS
         var pollDelayMs = INITIAL_WARMUP_POLL_MS
         while (true) {

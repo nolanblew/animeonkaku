@@ -122,6 +122,20 @@ describe("bearer authentication", () => {
     });
     expect(res.statusCode).toBe(401);
   });
+
+  it("rejects a token after the session row is deleted by an operator reset", async () => {
+    const token = (await login()).json().token as string;
+    repo.sessions.clear();
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/auth/me",
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe("UNAUTHORIZED");
+  });
 });
 
 describe("GET /v1/auth/me", () => {
@@ -145,7 +159,7 @@ describe("GET /v1/auth/me", () => {
     expect(current[0].deviceName).toBe("Pixel 9");
   });
 
-  it("creates a session with the documented TTL", async () => {
+  it("creates a session with the far-future tether TTL", async () => {
     const before = Date.now();
     await login();
     const [session] = [...repo.sessions.values()];

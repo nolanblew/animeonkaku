@@ -27,6 +27,9 @@ import com.takeya.animeongaku.data.remote.OngakuSyncRequest
 import com.takeya.animeongaku.data.remote.OngakuSyncStatusResponse
 import com.takeya.animeongaku.data.remote.OngakuThemePrefDto
 import com.takeya.animeongaku.data.remote.OngakuThemePrefPatch
+import com.takeya.animeongaku.data.auth.ServerSession
+import com.takeya.animeongaku.data.auth.ServerTokenStore
+import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.data.repository.ArtistRepositoryImpl
 import kotlinx.coroutines.flow.Flow
@@ -46,7 +49,8 @@ class ArtistRepositoryImplTest {
         val repository = ArtistRepositoryImpl(
             ongakuApi = FakeArtistOngakuApi(error = RuntimeException("offline")),
             serverSettingsStore = serverSettings(),
-            artistImageDao = artistImageDao
+            artistImageDao = artistImageDao,
+            sessionStateManager = activeSessionStateManager()
         )
 
         repository.refreshArtistImages(listOf("LiSA"))
@@ -72,7 +76,8 @@ class ArtistRepositoryImplTest {
                 )
             ),
             serverSettingsStore = serverSettings(),
-            artistImageDao = artistImageDao
+            artistImageDao = artistImageDao,
+            sessionStateManager = activeSessionStateManager()
         )
 
         repository.refreshArtistImages(listOf("Karuta"))
@@ -81,17 +86,47 @@ class ArtistRepositoryImplTest {
         assertEquals("http://192.168.1.5:8080/api/v1/media/images/artists/karuta", cached.imageUrl)
     }
 
+    @Test
+    fun `refreshArtistImages skips online lookup while session is not active`() = runBlocking {
+        val artistImageDao = FakeArtistImageDao()
+        val api = FakeArtistOngakuApi()
+        val repository = ArtistRepositoryImpl(
+            ongakuApi = api,
+            serverSettingsStore = serverSettings(),
+            artistImageDao = artistImageDao,
+            sessionStateManager = reauthSessionStateManager()
+        )
+
+        repository.refreshArtistImages(listOf("Karuta"))
+
+        assertEquals(0, api.searchCalls)
+        assertEquals(emptyList<ArtistImageEntity>(), artistImageDao.getByNames(listOf("Karuta")))
+    }
+
     private fun serverSettings(): ServerSettingsStore =
         ServerSettingsStore(FakeSharedPreferences()).apply {
             serverBaseUrl = "http://192.168.1.5:8080/api"
         }
+
+    private fun activeSessionStateManager(): SessionStateManager {
+        val tokenStore = ServerTokenStore(FakeSharedPreferences()).apply {
+            save(ServerSession("tok", "uid", "nblew"))
+        }
+        return SessionStateManager(tokenStore)
+    }
+
+    private fun reauthSessionStateManager(): SessionStateManager =
+        activeSessionStateManager().apply { markUnauthorized() }
 }
 
 private class FakeArtistOngakuApi(
     private val searchResponse: OngakuSearchResponse = OngakuSearchResponse(""),
     private val error: RuntimeException? = null
 ) : OngakuApi {
+    var searchCalls = 0
+
     override suspend fun search(query: String): OngakuSearchResponse {
+        searchCalls++
         error?.let { throw it }
         return searchResponse
     }

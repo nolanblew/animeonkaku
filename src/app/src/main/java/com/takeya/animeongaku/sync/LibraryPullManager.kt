@@ -2,6 +2,7 @@ package com.takeya.animeongaku.sync
 
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
+import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.local.DynamicPlaylistSpecEntity
 import com.takeya.animeongaku.data.local.PlayCountEntity
 import com.takeya.animeongaku.data.local.PlaylistEntity
@@ -19,7 +20,8 @@ class LibraryPullManager @Inject constructor(
     private val settings: ServerSettingsStore,
     private val cache: LibraryPullCache,
     private val sideEffects: LibraryPullSideEffects,
-    moshi: Moshi
+    moshi: Moshi,
+    private val sessionStateManager: SessionStateManager
 ) {
     private val anyAdapter = moshi.adapter(Any::class.java)
 
@@ -27,6 +29,7 @@ class LibraryPullManager @Inject constructor(
         minIntervalMs: Long,
         now: Long = System.currentTimeMillis()
     ): LibraryPullResult {
+        if (!sessionStateManager.isOnlineEnabled()) return LibraryPullResult(applied = false)
         if (!settings.isConfigured) return LibraryPullResult(applied = false)
         if (now - settings.serverLastPullAt < minIntervalMs) {
             return LibraryPullResult(applied = false)
@@ -40,6 +43,7 @@ class LibraryPullManager @Inject constructor(
     }
 
     suspend fun pullNow(forceFull: Boolean = false): LibraryPullResult {
+        if (!sessionStateManager.isOnlineEnabled()) return LibraryPullResult(applied = false)
         val serverBaseUrl = settings.serverBaseUrl ?: return LibraryPullResult(applied = false)
         sideEffects.flushPendingWrites()
 

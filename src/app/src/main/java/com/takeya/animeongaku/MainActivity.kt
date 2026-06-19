@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.tooling.preview.Preview
 import com.takeya.animeongaku.ui.theme.AnimeOngakuTheme
 import com.takeya.animeongaku.ui.AnimeOngakuApp
+import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.sync.AutoPlaylistManager
 import com.takeya.animeongaku.sync.LibraryPullManager
@@ -30,6 +31,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var autoPlaylistManager: AutoPlaylistManager
     @Inject lateinit var libraryPullManager: LibraryPullManager
     @Inject lateinit var serverSettingsStore: ServerSettingsStore
+    @Inject lateinit var sessionStateManager: SessionStateManager
 
     val pendingNavigateTo = mutableStateOf<String?>(null)
     private val appUpdateViewModel: AppUpdateViewModel by viewModels()
@@ -49,7 +51,7 @@ class MainActivity : ComponentActivity() {
         pendingNavigateTo.value = intent?.getStringExtra("navigate_to")
         enableEdgeToEdge()
 
-        if (serverSettingsStore.isConfigured) {
+        if (serverSettingsStore.isConfigured && sessionStateManager.isOnlineEnabled()) {
             requestServerPullIfStale(COLD_START_PULL_INTERVAL_MS)
         } else {
             autoPlaylistManager.refreshAutoPlaylists()
@@ -67,7 +69,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        if (serverSettingsStore.isConfigured) {
+        if (serverSettingsStore.isConfigured && sessionStateManager.isOnlineEnabled()) {
             if (handledInitialServerStart) {
                 requestServerPullIfStale(WARM_RESUME_PULL_INTERVAL_MS)
             } else {
