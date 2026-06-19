@@ -193,7 +193,7 @@ data class OngakuManualAnimeResponse(
 )
 
 data class OngakuSyncRequest(
-    val full: Boolean = false
+    val full: Boolean = true
 )
 
 data class OngakuSyncQueuedResponse(
