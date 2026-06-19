@@ -47,6 +47,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.takeya.animeongaku.data.auth.SessionState
 import com.takeya.animeongaku.ui.dynamic.DynamicAdvancedBuilderScreen
 import com.takeya.animeongaku.ui.dynamic.DynamicPlaylistDraftViewModel
 import com.takeya.animeongaku.ui.dynamic.DynamicPreviewScreen
@@ -57,6 +58,7 @@ import com.takeya.animeongaku.ui.library.AnimeDetailScreen
 import com.takeya.animeongaku.ui.library.ArtistDetailScreen
 import com.takeya.animeongaku.ui.library.LibraryScreen
 import com.takeya.animeongaku.ui.library.PlaylistDetailScreen
+import com.takeya.animeongaku.ui.onboarding.OnboardingScreen
 import com.takeya.animeongaku.ui.player.PlayerContainer
 import com.takeya.animeongaku.ui.player.MiniPlayerHeight
 import com.takeya.animeongaku.ui.search.SearchScreen
@@ -108,8 +110,16 @@ private data class BottomNavItem(
 @Composable
 fun AnimeOngakuApp(
     pendingNavigateTo: androidx.compose.runtime.MutableState<String?>? = null,
-    appUpdateViewModel: AppUpdateViewModel
+    appUpdateViewModel: AppUpdateViewModel,
+    rootSessionViewModel: RootSessionViewModel = hiltViewModel()
 ) {
+    val sessionState by rootSessionViewModel.sessionState.collectAsStateWithLifecycle()
+
+    if (sessionState is SessionState.LoggedOut) {
+        LoggedOutGate()
+        return
+    }
+
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
@@ -486,5 +496,33 @@ fun AnimeOngakuApp(
                 navController.navigate(artistDetailRoute(artistName))
             }
         )
+    }
+}
+
+@Composable
+private fun LoggedOutGate() {
+    if (!com.takeya.animeongaku.BuildConfig.DEBUG) {
+        OnboardingScreen(onOpenServerSettings = {})
+        return
+    }
+    // Debug-only: allow reaching a limited settings screen for the server URL.
+    val gateNav = rememberNavController()
+    NavHost(navController = gateNav, startDestination = "onboarding") {
+        composable("onboarding") {
+            OnboardingScreen(onOpenServerSettings = { gateNav.navigate("gateSettings") })
+        }
+        composable("gateSettings") {
+            SettingsScreen(
+                onBack = { gateNav.popBackStack() },
+                onOpenImport = {},
+                onOpenDownloadManager = {},
+                updaterEnabled = false,
+                isCheckingForUpdates = false,
+                availableUpdate = null,
+                onCheckForUpdates = {},
+                onDownloadUpdate = {},
+                onOpenReleasePage = {}
+            )
+        }
     }
 }
