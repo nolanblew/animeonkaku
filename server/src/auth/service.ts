@@ -6,7 +6,11 @@ import {
   UserRecord,
 } from "./types.js";
 
-export const SESSION_TTL_MS = 180 * 24 * 60 * 60 * 1000; // 180 days (doc 04)
+// TETHER (handoff to backend devs): sessions are now effectively non-expiring for this
+// personal deployment. The token only becomes invalid via explicit logout, device revoke,
+// or a deliberate server-side reset (deleting session rows). 100 years keeps the existing
+// non-null expiresAt column (no schema migration). See .planning/tether/03-backend-handoff.md.
+export const SESSION_TTL_MS = 100 * 365 * 24 * 60 * 60 * 1000;
 
 export interface LoginInput {
   username: string;
