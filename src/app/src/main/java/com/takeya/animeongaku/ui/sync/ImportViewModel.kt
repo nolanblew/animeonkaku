@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.auth.OngakuAuthRepository
+import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.remote.OngakuSyncRequest
 import com.takeya.animeongaku.data.repository.LibrarySyncProgress
@@ -31,7 +32,8 @@ class ImportViewModel @Inject constructor(
     private val animeDao: AnimeDao,
     private val serverSettingsStore: ServerSettingsStore,
     private val libraryPullManager: LibraryPullManager,
-    private val serverMigrationManager: ServerMigrationManager
+    private val serverMigrationManager: ServerMigrationManager,
+    private val sessionStateManager: SessionStateManager
 ) : ViewModel() {
     companion object {
         private const val SERVER_SYNC_POLL_INTERVAL_MS = 2_000L
@@ -235,7 +237,7 @@ class ImportViewModel @Inject constructor(
     }
 
     fun unlinkAccount() {
-        ongakuAuthRepository.clearSession()
+        sessionStateManager.onLogout()
         serverSettingsStore.resetServerMigration()
         _authState.value = AuthState()
     }
