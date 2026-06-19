@@ -16,9 +16,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -517,8 +520,24 @@ fun AnimeOngakuApp(
     }
 
     if (isReauthRequired && showReconnect) {
+        BackHandler(enabled = showReconnect) {
+            showReconnect = false
+        }
         Box(Modifier.fillMaxSize()) {
             OnboardingScreen(onOpenServerSettings = {})
+            IconButton(
+                onClick = { showReconnect = false },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = "Dismiss reconnect",
+                    tint = Mist100
+                )
+            }
         }
     }
 }

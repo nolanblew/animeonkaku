@@ -2,6 +2,9 @@ package com.takeya.animeongaku
 
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import com.takeya.animeongaku.data.auth.ServerSession
+import com.takeya.animeongaku.data.auth.ServerTokenStore
+import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.local.PendingOpEntity
 import com.takeya.animeongaku.data.local.UserPreferenceDao
 import com.takeya.animeongaku.data.local.UserPreferenceEntity
@@ -117,8 +120,16 @@ class UserPreferencesRepositoryTest {
             store = store,
             api = api,
             settings = settings,
+            sessionStateManager = activeSessionStateManager(),
             moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
         )
+
+    private fun activeSessionStateManager(): SessionStateManager {
+        val tokenStore = ServerTokenStore(FakeSharedPreferences()).apply {
+            save(ServerSession("tok", "uid", "nblew"))
+        }
+        return SessionStateManager(tokenStore)
+    }
 }
 
 private class RecordingServerUserStateRefresher : ServerUserStateRefresher {

@@ -68,6 +68,37 @@ Errors use the envelope `{ "error": { "code": "...", "message": "..." } }`. Full
 
 ## Operational notes
 
+### Reset Android sessions intentionally
+
+Tether sessions are effectively non-expiring. Normal rebuilds, redeploys, and
+Drizzle migrations should preserve the `device_sessions` table because Postgres
+uses the persistent `pgdata` volume/bind and the server uses stable SHA-256 token
+hashing.
+
+When you deliberately need every Android client to reconnect, delete session rows
+from Postgres. The next authenticated request for an old token returns `401`, and
+the Android client enters reconnect/degraded mode while keeping local downloads.
+
+From `server/` on a Docker Compose host:
+
+```powershell
+docker compose exec db psql -U ongaku -d ongaku -c "DELETE FROM device_sessions;"
+```
+
+For a single Kitsu user id:
+
+```powershell
+docker compose exec db psql -U ongaku -d ongaku -c "DELETE FROM device_sessions WHERE user_id = 'stub-nolan';"
+```
+
+On the LAN deployment, run the same SQL from `/dockers/animeongaku` with the
+compose files used by that host, for example:
+
+```bash
+docker compose -p animeongaku -f docker-compose.yml -f docker-compose.lan.yml exec db \
+  psql -U ongaku -d ongaku -c "DELETE FROM device_sessions;"
+```
+
 ### AnimeThemes upstream blocks (most likely failure mode)
 
 The server is the only component that talks to AnimeThemes, and AnimeThemes sits

@@ -25,6 +25,7 @@ class SessionStateManager @Inject constructor(
     }
 
     fun onLogin(session: ServerSession) {
+        tokenStore.save(session)
         _state.value = SessionState.Active(session)
     }
 

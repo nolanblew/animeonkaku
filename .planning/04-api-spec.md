@@ -29,7 +29,7 @@ Server runs the Kitsu password grant (port of `KitsuAuthRepositoryImpl`, includi
 | `GET /v1/auth/me` | user info, kitsu token health, lastSyncAt, deviceName list |
 | `DELETE /v1/auth/devices/{id}` | revoke another device |
 
-Tokens: long-lived (180 d), sliding `last_used_at`, hashed (SHA-256) at rest. If the Kitsu *refresh* token dies (revoked/password change), `/me` and sync results carry `kitsuAuthState: "REAUTH_REQUIRED"`; client shows re-login. All other endpoints keep working (catalog + media are local).
+Tokens: effectively non-expiring for this personal deployment: the server stores a far-future non-null `expires_at`, updates sliding `last_used_at`, and hashes tokens (SHA-256) at rest. Sessions become invalid through explicit logout/device revoke or an operator reset that deletes `device_sessions` rows; the next bearer request then returns 401. If the Kitsu *refresh* token dies (revoked/password change), `/me` and sync results carry `kitsuAuthState: "REAUTH_REQUIRED"`; client shows re-login. All other endpoints keep working (catalog + media are local).
 
 ## Library & catalog (reads)
 

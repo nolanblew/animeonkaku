@@ -2,6 +2,7 @@ package com.takeya.animeongaku.data.repository
 
 import com.takeya.animeongaku.data.local.ArtistImageDao
 import com.takeya.animeongaku.data.local.ArtistImageEntity
+import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.sync.resolveServerUrl
@@ -12,9 +13,11 @@ import javax.inject.Singleton
 class ArtistRepositoryImpl @Inject constructor(
     private val ongakuApi: OngakuApi,
     private val serverSettingsStore: ServerSettingsStore,
-    private val artistImageDao: ArtistImageDao
+    private val artistImageDao: ArtistImageDao,
+    private val sessionStateManager: SessionStateManager
 ) : ArtistRepository {
     override suspend fun refreshArtistImages(names: List<String>) {
+        if (!sessionStateManager.isOnlineEnabled()) return
         val normalized = names.map { it.trim() }.filter { it.isNotBlank() }.distinct()
         if (normalized.isEmpty()) return
 

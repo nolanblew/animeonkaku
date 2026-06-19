@@ -55,9 +55,9 @@ class SessionStateManagerTest {
     fun `onLogin becomes active and onLogout clears token and becomes logged out`() {
         val tokenStore = store()
         val manager = SessionStateManager(tokenStore)
-        tokenStore.save(sampleSession)
         manager.onLogin(sampleSession)
         assertEquals(SessionState.Active(sampleSession), manager.state.value)
+        assertEquals("tok", tokenStore.currentToken())
 
         manager.onLogout()
         assertEquals(SessionState.LoggedOut, manager.state.value)

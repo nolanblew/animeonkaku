@@ -139,6 +139,7 @@ class ImportViewModel @Inject constructor(
                     password = password,
                     deviceName = deviceName()
                 )
+                sessionStateManager.onLogin(session)
                 _authState.value = _authState.value.copy(
                     username = session.username,
                     password = "",
@@ -179,6 +180,20 @@ class ImportViewModel @Inject constructor(
                         authError = "No server session found. Please sign in again.",
                         isLinked = false,
                         isSignedIn = false,
+                        isAuthenticating = false
+                    )
+                    return@launch
+                }
+                if (!sessionStateManager.isOnlineEnabled()) {
+                    val message = "Reconnect to sync your library."
+                    _serverSyncState.value = SyncState(
+                        phase = SyncPhase.Error,
+                        status = message,
+                        isRunning = false,
+                        errorMessage = message
+                    )
+                    _authState.value = _authState.value.copy(
+                        authError = message,
                         isAuthenticating = false
                     )
                     return@launch

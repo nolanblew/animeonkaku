@@ -47,6 +47,33 @@ class NowPlayingManagerDegradedTest {
     }
 
     @Test
+    fun `degraded mode starts at selected downloaded theme after filtering`() {
+        val npm = manager(active = false)
+        npm.play("ctx", listOf(theme(1, false), theme(2, true), theme(3, true)), startIndex = 1)
+        val ids = npm.state.value.nowPlayingEntries.map { it.theme.id }
+        assertEquals(listOf(2L, 3L), ids)
+        assertEquals(2L, npm.state.value.currentTheme?.id)
+    }
+
+    @Test
+    fun `playNext in degraded mode inserts only downloaded themes`() {
+        val npm = manager(active = false)
+        npm.play("ctx", listOf(theme(1, true)), startIndex = 0)
+        npm.playNext(listOf(theme(2, false), theme(3, true)))
+        val ids = npm.state.value.nowPlayingEntries.map { it.theme.id }
+        assertEquals(listOf(1L, 3L), ids)
+    }
+
+    @Test
+    fun `addToQueue in degraded mode appends only downloaded themes`() {
+        val npm = manager(active = false)
+        npm.play("ctx", listOf(theme(1, true)), startIndex = 0)
+        npm.addToQueue(listOf(theme(2, false), theme(3, true)))
+        val ids = npm.state.value.nowPlayingEntries.map { it.theme.id }
+        assertEquals(listOf(1L, 3L), ids)
+    }
+
+    @Test
     fun `degraded mode with no downloads is a no-op`() {
         val npm = manager(active = false)
         npm.play("ctx", listOf(theme(1, false)), startIndex = 0)

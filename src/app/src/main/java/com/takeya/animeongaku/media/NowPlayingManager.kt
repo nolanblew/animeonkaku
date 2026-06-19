@@ -58,18 +58,19 @@ class NowPlayingManager @Inject constructor(
     ) {
         if (themes.isEmpty()) return
 
-        val playable = if (sessionStateManager.isOnlineEnabled()) {
-            themes
-        } else {
-            themes.filter { it.isDownloaded && !it.localFilePath.isNullOrBlank() }
-        }
+        val playableWithSourceIndex = playableThemesWithSourceIndex(themes)
+        val playable = playableWithSourceIndex.map { it.value }
         if (playable.isEmpty()) return
 
         val originalEntries = createQueueEntries(playable)
+        val sourceIndexes = playableWithSourceIndex.map { it.index }
+        val requestedPlayableStart = sourceIndexes.indexOf(startIndex).takeIf { it >= 0 }
+            ?: sourceIndexes.indexOfFirst { it > startIndex }.takeIf { it >= 0 }
+            ?: originalEntries.lastIndex
         val safeStart = if (shuffle && startIndex == 0 && playable.size > 1) {
             originalEntries.indices.random()
         } else {
-            startIndex.coerceIn(0, originalEntries.lastIndex)
+            requestedPlayableStart.coerceIn(0, originalEntries.lastIndex)
         }
         val currentEntry = originalEntries[safeStart]
 
@@ -85,10 +86,12 @@ class NowPlayingManager @Inject constructor(
 
         // Track which items are "suggested" (auto-added, not user-chosen)
         val suggestedEntryIds = if (suggestedFrom != null && !shuffle) {
-            // suggestedFrom is relative to the original themes list;
-            // in nowPlayingEntries, the tapped song is at index 0, so suggested starts
-            // at (suggestedFrom - safeStart) but we only care about items after the tapped one
-            val suggestedStartInQueue = (suggestedFrom - safeStart).coerceAtLeast(1)
+            val suggestedPlayableIndex = sourceIndexes.indexOfFirst { it >= suggestedFrom }
+            val suggestedStartInQueue = if (suggestedPlayableIndex >= 0) {
+                (suggestedPlayableIndex - safeStart).coerceAtLeast(1)
+            } else {
+                nowPlayingEntries.size
+            }
             if (suggestedStartInQueue < nowPlayingEntries.size) {
                 nowPlayingEntries.subList(suggestedStartInQueue, nowPlayingEntries.size).map { it.queueId }
             } else {
@@ -123,7 +126,9 @@ class NowPlayingManager @Inject constructor(
         if (themes.isEmpty()) return
 
         val current = _state.value
-        val insertedEntries = createQueueEntries(themes)
+        val playable = playableThemes(themes)
+        if (playable.isEmpty()) return
+        val insertedEntries = createQueueEntries(playable)
         if (current.nowPlayingEntries.isEmpty()) {
             _state.value = createStandaloneQueueState(
                 contextLabel = current.contextLabel.ifBlank { "Queue" },
@@ -164,7 +169,9 @@ class NowPlayingManager @Inject constructor(
         if (themes.isEmpty()) return
 
         val current = _state.value
-        val appendedEntries = createQueueEntries(themes)
+        val playable = playableThemes(themes)
+        if (playable.isEmpty()) return
+        val appendedEntries = createQueueEntries(playable)
         if (current.nowPlayingEntries.isEmpty()) {
             _state.value = createStandaloneQueueState(
                 contextLabel = current.contextLabel.ifBlank { "Queue" },
@@ -193,6 +200,14 @@ class NowPlayingManager @Inject constructor(
      */
     fun addToQueue(theme: ThemeEntity, anime: AnimeEntity? = null): Unit =
         addToQueue(listOf(theme), anime?.let { a -> theme.animeId?.let { mapOf(it to a) } } ?: emptyMap())
+
+    private fun playableThemes(themes: List<ThemeEntity>): List<ThemeEntity> =
+        playableThemesWithSourceIndex(themes).map { it.value }
+
+    private fun playableThemesWithSourceIndex(themes: List<ThemeEntity>): List<IndexedValue<ThemeEntity>> =
+        themes.withIndex().filter { (_, theme) ->
+            sessionStateManager.isOnlineEnabled() || (theme.isDownloaded && !theme.localFilePath.isNullOrBlank())
+        }
 
     /**
      * Remove suggested items from the queue, preserving current index.
