@@ -5,6 +5,20 @@ import com.takeya.animeongaku.data.remote.OngakuSyncStatusResponse
 fun OngakuSyncStatusResponse.toSyncState(): SyncState {
     val stateKey = state.uppercase()
     val phaseKey = phase?.uppercase()
+    val mappingFailed = mapping?.state?.uppercase() == "FAILED"
+
+    if (upstreamBlocked || (stateKey == "DONE" && mappingFailed)) {
+        val message = mapping?.lastError?.takeIf { it.isNotBlank() }
+            ?: progress["error"]?.toString()?.takeIf { it.isNotBlank() }
+            ?: "upstream unavailable"
+        return SyncState(
+            phase = SyncPhase.Error,
+            status = "Server sync failed: $message",
+            isRunning = false,
+            errorMessage = "Server sync failed: $message",
+            unmatchedAnime = unmatched
+        )
+    }
 
     if (stateKey == "FAILED" || stateKey == "CANCELLED") {
         val message = progress["error"]?.toString()?.takeIf { it.isNotBlank() }

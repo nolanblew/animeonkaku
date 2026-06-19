@@ -31,7 +31,9 @@ function lookup(mappings: Record<string, number>, themes: AnimeThemeEntry[]): An
 class FakeMappingRepo {
   catalog = new Map<string, KitsuCatalogRecord>();
   savedThemes: AnimeThemeEntry[] = [];
+  savedThemeBatches: number[][] = [];
   mappings = new Map<string, number>();
+  mappingBatches: Array<Array<[string, number]>> = [];
   unmatched: string[] = [];
 
   constructor(records: KitsuCatalogRecord[]) {
@@ -44,9 +46,11 @@ class FakeMappingRepo {
 
   async saveAnimeThemesCatalog(themes: AnimeThemeEntry[]) {
     this.savedThemes.push(...themes);
+    this.savedThemeBatches.push(themes.map((theme) => theme.themeId));
   }
 
   async setAnimeThemeMappings(mappings: Map<string, number>) {
+    this.mappingBatches.push([...mappings.entries()]);
     for (const [kitsuId, animeThemesId] of mappings) this.mappings.set(kitsuId, animeThemesId);
   }
 
@@ -207,5 +211,44 @@ describe("LibrarySyncPipeline theme mapping", () => {
     expect(repo.mappings).toEqual(new Map([["1", 1]]));
     const continuation = (await queue.list("QUEUED")).find((queued) => queued.type === "MAP_THEMES");
     expect(continuation?.payload).toEqual({ kitsuIds: ["2", "3"], userId: "u1" });
+  });
+
+  it("flushes only each mapped batch instead of rewriting cumulative theme catalogs", async () => {
+    const repo = new FakeMappingRepo([
+      catalog("1", "A"),
+      catalog("2", "B"),
+      catalog("3", "C"),
+      catalog("4", "D"),
+    ]);
+    const queue = new JobQueue(new FakeJobRepository());
+    const pipeline = new LibrarySyncPipeline({
+      repo: repo as never,
+      kitsu: {} as never,
+      animeThemes: {
+        fetchByKitsuIds: async (ids: string[]) =>
+          lookup(
+            Object.fromEntries(ids.map((id) => [id, Number(id)])),
+            ids.map((id) => theme({ animeId: Number(id), themeId: Number(id) * 10 })),
+          ),
+      },
+      queue,
+      mappingBatchSize: 2,
+    });
+    await queue.enqueue({
+      type: "MAP_THEMES",
+      priority: JobPriority.NORMAL,
+      payload: { kitsuIds: ["1", "2", "3", "4"], userId: "u1" },
+      dedupeKey: "MAP_THEMES:u1:1,2,3,4",
+    });
+    const job = (await queue.claimNext())!;
+
+    await pipeline.runMapThemes({ kitsuIds: ["1", "2", "3", "4"], userId: "u1", job });
+
+    expect(repo.savedThemeBatches).toEqual([[10, 20], [30, 40]]);
+    expect(repo.mappingBatches).toEqual([
+      [["1", 1], ["2", 2]],
+      [["3", 3], ["4", 4]],
+    ]);
+    expect(repo.mappings).toEqual(new Map([["1", 1], ["2", 2], ["3", 3], ["4", 4]]));
   });
 });

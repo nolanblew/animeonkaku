@@ -68,6 +68,8 @@ const animeThemesClient = new AnimeThemesClient({
   http: animeThemesHttp,
   baseUrl: config.ANIMETHEMES_BASE_URL,
 });
+const animeThemesFetch = (url: string | URL | Request, init?: RequestInit) =>
+  animeThemesHttp.request(String(url), init);
 const syncPipeline = new LibrarySyncPipeline({
   repo: syncRepo,
   kitsu: kitsuClient,
@@ -77,6 +79,7 @@ const syncPipeline = new LibrarySyncPipeline({
 const mediaStore = new MediaStore({
   mediaRoot: config.MEDIA_ROOT,
   repo: new DrizzleMediaFileRepo(db),
+  fetch: animeThemesFetch,
   logger: externalLogger,
 });
 const fetchHandlers = createFetchMediaHandlers({
@@ -127,6 +130,7 @@ const app = buildApp({
     repo: new DrizzleMediaApiRepository(db),
     queue: jobQueue,
     mediaRoot: config.MEDIA_ROOT,
+    fetch: animeThemesFetch,
     logger: externalLogger,
   }),
   syncApi: new JobSyncApiService(jobQueue),

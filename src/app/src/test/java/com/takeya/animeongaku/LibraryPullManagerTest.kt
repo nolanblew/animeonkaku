@@ -194,6 +194,47 @@ class LibraryPullManagerTest {
     }
 
     @Test
+    fun `pull accepts raw dynamic filter specs and top-level dynamic sort json`() = runBlocking {
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+        }
+        val api = FakeOngakuApi(
+            libraryResponse = libraryResponse(),
+            prefsResponse = emptyList(),
+            autoPlaylistResponse = listOf(
+                OngakuPlaylistDto(
+                    id = 99L,
+                    name = "Openings",
+                    entries = listOf(100L),
+                    isAuto = false,
+                    updatedAt = 1760000000002,
+                    dynamicSpecJson = mapOf(
+                        "type" to "theme_type_in",
+                        "types" to listOf("OP")
+                    ),
+                    dynamicSortJson = mapOf(
+                        "keys" to listOf(
+                            mapOf(
+                                "attribute" to "PLAY_COUNT",
+                                "direction" to "DESC"
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        val cache = FakeLibraryPullCache(emptyMap())
+        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(), testMoshi())
+
+        manager.pullNow(forceFull = true)
+
+        assertEquals(99L, cache.dynamicSpecs.single().playlistId)
+        assertEquals("""{"type":"theme_type_in","types":["OP"]}""", cache.dynamicSpecs.single().filterJson)
+        assertEquals("""{"keys":[{"attribute":"PLAY_COUNT","direction":"DESC"}]}""", cache.dynamicSpecs.single().sortJson)
+        assertTrue(cache.dynamicSpecs.single().serverManaged)
+    }
+
+    @Test
     fun `pull is skipped when server is not configured`() = runBlocking {
         val settings = ServerSettingsStore(FakeSharedPreferences())
         val api = FakeOngakuApi(libraryResponse(), emptyList(), emptyList())

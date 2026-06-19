@@ -43,6 +43,20 @@
       "when": 1781576998969,
       "tag": "0005_sad_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781817450413,
+      "tag": "0006_motionless_william_stryker",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1781818419843,
+      "tag": "0007_keen_blizzard",
+      "breakpoints": true
     }
   ]
 }

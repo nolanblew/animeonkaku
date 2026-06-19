@@ -72,8 +72,7 @@ export class LibrarySyncPipeline {
         record,
       ]),
     );
-    const mapped = new Map<string, number>();
-    const savedThemes: AnimeThemeEntry[] = [];
+    const allMapped = new Map<string, number>();
 
     await this.updateProgress(input.job.id, {
       phase: "MAPPING_THEMES",
@@ -83,8 +82,13 @@ export class LibrarySyncPipeline {
 
     for (let offset = 0; offset < kitsuIds.length; offset += this.mappingBatchSize) {
       const batch = kitsuIds.slice(offset, offset + this.mappingBatchSize);
-      await this.mapBatch(batch, catalog, mapped, savedThemes);
-      await this.flushMappings(savedThemes, mapped);
+      const batchMapped = new Map<string, number>();
+      const batchThemes: AnimeThemeEntry[] = [];
+      await this.mapBatch(batch, catalog, batchMapped, batchThemes);
+      await this.flushMappings(batchThemes, batchMapped);
+      for (const [kitsuId, animeThemesId] of batchMapped) {
+        allMapped.set(kitsuId, animeThemesId);
+      }
 
       const processed = Math.min(offset + batch.length, kitsuIds.length);
       await this.updateProgress(input.job.id, {
@@ -109,7 +113,7 @@ export class LibrarySyncPipeline {
       }
     }
 
-    const unmatched = kitsuIds.filter((id) => !mapped.has(id));
+    const unmatched = kitsuIds.filter((id) => !allMapped.has(id));
     if (unmatched.length > 0) {
       await this.deps.repo.markAnimeUnmatched?.(unmatched);
     }
@@ -139,7 +143,7 @@ export class LibrarySyncPipeline {
     await this.updateProgress(input.job.id, {
       phase: "DONE",
       total: kitsuIds.length,
-      mapped: mapped.size,
+      mapped: allMapped.size,
       unmatched,
     });
   }

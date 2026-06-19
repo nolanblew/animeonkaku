@@ -63,33 +63,9 @@ export class DrizzleClientApiService implements ClientApiService {
     const animeIds = animeRows.map((row) => row.kitsuId);
     const genreMap = await this.genreMap(animeIds);
 
-    const anime: LibraryAnimeDto[] = animeRows.map((row) => ({
-      kitsuId: row.kitsuId,
-      animeThemesId: row.animeThemesId,
-      title: row.title,
-      titleEn: row.titleEn,
-      titleRomaji: row.titleRomaji,
-      titleJa: row.titleJa,
-      posterUrl: row.posterOriginUrl || row.posterLargeOriginUrl
-        ? `/v1/media/images/anime/${row.kitsuId}/poster`
-        : null,
-      coverUrl: row.coverOriginUrl || row.coverLargeOriginUrl
-        ? `/v1/media/images/anime/${row.kitsuId}/cover`
-        : null,
-      watchingStatus: row.watchingStatus,
-      subtype: row.subtype,
-      startDate: row.startDate,
-      endDate: row.endDate,
-      episodeCount: row.episodeCount,
-      ageRating: row.ageRating,
-      averageRating: row.averageRating,
-      userRating: row.userRating,
-      libraryUpdatedAt: dateMillis(row.libraryUpdatedAt),
-      slug: row.slug,
-      genres: genreMap.get(row.kitsuId) ?? [],
-      updatedAt: Math.max(dateMillis(row.libraryEntryUpdatedAt) ?? 0, dateMillis(row.animeUpdatedAt) ?? 0),
-      deleted: row.libraryDeletedAt !== null || row.animeDeletedAt !== null,
-    }));
+    const anime: LibraryAnimeDto[] = animeRows.map((row) =>
+      libraryAnimeDto(row, genreMap.get(row.kitsuId) ?? []),
+    );
 
     return {
       serverTime: this.now().getTime(),
@@ -102,14 +78,26 @@ export class DrizzleClientApiService implements ClientApiService {
     userId: string,
     kitsuId: string,
   ): Promise<{ anime: LibraryAnimeDto; themes: LibraryThemeDto[] } | null> {
-    const library = await this.getLibrary(userId, null);
-    const anime = library.anime.find((item) => item.kitsuId === kitsuId && !item.deleted);
-    if (!anime) return this.catalogAnime(kitsuId);
+    const [row] = await this.db
+      .select(libraryAnimeColumns)
+      .from(libraryEntries)
+      .innerJoin(kitsuAnime, eq(libraryEntries.kitsuId, kitsuAnime.kitsuId))
+      .where(
+        and(
+          eq(libraryEntries.userId, userId),
+          eq(libraryEntries.kitsuId, kitsuId),
+          isNull(libraryEntries.deletedAt),
+          isNull(kitsuAnime.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (!row) return this.catalogAnime(kitsuId);
+    const genreMap = await this.genreMap([row.kitsuId]);
     return {
-      anime,
-      themes: library.themes.filter((theme) =>
-        theme.kitsuAnimeIds.includes(kitsuId),
-      ),
+      anime: libraryAnimeDto(row, genreMap.get(row.kitsuId) ?? []),
+      themes: row.animeThemesId === null
+        ? []
+        : await this.catalogThemes([{ kitsuId: row.kitsuId, animeThemesId: row.animeThemesId }]),
     };
   }
 
@@ -362,6 +350,33 @@ export class DrizzleClientApiService implements ClientApiService {
     }));
   }
 
+  private async getThemePref(userId: string, themeId: number): Promise<ThemePrefDto | null> {
+    const rows = await this.db
+      .select({
+        themeId: themePrefs.themeId,
+        liked: themePrefs.liked,
+        disliked: themePrefs.disliked,
+        playCount: themePrefs.playCount,
+        lastPlayedAt: themePrefs.lastPlayedAt,
+        updatedAt: themePrefs.updatedAt,
+        deletedAt: themePrefs.deletedAt,
+      })
+      .from(themePrefs)
+      .where(and(eq(themePrefs.userId, userId), eq(themePrefs.themeId, themeId)))
+      .limit(1);
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      themeId: row.themeId,
+      liked: row.liked,
+      disliked: row.disliked,
+      playCount: row.playCount,
+      lastPlayedAt: dateMillis(row.lastPlayedAt),
+      updatedAt: Math.max(dateMillis(row.updatedAt) ?? 0, dateMillis(row.deletedAt) ?? 0),
+      deleted: row.deletedAt !== null,
+    };
+  }
+
   async getChanges(userId: string, since: number | null): Promise<ChangesResponse> {
     const library = await this.getLibrary(userId, since);
     const prefs = await this.getThemePrefs(userId, since);
@@ -409,9 +424,7 @@ export class DrizzleClientApiService implements ClientApiService {
         });
     }
 
-    const [pref] = await this.getThemePrefs(userId).then((prefs) =>
-      prefs.filter((item) => item.themeId === themeId),
-    );
+    const pref = await this.getThemePref(userId, themeId);
     await this.queue.enqueue({
       type: "AUTO_PLAYLIST_REFRESH",
       priority: JobPriority.NORMAL,
@@ -484,6 +497,7 @@ export class DrizzleClientApiService implements ClientApiService {
     input: PlaylistCreateInput,
   ): Promise<PlaylistDto> {
     const now = this.now();
+    const opDate = new Date(resolveOpTs(input.opTs ?? null, now.getTime()));
     const isDynamic = input.dynamicSpecJson !== undefined && input.dynamicSpecJson !== null;
     const [row] = await this.db
       .insert(playlists)
@@ -496,6 +510,7 @@ export class DrizzleClientApiService implements ClientApiService {
         dynamicSpecJson: stringifySpec(input.dynamicSpecJson),
         dynamicSortJson: stringifySpec(input.dynamicSortJson),
         dynamicSpecUpdatedAt: isDynamic ? now : null,
+        mutationUpdatedAt: opDate,
         updatedAt: now,
       })
       .returning({ id: playlists.id });
@@ -510,14 +525,15 @@ export class DrizzleClientApiService implements ClientApiService {
 
     const now = this.now();
     const opTs = resolveOpTs(input.opTs ?? null, now.getTime());
-    const storedTs = existing.updatedAt.getTime();
+    const opDate = new Date(opTs);
+    const storedTs = existing.mutationUpdatedAt.getTime();
     // Last-write-wins: a stale edit arriving after a newer one is dropped, but we still
     // return the authoritative row so the caller reconciles.
     if (!shouldApplyWrite(opTs, storedTs)) {
       return this.findPlaylist(userId, id);
     }
 
-    const set: Partial<typeof playlists.$inferInsert> = { updatedAt: now };
+    const set: Partial<typeof playlists.$inferInsert> = { updatedAt: now, mutationUpdatedAt: opDate };
     if (input.name !== undefined) set.name = input.name;
     if (input.autoUpdate !== undefined) set.dynamicAutoUpdate = input.autoUpdate;
     if (input.dynamicSortJson !== undefined) set.dynamicSortJson = stringifySpec(input.dynamicSortJson);
@@ -542,12 +558,13 @@ export class DrizzleClientApiService implements ClientApiService {
     if (!existing) return false;
     const now = this.now();
     const resolvedOpTs = resolveOpTs(opTs, now.getTime());
-    if (!shouldApplyWrite(resolvedOpTs, existing.updatedAt.getTime())) {
+    if (!shouldApplyWrite(resolvedOpTs, existing.mutationUpdatedAt.getTime())) {
       return true;
     }
+    const opDate = new Date(resolvedOpTs);
     await this.db
       .update(playlists)
-      .set({ deletedAt: now, updatedAt: now })
+      .set({ deletedAt: now, updatedAt: now, mutationUpdatedAt: opDate })
       .where(eq(playlists.id, id));
     return true;
   }
@@ -568,32 +585,7 @@ export class DrizzleClientApiService implements ClientApiService {
     }
 
     return this.db
-      .select({
-        kitsuId: kitsuAnime.kitsuId,
-        animeThemesId: kitsuAnime.animethemesAnimeId,
-        title: kitsuAnime.title,
-        titleEn: kitsuAnime.titleEn,
-        titleRomaji: kitsuAnime.titleRomaji,
-        titleJa: kitsuAnime.titleJa,
-        posterOriginUrl: kitsuAnime.posterUrl,
-        posterLargeOriginUrl: kitsuAnime.posterUrlLarge,
-        coverOriginUrl: kitsuAnime.coverUrl,
-        coverLargeOriginUrl: kitsuAnime.coverUrlLarge,
-        subtype: kitsuAnime.subtype,
-        startDate: kitsuAnime.startDate,
-        endDate: kitsuAnime.endDate,
-        episodeCount: kitsuAnime.episodeCount,
-        ageRating: kitsuAnime.ageRating,
-        averageRating: kitsuAnime.averageRating,
-        slug: kitsuAnime.slug,
-        animeUpdatedAt: kitsuAnime.updatedAt,
-        animeDeletedAt: kitsuAnime.deletedAt,
-        watchingStatus: libraryEntries.watchingStatus,
-        userRating: libraryEntries.userRating,
-        libraryUpdatedAt: libraryEntries.libraryUpdatedAt,
-        libraryEntryUpdatedAt: libraryEntries.updatedAt,
-        libraryDeletedAt: libraryEntries.deletedAt,
-      })
+      .select(libraryAnimeColumns)
       .from(libraryEntries)
       .innerJoin(kitsuAnime, eq(libraryEntries.kitsuId, kitsuAnime.kitsuId))
       .where(and(...conditions))
@@ -791,9 +783,9 @@ export class DrizzleClientApiService implements ClientApiService {
   private async mutablePlaylistRow(
     userId: string,
     id: number,
-  ): Promise<{ id: number; updatedAt: Date } | null> {
+  ): Promise<{ id: number; mutationUpdatedAt: Date } | null> {
     const rows = await this.db
-      .select({ id: playlists.id, updatedAt: playlists.updatedAt })
+      .select({ id: playlists.id, mutationUpdatedAt: playlists.mutationUpdatedAt })
       .from(playlists)
       .where(
         and(
@@ -977,6 +969,90 @@ export class DrizzleClientApiService implements ClientApiService {
       };
     });
   }
+}
+
+const libraryAnimeColumns = {
+  kitsuId: kitsuAnime.kitsuId,
+  animeThemesId: kitsuAnime.animethemesAnimeId,
+  title: kitsuAnime.title,
+  titleEn: kitsuAnime.titleEn,
+  titleRomaji: kitsuAnime.titleRomaji,
+  titleJa: kitsuAnime.titleJa,
+  posterOriginUrl: kitsuAnime.posterUrl,
+  posterLargeOriginUrl: kitsuAnime.posterUrlLarge,
+  coverOriginUrl: kitsuAnime.coverUrl,
+  coverLargeOriginUrl: kitsuAnime.coverUrlLarge,
+  subtype: kitsuAnime.subtype,
+  startDate: kitsuAnime.startDate,
+  endDate: kitsuAnime.endDate,
+  episodeCount: kitsuAnime.episodeCount,
+  ageRating: kitsuAnime.ageRating,
+  averageRating: kitsuAnime.averageRating,
+  slug: kitsuAnime.slug,
+  animeUpdatedAt: kitsuAnime.updatedAt,
+  animeDeletedAt: kitsuAnime.deletedAt,
+  watchingStatus: libraryEntries.watchingStatus,
+  userRating: libraryEntries.userRating,
+  libraryUpdatedAt: libraryEntries.libraryUpdatedAt,
+  libraryEntryUpdatedAt: libraryEntries.updatedAt,
+  libraryDeletedAt: libraryEntries.deletedAt,
+} as const;
+
+type LibraryAnimeRow = {
+  kitsuId: string;
+  animeThemesId: number | null;
+  title: string | null;
+  titleEn: string | null;
+  titleRomaji: string | null;
+  titleJa: string | null;
+  posterOriginUrl: string | null;
+  posterLargeOriginUrl: string | null;
+  coverOriginUrl: string | null;
+  coverLargeOriginUrl: string | null;
+  subtype: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  episodeCount: number | null;
+  ageRating: string | null;
+  averageRating: number | null;
+  slug: string | null;
+  animeUpdatedAt: Date | string | null;
+  animeDeletedAt: Date | string | null;
+  watchingStatus: string | null;
+  userRating: number | null;
+  libraryUpdatedAt: Date | string | null;
+  libraryEntryUpdatedAt: Date | string | null;
+  libraryDeletedAt: Date | string | null;
+};
+
+function libraryAnimeDto(row: LibraryAnimeRow, genres: string[]): LibraryAnimeDto {
+  return {
+    kitsuId: row.kitsuId,
+    animeThemesId: row.animeThemesId,
+    title: row.title,
+    titleEn: row.titleEn,
+    titleRomaji: row.titleRomaji,
+    titleJa: row.titleJa,
+    posterUrl: row.posterOriginUrl || row.posterLargeOriginUrl
+      ? `/v1/media/images/anime/${row.kitsuId}/poster`
+      : null,
+    coverUrl: row.coverOriginUrl || row.coverLargeOriginUrl
+      ? `/v1/media/images/anime/${row.kitsuId}/cover`
+      : null,
+    watchingStatus: row.watchingStatus,
+    subtype: row.subtype,
+    startDate: row.startDate,
+    endDate: row.endDate,
+    episodeCount: row.episodeCount,
+    ageRating: row.ageRating,
+    averageRating: row.averageRating,
+    userRating: row.userRating,
+    libraryUpdatedAt: dateMillis(row.libraryUpdatedAt),
+    slug: row.slug,
+    genres,
+    updatedAt: Math.max(dateMillis(row.libraryEntryUpdatedAt) ?? 0, dateMillis(row.animeUpdatedAt) ?? 0),
+    deleted: row.libraryDeletedAt !== null || row.animeDeletedAt !== null,
+  };
 }
 
 function normalizedPrefPatch(patch: ThemePrefPatch, now: Date): Partial<typeof themePrefs.$inferInsert> {

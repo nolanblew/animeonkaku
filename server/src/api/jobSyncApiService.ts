@@ -27,8 +27,19 @@ export class JobSyncApiService implements SyncApiService {
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || b.id - a.id);
     const mapping = latestMappingStatus(all, userId);
     const active = jobs.find((job) => job.state === "RUNNING") ?? jobs.find((job) => job.state === "QUEUED");
+    const activeMapping = all
+      .filter(
+        (job) =>
+          job.type === "MAP_THEMES" &&
+          job.payload.userId === userId &&
+          (job.state === "RUNNING" || job.state === "QUEUED"),
+      )
+      .sort((a, b) => stateRank(a.state) - stateRank(b.state) || b.updatedAt.getTime() - a.updatedAt.getTime() || b.id - a.id)[0];
     const latest = active ?? jobs[0] ?? null;
     const lastDone = jobs.find((job) => job.state === "DONE") ?? null;
+    if (!active && activeMapping) {
+      return statusFromMappingJob(activeMapping, lastDone, mapping);
+    }
     if (!latest) {
       return {
         state: "IDLE",
@@ -52,6 +63,12 @@ function latestMappingStatus(all: JobRecord[], userId: string): SyncMappingStatu
   return { state: latest.state, lastError: latest.lastError };
 }
 
+function stateRank(state: string): number {
+  if (state === "RUNNING") return 0;
+  if (state === "QUEUED") return 1;
+  return 2;
+}
+
 function isUpstreamBlocked(mapping: SyncMappingStatus | null): boolean {
   if (!mapping || mapping.state !== "FAILED" || !mapping.lastError) return false;
   return UPSTREAM_BLOCK_PATTERNS.some((pattern) => pattern.test(mapping.lastError!));
@@ -72,6 +89,22 @@ function statusFromJob(
     progress: job.progress,
     lastCompletedAt: lastDone?.updatedAt.getTime() ?? (job.state === "DONE" ? job.updatedAt.getTime() : null),
     unmatched,
+    mapping,
+    upstreamBlocked: isUpstreamBlocked(mapping),
+  };
+}
+
+function statusFromMappingJob(
+  job: JobRecord,
+  lastDone: JobRecord | null,
+  mapping: SyncMappingStatus | null,
+): SyncStatusResponse {
+  return {
+    state: job.state,
+    phase: "MAPPING_THEMES",
+    progress: job.progress,
+    lastCompletedAt: lastDone?.updatedAt.getTime() ?? null,
+    unmatched: [],
     mapping,
     upstreamBlocked: isUpstreamBlocked(mapping),
   };

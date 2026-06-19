@@ -1,6 +1,7 @@
 package com.takeya.animeongaku
 
 import com.takeya.animeongaku.data.remote.OngakuSyncStatusResponse
+import com.takeya.animeongaku.data.remote.OngakuSyncMappingStatusDto
 import com.takeya.animeongaku.sync.SyncPhase
 import com.takeya.animeongaku.sync.toSyncState
 import org.junit.Assert.assertEquals
@@ -40,16 +41,37 @@ class ServerSyncStatusMapperTest {
         assertEquals("Server sync failed: upstream unavailable", failed.errorMessage)
     }
 
+    @Test
+    fun `upstream blocked mapping failures do not map to complete`() {
+        val blocked = response(
+            state = "DONE",
+            phase = "DONE",
+            mapping = OngakuSyncMappingStatusDto(
+                state = "FAILED",
+                lastError = "HTTP 403 from AnimeThemes"
+            ),
+            upstreamBlocked = true
+        ).toSyncState()
+
+        assertFalse(blocked.isRunning)
+        assertEquals(SyncPhase.Error, blocked.phase)
+        assertEquals("Server sync failed: HTTP 403 from AnimeThemes", blocked.errorMessage)
+    }
+
     private fun response(
         state: String,
         phase: String?,
         progress: Map<String, Any?> = emptyMap(),
-        unmatched: List<String> = emptyList()
+        unmatched: List<String> = emptyList(),
+        mapping: OngakuSyncMappingStatusDto? = null,
+        upstreamBlocked: Boolean = false
     ) = OngakuSyncStatusResponse(
         state = state,
         phase = phase,
         progress = progress,
         lastCompletedAt = null,
-        unmatched = unmatched
+        unmatched = unmatched,
+        mapping = mapping,
+        upstreamBlocked = upstreamBlocked
     )
 }

@@ -200,12 +200,19 @@ data class OngakuSyncQueuedResponse(
     val jobId: Long
 )
 
+data class OngakuSyncMappingStatusDto(
+    val state: String,
+    val lastError: String? = null
+)
+
 data class OngakuSyncStatusResponse(
     val state: String,
     val phase: String?,
     val progress: Map<String, Any?>,
     val lastCompletedAt: Long?,
-    val unmatched: List<String>
+    val unmatched: List<String>,
+    val mapping: OngakuSyncMappingStatusDto? = null,
+    val upstreamBlocked: Boolean = false
 )
 
 data class OngakuAudioRequestResponse(

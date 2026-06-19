@@ -1,0 +1,1 @@
+ALTER TABLE "playlists" ADD COLUMN "mutation_updated_at" timestamp with time zone DEFAULT now() NOT NULL;
