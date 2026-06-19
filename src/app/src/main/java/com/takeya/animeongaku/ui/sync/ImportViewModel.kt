@@ -81,7 +81,7 @@ class ImportViewModel @Inject constructor(
 
     fun syncLibrary() {
         if (_authState.value.isLinked) {
-            performSync(forceFullSync = false)
+            performSync(forceFullSync = true)
         } else {
             signInAndSync()
         }
@@ -147,7 +147,7 @@ class ImportViewModel @Inject constructor(
                     isAuthenticating = false
                 )
                 serverMigrationManager.migrateIfNeeded()
-                performServerSync(forceFullSync = false)
+                performServerSync(forceFullSync = true)
             } catch (exception: Exception) {
                 _authState.value = _authState.value.copy(
                     authError = exception.toReadableMessage(prefix = "Server sign-in failed"),

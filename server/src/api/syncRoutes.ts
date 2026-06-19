@@ -45,7 +45,7 @@ export function registerSyncRoutes(
   app.post(
     "/v1/sync",
     { schema: { body: syncBody }, preHandler: requireAuth },
-    async (request) => service.enqueueSync(request.auth!.user.kitsuUserId, request.body.full ?? false),
+    async (request) => service.enqueueSync(request.auth!.user.kitsuUserId, request.body.full ?? true),
   );
 
   app.get("/v1/sync/status", { preHandler: requireAuth }, async (request) =>

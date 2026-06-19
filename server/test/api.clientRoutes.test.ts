@@ -542,4 +542,17 @@ describe("client API routes", () => {
     expect(status.statusCode).toBe(200);
     expect(status.json()).toMatchObject({ state: "RUNNING", phase: "MAPPING_THEMES" });
   });
+
+  it("defaults manual sync requests to full reconciliation", async () => {
+    const token = await bearer();
+    const sync = await app.inject({
+      method: "POST",
+      url: "/v1/sync",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {},
+    });
+
+    expect(sync.statusCode).toBe(200);
+    expect(syncApi.enqueued).toEqual([{ userId: "stub-nolan", full: true }]);
+  });
 });
