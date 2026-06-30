@@ -14,6 +14,7 @@ import type { AuthService, LoginResult } from "./auth/service.js";
 import { KitsuAuthError } from "./auth/types.js";
 import { registerJobAdminRoutes, type JobAdminService } from "./jobs/adminRoutes.js";
 import { registerSyncRoutes, type SyncApiService } from "./api/syncRoutes.js";
+import { registerStatusRoutes, type StatusDashboardService } from "./status/statusRoutes.js";
 
 export interface AppDeps {
   authService: AuthService;
@@ -23,6 +24,7 @@ export interface AppDeps {
   mediaApi?: MediaStreamingService;
   syncApi?: SyncApiService;
   proxyApi?: ProxyApiService;
+  status?: StatusDashboardService;
   onLogin?: (result: LoginResult) => Promise<void>;
   logger?: boolean;
 }
@@ -59,6 +61,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
 
   registerHealthRoutes(app, deps.health);
+  if (deps.status) {
+    registerStatusRoutes(app, deps.status);
+  }
   registerApiRoutes(app, deps);
   app.register(
     (api, _opts, done) => {
