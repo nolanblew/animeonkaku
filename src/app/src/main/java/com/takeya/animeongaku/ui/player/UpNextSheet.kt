@@ -30,12 +30,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetState
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,6 +54,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.text.font.FontWeight
@@ -82,6 +86,8 @@ import com.takeya.animeongaku.ui.theme.Rose500
 internal fun upNextCurrentRowListIndex(historyCount: Int): Int =
     if (historyCount > 0) historyCount + 2 else 0
 
+private const val DragDismissThresholdFraction = 0.30f
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UpNextSheet(
@@ -100,7 +106,20 @@ fun UpNextSheet(
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = upNextCurrentRowListIndex(npState.historyEntries.size)
     )
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var sheetHeightPx by remember { mutableIntStateOf(0) }
+    val sheetStateHolder = remember { mutableStateOf<SheetState?>(null) }
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { newValue ->
+            if (newValue != SheetValue.Hidden) {
+                true
+            } else {
+                val offset = runCatching { sheetStateHolder.value?.requireOffset() }.getOrNull()
+                offset != null && sheetHeightPx > 0 && offset >= sheetHeightPx * DragDismissThresholdFraction
+            }
+        }
+    )
+    sheetStateHolder.value = sheetState
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -119,6 +138,7 @@ fun UpNextSheet(
             onDismiss = onDismiss,
             modifier = Modifier
                 .fillMaxHeight(0.95f)
+                .onSizeChanged { sheetHeightPx = it.height }
         )
     }
 }
