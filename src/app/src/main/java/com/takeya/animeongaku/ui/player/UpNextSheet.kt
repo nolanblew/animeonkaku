@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Block
@@ -29,15 +30,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SheetState
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.SheetValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,7 +51,6 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.text.font.FontWeight
@@ -103,28 +100,7 @@ fun UpNextSheet(
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = upNextCurrentRowListIndex(npState.historyEntries.size)
     )
-    // Measured height of the sheet content — used to compute the dismiss threshold.
-    var sheetHeightPx by remember { mutableIntStateOf(0) }
-
-    // Holder populated right after sheetState is created to avoid a forward-reference
-    // inside the confirmValueChange lambda (sheetState can't reference itself).
-    val sheetStateHolder = remember { mutableStateOf<SheetState?>(null) }
-
-    // Only allow the sheet to dismiss if the user dragged it down by more than 30% of its
-    // height. Anything less snaps back to the expanded position.
-    val sheetState = rememberModalBottomSheetState(
-        skipPartiallyExpanded = true,
-        confirmValueChange = { newValue: SheetValue ->
-            when {
-                newValue != SheetValue.Hidden -> true
-                else -> {
-                    val offset = runCatching { sheetStateHolder.value?.requireOffset() }.getOrNull()
-                    offset != null && (sheetHeightPx == 0 || offset > sheetHeightPx * 0.30f)
-                }
-            }
-        }
-    )
-    sheetStateHolder.value = sheetState
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -140,9 +116,9 @@ fun UpNextSheet(
             downloadedThemeIds = downloadedThemeIds,
             dislikedThemeIds = dislikedThemeIds,
             viewModel = viewModel,
+            onDismiss = onDismiss,
             modifier = Modifier
                 .fillMaxHeight(0.95f)
-                .onSizeChanged { sheetHeightPx = it.height }
         )
     }
 }
@@ -163,6 +139,7 @@ private fun UpNextContent(
     downloadedThemeIds: Set<Long> = emptySet(),
     dislikedThemeIds: Set<Long> = emptySet(),
     viewModel: PlayerViewModel,
+    onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val history = npState.historyEntries
@@ -251,6 +228,9 @@ private fun UpNextContent(
                     color = Rose500,
                     modifier = Modifier.padding(start = 12.dp)
                 )
+            }
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Rounded.Close, contentDescription = "Close queue", tint = Mist200)
             }
         }
 

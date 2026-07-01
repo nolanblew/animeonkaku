@@ -107,6 +107,10 @@ fun ActionSheet(
     onDelete: () -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    fun dismissThen(action: () -> Unit) {
+        onDismiss()
+        action()
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -172,7 +176,7 @@ fun ActionSheet(
                         icon = { Icon(Icons.Rounded.SkipNext, contentDescription = null, tint = Mist100, modifier = Modifier.size(24.dp)) },
                         label = "Play next",
                         modifier = mod,
-                        onClick = { onPlayNext(); onDismiss() }
+                        onClick = { dismissThen(onPlayNext) }
                     )
                 }
             }
@@ -182,7 +186,7 @@ fun ActionSheet(
                         icon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = null, tint = Mist100, modifier = Modifier.size(24.dp)) },
                         label = "Save to playlist",
                         modifier = mod,
-                        onClick = { onSaveToPlaylist(); onDismiss() }
+                        onClick = { dismissThen(onSaveToPlaylist) }
                     )
                 }
             }
@@ -207,49 +211,49 @@ fun ActionSheet(
                 OptionRow(
                     icon = { Icon(if (config.isLiked) Icons.Rounded.ThumbUp else Icons.Outlined.ThumbUp, contentDescription = null, tint = Mist100) },
                     label = if (config.isLiked) "Remove Like" else "Like",
-                    onClick = { onLike(); onDismiss() }
+                    onClick = { dismissThen(onLike) }
                 )
             }
             if (config.showUnskip) {
                 OptionRow(
                     icon = { Icon(Icons.AutoMirrored.Rounded.Undo, contentDescription = null, tint = Mist100) },
                     label = "Unskip",
-                    onClick = { onUnskip(); onDismiss() }
+                    onClick = { dismissThen(onUnskip) }
                 )
             }
             if (config.showRemoveDislike) {
                 OptionRow(
                     icon = { Icon(Icons.Rounded.ThumbDown, contentDescription = null, tint = Mist100) },
                     label = if (config.isSkippedContext) "Remove Dislike" else "Remove Dislike",
-                    onClick = { onRemoveDislike(); onDismiss() }
+                    onClick = { dismissThen(onRemoveDislike) }
                 )
             }
             if (config.showAddToQueue) {
                 OptionRow(
                     icon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null, tint = Mist100) },
                     label = "Add to queue",
-                    onClick = { onAddToQueue(); onDismiss() }
+                    onClick = { dismissThen(onAddToQueue) }
                 )
             }
             if (config.showReplaceQueue) {
                 OptionRow(
                     icon = { Icon(Icons.AutoMirrored.Rounded.PlaylistPlay, contentDescription = null, tint = Mist100) },
                     label = "Replace queue",
-                    onClick = { onReplaceQueue(); onDismiss() }
+                    onClick = { dismissThen(onReplaceQueue) }
                 )
             }
             if (config.showRemoveFromQueue) {
                 OptionRow(
                     icon = { Icon(Icons.Rounded.Close, contentDescription = null, tint = Mist100) },
                     label = "Remove from queue",
-                    onClick = { onRemoveFromQueue(); onDismiss() }
+                    onClick = { dismissThen(onRemoveFromQueue) }
                 )
             }
             if (config.showAddToLibrary) {
                 OptionRow(
                     icon = { Icon(Icons.Rounded.LibraryAdd, contentDescription = null, tint = Mist100) },
                     label = "Add to library",
-                    onClick = { onAddToLibrary(); onDismiss() }
+                    onClick = { dismissThen(onAddToLibrary) }
                 )
             }
             if (config.showGoToArtist) {
@@ -257,7 +261,7 @@ fun ActionSheet(
                 OptionRow(
                     icon = { Icon(Icons.Rounded.Person, contentDescription = null, tint = Mist100) },
                     label = label,
-                    onClick = { onGoToArtist(); onDismiss() }
+                    onClick = { dismissThen(onGoToArtist) }
                 )
             }
             if (config.showGoToAnime) {
@@ -265,7 +269,7 @@ fun ActionSheet(
                 OptionRow(
                     icon = { Icon(Icons.Rounded.Movie, contentDescription = null, tint = Mist100) },
                     label = label,
-                    onClick = { onGoToAnime(); onDismiss() }
+                    onClick = { dismissThen(onGoToAnime) }
                 )
             }
             if (config.showDownloading) {
@@ -284,35 +288,35 @@ fun ActionSheet(
                 OptionRow(
                     icon = { Icon(Icons.Rounded.CloudDownload, contentDescription = null, tint = Mist100) },
                     label = "Download",
-                    onClick = { onDownload(); onDismiss() }
+                    onClick = { dismissThen(onDownload) }
                 )
             }
             if (config.showRemoveDownload) {
                 OptionRow(
                     icon = { Icon(Icons.Rounded.CloudDone, contentDescription = null, tint = Rose500) },
                     label = "Remove download",
-                    onClick = { onRemoveDownload(); onDismiss() }
+                    onClick = { dismissThen(onRemoveDownload) }
                 )
             }
             if (config.showEditFilters) {
                 OptionRow(
                     icon = { Icon(Icons.Rounded.FilterList, contentDescription = null, tint = Mist100) },
                     label = "Edit filters",
-                    onClick = { onEditFilters(); onDismiss() }
+                    onClick = { dismissThen(onEditFilters) }
                 )
             }
             if (config.showRefresh) {
                 OptionRow(
                     icon = { Icon(Icons.Rounded.Refresh, contentDescription = null, tint = Mist100) },
                     label = "Refresh now",
-                    onClick = { onRefresh(); onDismiss() }
+                    onClick = { dismissThen(onRefresh) }
                 )
             }
             if (config.showDelete) {
                 OptionRow(
                     icon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = Rose500) },
                     label = config.deleteLabel,
-                    onClick = { onDelete(); onDismiss() }
+                    onClick = { dismissThen(onDelete) }
                 )
             }
         }
