@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { KitsuAuthError } from "../src/auth/types.js";
 import { JobPriority, JobQueue } from "../src/jobs/index.js";
 import type { KitsuAnimeEntry, KitsuGenre } from "../src/kitsu/types.js";
 import { LibrarySyncPipeline } from "../src/sync/librarySyncPipeline.js";
@@ -35,6 +36,8 @@ class FakeSyncRepo {
   user = {
     userId: "u1",
     accessToken: "access-token",
+    refreshToken: "refresh-token",
+    tokenExpiresAt: null as Date | null,
     kitsuAuthState: "OK",
     lastSyncAt: null as Date | null,
     lastStatusSyncAt: null as Date | null,
@@ -44,6 +47,8 @@ class FakeSyncRepo {
   tombstones: string[][] = [];
   genres = new Map<string, KitsuGenre[]>();
   timestampUpdates: Array<{ lastSyncAt?: Date; lastStatusSyncAt?: Date }> = [];
+  tokenUpdates: Array<{ accessToken: string; refreshToken: string | null; expiresAt: Date | null }> = [];
+  reauthRequiredUsers: string[] = [];
   autoPlaylistRefreshes: string[] = [];
 
   async getUserSyncAuth(userId: string) {
@@ -71,6 +76,22 @@ class FakeSyncRepo {
     timestamps: { lastSyncAt?: Date; lastStatusSyncAt?: Date },
   ) {
     this.timestampUpdates.push(timestamps);
+  }
+
+  async updateKitsuTokens(
+    _userId: string,
+    tokens: { accessToken: string; refreshToken: string | null; expiresAt: Date | null },
+  ) {
+    this.tokenUpdates.push(tokens);
+    this.user.accessToken = tokens.accessToken;
+    this.user.refreshToken = tokens.refreshToken;
+    this.user.tokenExpiresAt = tokens.expiresAt;
+    this.user.kitsuAuthState = "OK";
+  }
+
+  async markKitsuReauthRequired(userId: string) {
+    this.reauthRequiredUsers.push(userId);
+    this.user.kitsuAuthState = "REAUTH_REQUIRED";
   }
 
   async refreshAutoPlaylists(userId: string) {
@@ -194,6 +215,107 @@ describe("LibrarySyncPipeline Kitsu sync", () => {
     await pipeline.runKitsuSync({ userId: "u1", full: true, job });
 
     expect(calls).toEqual([]);
+    expect((await queue.list()).find((queued) => queued.id === job.id)?.progress).toMatchObject({
+      phase: "SKIPPED",
+      reason: "REAUTH_REQUIRED",
+    });
+  });
+
+  it("refreshes expired Kitsu tokens before syncing and stores the replacement grant", async () => {
+    const time = new FakeTime(new Date("2026-06-13T00:00:00.000Z").getTime());
+    const repo = new FakeSyncRepo();
+    repo.user.tokenExpiresAt = new Date(time.now() - 1_000);
+    const queue = new JobQueue(new FakeJobRepository(() => new Date(time.now())), {
+      now: () => new Date(time.now()),
+    });
+    const calls: string[] = [];
+    const kitsu = {
+      getLibraryEntries: async (_userId: string, input: { accessToken: string }) => {
+        calls.push(input.accessToken);
+        return [entry("1")];
+      },
+      getLibraryEntriesUpdatedSince: async () => [],
+      getAnimeCategories: async () => new Map<string, KitsuGenre[]>(),
+    };
+    const pipeline = new LibrarySyncPipeline({
+      repo,
+      kitsu,
+      kitsuAuth: {
+        refresh: async (refreshToken: string) => {
+          expect(refreshToken).toBe("refresh-token");
+          return {
+            accessToken: "access-token-2",
+            refreshToken: "refresh-token-2",
+            expiresAt: new Date(time.now() + 60 * 60 * 1000),
+          };
+        },
+      },
+      animeThemes: {},
+      queue,
+      now: () => new Date(time.now()),
+    });
+    await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.HIGH,
+      payload: { userId: "u1", full: true },
+      dedupeKey: "KITSU_FULL_SYNC:u1",
+    });
+    const job = (await queue.claimNext())!;
+
+    await pipeline.runKitsuSync({ userId: "u1", full: true, job });
+
+    expect(calls).toEqual(["access-token-2"]);
+    expect(repo.tokenUpdates).toEqual([
+      {
+        accessToken: "access-token-2",
+        refreshToken: "refresh-token-2",
+        expiresAt: new Date(time.now() + 60 * 60 * 1000),
+      },
+    ]);
+    expect(repo.reauthRequiredUsers).toEqual([]);
+    expect((await queue.list()).find((queued) => queued.id === job.id)?.progress).toMatchObject({
+      phase: "DONE",
+      total: 1,
+    });
+  });
+
+  it("marks reauth required when an expired Kitsu token cannot be refreshed", async () => {
+    const repo = new FakeSyncRepo();
+    repo.user.tokenExpiresAt = new Date("2026-06-12T23:59:00.000Z");
+    const queue = new JobQueue(new FakeJobRepository());
+    const calls: string[] = [];
+    const pipeline = new LibrarySyncPipeline({
+      repo,
+      kitsu: {
+        getLibraryEntries: async () => {
+          calls.push("full");
+          return [];
+        },
+        getLibraryEntriesUpdatedSince: async () => [],
+        getAnimeCategories: async () => new Map<string, KitsuGenre[]>(),
+      },
+      kitsuAuth: {
+        refresh: async () => {
+          throw new KitsuAuthError("Refresh token expired.");
+        },
+      },
+      animeThemes: {},
+      queue,
+      now: () => new Date("2026-06-13T00:00:00.000Z"),
+    });
+    await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.HIGH,
+      payload: { userId: "u1", full: true },
+      dedupeKey: "KITSU_FULL_SYNC:u1",
+    });
+    const job = (await queue.claimNext())!;
+
+    await pipeline.runKitsuSync({ userId: "u1", full: true, job });
+
+    expect(calls).toEqual([]);
+    expect(repo.tokenUpdates).toEqual([]);
+    expect(repo.reauthRequiredUsers).toEqual(["u1"]);
     expect((await queue.list()).find((queued) => queued.id === job.id)?.progress).toMatchObject({
       phase: "SKIPPED",
       reason: "REAUTH_REQUIRED",

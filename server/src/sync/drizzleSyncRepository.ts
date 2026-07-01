@@ -42,6 +42,8 @@ export class DrizzleSyncRepository implements SyncRepository {
       .select({
         userId: users.kitsuUserId,
         accessToken: users.kitsuAccessToken,
+        refreshToken: users.kitsuRefreshToken,
+        tokenExpiresAt: users.kitsuTokenExpiresAt,
         kitsuAuthState: users.kitsuAuthState,
         lastSyncAt: users.lastSyncAt,
         lastStatusSyncAt: users.lastStatusSyncAt,
@@ -191,6 +193,32 @@ export class DrizzleSyncRepository implements SyncRepository {
         ...("lastStatusSyncAt" in timestamps
           ? { lastStatusSyncAt: timestamps.lastStatusSyncAt }
           : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(users.kitsuUserId, userId));
+  }
+
+  async updateKitsuTokens(
+    userId: string,
+    tokens: { accessToken: string; refreshToken: string | null; expiresAt: Date | null },
+  ): Promise<void> {
+    await this.db
+      .update(users)
+      .set({
+        kitsuAccessToken: tokens.accessToken,
+        kitsuRefreshToken: tokens.refreshToken,
+        kitsuTokenExpiresAt: tokens.expiresAt,
+        kitsuAuthState: "OK",
+        updatedAt: new Date(),
+      })
+      .where(eq(users.kitsuUserId, userId));
+  }
+
+  async markKitsuReauthRequired(userId: string): Promise<void> {
+    await this.db
+      .update(users)
+      .set({
+        kitsuAuthState: "REAUTH_REQUIRED",
         updatedAt: new Date(),
       })
       .where(eq(users.kitsuUserId, userId));
