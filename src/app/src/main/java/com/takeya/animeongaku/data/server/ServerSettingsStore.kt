@@ -11,15 +11,14 @@ class ServerSettingsStore @Inject constructor(
     private val prefs: SharedPreferences,
     compiledServerBaseUrl: String? = null
 ) {
-    private val compiledServerBaseUrl: String? = normalizeBaseUrl(compiledServerBaseUrl)
+    val compiledServerBaseUrl: String? = normalizeBaseUrl(compiledServerBaseUrl)
 
     val isServerBaseUrlCompiled: Boolean
         get() = compiledServerBaseUrl != null
 
     var serverBaseUrl: String?
-        get() = compiledServerBaseUrl ?: prefs.getString(KEY_SERVER_BASE_URL, null)
+        get() = prefs.getString(KEY_SERVER_BASE_URL, null) ?: compiledServerBaseUrl
         set(value) {
-            if (isServerBaseUrlCompiled) return
             val normalized = normalizeBaseUrl(value)
             prefs.edit()
                 .apply {

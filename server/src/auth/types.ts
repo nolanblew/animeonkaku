@@ -6,9 +6,16 @@ export interface KitsuAuthResult {
   expiresAt: Date | null;
 }
 
+export interface KitsuTokenRefreshResult {
+  accessToken: string;
+  refreshToken: string | null;
+  expiresAt: Date | null;
+}
+
 /** Performs the Kitsu OAuth password grant. Real implementation lands in S2. */
 export interface KitsuAuthClient {
   login(username: string, password: string): Promise<KitsuAuthResult>;
+  refresh(refreshToken: string): Promise<KitsuTokenRefreshResult>;
 }
 
 /** Upstream rejected the credentials (or equivalent) — maps to HTTP 401. */

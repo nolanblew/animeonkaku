@@ -26,6 +26,7 @@ class SettingsViewModel @Inject constructor(
     val serverBaseUrl: StateFlow<String> = _serverBaseUrl.asStateFlow()
 
     val isServerBaseUrlCompiled: Boolean = serverSettingsStore.isServerBaseUrlCompiled
+    val compiledServerBaseUrl: String = serverSettingsStore.compiledServerBaseUrl.orEmpty()
 
     fun setWifiOnly(enabled: Boolean) {
         downloadPreferences.wifiOnly = enabled
@@ -33,10 +34,6 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setServerBaseUrl(value: String) {
-        if (serverSettingsStore.isServerBaseUrlCompiled) {
-            _serverBaseUrl.value = serverSettingsStore.serverBaseUrl.orEmpty()
-            return
-        }
         _serverBaseUrl.value = value
         serverSettingsStore.serverBaseUrl = value
         pendingWritesScheduler.schedule()

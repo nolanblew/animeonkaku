@@ -26,7 +26,7 @@ class ServerStoresTest {
     }
 
     @Test
-    fun `compiled server url configures store without prefs and blocks runtime edits`() {
+    fun `compiled server url acts as editable default`() {
         val store = ServerSettingsStore(
             prefs = FakeSharedPreferences(),
             compiledServerBaseUrl = " http://192.168.1.5:8080/api "
@@ -38,6 +38,8 @@ class ServerStoresTest {
 
         store.serverBaseUrl = "https://other.example/"
 
+        assertEquals("https://other.example/", store.serverBaseUrl)
+        store.serverBaseUrl = ""
         assertEquals("http://192.168.1.5:8080/api/", store.serverBaseUrl)
     }
 

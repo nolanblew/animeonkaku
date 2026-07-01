@@ -64,6 +64,14 @@ const animeThemesHttp = new UpstreamHttp({
   breakerStatuses: [403, 451],
 });
 const kitsuClient = new KitsuClient({ http: kitsuHttp });
+const kitsuAuthClient =
+  config.KITSU_AUTH_MODE === "real"
+    ? new RealKitsuAuthClient({
+        http: kitsuHttp,
+        clientId: config.KITSU_CLIENT_ID,
+        clientSecret: config.KITSU_CLIENT_SECRET,
+      })
+    : new StubKitsuAuthClient();
 const animeThemesClient = new AnimeThemesClient({
   http: animeThemesHttp,
   baseUrl: config.ANIMETHEMES_BASE_URL,
@@ -73,6 +81,7 @@ const animeThemesFetch = (url: string | URL | Request, init?: RequestInit) =>
 const syncPipeline = new LibrarySyncPipeline({
   repo: syncRepo,
   kitsu: kitsuClient,
+  kitsuAuth: kitsuAuthClient,
   animeThemes: animeThemesClient,
   queue: jobQueue,
 });
@@ -110,13 +119,7 @@ syncScheduler.start();
 const app = buildApp({
   authService: new AuthService(
     new DrizzleAuthRepo(db),
-    config.KITSU_AUTH_MODE === "real"
-      ? new RealKitsuAuthClient({
-          http: kitsuHttp,
-          clientId: config.KITSU_CLIENT_ID,
-          clientSecret: config.KITSU_CLIENT_SECRET,
-        })
-      : new StubKitsuAuthClient(),
+    kitsuAuthClient,
   ),
   health: {
     pingDb: async () => {
