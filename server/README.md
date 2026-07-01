@@ -7,7 +7,7 @@ Self-hosted API server for the Anime Ongaku Android app. Design docs live in [`.
 ```bash
 cp .env.example .env   # edit DB_PASSWORD; leave KITSU_AUTH_MODE=stub for local smoke tests
 docker compose up -d --build
-curl http://localhost:8080/healthz
+curl http://localhost:48668/healthz
 ```
 
 Database (`pgdata`) and media (`media`) live in named volumes and survive rebuilds/upgrades. Migrations run automatically on boot, before the server starts listening.
@@ -134,10 +134,10 @@ Use this script after the server and Android client are both built from the I1 b
    ```powershell
    docker compose down -v
    docker compose up -d --build
-   curl http://localhost:8080/healthz
+   curl http://localhost:48668/healthz
    ```
 
-2. Configure the Android app's Server URL to the LAN URL that reaches this API, for example `http://192.168.1.5:8080/`.
+2. Configure the Android app's Server URL to the LAN URL that reaches this API, for example `http://192.168.68.85:48668/`.
 3. Sign in through the app using Kitsu credentials. For non-production credential checks, the known test slug is `nblewtest`.
 4. Open Import and run a full sync. Watch the server sync phases complete, then confirm the library appears in the app after the client pull.
 5. Play a track whose server audio state is still pending. Expected: `/v1/media/audio/{themeId}` may return a 302 to origin, ExoPlayer follows it, and playback starts.

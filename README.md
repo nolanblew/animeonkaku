@@ -39,10 +39,10 @@ cd .\server
 Copy-Item .env.example .env
 # Edit .env. Use KITSU_AUTH_MODE=real for real Kitsu login, or stub for local smoke tests.
 docker compose up -d --build
-Invoke-RestMethod http://localhost:8080/healthz
+Invoke-RestMethod http://localhost:48668/healthz
 ```
 
-The compose stack starts the API on `http://localhost:8080` and Postgres in a sibling container. Database and media data use Docker named volumes (`pgdata` and `media`) so they survive container rebuilds. Migrations run automatically when the API starts.
+The compose stack starts the API on `http://localhost:48668` and Postgres in a sibling container. Database and media data use Docker named volumes (`pgdata` and `media`) so they survive container rebuilds. Migrations run automatically when the API starts.
 
 Postgres only applies `POSTGRES_PASSWORD` when the database volume is first initialized. If `.env` later changes `DB_PASSWORD`, the API will fail with `password authentication failed for user "ongaku"` and the DB health check will stay unhealthy. For disposable local data, run `docker compose down -v` from `server/` and then start the stack again. To preserve data, put the original password back in `.env`, start the DB, rotate the `ongaku` password inside Postgres, then update `.env` to the new value.
 
@@ -58,10 +58,10 @@ $env:KITSU_AUTH_MODE = "stub"
 npm run dev
 ```
 
-For an Android emulator, `http://10.0.2.2:8080/` reaches the host server. For a physical device, either use the computer's LAN IP, such as `http://192.168.1.50:8080/`, or use ADB reverse for USB testing:
+For an Android emulator, `http://10.0.2.2:48668/` reaches the host server. For a physical device, either use the computer's LAN IP, such as `http://192.168.68.85:48668/`, or use ADB reverse for USB testing:
 
 ```powershell
-adb reverse tcp:8080 tcp:8080
+adb reverse tcp:48668 tcp:48668
 ```
 
 ### Build-Time Server URL
