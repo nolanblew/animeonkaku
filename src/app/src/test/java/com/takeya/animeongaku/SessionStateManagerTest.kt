@@ -28,9 +28,31 @@ class SessionStateManagerTest {
     }
 
     @Test
+    fun `onInitialSync stores token and keeps online work enabled before root app opens`() {
+        val tokenStore = store()
+        val manager = SessionStateManager(tokenStore)
+
+        manager.onInitialSync(sampleSession)
+
+        assertEquals(SessionState.InitialSync(sampleSession), manager.state.value)
+        assertEquals("tok", tokenStore.currentToken())
+        assert(manager.isOnlineEnabled())
+    }
+
+    @Test
     fun `markUnauthorized moves active to reauth required and keeps the token`() {
         val tokenStore = store(sampleSession)
         val manager = SessionStateManager(tokenStore)
+        manager.markUnauthorized()
+        assertEquals(SessionState.ReauthRequired(sampleSession), manager.state.value)
+        assertEquals("tok", tokenStore.currentToken())
+    }
+
+    @Test
+    fun `markUnauthorized moves initial sync to reauth required and keeps the token`() {
+        val tokenStore = store()
+        val manager = SessionStateManager(tokenStore)
+        manager.onInitialSync(sampleSession)
         manager.markUnauthorized()
         assertEquals(SessionState.ReauthRequired(sampleSession), manager.state.value)
         assertEquals("tok", tokenStore.currentToken())
@@ -65,10 +87,14 @@ class SessionStateManagerTest {
     }
 
     @Test
-    fun `isOnlineEnabled only true when active`() {
+    fun `isOnlineEnabled only true for active or initial sync`() {
         val manager = SessionStateManager(store(sampleSession))
         assert(manager.isOnlineEnabled())
         manager.markUnauthorized()
+        assert(!manager.isOnlineEnabled())
+        manager.onInitialSync(sampleSession)
+        assert(manager.isOnlineEnabled())
+        manager.onLogout()
         assert(!manager.isOnlineEnabled())
     }
 }

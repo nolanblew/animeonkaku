@@ -2,12 +2,15 @@ import type { AnimeThemesClient } from "../animethemes/client.js";
 import type { AnimeThemeEntry, AnimeThemesLookupResult } from "../animethemes/types.js";
 import type { JobQueue } from "../jobs/jobQueue.js";
 import type { JobRecord } from "../jobs/types.js";
+import type { KitsuAuthClient } from "../auth/types.js";
 import type { KitsuClient } from "../kitsu/kitsuClient.js";
 import type { KitsuAnimeEntry, KitsuGenre } from "../kitsu/types.js";
 
 export interface SyncUserAuth {
   userId: string;
   accessToken: string | null;
+  refreshToken: string | null;
+  tokenExpiresAt: Date | null;
   kitsuAuthState: string;
   lastSyncAt: Date | null;
   lastStatusSyncAt: Date | null;
@@ -34,6 +37,11 @@ export interface SyncRepository {
     userId: string,
     timestamps: { lastSyncAt?: Date; lastStatusSyncAt?: Date },
   ): Promise<void>;
+  updateKitsuTokens(
+    userId: string,
+    tokens: { accessToken: string; refreshToken: string | null; expiresAt: Date | null },
+  ): Promise<void>;
+  markKitsuReauthRequired(userId: string): Promise<void>;
   refreshAutoPlaylists?(userId: string): Promise<void>;
   getKitsuAnimeForMapping?(kitsuIds: string[]): Promise<KitsuCatalogRecord[]>;
   saveAnimeThemesCatalog?(themes: AnimeThemeEntry[]): Promise<void>;
@@ -75,6 +83,7 @@ export interface MapThemesInput {
 export interface LibrarySyncPipelineDeps {
   repo: SyncRepository;
   kitsu: KitsuClientLike;
+  kitsuAuth?: Pick<KitsuAuthClient, "refresh">;
   animeThemes: Partial<AnimeThemesClientLike>;
   queue: JobQueue;
   now?: () => Date;

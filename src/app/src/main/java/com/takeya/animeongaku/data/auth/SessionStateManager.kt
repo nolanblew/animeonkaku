@@ -29,6 +29,11 @@ class SessionStateManager @Inject constructor(
         _state.value = SessionState.Active(session)
     }
 
+    fun onInitialSync(session: ServerSession) {
+        tokenStore.save(session)
+        _state.value = SessionState.InitialSync(session)
+    }
+
     fun onLogout() {
         tokenStore.clear()
         _state.value = SessionState.LoggedOut
@@ -39,6 +44,7 @@ class SessionStateManager @Inject constructor(
         _state.update { current ->
             when (current) {
                 is SessionState.Active -> SessionState.ReauthRequired(current.session)
+                is SessionState.InitialSync -> SessionState.ReauthRequired(current.session)
                 else -> current
             }
         }
@@ -54,6 +60,10 @@ class SessionStateManager @Inject constructor(
         }
     }
 
-    /** Online features (sync, online search, remote streaming) are allowed only when Active. */
-    fun isOnlineEnabled(): Boolean = _state.value is SessionState.Active
+    /** Online features are allowed after login, including the first-run sync gate. */
+    fun isOnlineEnabled(): Boolean = when (_state.value) {
+        is SessionState.Active,
+        is SessionState.InitialSync -> true
+        else -> false
+    }
 }
