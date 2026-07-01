@@ -78,6 +78,7 @@ import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
 import com.takeya.animeongaku.ui.common.FeaturedPlaylistCard
+import com.takeya.animeongaku.ui.common.PendingSyncBanner
 import com.takeya.animeongaku.ui.common.PlaylistCoverArt
 import com.takeya.animeongaku.ui.player.MiniPlayerHeight
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
@@ -123,6 +124,9 @@ fun LibraryScreen(
     val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
     val showDownloadedOnly by viewModel.showDownloadedOnly.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+    val pendingPlaylistWriteStatus by viewModel.pendingPlaylistWriteStatus.collectAsStateWithLifecycle()
+    val playlistActionMessage by viewModel.playlistActionMessage.collectAsStateWithLifecycle()
+    val playlistSyncMessage = playlistActionMessage ?: pendingPlaylistWriteStatus.message
     var selectedTab by rememberSaveable {
         mutableStateOf(
             when (initialTab) {
@@ -234,6 +238,11 @@ fun LibraryScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
+                            playlistSyncMessage?.let { message ->
+                                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                                    PendingSyncBanner(message = message)
+                                }
+                            }
                             if (playlists.isEmpty()) {
                                 item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                                     EmptyState(

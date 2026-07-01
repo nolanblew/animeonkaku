@@ -12,6 +12,8 @@ import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.DownloadRequestEntity
 import com.takeya.animeongaku.data.local.DynamicPlaylistSpecDao
+import com.takeya.animeongaku.data.local.PendingOpDao
+import com.takeya.animeongaku.data.local.PendingOpEntity
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.repository.ArtistRepository
@@ -20,6 +22,7 @@ import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.network.ConnectivityMonitor
+import com.takeya.animeongaku.sync.PendingWriteStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -59,6 +62,7 @@ class LibraryViewModel @Inject constructor(
     private val artistImageDao: ArtistImageDao,
     private val artistRepository: ArtistRepository,
     private val serverPlaylistWriter: ServerPlaylistWriter,
+    private val pendingOpDao: PendingOpDao,
     val nowPlayingManager: NowPlayingManager,
     val downloadManager: DownloadManager,
     private val downloadDao: DownloadDao,
@@ -70,12 +74,27 @@ class LibraryViewModel @Inject constructor(
     private val _showDownloadedOnly = MutableStateFlow(false)
     val showDownloadedOnly: StateFlow<Boolean> = _showDownloadedOnly.asStateFlow()
 
+    private val _playlistActionMessage = MutableStateFlow<String?>(null)
+    val playlistActionMessage: StateFlow<String?> = _playlistActionMessage.asStateFlow()
+
     fun toggleDownloadedOnly() {
         _showDownloadedOnly.value = !_showDownloadedOnly.value
     }
 
     val playlists = playlistDao.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val pendingPlaylistWriteStatus: StateFlow<PendingWriteStatus> = combine(
+        pendingOpDao.observeCountForEntity(PendingOpEntity.ENTITY_PLAYLIST),
+        pendingOpDao.observeRetriedCountForEntity(PendingOpEntity.ENTITY_PLAYLIST),
+        isOnline
+    ) { pendingCount, retriedCount, online ->
+        PendingWriteStatus(
+            pendingCount = pendingCount,
+            retriedCount = retriedCount,
+            isOnline = online
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PendingWriteStatus())
 
     val dynamicPlaylistIds: StateFlow<Set<Long>> = dynamicPlaylistSpecDao.observeAll()
         .map { specs -> specs.mapTo(mutableSetOf()) { it.playlistId } }
@@ -158,13 +177,13 @@ class LibraryViewModel @Inject constructor(
     fun createPlaylist(name: String) {
         val trimmed = name.trim()
         if (trimmed.isBlank()) return
-        viewModelScope.launch {
+        runPlaylistAction("Couldn't create playlist. Your current library is still safe.") {
             serverPlaylistWriter.createPlaylist(trimmed)
         }
     }
 
     fun deletePlaylist(playlistId: Long) {
-        viewModelScope.launch {
+        runPlaylistAction("Couldn't delete playlist. Try again when your connection is stable.") {
             serverPlaylistWriter.deletePlaylist(playlistId)
         }
     }
@@ -172,7 +191,7 @@ class LibraryViewModel @Inject constructor(
     fun renamePlaylist(playlistId: Long, newName: String) {
         val trimmed = newName.trim()
         if (trimmed.isBlank()) return
-        viewModelScope.launch {
+        runPlaylistAction("Couldn't rename playlist. Try again when your connection is stable.") {
             serverPlaylistWriter.renamePlaylist(playlistId, trimmed)
         }
     }
@@ -224,7 +243,7 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {
-        viewModelScope.launch {
+        runPlaylistAction("Couldn't save to playlist. Try again when your connection is stable.") {
             serverPlaylistWriter.addEntries(playlistId, themeIds)
         }
     }
@@ -263,8 +282,26 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
-        viewModelScope.launch {
+        runPlaylistAction("Couldn't create playlist. Try again when your connection is stable.") {
             serverPlaylistWriter.createPlaylist(name, themeIds)
+        }
+    }
+
+    fun clearPlaylistActionMessage() {
+        _playlistActionMessage.value = null
+    }
+
+    private fun runPlaylistAction(
+        failureMessage: String,
+        block: suspend () -> Unit
+    ) {
+        _playlistActionMessage.value = null
+        viewModelScope.launch {
+            try {
+                block()
+            } catch (_: Exception) {
+                _playlistActionMessage.value = failureMessage
+            }
         }
     }
 }

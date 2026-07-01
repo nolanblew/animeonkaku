@@ -78,6 +78,7 @@ import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.PendingSyncBanner
 import com.takeya.animeongaku.ui.common.PlaylistCoverArt
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
 import com.takeya.animeongaku.ui.common.displayInfo
@@ -116,6 +117,9 @@ fun PlaylistDetailScreen(
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val dynamicSpec by viewModel.dynamicSpec.collectAsStateWithLifecycle()
     val isDynamic by viewModel.isDynamic.collectAsStateWithLifecycle()
+    val pendingPlaylistWriteStatus by viewModel.pendingPlaylistWriteStatus.collectAsStateWithLifecycle()
+    val playlistActionMessage by viewModel.playlistActionMessage.collectAsStateWithLifecycle()
+    val playlistSyncMessage = playlistActionMessage ?: pendingPlaylistWriteStatus.message
     var showDeleteConfirm by remember { mutableStateOf(false) }
     val animeByThemesId = remember(anime) {
         anime.mapNotNull { entry -> entry.animeThemesId?.let { id -> id to entry } }.toMap()
@@ -295,6 +299,15 @@ fun PlaylistDetailScreen(
                     IconButton(onClick = { showPlaylistSheet = true }) {
                         Icon(Icons.Rounded.MoreVert, contentDescription = "More options", tint = Mist100)
                     }
+                }
+            }
+
+            playlistSyncMessage?.let { message ->
+                item {
+                    PendingSyncBanner(
+                        message = message,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                    )
                 }
             }
 

@@ -5,6 +5,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.takeya.animeongaku.sync.PendingWritesFlusher
+import com.takeya.animeongaku.sync.PendingWritesStillQueuedException
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
@@ -19,7 +20,13 @@ class PendingWritesFlushWorker @AssistedInject constructor(
         pendingWritesFlusher.flushPendingPlays()
         Result.success()
     }.getOrElse {
-        if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
+        if (it is PendingWritesStillQueuedException) {
+            Result.retry()
+        } else if (runAttemptCount < MAX_ATTEMPTS) {
+            Result.retry()
+        } else {
+            Result.failure()
+        }
     }
 
     companion object {

@@ -3,6 +3,7 @@ package com.takeya.animeongaku.data.local
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface PendingOpDao {
@@ -18,6 +19,12 @@ interface PendingOpDao {
 
     @Query("SELECT COUNT(*) FROM pending_ops")
     suspend fun count(): Int
+
+    @Query("SELECT COUNT(*) FROM pending_ops WHERE entityType = :entityType")
+    fun observeCountForEntity(entityType: String): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM pending_ops WHERE entityType = :entityType AND attempts > 0")
+    fun observeRetriedCountForEntity(entityType: String): Flow<Int>
 
     @Query("DELETE FROM pending_ops WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
