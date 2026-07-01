@@ -18,24 +18,25 @@ Postgres only uses `POSTGRES_PASSWORD` when `pgdata` is first initialized. If yo
 
 The repository includes deploy scripts for a personal LAN server using this layout:
 
-- Docker/build files: `/dockers/animeongaku`
-- Persistent data: `/data/animeongaku`
+- Docker/build files: `~/dockers/anime-ongaku-server`
+- Persistent data: `~/docker-data/anime-ongaku-server`
+- Host port: `48668` by default, mapped to container port `8080`
 
 PowerShell from Windows:
 
 ```powershell
-.\scripts\deploy-server.ps1 -SshTarget nolan@192.168.1.10 -EnvFile .\server\.env.production
+.\scripts\deploy-server.ps1 -SshTarget nolan@192.168.68.68 -EnvFile .\server\.env.production
 ```
 
 Bash from macOS/Linux/Git Bash:
 
 ```bash
-scripts/deploy-server.sh --host nolan@192.168.1.10 --env-file server/.env.production
+scripts/deploy-server.sh --host nolan@192.168.68.68 --env-file server/.env.production
 ```
 
-The scripts prefer `rsync` for minimal incremental uploads and fall back to a small tarball containing only server build inputs. They do not copy database or media data. On the remote host they create `/data/animeongaku/media` and `/data/animeongaku/postgres`, copy the server Docker files into `/dockers/animeongaku`, run `docker compose -f docker-compose.yml -f docker-compose.lan.yml up -d --build`, and wait for `/healthz`.
+The scripts prefer `rsync` for minimal incremental uploads and fall back to a small tarball containing only server build inputs. They do not copy database or media data. On the remote host they create `~/docker-data/anime-ongaku-server/media` and `~/docker-data/anime-ongaku-server/postgres`, copy the server Docker files into `~/dockers/anime-ongaku-server`, run `docker compose -p anime-ongaku-server -f docker-compose.yml -f docker-compose.lan.yml up -d --build`, and wait for `http://127.0.0.1:48668/healthz`.
 
-Keep the production `.env` out of git. If `/dockers/animeongaku/.env` already exists, future deploys can omit `-EnvFile` / `--env-file`; the remote file is preserved.
+Keep the production `.env` out of git. If `~/dockers/anime-ongaku-server/.env` already exists, future deploys can omit `-EnvFile` / `--env-file`; the remote file is preserved. Use `-HostPort <port>` / `--host-port <port>` if `48668` is already taken.
 
 ## Develop locally
 

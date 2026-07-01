@@ -7,9 +7,10 @@ Usage: scripts/deploy-server.sh --host user@server [options]
 
 Options:
   --host TARGET              SSH target, for example nolan@192.168.1.10.
-  --app NAME                 App name under /data and /dockers. Default: animeongaku.
-  --docker-root PATH         Remote docker root. Default: /dockers.
-  --data-root PATH           Remote data root. Default: /data.
+  --app NAME                 App name under docker/data roots. Default: anime-ongaku-server.
+  --docker-root PATH         Remote docker root, relative to SSH home unless absolute. Default: dockers.
+  --data-root PATH           Remote data root, relative to SSH home unless absolute. Default: docker-data.
+  --host-port PORT           Host port exposed by Docker Compose. Default: 48668.
   --env-file PATH            Copy this local env file to remote .env.
   --allow-default-env        Allow deploy when remote .env is missing.
   --skip-build               Run compose up without --build.
@@ -23,9 +24,10 @@ quote_sh() {
 }
 
 ssh_target=""
-app_name="animeongaku"
-remote_docker_root="/dockers"
-remote_data_root="/data"
+app_name="anime-ongaku-server"
+remote_docker_root="dockers"
+remote_data_root="docker-data"
+host_port=48668
 env_file=""
 allow_default_env=0
 skip_build=0
@@ -38,6 +40,7 @@ while [ "$#" -gt 0 ]; do
     --app) app_name="${2:?}"; shift 2 ;;
     --docker-root) remote_docker_root="${2:?}"; shift 2 ;;
     --data-root) remote_data_root="${2:?}"; shift 2 ;;
+    --host-port) host_port="${2:?}"; shift 2 ;;
     --env-file) env_file="${2:?}"; shift 2 ;;
     --allow-default-env) allow_default_env=1; shift ;;
     --skip-build) skip_build=1; shift ;;
@@ -55,6 +58,13 @@ if [ -z "$ssh_target" ]; then
 fi
 if [ -n "$env_file" ] && [ ! -f "$env_file" ]; then
   echo "Env file does not exist: $env_file" >&2
+  exit 2
+fi
+case "$host_port" in
+  ''|*[!0-9]*) echo "--host-port must be a number between 1 and 65535." >&2; exit 2 ;;
+esac
+if [ "$host_port" -lt 1 ] || [ "$host_port" -gt 65535 ]; then
+  echo "--host-port must be a number between 1 and 65535." >&2
   exit 2
 fi
 
@@ -134,6 +144,7 @@ remote_deploy="
 set -eu
 cd $(quote_sh "$remote_docker_dir")
 export ONGAKU_DATA_ROOT=$(quote_sh "$remote_data_dir")
+export ONGAKU_SERVER_HOST_PORT=$(quote_sh "$host_port")
 if [ ! -f .env ] && [ \"$allow_default_env\" != \"1\" ]; then
   echo \"Missing $remote_docker_dir/.env. Pass --env-file <path> once, or use --allow-default-env intentionally.\" >&2
   exit 3
@@ -150,9 +161,9 @@ fi
 \$DC -p $(quote_sh "$app_name") -f docker-compose.yml -f docker-compose.lan.yml up -d $build_flag
 healthcheck() {
   if command -v curl >/dev/null 2>&1; then
-    curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1
+    curl -fsS http://127.0.0.1:$host_port/healthz >/dev/null 2>&1
   else
-    wget -qO- http://127.0.0.1:8080/healthz >/dev/null 2>&1
+    wget -qO- http://127.0.0.1:$host_port/healthz >/dev/null 2>&1
   fi
 }
 if [ \"$health_timeout\" -gt 0 ]; then

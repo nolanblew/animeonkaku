@@ -1,8 +1,10 @@
+name: anime-ongaku-server
+
 services:
   api:
     build: .
     image: animeongaku-server:latest
-    ports: ["8080:8080"]
+    ports: ["${ONGAKU_SERVER_HOST_PORT:-8080}:8080"]
     environment:
       DATABASE_URL: postgres://ongaku:${DB_PASSWORD:-ongaku-dev}@db:5432/ongaku
       MEDIA_ROOT: /data/media

@@ -3,9 +3,10 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$SshTarget,
 
-    [string]$AppName = "animeongaku",
-    [string]$RemoteDockerRoot = "/dockers",
-    [string]$RemoteDataRoot = "/data",
+    [string]$AppName = "anime-ongaku-server",
+    [string]$RemoteDockerRoot = "dockers",
+    [string]$RemoteDataRoot = "docker-data",
+    [int]$HostPort = 48668,
     [string]$EnvFile = "",
     [switch]$AllowDefaultEnv,
     [switch]$SkipBuild,
@@ -52,6 +53,9 @@ $scpCommand = Resolve-RequiredCommand "scp" @("$env:WINDIR\System32\OpenSSH\scp.
 
 if ($EnvFile -and -not (Test-Path -LiteralPath $EnvFile)) {
     throw "EnvFile does not exist: $EnvFile"
+}
+if ($HostPort -lt 1 -or $HostPort -gt 65535) {
+    throw "HostPort must be between 1 and 65535."
 }
 
 $remoteRootCheck = @"
@@ -139,6 +143,7 @@ $remoteDeploy = @"
 set -eu
 cd $(Quote-Sh $remoteDockerDir)
 export ONGAKU_DATA_ROOT=$(Quote-Sh $remoteDataDir)
+export ONGAKU_SERVER_HOST_PORT=$(Quote-Sh ([string]$HostPort))
 if [ ! -f .env ] && [ "$allowDefaultEnvValue" != "1" ]; then
   echo "Missing $remoteDockerDir/.env. Pass -EnvFile <path> once, or use -AllowDefaultEnv intentionally." >&2
   exit 3
@@ -155,9 +160,9 @@ fi
 `$DC -p $(Quote-Sh $AppName) -f docker-compose.yml -f docker-compose.lan.yml up -d $buildFlag
 healthcheck() {
   if command -v curl >/dev/null 2>&1; then
-    curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1
+    curl -fsS http://127.0.0.1:${HostPort}/healthz >/dev/null 2>&1
   else
-    wget -qO- http://127.0.0.1:8080/healthz >/dev/null 2>&1
+    wget -qO- http://127.0.0.1:${HostPort}/healthz >/dev/null 2>&1
   fi
 }
 if [ "$healthTimeout" -gt 0 ]; then

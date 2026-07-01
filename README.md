@@ -70,7 +70,7 @@ For a personal or device-specific build, set `ONGAKU_SERVER_BASE_URL` before run
 
 ```powershell
 cd .\src
-$env:ONGAKU_SERVER_BASE_URL = 'http://192.168.1.50:8080/api'
+$env:ONGAKU_SERVER_BASE_URL = 'http://192.168.68.68:48668/'
 .\gradlew.bat assembleDebug
 ```
 
@@ -80,28 +80,29 @@ Leave `ONGAKU_SERVER_BASE_URL` unset for the normal editable server URL field. T
 
 The deploy scripts target this host layout:
 
-- `/dockers/animeongaku`: Docker Compose files and server source used to build the image.
-- `/data/animeongaku`: persistent Postgres and media data.
+- `~/dockers/anime-ongaku-server`: Docker Compose files and server source used to build the image.
+- `~/docker-data/anime-ongaku-server`: persistent Postgres and media data.
+- Port `48668` on the host maps to container port `8080`.
 
 PowerShell from Windows:
 
 ```powershell
-.\scripts\deploy-server.ps1 -SshTarget nolan@192.168.1.10 -EnvFile .\server\.env.production
+.\scripts\deploy-server.ps1 -SshTarget nolan@192.168.68.68 -EnvFile .\server\.env.production
 ```
 
 Bash from Linux, macOS, or Git Bash:
 
 ```bash
-scripts/deploy-server.sh --host nolan@192.168.1.10 --env-file server/.env.production
+scripts/deploy-server.sh --host nolan@192.168.68.68 --env-file server/.env.production
 ```
 
-The scripts sync only server build inputs. They exclude `node_modules`, tests, artifacts, build output, and `.env` files, preferring `rsync` when available and otherwise uploading a small tarball. On the remote host they create the `/data/animeongaku` folders, preserve the remote `.env`, run:
+The scripts sync only server build inputs. They exclude `node_modules`, tests, artifacts, build output, and `.env` files, preferring `rsync` when available and otherwise uploading a small tarball. On the remote host they create the `~/docker-data/anime-ongaku-server` folders, preserve the remote `.env`, run:
 
 ```bash
-docker compose -p animeongaku -f docker-compose.yml -f docker-compose.lan.yml up -d --build
+docker compose -p anime-ongaku-server -f docker-compose.yml -f docker-compose.lan.yml up -d --build
 ```
 
-and wait for `/healthz`. After the first deploy creates `/dockers/animeongaku/.env`, future deploys can omit `-EnvFile` / `--env-file`.
+and wait for `http://127.0.0.1:48668/healthz`. After the first deploy creates `~/dockers/anime-ongaku-server/.env`, future deploys can omit `-EnvFile` / `--env-file`. Use `-HostPort <port>` or `--host-port <port>` if `48668` is already taken.
 
 ## Local Development
 
