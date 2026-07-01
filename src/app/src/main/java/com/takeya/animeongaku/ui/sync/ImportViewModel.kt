@@ -11,6 +11,7 @@ import com.takeya.animeongaku.data.remote.OngakuSyncRequest
 import com.takeya.animeongaku.data.repository.LibrarySyncProgress
 import com.takeya.animeongaku.data.repository.ThemeMappingProgress
 import com.takeya.animeongaku.data.server.ServerSettingsStore
+import com.takeya.animeongaku.network.toFriendReadableMessage
 import com.takeya.animeongaku.sync.LibraryPullManager
 import com.takeya.animeongaku.sync.ServerMigrationManager
 import com.takeya.animeongaku.sync.SyncPhase
@@ -153,7 +154,7 @@ class ImportViewModel @Inject constructor(
                 performServerSync(forceFullSync = true)
             } catch (exception: Exception) {
                 _authState.value = _authState.value.copy(
-                    authError = exception.toReadableMessage(prefix = "Server sign-in failed"),
+                    authError = exception.toFriendReadableMessage("Server sign-in failed"),
                     isAuthenticating = false
                 )
             }
@@ -214,7 +215,7 @@ class ImportViewModel @Inject constructor(
                 )
                 pollServerSyncThenPull()
             } catch (exception: Exception) {
-                val message = exception.toReadableMessage(prefix = "Server sync failed")
+                val message = exception.toFriendReadableMessage("Server sync failed")
                 _serverSyncState.value = SyncState(
                     phase = SyncPhase.Error,
                     status = message,
@@ -316,12 +317,7 @@ private data class AuthState(
     val isAuthenticating: Boolean = false
 )
 
-private fun Exception.toReadableMessage(prefix: String): String {
-    return when (this) {
-        is retrofit2.HttpException -> "$prefix (HTTP ${code()}): ${message()}"
-        else -> "$prefix: ${message}"
-    }
-}
+
 
 data class ImportUiState(
     val username: String = "",

@@ -22,7 +22,7 @@ class LibraryPullManager @Inject constructor(
     private val sideEffects: LibraryPullSideEffects,
     moshi: Moshi,
     private val sessionStateManager: SessionStateManager
-) {
+) : LibraryPuller {
     private val anyAdapter = moshi.adapter(Any::class.java)
 
     suspend fun pullIfStale(
@@ -42,7 +42,7 @@ class LibraryPullManager @Inject constructor(
         return result
     }
 
-    suspend fun pullNow(forceFull: Boolean = false): LibraryPullResult {
+    override suspend fun pullNow(forceFull: Boolean): LibraryPullResult {
         if (!sessionStateManager.isOnlineEnabled()) return LibraryPullResult(applied = false)
         val serverBaseUrl = settings.serverBaseUrl ?: return LibraryPullResult(applied = false)
         sideEffects.flushPendingWrites()
