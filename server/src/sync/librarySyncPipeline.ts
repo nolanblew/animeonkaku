@@ -1,11 +1,13 @@
 import { readdir, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { KitsuAuthError } from "../auth/types.js";
 import { JobPriority } from "../jobs/types.js";
 import type { AnimeThemeEntry, AnimeThemesLookupResult } from "../animethemes/types.js";
 import type { KitsuAnimeEntry, KitsuGenre } from "../kitsu/types.js";
 import type { KitsuCatalogRecord, LibrarySyncPipelineDeps, MapThemesInput, SyncJobInput } from "./types.js";
 
 const DEFAULT_MAPPING_BATCH_SIZE = 50;
+const TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
 
 export class LibrarySyncPipeline {
   private readonly now: () => Date;
@@ -30,13 +32,16 @@ export class LibrarySyncPipeline {
       return;
     }
 
+    const accessToken = await this.accessTokenForSync(input.userId, input.job.id, user);
+    if (!accessToken) return;
+
     await this.updateProgress(input.job.id, { phase: "SYNCING_LIBRARY" });
     const entries = input.full
-      ? await this.deps.kitsu.getLibraryEntries(input.userId, { accessToken: user.accessToken })
+      ? await this.deps.kitsu.getLibraryEntries(input.userId, { accessToken })
       : await this.deps.kitsu.getLibraryEntriesUpdatedSince(
           input.userId,
           (user.lastStatusSyncAt ?? new Date(0)).toISOString(),
-          user.accessToken,
+          accessToken,
         );
 
     await this.deps.repo.upsertKitsuAnime(entries);
@@ -229,7 +234,58 @@ export class LibrarySyncPipeline {
 
   private async updateProgress(id: number, progress: Record<string, unknown>): Promise<void> {
     await this.deps.queue.updateProgress(id, progress);
-}
+  }
+
+  private async accessTokenForSync(
+    userId: string,
+    jobId: number,
+    user: {
+      accessToken: string | null;
+      refreshToken: string | null;
+      tokenExpiresAt: Date | null;
+    },
+  ): Promise<string | null> {
+    if (!user.accessToken) return null;
+    if (!this.shouldRefreshToken(user.tokenExpiresAt)) {
+      return user.accessToken;
+    }
+
+    if (!user.refreshToken || !this.deps.kitsuAuth) {
+      await this.deps.repo.markKitsuReauthRequired(userId);
+      await this.updateProgress(jobId, {
+        phase: "SKIPPED",
+        reason: "REAUTH_REQUIRED",
+      });
+      return null;
+    }
+
+    await this.updateProgress(jobId, { phase: "REFRESHING_KITSU_TOKEN" });
+    try {
+      const tokens = await this.deps.kitsuAuth.refresh(user.refreshToken);
+      const refreshToken = tokens.refreshToken ?? user.refreshToken;
+      await this.deps.repo.updateKitsuTokens(userId, {
+        accessToken: tokens.accessToken,
+        refreshToken,
+        expiresAt: tokens.expiresAt,
+      });
+      return tokens.accessToken;
+    } catch (error) {
+      if (error instanceof KitsuAuthError) {
+        await this.deps.repo.markKitsuReauthRequired(userId);
+        await this.updateProgress(jobId, {
+          phase: "SKIPPED",
+          reason: "REAUTH_REQUIRED",
+        });
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private shouldRefreshToken(expiresAt: Date | null): boolean {
+    if (!expiresAt) return false;
+    return expiresAt.getTime() <= this.now().getTime() + TOKEN_REFRESH_SKEW_MS;
+  }
 
   private async mapBatch(
     batch: string[],

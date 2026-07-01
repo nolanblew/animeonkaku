@@ -20,4 +20,12 @@ export class StubKitsuAuthClient implements KitsuAuthClient {
       expiresAt: new Date(Date.now() + STUB_TOKEN_TTL_MS),
     };
   }
+
+  async refresh() {
+    return {
+      accessToken: "stub-access-token",
+      refreshToken: "stub-refresh-token",
+      expiresAt: new Date(Date.now() + STUB_TOKEN_TTL_MS),
+    };
+  }
 }
