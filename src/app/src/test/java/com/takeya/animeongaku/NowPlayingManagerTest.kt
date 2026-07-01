@@ -160,6 +160,16 @@ class NowPlayingManagerTest {
     }
 
     @Test
+    fun `playNext with empty queue preserves duplicate songs as distinct queue entries`() {
+        manager.playNext(listOf(theme(1), theme(1), theme(2)))
+
+        val state = manager.state.value
+
+        assertEquals(listOf(1L, 1L, 2L), state.nowPlaying.map { it.id })
+        assertEquals(3, state.nowPlayingEntries.map { it.queueId }.toSet().size)
+    }
+
+    @Test
     fun `playNext marks isFullReload false`() {
         manager.play("ctx", listOf(theme(1), theme(2)))
         manager.playNext(theme(99))
@@ -239,6 +249,16 @@ class NowPlayingManagerTest {
         val state = manager.state.value
         assertEquals(listOf(1L, 2L, 3L), state.nowPlaying.map { it.id })
         assertEquals(1L, state.currentTheme?.id)
+    }
+
+    @Test
+    fun `addToQueue with empty queue preserves duplicate songs as distinct queue entries`() {
+        manager.addToQueue(listOf(theme(1), theme(1), theme(2)))
+
+        val state = manager.state.value
+
+        assertEquals(listOf(1L, 1L, 2L), state.nowPlaying.map { it.id })
+        assertEquals(3, state.nowPlayingEntries.map { it.queueId }.toSet().size)
     }
 
     @Test
@@ -633,6 +653,22 @@ class NowPlayingManagerTest {
 
         val state = manager.state.value
         assertEquals(4L, state.nowPlaying[1].id)
+    }
+
+    @Test
+    fun `moveToPlayNext targets duplicate by queue entry identity`() {
+        manager.play("ctx", listOf(theme(1), theme(2), theme(1), theme(3)))
+
+        val firstDuplicateQueueId = manager.state.value.nowPlayingEntries[0].queueId
+        val secondDuplicateQueueId = manager.state.value.nowPlayingEntries[2].queueId
+        manager.moveToPlayNext(2)
+
+        val state = manager.state.value
+
+        assertEquals(listOf(1L, 1L, 2L, 3L), state.nowPlaying.map { it.id })
+        assertEquals(secondDuplicateQueueId, state.nowPlayingEntries[1].queueId)
+        assertEquals(firstDuplicateQueueId, state.nowPlayingEntries[0].queueId)
+        assertEquals(listOf(secondDuplicateQueueId), state.playNextEntryIds)
     }
 
     @Test
