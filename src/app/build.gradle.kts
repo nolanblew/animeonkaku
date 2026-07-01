@@ -42,10 +42,25 @@ val hasGoogleServicesConfig = listOf(
     file("src/release/google-services.json")
 ).any { it.exists() }
 
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use { load(it) }
+    }
+}
+val defaultOngakuServerBaseUrl = "http://takeya.hopto.org:48668/"
 val ongakuServerBaseUrl = providers.environmentVariable("ONGAKU_SERVER_BASE_URL")
     .orNull
     ?.trim()
-    .orEmpty()
+    ?.takeIf { it.isNotEmpty() }
+    ?: providers.gradleProperty("ongakuServerBaseUrl")
+        .orNull
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+    ?: localProperties.getProperty("ongaku.serverBaseUrl")
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+    ?: defaultOngakuServerBaseUrl
 
 if (hasGoogleServicesConfig) {
     apply(plugin = "com.google.gms.google-services")

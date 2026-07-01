@@ -26,7 +26,7 @@ Features include:
 
 ## Server Requirement
 
-Network sync, search, and playback of non-downloaded tracks require a configured Anime Ongaku server URL in the Android settings screen. The server authenticates against Kitsu using either a Kitsu username or email plus password, then exposes stable `/v1/media/audio/{themeId}` URLs to the app.
+Network sync, search, and playback of non-downloaded tracks use the configured Anime Ongaku server URL. Normal builds default to the published server at `http://takeya.hopto.org:48668/`. The server authenticates against Kitsu using either a Kitsu username or email plus password, then exposes stable `/v1/media/audio/{themeId}` URLs to the app.
 
 Already-downloaded files remain playable offline because the Android app keeps its Room cache and downloaded audio files on device.
 
@@ -66,15 +66,26 @@ adb reverse tcp:48668 tcp:48668
 
 ### Build-Time Server URL
 
-For a personal or device-specific build, set `ONGAKU_SERVER_BASE_URL` before running Gradle. Gradle compiles that value into `BuildConfig.ONGAKU_SERVER_BASE_URL`; when present, the Android settings screen shows the server URL as read-only and the app ignores runtime edits to the server URL.
+Gradle compiles `BuildConfig.ONGAKU_SERVER_BASE_URL` into the APK. By default this is `http://takeya.hopto.org:48668/`. For local development, override it before running Gradle with either an environment variable, a Gradle property, or an ignored `src/local.properties` entry:
 
 ```powershell
 cd .\src
-$env:ONGAKU_SERVER_BASE_URL = 'http://192.168.68.68:48668/'
+$env:ONGAKU_SERVER_BASE_URL = 'http://10.0.2.2:48668/'
 .\gradlew.bat assembleDebug
 ```
 
-Leave `ONGAKU_SERVER_BASE_URL` unset for the normal editable server URL field. The compiled value is visible to anyone who can inspect the APK, so treat it as a convenience for small private builds rather than secret storage.
+```powershell
+cd .\src
+.\gradlew.bat assembleDebug -PongakuServerBaseUrl='http://192.168.68.85:48668/'
+```
+
+Or copy `src/local.properties.example` values into `src/local.properties`:
+
+```properties
+ongaku.serverBaseUrl=http://10.0.2.2:48668/
+```
+
+The compiled value is visible to anyone who can inspect the APK, so treat it as convenience configuration rather than secret storage.
 
 ### Deploy the Server to a LAN Host
 
