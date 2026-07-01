@@ -48,7 +48,9 @@ internal fun ThemeEntity.toPlaybackMediaItem(
     activeServerBaseUrl: String? = null
 ): MediaItem {
     val anime = animeId?.let { animeMap[it] }
-    val artworkUrl = anime?.primaryArtworkUrl()?.let { rewriteServerMediaUrl(it, activeServerBaseUrl) }
+    val artworkUrl = anime?.primaryArtworkUrl()
+        ?.let { rewriteServerMediaUrl(it, activeServerBaseUrl) }
+        ?.takeIf { it.isAbsoluteUri() }
     val artworkData = anime?.let(artworkDataForAnime)?.copyOf()
     val animeName = anime?.title
     val typeTag = themeType
@@ -102,6 +104,17 @@ internal fun rewriteServerMediaUrl(url: String, activeServerBaseUrl: String?): S
     val query = source?.encodedQuery ?: trimmed.substringAfter("?", missingDelimiterValue = "")
     val mediaPath = rawPath.mediaRoutePathOrNull() ?: return trimmed
     return activeBase.withJoinedPath(mediaPath, query)
+}
+
+internal fun String.isAbsoluteUri(): Boolean {
+    val schemeSeparator = indexOf(':')
+    if (schemeSeparator <= 0) return false
+    return take(schemeSeparator).withIndex().all { (index, char) ->
+        when {
+            index == 0 -> char.isLetter()
+            else -> char.isLetterOrDigit() || char == '+' || char == '-' || char == '.'
+        }
+    }
 }
 
 private fun String.mediaRoutePathOrNull(): String? {

@@ -3,10 +3,13 @@ package com.takeya.animeongaku
 import androidx.media3.common.MediaItem
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.media.playbackUriString
+import com.takeya.animeongaku.media.isAbsoluteUri
 import com.takeya.animeongaku.media.rewriteServerMediaUrl
 import com.takeya.animeongaku.media.withArtworkData
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlaybackMediaItemsTest {
@@ -94,6 +97,12 @@ class PlaybackMediaItemsTest {
                 activeServerBaseUrl = "http://192.168.173.121:8080/"
             )
         )
+    }
+
+    @Test
+    fun `relative artwork uri is not treated as valid media metadata uri`() {
+        assertFalse("/v1/media/images/anime/4676/cover".isAbsoluteUri())
+        assertTrue("http://192.168.173.121:8080/v1/media/images/anime/4676/cover".isAbsoluteUri())
     }
 
     @Test
