@@ -120,7 +120,7 @@ fun AnimeOngakuApp(
 ) {
     val sessionState by rootSessionViewModel.sessionState.collectAsStateWithLifecycle()
 
-    if (sessionState is SessionState.LoggedOut) {
+    if (sessionState is SessionState.LoggedOut || sessionState is SessionState.InitialSync) {
         LoggedOutGate()
         return
     }
@@ -544,11 +544,7 @@ fun AnimeOngakuApp(
 
 @Composable
 private fun LoggedOutGate() {
-    if (!com.takeya.animeongaku.BuildConfig.DEBUG) {
-        OnboardingScreen(onOpenServerSettings = {})
-        return
-    }
-    // Debug-only: allow reaching a limited settings screen for the server URL.
+    // Allow reaching a limited settings screen before sign-in for private builds.
     val gateNav = rememberNavController()
     NavHost(navController = gateNav, startDestination = "onboarding") {
         composable("onboarding") {

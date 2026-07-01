@@ -4,7 +4,11 @@ import com.takeya.animeongaku.data.repository.AnimeRepository
 import com.takeya.animeongaku.data.repository.ArtistRepository
 import com.takeya.animeongaku.data.repository.ArtistRepositoryImpl
 import com.takeya.animeongaku.data.repository.ServerAnimeRepository
+import com.takeya.animeongaku.sync.InitialLibrarySync
 import com.takeya.animeongaku.sync.LibraryPullServerUserStateRefresher
+import com.takeya.animeongaku.sync.LibraryPullManager
+import com.takeya.animeongaku.sync.LibraryPuller
+import com.takeya.animeongaku.sync.ServerInitialLibrarySync
 import com.takeya.animeongaku.sync.ServerUserStateRefresher
 import dagger.Binds
 import dagger.Module
@@ -28,4 +32,12 @@ abstract class RepositoryModule {
     abstract fun bindServerUserStateRefresher(
         impl: LibraryPullServerUserStateRefresher
     ): ServerUserStateRefresher
+
+    @Binds
+    @Singleton
+    abstract fun bindLibraryPuller(impl: LibraryPullManager): LibraryPuller
+
+    @Binds
+    @Singleton
+    abstract fun bindInitialLibrarySync(impl: ServerInitialLibrarySync): InitialLibrarySync
 }

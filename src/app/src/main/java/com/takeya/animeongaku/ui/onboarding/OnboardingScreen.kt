@@ -47,7 +47,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.takeya.animeongaku.BuildConfig
 import com.takeya.animeongaku.ui.theme.Ember400
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
@@ -166,6 +165,9 @@ fun OnboardingScreen(
                 uiState.error?.let { error ->
                     Text(error, style = MaterialTheme.typography.bodySmall, color = Rose500)
                 }
+                uiState.status?.let { status ->
+                    Text(status, style = MaterialTheme.typography.bodySmall, color = Mist200)
+                }
                 Button(
                     onClick = submit,
                     enabled = uiState.canSubmit,
@@ -184,10 +186,8 @@ fun OnboardingScreen(
                 }
             }
 
-            if (BuildConfig.DEBUG) {
-                TextButton(onClick = onOpenServerSettings) {
-                    Text("Server settings", color = Ember400)
-                }
+            TextButton(onClick = onOpenServerSettings) {
+                Text("Server settings", color = Ember400)
             }
 
             Spacer(Modifier.height(24.dp))
