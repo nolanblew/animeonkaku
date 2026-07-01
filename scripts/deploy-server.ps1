@@ -42,10 +42,15 @@ function Invoke-Logged([string]$FilePath, [string[]]$Arguments) {
     }
 }
 
+function ConvertTo-RemoteShellScript([string]$Script) {
+    return $Script.Replace("`r`n", "`n").Replace("`r", "`n")
+}
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $serverDir = Join-Path $repoRoot "server"
 $remoteDockerDir = "$RemoteDockerRoot/$AppName"
 $remoteDataDir = "$RemoteDataRoot/$AppName"
+$remoteDataDirForCompose = if ($remoteDataDir.StartsWith("/")) { Quote-Sh $remoteDataDir } else { "`$HOME/$(Quote-Sh $remoteDataDir)" }
 $remoteArchive = "/tmp/$AppName-deploy.tgz"
 
 $sshCommand = Resolve-RequiredCommand "ssh" @("$env:WINDIR\System32\OpenSSH\ssh.exe")
@@ -71,7 +76,7 @@ if ($DryRun) {
     Write-Host "Dry run: would prepare remote directories:"
     Write-Host $remoteRootCheck
 } else {
-    Invoke-Logged $sshCommand @($SshTarget, $remoteRootCheck)
+    Invoke-Logged $sshCommand @($SshTarget, (ConvertTo-RemoteShellScript $remoteRootCheck))
 }
 
 $rsync = Get-Command "rsync" -ErrorAction SilentlyContinue
@@ -123,7 +128,7 @@ rm -rf src drizzle dist
 tar -xzf $(Quote-Sh $remoteArchive)
 rm -f $(Quote-Sh $remoteArchive)
 "@
-        Invoke-Logged $sshCommand @($SshTarget, $extractCommand)
+        Invoke-Logged $sshCommand @($SshTarget, (ConvertTo-RemoteShellScript $extractCommand))
     }
     Remove-Item -LiteralPath $archivePath -Force -ErrorAction SilentlyContinue
 }
@@ -142,22 +147,22 @@ $healthTimeout = [Math]::Max(0, $HealthTimeoutSeconds)
 $remoteDeploy = @"
 set -eu
 cd $(Quote-Sh $remoteDockerDir)
-export ONGAKU_DATA_ROOT=$(Quote-Sh $remoteDataDir)
+export ONGAKU_DATA_ROOT=$remoteDataDirForCompose
 export ONGAKU_SERVER_HOST_PORT=$(Quote-Sh ([string]$HostPort))
 if [ ! -f .env ] && [ "$allowDefaultEnvValue" != "1" ]; then
   echo "Missing $remoteDockerDir/.env. Pass -EnvFile <path> once, or use -AllowDefaultEnv intentionally." >&2
   exit 3
 fi
 if docker compose version >/dev/null 2>&1; then
-  DC="docker compose"
+  dc() { docker compose "`$@"; }
 elif command -v docker-compose >/dev/null 2>&1; then
-  DC="docker-compose"
+  dc() { docker-compose "`$@"; }
 else
   echo "Docker Compose is not installed on the remote host." >&2
   exit 4
 fi
-`$DC -p $(Quote-Sh $AppName) -f docker-compose.yml -f docker-compose.lan.yml config >/dev/null
-`$DC -p $(Quote-Sh $AppName) -f docker-compose.yml -f docker-compose.lan.yml up -d $buildFlag
+dc -p $(Quote-Sh $AppName) -f docker-compose.yml -f docker-compose.lan.yml config >/dev/null
+dc -p $(Quote-Sh $AppName) -f docker-compose.yml -f docker-compose.lan.yml up -d $buildFlag
 healthcheck() {
   if command -v curl >/dev/null 2>&1; then
     curl -fsS http://127.0.0.1:${HostPort}/healthz >/dev/null 2>&1
@@ -170,19 +175,19 @@ if [ "$healthTimeout" -gt 0 ]; then
   until healthcheck; do
     if [ "`$(date +%s)" -ge "`$deadline" ]; then
       echo "Health check failed after ${healthTimeout}s" >&2
-      `$DC -p $(Quote-Sh $AppName) -f docker-compose.yml -f docker-compose.lan.yml ps >&2
-      `$DC -p $(Quote-Sh $AppName) -f docker-compose.yml -f docker-compose.lan.yml logs --tail=80 api >&2
+      dc -p $(Quote-Sh $AppName) -f docker-compose.yml -f docker-compose.lan.yml ps >&2
+      dc -p $(Quote-Sh $AppName) -f docker-compose.yml -f docker-compose.lan.yml logs --tail=80 api >&2
       exit 5
     fi
     sleep 2
   done
 fi
-`$DC -p $(Quote-Sh $AppName) -f docker-compose.yml -f docker-compose.lan.yml ps
+dc -p $(Quote-Sh $AppName) -f docker-compose.yml -f docker-compose.lan.yml ps
 "@
 
 if ($DryRun) {
     Write-Host "Dry run: would run remote deploy:"
     Write-Host $remoteDeploy
 } else {
-    Invoke-Logged $sshCommand @($SshTarget, $remoteDeploy)
+    Invoke-Logged $sshCommand @($SshTarget, (ConvertTo-RemoteShellScript $remoteDeploy))
 }
