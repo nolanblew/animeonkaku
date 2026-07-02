@@ -10,4 +10,5 @@
     <color name="gold_400">#FFD166</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="ic_launcher_bg">#6555EA</color>
 </resources>
