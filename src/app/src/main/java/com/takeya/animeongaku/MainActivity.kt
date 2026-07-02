@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.tooling.preview.Preview
 import com.takeya.animeongaku.ui.theme.AnimeOngakuTheme
 import com.takeya.animeongaku.ui.AnimeOngakuApp
+import com.takeya.animeongaku.data.auth.SessionState
 import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.sync.AutoPlaylistManager
@@ -38,6 +39,7 @@ class MainActivity : ComponentActivity() {
     
     private var periodicSyncJob: Job? = null
     private var handledInitialServerStart = false
+    private var isForeground = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -57,6 +59,12 @@ class MainActivity : ComponentActivity() {
             autoPlaylistManager.refreshAutoPlaylists()
         }
 
+        lifecycleScope.launch {
+            sessionStateManager.state.collect { state ->
+                updateForegroundServerWork(state)
+            }
+        }
+
         setContent {
             AnimeOngakuTheme {
                 AnimeOngakuApp(
@@ -69,31 +77,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        if (serverSettingsStore.isConfigured && sessionStateManager.isOnlineEnabled()) {
-            if (handledInitialServerStart) {
-                requestServerPullIfStale(WARM_RESUME_PULL_INTERVAL_MS)
-            } else {
-                handledInitialServerStart = true
-            }
-
-            periodicSyncJob = lifecycleScope.launch {
-                while (true) {
-                    delay(FOREGROUND_PULL_INTERVAL_MS)
-                    runCatching {
-                        libraryPullManager.pullIfStale(FOREGROUND_PULL_INTERVAL_MS)
-                    }
-                }
-            }
-            return
-        }
-
-        autoPlaylistManager.refreshAutoPlaylists()
+        isForeground = true
+        updateForegroundServerWork(sessionStateManager.state.value)
     }
 
     override fun onStop() {
         super.onStop()
-        periodicSyncJob?.cancel()
-        periodicSyncJob = null
+        isForeground = false
+        stopActiveRefreshLoop()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -112,10 +103,49 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun updateForegroundServerWork(state: SessionState) {
+        if (!isForeground) return
+        if (serverSettingsStore.isConfigured && state is SessionState.Active) {
+            if (handledInitialServerStart) {
+                requestServerPullIfStale(WARM_RESUME_PULL_INTERVAL_MS)
+            } else {
+                handledInitialServerStart = true
+            }
+            startActiveRefreshLoop()
+            return
+        }
+
+        stopActiveRefreshLoop()
+        autoPlaylistManager.refreshAutoPlaylists()
+    }
+
+    private fun startActiveRefreshLoop() {
+        if (periodicSyncJob != null) return
+        // Active-refresh loop: while the app is foregrounded, pull server
+        // changes every minute so anything the server adds in the background
+        // (new mappings, confirmed themes) shows up in the UI via Room flows
+        // without a manual refresh. Each pull is a cheap cursor-based delta,
+        // and hitting the API also arms the server's own device-activity
+        // delta sync when the user has been away for a few hours.
+        periodicSyncJob = lifecycleScope.launch {
+            while (true) {
+                delay(ACTIVE_REFRESH_INTERVAL_MS)
+                runCatching {
+                    libraryPullManager.pullIfStale(ACTIVE_REFRESH_INTERVAL_MS)
+                }
+            }
+        }
+    }
+
+    private fun stopActiveRefreshLoop() {
+        periodicSyncJob?.cancel()
+        periodicSyncJob = null
+    }
+
     private companion object {
         const val COLD_START_PULL_INTERVAL_MS = 5 * 60 * 1000L
         const val WARM_RESUME_PULL_INTERVAL_MS = 60 * 60 * 1000L
-        const val FOREGROUND_PULL_INTERVAL_MS = 2 * 60 * 60 * 1000L
+        const val ACTIVE_REFRESH_INTERVAL_MS = 60 * 1000L
     }
 }
 

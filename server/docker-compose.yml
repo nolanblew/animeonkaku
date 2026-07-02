@@ -11,7 +11,7 @@ services:
       KITSU_CLIENT_ID: ${KITSU_CLIENT_ID:-}
       KITSU_CLIENT_SECRET: ${KITSU_CLIENT_SECRET:-}
       KITSU_AUTH_MODE: ${KITSU_AUTH_MODE:-stub}
-      SYNC_INTERVAL_MINUTES: "360"
+      SYNC_INTERVAL_MINUTES: "10080"
       AUDIO_BACKFILL_DELAY_SECONDS: "8"
     volumes:
       - media:/data/media

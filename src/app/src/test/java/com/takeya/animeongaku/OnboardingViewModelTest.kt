@@ -3,7 +3,9 @@ package com.takeya.animeongaku
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import com.takeya.animeongaku.data.auth.OngakuAuthRepository
+import com.takeya.animeongaku.data.auth.ServerLoginResult
 import com.takeya.animeongaku.data.auth.ServerSession
+import com.takeya.animeongaku.data.auth.ServerSyncMode
 import com.takeya.animeongaku.data.auth.SessionState
 import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.auth.ServerTokenStore
@@ -43,7 +45,8 @@ class OnboardingViewModelTest {
 
     private class FakeAuthRepo(
         private val result: ServerSession? = null,
-        private val error: Exception? = null
+        private val error: Exception? = null,
+        private val syncMode: ServerSyncMode = ServerSyncMode.FULL
     ) : OngakuAuthRepository {
         var loginCalls = 0
         var cleared = false
@@ -53,11 +56,11 @@ class OnboardingViewModelTest {
             password: String,
             deviceName: String,
             legacyLibraryImport: OngakuLegacyLibraryImport?
-        ): ServerSession {
+        ): ServerLoginResult {
             loginCalls++
             legacyImport = legacyLibraryImport
             error?.let { throw it }
-            return result!!
+            return ServerLoginResult(session = result!!, syncMode = syncMode)
         }
         override fun currentSession(): ServerSession? = null
         override fun clearSession() {
@@ -76,10 +79,15 @@ class OnboardingViewModelTest {
         private val error: Exception? = null
     ) : InitialLibrarySync {
         var calls = 0
+        var lastMode: ServerSyncMode? = null
         val statuses = mutableListOf<String>()
 
-        override suspend fun runFullSync(onProgress: (FirstSyncProgress) -> Unit) {
+        override suspend fun runInitialSync(
+            mode: ServerSyncMode,
+            onProgress: (FirstSyncProgress) -> Unit
+        ) {
             calls++
+            lastMode = mode
             onProgress(FirstSyncProgress(FirstSyncStep.SyncLibrary, "Server sync queued"))
             statuses += "Server sync queued"
             error?.let { throw it }
@@ -120,7 +128,10 @@ class OnboardingViewModelTest {
         val session = ServerSession("tok", "uid", "nblew")
         val sessionState = SessionStateManager(ServerTokenStore(FakeSharedPreferences()))
         val sync = object : InitialLibrarySync {
-            override suspend fun runFullSync(onProgress: (FirstSyncProgress) -> Unit) {
+            override suspend fun runInitialSync(
+                mode: ServerSyncMode,
+                onProgress: (FirstSyncProgress) -> Unit
+            ) {
                 onProgress(FirstSyncProgress(FirstSyncStep.SyncLibrary, "Server sync: syncing library"))
                 kotlinx.coroutines.delay(1)
                 onProgress(FirstSyncProgress(FirstSyncStep.MatchThemes, "Server sync: mapping themes"))
@@ -156,10 +167,50 @@ class OnboardingViewModelTest {
     }
 
     @Test
+    fun `delta login runs a delta initial sync and flags the ui state as delta`() = runTest(dispatcher) {
+        val session = ServerSession("tok", "uid", "nblew")
+        val sessionState = SessionStateManager(ServerTokenStore(FakeSharedPreferences()))
+        var receivedMode: ServerSyncMode? = null
+        val sync = object : InitialLibrarySync {
+            override suspend fun runInitialSync(
+                mode: ServerSyncMode,
+                onProgress: (FirstSyncProgress) -> Unit
+            ) {
+                receivedMode = mode
+                onProgress(FirstSyncProgress(FirstSyncStep.SyncLibrary, "Checking for library updates..."))
+                kotlinx.coroutines.delay(1)
+                onProgress(FirstSyncProgress(FirstSyncStep.LoadDevice, "Library ready"))
+            }
+        }
+        val vm = OnboardingViewModel(
+            FakeAuthRepo(result = session, syncMode = ServerSyncMode.DELTA),
+            sessionState,
+            settings(true),
+            sync,
+            parser()
+        )
+
+        vm.onUsernameChange("nblew")
+        vm.onPasswordChange("pw")
+        vm.signIn()
+
+        dispatcher.scheduler.runCurrent()
+        assertEquals(true, vm.uiState.value.firstSync?.isDelta)
+
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(ServerSyncMode.DELTA, receivedMode)
+        assertEquals(null, vm.uiState.value.firstSync)
+        assertEquals(SessionState.Active(session), sessionState.state.value)
+    }
+
+    @Test
     fun `first sync failure clears the first sync ui state`() = runTest(dispatcher) {
         val session = ServerSession("tok", "uid", "nblew")
         val sync = object : InitialLibrarySync {
-            override suspend fun runFullSync(onProgress: (FirstSyncProgress) -> Unit) {
+            override suspend fun runInitialSync(
+                mode: ServerSyncMode,
+                onProgress: (FirstSyncProgress) -> Unit
+            ) {
                 onProgress(FirstSyncProgress(FirstSyncStep.SyncLibrary, "Server sync queued"))
                 throw RuntimeException("server offline")
             }

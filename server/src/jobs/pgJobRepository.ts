@@ -27,7 +27,18 @@ export class PgJobRepository implements JobRepository {
         VALUES ($1, $2, $3::jsonb, $4, $5, $6)
         ON CONFLICT (dedupe_key) DO UPDATE
           SET state = 'QUEUED',
-              priority = LEAST(jobs.priority, EXCLUDED.priority),
+              type = CASE
+                WHEN jobs.dedupe_key LIKE 'KITSU_SYNC:%'
+                  AND jobs.state IN ('QUEUED', 'FAILED')
+                  AND (jobs.type = 'KITSU_FULL_SYNC' OR EXCLUDED.type = 'KITSU_FULL_SYNC')
+                  THEN 'KITSU_FULL_SYNC'
+                ELSE EXCLUDED.type
+              END,
+              priority = CASE
+                WHEN jobs.state IN ('QUEUED', 'FAILED')
+                  THEN LEAST(jobs.priority, EXCLUDED.priority)
+                ELSE EXCLUDED.priority
+              END,
               payload = EXCLUDED.payload,
               max_attempts = EXCLUDED.max_attempts,
               attempts = 0,

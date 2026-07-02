@@ -20,6 +20,7 @@ import com.takeya.animeongaku.data.remote.OngakuSyncRequest
 import com.takeya.animeongaku.data.remote.OngakuSyncStatusResponse
 import com.takeya.animeongaku.data.remote.OngakuThemePrefDto
 import com.takeya.animeongaku.data.remote.OngakuThemePrefPatch
+import com.takeya.animeongaku.data.auth.ServerSyncMode
 import com.takeya.animeongaku.sync.FirstSyncProgress
 import com.takeya.animeongaku.sync.InitialLibrarySyncException
 import com.takeya.animeongaku.sync.LibraryPuller
@@ -77,7 +78,7 @@ class ServerInitialLibrarySyncTest {
         val puller = FakeLibraryPuller()
         val progress = mutableListOf<FirstSyncProgress>()
 
-        sync(api, puller).runFullSync { progress += it }
+        sync(api, puller).runInitialSync { progress += it }
 
         assertEquals(true, api.lastSyncRequest?.full)
         assertEquals(1, puller.pullCalls)
@@ -90,6 +91,23 @@ class ServerInitialLibrarySyncTest {
     }
 
     @Test
+    fun `delta mode requests a delta server sync but still fully loads the device`() = runTest {
+        val api = StatusScriptOngakuApi(
+            listOf(
+                { status("RUNNING", phase = "KITSU_DELTA_SYNC") },
+                { status("DONE", phase = "DONE") }
+            )
+        )
+        val puller = FakeLibraryPuller()
+
+        sync(api, puller).runInitialSync(ServerSyncMode.DELTA)
+
+        assertEquals(false, api.lastSyncRequest?.full)
+        assertEquals(1, puller.pullCalls)
+        assertEquals(true, puller.lastForceFull)
+    }
+
+    @Test
     fun `failed server sync throws instead of leaving the app waiting`() = runTest {
         val api = StatusScriptOngakuApi(
             listOf(
@@ -99,7 +117,7 @@ class ServerInitialLibrarySyncTest {
         )
 
         try {
-            sync(api).runFullSync()
+            sync(api).runInitialSync()
             fail("expected InitialLibrarySyncException")
         } catch (e: InitialLibrarySyncException) {
             assertTrue(e.message!!.contains("kitsu unavailable"))
@@ -117,7 +135,7 @@ class ServerInitialLibrarySyncTest {
         )
         val puller = FakeLibraryPuller()
 
-        sync(api, puller).runFullSync()
+        sync(api, puller).runInitialSync()
 
         assertEquals(1, puller.pullCalls)
     }
@@ -127,7 +145,7 @@ class ServerInitialLibrarySyncTest {
         val api = StatusScriptOngakuApi(List(10) { { throw IOException("timeout") } })
 
         try {
-            sync(api).runFullSync()
+            sync(api).runInitialSync()
             fail("expected InitialLibrarySyncException")
         } catch (e: InitialLibrarySyncException) {
             assertTrue(e.message!!.contains("Lost connection"))
@@ -144,7 +162,7 @@ class ServerInitialLibrarySyncTest {
         subject.stallTimeoutMs = 5 * 60_000L
 
         try {
-            subject.runFullSync()
+            subject.runInitialSync()
             fail("expected InitialLibrarySyncException")
         } catch (e: InitialLibrarySyncException) {
             assertTrue(e.message!!.contains("stopped making progress"))

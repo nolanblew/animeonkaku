@@ -51,7 +51,8 @@ export interface SyncRepository {
   getFailedAudioThemeIds?(): Promise<number[]>;
   markAudioMediaMissing?(themeIds: string[]): Promise<void>;
   listReadyMediaFilePaths?(): Promise<string[]>;
-  listActiveUserIds?(): Promise<string[]>;
+  listActiveUserIds?(activeAfter?: Date): Promise<string[]>;
+  deactivateInactiveUsers?(activeAfter: Date): Promise<string[]>;
 }
 
 export interface KitsuClientLike

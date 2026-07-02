@@ -16,7 +16,7 @@ class OngakuAuthRepositoryImpl @Inject constructor(
         password: String,
         deviceName: String,
         legacyLibraryImport: OngakuLegacyLibraryImport?
-    ): ServerSession {
+    ): ServerLoginResult {
         val response = api.login(
             OngakuLoginRequest(
                 username = username,
@@ -31,7 +31,11 @@ class OngakuAuthRepositoryImpl @Inject constructor(
             username = response.user.username
         )
         tokenStore.save(session)
-        return session
+        return ServerLoginResult(
+            session = session,
+            // Older servers omit syncMode; a full first sync is always safe.
+            syncMode = if (response.syncMode == "DELTA") ServerSyncMode.DELTA else ServerSyncMode.FULL
+        )
     }
 
     override fun currentSession(): ServerSession? = tokenStore.currentSession()

@@ -18,7 +18,9 @@ const EnvSchema = z.object({
     z.string().default(PUBLIC_KITSU_CLIENT_SECRET),
   ),
   KITSU_AUTH_MODE: z.enum(["stub", "real"]).default("stub"),
-  SYNC_INTERVAL_MINUTES: z.coerce.number().int().positive().default(360),
+  // Per-user periodic full sync cadence. Freshness between weekly full syncs
+  // comes from login/device-activity delta triggers.
+  SYNC_INTERVAL_MINUTES: z.coerce.number().int().positive().default(10080),
   AUDIO_BACKFILL_DELAY_SECONDS: z.coerce.number().int().nonnegative().default(8),
   // Override the AnimeThemes API origin to route through an operator-controlled
   // mirror/reverse-proxy when the public host hard-blocks this server's IP
