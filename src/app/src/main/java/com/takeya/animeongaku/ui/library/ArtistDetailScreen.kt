@@ -53,7 +53,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.AnimeEntity
-import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
@@ -104,6 +103,7 @@ fun ArtistDetailScreen(
 
     sheetTheme?.let { theme ->
         val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
+        val sheetAnimeImageUrls = sheetAnime?.primaryArtworkUrls() ?: emptyList()
         val info = theme.displayInfo(sheetAnime)
         val songInLibrary = theme.id in libraryThemeIds
         val isDownloaded = theme.id in downloadedThemeIds
@@ -115,7 +115,8 @@ fun ArtistDetailScreen(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.primaryArtworkUrl(),
+                imageUrl = sheetAnimeImageUrls.firstOrNull(),
+                imageUrls = sheetAnimeImageUrls,
                 showGoToAnime = sheetAnime?.kitsuId != null,
                 animeName = sheetAnime?.title,
                 showAddToLibrary = !songInLibrary,

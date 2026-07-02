@@ -72,7 +72,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeEntity
-import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.ui.common.ActionSheet
@@ -149,6 +148,7 @@ fun LibraryScreen(
 
     sheetTheme?.let { theme ->
         val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
+        val sheetAnimeImageUrls = remember(sheetAnime) { sheetAnime?.primaryArtworkUrls() ?: emptyList() }
         val info = theme.displayInfo(sheetAnime)
         val isDownloaded = theme.id in downloadedThemeIds
         val isDownloading = theme.id in downloadingThemeIds
@@ -159,7 +159,8 @@ fun LibraryScreen(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.primaryArtworkUrl(),
+                imageUrl = sheetAnimeImageUrls.firstOrNull(),
+                imageUrls = sheetAnimeImageUrls,
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 showGoToAnime = sheetAnime?.kitsuId != null,
                 showDownload = !isDownloaded && !isDownloading,
@@ -434,7 +435,7 @@ fun LibraryScreen(
                                 GridCard(
                                     title = animeItem.title,
                                     subtitle = "${animeItem.trackCount} themes",
-                                    imageUrl = animeItem.coverUrl,
+                                    imageUrls = animeItem.coverUrls,
                                     onClick = { onOpenAnime(animeItem.kitsuId) }
                                 )
                             }
@@ -676,7 +677,7 @@ private fun LibraryFilters(
 private fun GridCard(
     title: String,
     subtitle: String,
-    imageUrl: String?,
+    imageUrls: List<String>,
     onClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(14.dp)
@@ -695,9 +696,9 @@ private fun GridCard(
                 .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
                 .background(Ember400.copy(alpha = 0.1f))
         ) {
-            if (!imageUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = imageUrl,
+            if (imageUrls.isNotEmpty()) {
+                FallbackAsyncImage(
+                    urls = imageUrls,
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop

@@ -72,7 +72,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.PlaylistTrack
-import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
@@ -159,6 +158,7 @@ fun PlaylistDetailScreen(
 
     sheetTheme?.let { theme ->
         val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
+        val sheetAnimeImageUrls = sheetAnime?.primaryArtworkUrls() ?: emptyList()
         val info = theme.displayInfo(sheetAnime)
         val isDownloaded = theme.id in downloadedThemeIds
         val isDownloading = theme.id in downloadingThemeIds
@@ -169,7 +169,8 @@ fun PlaylistDetailScreen(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.primaryArtworkUrl(),
+                imageUrl = sheetAnimeImageUrls.firstOrNull(),
+                imageUrls = sheetAnimeImageUrls,
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 showGoToAnime = sheetAnime?.kitsuId != null,
                 showDownload = !isDownloaded && !isDownloading,

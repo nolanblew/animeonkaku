@@ -62,7 +62,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.AnimeEntity
-import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
@@ -260,12 +259,15 @@ private fun UpNextContent(
         selectedActionEntry?.let { entry ->
             val npIdx = npState.indexOfQueueId(entry.queueId)
             val t = entry.theme
+            val anime = npState.animeMap[t.animeId]
+            val animeImageUrls = anime?.primaryArtworkUrls() ?: emptyList()
             val isDisliked = t.id in dislikedThemeIds
             ActionSheet(
                 config = ActionSheetConfig(
                     title = t.title,
-                    subtitle = npState.animeMap[t.animeId]?.title ?: "Unknown Anime",
-                    imageUrl = npState.animeMap[t.animeId]?.primaryArtworkUrl(),
+                    subtitle = anime?.title ?: "Unknown Anime",
+                    imageUrl = animeImageUrls.firstOrNull(),
+                    imageUrls = animeImageUrls,
                     isSkippedContext = isDisliked,
                     showPlayNext = npIdx >= 0 && npIdx != npState.currentIndex,
                     showAddToQueue = false, showReplaceQueue = false, showSaveToPlaylist = false,

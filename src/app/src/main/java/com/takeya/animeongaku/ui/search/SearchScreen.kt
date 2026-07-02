@@ -58,7 +58,6 @@ import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ArtistTrackCount
 import com.takeya.animeongaku.data.local.PlaylistWithCount
-import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
@@ -119,6 +118,7 @@ fun SearchScreen(
     // Song ActionSheet (local)
     sheetTheme?.let { theme ->
         val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
+        val sheetAnimeImageUrls = sheetAnime?.primaryArtworkUrls() ?: emptyList()
         val info = theme.displayInfo(sheetAnime)
         val isDownloaded = theme.id in downloadedThemeIds
         val isDownloading = theme.id in downloadingThemeIds
@@ -129,7 +129,8 @@ fun SearchScreen(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.primaryArtworkUrl(),
+                imageUrl = sheetAnimeImageUrls.firstOrNull(),
+                imageUrls = sheetAnimeImageUrls,
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 showGoToAnime = sheetAnime?.kitsuId != null,
                 showDownload = !isDownloaded && !isDownloading,
