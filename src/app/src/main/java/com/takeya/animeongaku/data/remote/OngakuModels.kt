@@ -11,6 +11,8 @@ data class OngakuLoginResponse(
     val token: String,
     val user: OngakuUserDto,
     val isNewUser: Boolean,
+    /** "FULL" or "DELTA" — which first-sync the server queued. Null on older servers. */
+    val syncMode: String? = null,
     val legacyLibraryImport: OngakuLegacyLibraryImportSummary? = null
 )
 

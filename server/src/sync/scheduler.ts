@@ -25,7 +25,7 @@ export class SyncScheduler {
 
   start(): void {
     if (this.timers.length > 0) return;
-    const syncMs = (this.options.syncIntervalMinutes ?? 360) * 60_000;
+    const syncMs = (this.options.syncIntervalMinutes ?? 1440) * 60_000;
     this.timers.push(setInterval(() => void this.enqueueDeltaSyncs(), syncMs));
     this.timers.push(setInterval(() => void this.runDailyMaintenance(), 24 * 60 * 60_000));
     this.timers.push(setInterval(() => void this.runWeeklyMaintenance(), 7 * 24 * 60 * 60_000));

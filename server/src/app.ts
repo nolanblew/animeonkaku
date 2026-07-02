@@ -11,7 +11,7 @@ import { registerHealthRoutes, type HealthDeps } from "./api/healthRoutes.js";
 import { registerMediaRoutes, type MediaStreamingService } from "./api/mediaRoutes.js";
 import { registerProxyRoutes, type ProxyApiService } from "./api/proxyRoutes.js";
 import type { AuthService, LoginResult } from "./auth/service.js";
-import { KitsuAuthError } from "./auth/types.js";
+import { KitsuAuthError, type UserRecord } from "./auth/types.js";
 import { registerJobAdminRoutes, type JobAdminService } from "./jobs/adminRoutes.js";
 import type { LegacyLibraryImportService } from "./legacyLibraryImport.js";
 import { registerSyncRoutes, type SyncApiService } from "./api/syncRoutes.js";
@@ -26,6 +26,11 @@ export interface AppDeps {
   proxyApi?: ProxyApiService;
   legacyLibraryImport?: LegacyLibraryImportService;
   onLogin?: (result: LoginResult) => Promise<void>;
+  /**
+   * Fires after every request that carried a valid session (post-response, so
+   * it never adds latency). Drives the device-activity sync trigger.
+   */
+  onAuthenticatedRequest?: (user: UserRecord) => Promise<void>;
   logger?: boolean;
 }
 
@@ -34,6 +39,19 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+
+  if (deps.onAuthenticatedRequest) {
+    const onAuthenticatedRequest = deps.onAuthenticatedRequest;
+    app.addHook("onResponse", async (request) => {
+      const user = request.auth?.user;
+      if (!user) return;
+      try {
+        await onAuthenticatedRequest(user);
+      } catch (error) {
+        request.log.warn({ err: error }, "onAuthenticatedRequest hook failed");
+      }
+    });
+  }
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof KitsuAuthError) {

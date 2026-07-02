@@ -1,5 +1,6 @@
 package com.takeya.animeongaku.sync
 
+import com.takeya.animeongaku.data.auth.ServerSyncMode
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.remote.OngakuSyncRequest
 import javax.inject.Inject
@@ -12,7 +13,10 @@ interface LibraryPuller {
 }
 
 interface InitialLibrarySync {
-    suspend fun runFullSync(onProgress: (FirstSyncProgress) -> Unit = {})
+    suspend fun runInitialSync(
+        mode: ServerSyncMode = ServerSyncMode.FULL,
+        onProgress: (FirstSyncProgress) -> Unit = {}
+    )
 }
 
 class InitialLibrarySyncException(message: String) : Exception(message)
@@ -36,9 +40,16 @@ class ServerInitialLibrarySync @Inject constructor(
     internal var stallTimeoutMs: Long = SERVER_SYNC_STALL_TIMEOUT_MS
     internal var clock: () -> Long = System::currentTimeMillis
 
-    override suspend fun runFullSync(onProgress: (FirstSyncProgress) -> Unit) {
-        onProgress(FirstSyncProgress(FirstSyncStep.SyncLibrary, "Starting your first library sync..."))
-        api.startSync(OngakuSyncRequest(full = true))
+    override suspend fun runInitialSync(
+        mode: ServerSyncMode,
+        onProgress: (FirstSyncProgress) -> Unit
+    ) {
+        val startMessage = when (mode) {
+            ServerSyncMode.FULL -> "Starting your first library sync..."
+            ServerSyncMode.DELTA -> "Checking for library updates..."
+        }
+        onProgress(FirstSyncProgress(FirstSyncStep.SyncLibrary, startMessage))
+        api.startSync(OngakuSyncRequest(full = mode == ServerSyncMode.FULL))
         onProgress(FirstSyncProgress(FirstSyncStep.SyncLibrary, "Server sync queued"))
 
         var consecutivePollFailures = 0

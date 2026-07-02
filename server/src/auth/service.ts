@@ -12,6 +12,17 @@ import {
 // non-null expiresAt column (no schema migration). See .planning/tether/03-backend-handoff.md.
 export const SESSION_TTL_MS = 100 * 365 * 24 * 60 * 60 * 1000;
 
+/**
+ * A returning user whose server library was synced within this window gets a
+ * DELTA first-sync at login (the 24h scheduler keeps them fresh anyway); any
+ * longer and we re-run a FULL library sync. Full sync only refreshes the
+ * library (tombstoning removed entries) — playlists, likes/dislikes, and play
+ * counts are never touched by it.
+ */
+export const FULL_RESYNC_AFTER_MS = 180 * 24 * 60 * 60 * 1000;
+
+export type LoginSyncMode = "FULL" | "DELTA";
+
 export interface LoginInput {
   username: string;
   password: string;
@@ -22,6 +33,8 @@ export interface LoginResult {
   token: string;
   user: { kitsuUserId: string; username: string };
   isNewUser: boolean;
+  /** Which first-sync the server will run (and the client should present). */
+  syncMode: LoginSyncMode;
 }
 
 export interface AuthContext {
@@ -45,10 +58,15 @@ export interface MeResult {
 }
 
 export class AuthService {
+  private readonly now: () => Date;
+
   constructor(
     private readonly repo: AuthRepo,
     private readonly kitsu: KitsuAuthClient,
-  ) {}
+    options: { now?: () => Date } = {},
+  ) {
+    this.now = options.now ?? (() => new Date());
+  }
 
   /** Kitsu password grant via the injected client, then local user + device session. */
   async login(input: LoginInput): Promise<LoginResult> {
@@ -73,7 +91,19 @@ export class AuthService {
       token,
       user: { kitsuUserId: user.kitsuUserId, username: user.username },
       isNewUser: created,
+      syncMode: this.resolveSyncMode(created, user.lastSyncAt),
     };
+  }
+
+  /**
+   * New users and users whose library hasn't synced on this server within
+   * FULL_RESYNC_AFTER_MS need a FULL library sync; everyone else just gets a
+   * DELTA to pick up whatever changed since the server's last (auto) sync.
+   */
+  private resolveSyncMode(created: boolean, lastSyncAt: Date | null): LoginSyncMode {
+    if (created || !lastSyncAt) return "FULL";
+    const age = this.now().getTime() - lastSyncAt.getTime();
+    return age >= FULL_RESYNC_AFTER_MS ? "FULL" : "DELTA";
   }
 
   /** Resolves a bearer token to its user+session; null when unknown or expired. */

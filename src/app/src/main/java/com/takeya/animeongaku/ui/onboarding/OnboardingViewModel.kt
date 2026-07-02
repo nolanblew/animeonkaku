@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.takeya.animeongaku.data.auth.OngakuAuthRepository
+import com.takeya.animeongaku.data.auth.ServerSyncMode
 import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.importer.LegacyLibraryImportParseException
 import com.takeya.animeongaku.data.importer.LegacyLibraryImportParser
@@ -25,14 +26,17 @@ data class FirstSyncUiState(
     val stepNumber: Int,
     val totalSteps: Int,
     val stepTitle: String,
-    val message: String
+    val message: String,
+    /** Delta first-sync shows a single "getting up-to-date" screen, not the carousel. */
+    val isDelta: Boolean = false
 )
 
-fun FirstSyncProgress.toUiState(): FirstSyncUiState = FirstSyncUiState(
+fun FirstSyncProgress.toUiState(isDelta: Boolean): FirstSyncUiState = FirstSyncUiState(
     stepNumber = step.stepNumber,
     totalSteps = FirstSyncStep.totalSteps,
     stepTitle = step.title,
-    message = message
+    message = message,
+    isDelta = isDelta
 )
 
 data class OnboardingUiState(
@@ -137,17 +141,19 @@ class OnboardingViewModel @Inject constructor(
             var loggedIn = false
             _uiState.update { it.copy(isSubmitting = true, status = "Signing in...", error = null) }
             try {
-                val session = authRepository.login(
+                val login = authRepository.login(
                     username,
                     password,
                     deviceName(),
                     selectedLegacyImport?.payload
                 )
+                val session = login.session
+                val isDelta = login.syncMode == ServerSyncMode.DELTA
                 sessionStateManager.onInitialSync(session)
                 loggedIn = true
-                initialLibrarySync.runFullSync { progress ->
+                initialLibrarySync.runInitialSync(login.syncMode) { progress ->
                     _uiState.update {
-                        it.copy(status = progress.message, firstSync = progress.toUiState())
+                        it.copy(status = progress.message, firstSync = progress.toUiState(isDelta))
                     }
                 }
                 sessionStateManager.onLogin(session)

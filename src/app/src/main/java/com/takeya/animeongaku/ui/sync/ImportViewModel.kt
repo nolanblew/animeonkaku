@@ -139,7 +139,7 @@ class ImportViewModel @Inject constructor(
                     username = username,
                     password = password,
                     deviceName = deviceName()
-                )
+                ).session
                 sessionStateManager.onLogin(session)
                 _authState.value = _authState.value.copy(
                     username = session.username,

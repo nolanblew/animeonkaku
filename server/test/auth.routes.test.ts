@@ -79,6 +79,39 @@ describe("POST /v1/auth/login", () => {
     expect(repo.sessions.size).toBe(2);
   });
 
+  it("recommends a FULL sync for brand-new users", async () => {
+    const res = await login();
+    expect(res.json().syncMode).toBe("FULL");
+  });
+
+  it("recommends a DELTA sync for returning users synced within 6 months", async () => {
+    await login("nolan", "Pixel 9");
+    repo.users.get("stub-nolan")!.lastSyncAt = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    const res = await login("nolan", "Tablet");
+
+    expect(res.json().isNewUser).toBe(false);
+    expect(res.json().syncMode).toBe("DELTA");
+  });
+
+  it("recommends a FULL sync for returning users whose last sync is older than 6 months", async () => {
+    await login("nolan", "Pixel 9");
+    repo.users.get("stub-nolan")!.lastSyncAt = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000);
+
+    const res = await login("nolan", "Tablet");
+
+    expect(res.json().isNewUser).toBe(false);
+    expect(res.json().syncMode).toBe("FULL");
+  });
+
+  it("recommends a FULL sync for returning users who never completed a sync", async () => {
+    await login("nolan", "Pixel 9");
+
+    const res = await login("nolan", "Tablet");
+
+    expect(res.json().syncMode).toBe("FULL");
+  });
+
   it("imports legacy library preferences during login when provided", async () => {
     const res = await app.inject({
       method: "POST",
@@ -259,6 +292,37 @@ describe("GET /v1/auth/me", () => {
     const ttl = session!.expiresAt.getTime() - before;
     expect(ttl).toBeGreaterThan(SESSION_TTL_MS - 60_000);
     expect(ttl).toBeLessThanOrEqual(SESSION_TTL_MS + 60_000);
+  });
+});
+
+describe("onAuthenticatedRequest hook", () => {
+  it("fires with the user after authenticated requests only", async () => {
+    const seen: string[] = [];
+    const hookRepo = new FakeAuthRepo();
+    const hookApp = buildApp({
+      authService: new AuthService(hookRepo, new StubKitsuAuthClient()),
+      health: { pingDb: async () => {}, mediaRoot },
+      onAuthenticatedRequest: async (user) => {
+        seen.push(user.kitsuUserId);
+      },
+    });
+
+    const loginRes = await hookApp.inject({
+      method: "POST",
+      url: "/v1/auth/login",
+      payload: { username: "nolan", password: "hunter2", deviceName: "Pixel 9" },
+    });
+    const token = loginRes.json().token as string;
+
+    await hookApp.inject({ method: "GET", url: "/v1/auth/me" }); // unauthenticated → no fire
+    await hookApp.inject({
+      method: "GET",
+      url: "/v1/auth/me",
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(seen).toEqual(["stub-nolan"]);
+    await hookApp.close();
   });
 });
 

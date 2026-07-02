@@ -30,6 +30,7 @@ import {
 } from "./media/index.js";
 import {
   createSyncJobHandlers,
+  DeviceActivitySyncTrigger,
   DrizzleSyncRepository,
   LibrarySyncPipeline,
   SyncScheduler,
@@ -117,6 +118,7 @@ const syncScheduler = new SyncScheduler({
 syncScheduler.start();
 
 const clientApi = new DrizzleClientApiService(db, jobQueue);
+const deviceActivitySync = new DeviceActivitySyncTrigger({ queue: jobQueue });
 
 const app = buildApp({
   authService: new AuthService(
@@ -144,14 +146,18 @@ const app = buildApp({
     upstream: new UpstreamProxyService(animeThemesClient, kitsuClient, syncRepo),
   }),
   onLogin: async (result) => {
-    if (!result.isNewUser) return;
+    // New users and long-dormant libraries get a FULL sync; recently synced
+    // users just get a HIGH-priority delta ("did they add something since the
+    // server's last auto-sync?"). Full sync never touches playlists/prefs.
+    const type = result.syncMode === "DELTA" ? "KITSU_DELTA_SYNC" : "KITSU_FULL_SYNC";
     await jobQueue.enqueue({
-      type: "KITSU_FULL_SYNC",
+      type,
       priority: JobPriority.HIGH,
       payload: { userId: result.user.kitsuUserId },
-      dedupeKey: `KITSU_FULL_SYNC:${result.user.kitsuUserId}`,
+      dedupeKey: `${type}:${result.user.kitsuUserId}`,
     });
   },
+  onAuthenticatedRequest: (user) => deviceActivitySync.onUserActivity(user),
   logger: true,
 });
 

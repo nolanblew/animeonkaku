@@ -93,6 +93,80 @@ private const val AUTO_ADVANCE_DELAY_MS = 7_000L
 
 @Composable
 fun FirstSyncScreen(state: FirstSyncUiState) {
+    if (state.isDelta) {
+        DeltaSyncScreen(state)
+        return
+    }
+    FullSyncCarouselScreen(state)
+}
+
+/**
+ * Returning user with a recent server library: no carousel, just a single
+ * "topping up" screen while the server delta-fetches to the last sync point.
+ */
+@Composable
+private fun DeltaSyncScreen(state: FirstSyncUiState) {
+    val backgroundGradient = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(backgroundGradient)
+            .padding(horizontal = 28.dp, vertical = 48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(120.dp)
+                .background(
+                    Brush.radialGradient(
+                        listOf(Rose500.copy(alpha = 0.3f), Rose500.copy(alpha = 0.06f))
+                    ),
+                    CircleShape
+                )
+                .border(1.dp, Rose500.copy(alpha = 0.35f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.CloudSync,
+                contentDescription = null,
+                tint = Rose500,
+                modifier = Modifier.size(64.dp)
+            )
+        }
+        Spacer(Modifier.height(28.dp))
+        Text(
+            text = "Getting your library up-to-date",
+            style = MaterialTheme.typography.titleLarge,
+            color = Mist100,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(10.dp))
+        Text(
+            text = "Welcome back! Your library is already on the server — we're just catching up on anything new.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Mist200,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(28.dp))
+        LinearProgressIndicator(
+            modifier = Modifier.fillMaxWidth(),
+            color = Rose500,
+            trackColor = Mist200.copy(alpha = 0.15f)
+        )
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = state.message,
+            style = MaterialTheme.typography.bodySmall,
+            color = Mist200,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun FullSyncCarouselScreen(state: FirstSyncUiState) {
     val backgroundGradient = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
     val pagerState = rememberPagerState(pageCount = { firstSyncPages.size })
 
