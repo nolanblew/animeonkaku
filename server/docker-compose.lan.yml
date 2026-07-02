@@ -7,6 +7,9 @@ services:
       MEDIA_ROOT: /data/media
     volumes:
       - ${ONGAKU_DATA_ROOT:-/data/animeongaku}/media:/data/media
+    networks:
+      - default
+      - nginx-proxy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null 2>&1 || exit 1"]
       interval: 30s
@@ -20,3 +23,8 @@ services:
         required: false
     volumes:
       - ${ONGAKU_DATA_ROOT:-/data/animeongaku}/postgres:/var/lib/postgresql/data
+
+networks:
+  nginx-proxy:
+    external: true
+    name: nginx-proxy
