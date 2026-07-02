@@ -23,8 +23,14 @@ export class FakeJobRepository implements JobRepository {
         existing.state === "DONE" ||
         existing.state === "CANCELLED")
     ) {
+      const nextType = nextJobType(existing, input.type);
+      const nextPriority =
+        existing.state === "QUEUED" || existing.state === "FAILED"
+          ? Math.min(existing.priority, input.priority)
+          : input.priority;
       existing.state = "QUEUED";
-      existing.priority = Math.min(existing.priority, input.priority);
+      existing.type = nextType;
+      existing.priority = nextPriority;
       existing.payload = input.payload;
       existing.progress = {};
       existing.attempts = 0;
@@ -128,5 +134,16 @@ export class FakeJobRepository implements JobRepository {
       (job) => job.state === "QUEUED" && job.priority <= priority,
     );
   }
+}
+
+function nextJobType(existing: JobRecord, requestedType: JobRecord["type"]): JobRecord["type"] {
+  if (
+    existing.dedupeKey?.startsWith("KITSU_SYNC:") &&
+    (existing.state === "QUEUED" || existing.state === "FAILED") &&
+    (existing.type === "KITSU_FULL_SYNC" || requestedType === "KITSU_FULL_SYNC")
+  ) {
+    return "KITSU_FULL_SYNC";
+  }
+  return requestedType;
 }
 

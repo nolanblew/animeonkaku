@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.auth.OngakuAuthRepository
+import com.takeya.animeongaku.data.auth.ServerSyncMode
 import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.remote.OngakuSyncRequest
@@ -135,11 +136,12 @@ class ImportViewModel @Inject constructor(
         viewModelScope.launch {
             _authState.value = _authState.value.copy(authError = null, isAuthenticating = true)
             try {
-                val session = ongakuAuthRepository.login(
+                val login = ongakuAuthRepository.login(
                     username = username,
                     password = password,
                     deviceName = deviceName()
-                ).session
+                )
+                val session = login.session
                 sessionStateManager.onLogin(session)
                 _authState.value = _authState.value.copy(
                     username = session.username,
@@ -151,7 +153,7 @@ class ImportViewModel @Inject constructor(
                     isAuthenticating = false
                 )
                 serverMigrationManager.migrateIfNeeded()
-                performServerSync(forceFullSync = true)
+                performServerSync(forceFullSync = login.syncMode == ServerSyncMode.FULL)
             } catch (exception: Exception) {
                 _authState.value = _authState.value.copy(
                     authError = exception.toFriendReadableMessage("Server sign-in failed"),

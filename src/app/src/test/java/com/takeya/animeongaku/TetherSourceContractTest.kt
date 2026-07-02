@@ -22,4 +22,13 @@ class TetherSourceContractTest {
         assertTrue(source.contains("!sessionStateManager.isOnlineEnabled()"))
         assertTrue(source.contains("return ServerAudioReadiness.RETRY_LATER"))
     }
+
+    @Test
+    fun `main activity starts active refresh when session becomes online while foregrounded`() {
+        val source = File("src/main/java/com/takeya/animeongaku/MainActivity.kt").readText()
+
+        assertTrue(source.contains("sessionStateManager.state.collect"))
+        assertTrue(source.contains("startActiveRefreshLoop()"))
+        assertTrue(source.contains("stopActiveRefreshLoop()"))
+    }
 }

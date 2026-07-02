@@ -84,9 +84,9 @@ describe("POST /v1/auth/login", () => {
     expect(res.json().syncMode).toBe("FULL");
   });
 
-  it("recommends a DELTA sync for returning users synced within 6 months", async () => {
+  it("recommends a DELTA sync for returning users synced within 1 month", async () => {
     await login("nolan", "Pixel 9");
-    repo.users.get("stub-nolan")!.lastSyncAt = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    repo.users.get("stub-nolan")!.lastSyncAt = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
     const res = await login("nolan", "Tablet");
 
@@ -94,9 +94,9 @@ describe("POST /v1/auth/login", () => {
     expect(res.json().syncMode).toBe("DELTA");
   });
 
-  it("recommends a FULL sync for returning users whose last sync is older than 6 months", async () => {
+  it("recommends a FULL sync for returning users whose last sync is older than 1 month", async () => {
     await login("nolan", "Pixel 9");
-    repo.users.get("stub-nolan")!.lastSyncAt = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000);
+    repo.users.get("stub-nolan")!.lastSyncAt = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);
 
     const res = await login("nolan", "Tablet");
 
@@ -247,6 +247,22 @@ describe("bearer authentication", () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(401);
+  });
+
+  it("rejects and removes sessions idle for more than 1 month", async () => {
+    const token = (await login()).json().token as string;
+    for (const session of repo.sessions.values()) {
+      session.lastUsedAt = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);
+    }
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/auth/me",
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(401);
+    expect(repo.sessions.size).toBe(0);
   });
 
   it("rejects a token after the session row is deleted by an operator reset", async () => {

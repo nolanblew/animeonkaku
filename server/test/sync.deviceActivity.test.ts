@@ -35,7 +35,7 @@ describe("DeviceActivitySyncTrigger", () => {
       type: "KITSU_DELTA_SYNC",
       priority: 10,
       payload: { userId: "u1" },
-      dedupeKey: "KITSU_DELTA_SYNC:u1",
+      dedupeKey: "KITSU_SYNC:u1",
     });
   });
 
@@ -87,5 +87,26 @@ describe("DeviceActivitySyncTrigger", () => {
 
     const jobs = await queue.list("QUEUED");
     expect(jobs.map((job) => job.payload.userId).sort()).toEqual(["u1", "u2"]);
+  });
+
+  it("does not add a delta job when a full sync is already queued for the user", async () => {
+    const queue = new JobQueue(new FakeJobRepository());
+    const subject = trigger(queue, () => 10 * HOUR_MS);
+    await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: 10,
+      payload: { userId: "u1" },
+      dedupeKey: "KITSU_SYNC:u1",
+    });
+
+    await subject.onUserActivity(user({ lastSyncAt: new Date(0) }));
+
+    const jobs = await queue.list("QUEUED");
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({
+      type: "KITSU_FULL_SYNC",
+      priority: 10,
+      dedupeKey: "KITSU_SYNC:u1",
+    });
   });
 });

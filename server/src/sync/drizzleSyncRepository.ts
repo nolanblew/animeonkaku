@@ -2,6 +2,7 @@ import {
   and,
   asc,
   eq,
+  gte,
   inArray,
   isNotNull,
   isNull,
@@ -14,6 +15,7 @@ import {
   animeGenres,
   animethemesAnime,
   artists,
+  deviceSessions,
   genres,
   kitsuAnime,
   libraryEntries,
@@ -507,13 +509,47 @@ export class DrizzleSyncRepository implements SyncRepository {
       .filter((filePath): filePath is string => filePath !== null);
   }
 
-  async listActiveUserIds(): Promise<string[]> {
+  async listActiveUserIds(activeAfter?: Date): Promise<string[]> {
+    const conditions = [eq(users.kitsuAuthState, "OK"), isNotNull(users.kitsuAccessToken)];
+    if (activeAfter) conditions.push(gte(deviceSessions.lastUsedAt, activeAfter));
     const rows = await this.db
       .select({ userId: users.kitsuUserId })
       .from(users)
-      .where(and(eq(users.kitsuAuthState, "OK"), isNotNull(users.kitsuAccessToken)))
+      .innerJoin(deviceSessions, eq(deviceSessions.userId, users.kitsuUserId))
+      .where(and(...conditions))
       .orderBy(asc(users.kitsuUserId));
-    return rows.map((row) => row.userId);
+    return [...new Set(rows.map((row) => row.userId))];
+  }
+
+  async deactivateInactiveUsers(activeAfter: Date): Promise<string[]> {
+    const candidates = await this.db
+      .select({ userId: users.kitsuUserId })
+      .from(users)
+      .where(and(eq(users.kitsuAuthState, "OK"), isNotNull(users.kitsuAccessToken)));
+    if (candidates.length === 0) return [];
+
+    const recentSessions = await this.db
+      .select({ userId: deviceSessions.userId })
+      .from(deviceSessions)
+      .where(gte(deviceSessions.lastUsedAt, activeAfter));
+    const recentlyActive = new Set(recentSessions.map((row) => row.userId));
+    const inactiveIds = candidates
+      .map((row) => row.userId)
+      .filter((userId) => !recentlyActive.has(userId));
+    if (inactiveIds.length === 0) return [];
+
+    await this.db
+      .update(users)
+      .set({
+        kitsuAccessToken: null,
+        kitsuRefreshToken: null,
+        kitsuTokenExpiresAt: null,
+        kitsuAuthState: "REAUTH_REQUIRED",
+        updatedAt: new Date(),
+      })
+      .where(inArray(users.kitsuUserId, inactiveIds));
+    await this.db.delete(deviceSessions).where(inArray(deviceSessions.userId, inactiveIds));
+    return inactiveIds;
   }
 
   private async libraryThemeIds(userId?: string, status?: string): Promise<number[]> {

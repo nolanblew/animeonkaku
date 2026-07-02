@@ -24,7 +24,7 @@ describe("JobQueue S4 progress/checkpoint support", () => {
       type: "KITSU_FULL_SYNC",
       priority: JobPriority.NORMAL,
       payload: { userId: "u1", full: true },
-      dedupeKey: "KITSU_FULL_SYNC:u1",
+      dedupeKey: "KITSU_SYNC:u1",
     });
     expect(await queue.hasUrgentQueued()).toBe(false);
 
@@ -110,7 +110,7 @@ describe("S4 sync job handlers", () => {
 });
 
 describe("SyncScheduler", () => {
-  it("enqueues delta syncs for active users and runs daily/weekly maintenance", async () => {
+  it("enqueues weekly full syncs for active users and runs daily/weekly maintenance", async () => {
     const queue = new JobQueue(new FakeJobRepository());
     const calls: string[] = [];
     const scheduler = new SyncScheduler({
@@ -131,18 +131,53 @@ describe("SyncScheduler", () => {
       mediaRoot: "C:/media",
     });
 
-    await scheduler.enqueueDeltaSyncs();
+    await scheduler.enqueuePeriodicSyncs();
     await scheduler.runDailyMaintenance();
     await scheduler.runWeeklyMaintenance();
 
     const queued = await queue.list("QUEUED");
     expect(queued.map((queuedJob) => [queuedJob.type, queuedJob.payload, queuedJob.dedupeKey])).toEqual([
-      ["KITSU_DELTA_SYNC", { userId: "u1" }, "KITSU_DELTA_SYNC:u1"],
-      ["KITSU_DELTA_SYNC", { userId: "u2" }, "KITSU_DELTA_SYNC:u2"],
+      ["KITSU_FULL_SYNC", { userId: "u1" }, "KITSU_SYNC:u1"],
+      ["KITSU_FULL_SYNC", { userId: "u2" }, "KITSU_SYNC:u2"],
       ["AUTO_PLAYLIST_REFRESH", { userId: "u1" }, "AUTO_PLAYLIST_REFRESH:u1"],
       ["AUTO_PLAYLIST_REFRESH", { userId: "u2" }, "AUTO_PLAYLIST_REFRESH:u2"],
     ]);
     expect(calls).toEqual(["orphan", "failed"]);
+  });
+
+  it("deactivates inactive users before scheduling weekly full syncs", async () => {
+    const time = new FakeTime(new Date("2026-07-02T12:00:00.000Z").getTime());
+    const queue = new JobQueue(new FakeJobRepository(() => new Date(time.now())), {
+      now: () => new Date(time.now()),
+    });
+    const deactivateCutoffs: Date[] = [];
+    const listCutoffs: Array<Date | undefined> = [];
+    const scheduler = new SyncScheduler({
+      queue,
+      repo: {
+        deactivateInactiveUsers: async (cutoff) => {
+          deactivateCutoffs.push(cutoff);
+          return ["inactive"];
+        },
+        listActiveUserIds: async (activeAfter) => {
+          listCutoffs.push(activeAfter);
+          return ["active"];
+        },
+      },
+      pipeline: {
+        scanOrphanFiles: async () => [],
+        requeueFailedMedia: async () => 0,
+      },
+      mediaRoot: "C:/media",
+      now: () => new Date(time.now()),
+    });
+
+    await scheduler.enqueuePeriodicSyncs();
+
+    expect(deactivateCutoffs).toHaveLength(1);
+    expect(time.now() - deactivateCutoffs[0]!.getTime()).toBe(30 * 24 * 60 * 60 * 1000);
+    expect(listCutoffs).toEqual(deactivateCutoffs);
+    expect((await queue.list("QUEUED")).map((job) => job.payload.userId)).toEqual(["active"]);
   });
 });
 

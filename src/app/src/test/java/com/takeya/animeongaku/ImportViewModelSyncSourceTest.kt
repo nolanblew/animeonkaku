@@ -6,11 +6,18 @@ import org.junit.Test
 
 class ImportViewModelSyncSourceTest {
     @Test
-    fun `linked and sign-in sync paths request full server reconciliation`() {
+    fun `linked sync path requests full server reconciliation`() {
         val source = File("src/main/java/com/takeya/animeongaku/ui/sync/ImportViewModel.kt").readText()
 
         assertTrue(source.contains("performSync(forceFullSync = true)"))
-        assertTrue(source.contains("performServerSync(forceFullSync = true)"))
+    }
+
+    @Test
+    fun `sign-in sync path follows server sync mode`() {
+        val source = File("src/main/java/com/takeya/animeongaku/ui/sync/ImportViewModel.kt").readText()
+
+        assertTrue(source.contains("val login = ongakuAuthRepository.login("))
+        assertTrue(source.contains("performServerSync(forceFullSync = login.syncMode == ServerSyncMode.FULL)"))
     }
 
     @Test

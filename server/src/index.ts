@@ -32,6 +32,7 @@ import {
   createSyncJobHandlers,
   DeviceActivitySyncTrigger,
   DrizzleSyncRepository,
+  kitsuSyncDedupeKey,
   LibrarySyncPipeline,
   SyncScheduler,
 } from "./sync/index.js";
@@ -154,7 +155,7 @@ const app = buildApp({
       type,
       priority: JobPriority.HIGH,
       payload: { userId: result.user.kitsuUserId },
-      dedupeKey: `${type}:${result.user.kitsuUserId}`,
+      dedupeKey: kitsuSyncDedupeKey(result.user.kitsuUserId),
     });
   },
   onAuthenticatedRequest: (user) => deviceActivitySync.onUserActivity(user),

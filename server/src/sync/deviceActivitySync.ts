@@ -1,5 +1,6 @@
 import type { JobQueue } from "../jobs/jobQueue.js";
 import { JobPriority } from "../jobs/types.js";
+import { kitsuSyncDedupeKey } from "./syncJobKeys.js";
 
 /** The slice of the authenticated user the trigger needs. */
 export interface ActivityUser {
@@ -60,7 +61,7 @@ export class DeviceActivitySyncTrigger {
       type: "KITSU_DELTA_SYNC",
       priority: JobPriority.HIGH,
       payload: { userId: user.kitsuUserId },
-      dedupeKey: `KITSU_DELTA_SYNC:${user.kitsuUserId}`,
+      dedupeKey: kitsuSyncDedupeKey(user.kitsuUserId),
     });
   }
 }

@@ -11,15 +11,16 @@ import {
 // or a deliberate server-side reset (deleting session rows). 100 years keeps the existing
 // non-null expiresAt column (no schema migration). See .planning/tether/03-backend-handoff.md.
 export const SESSION_TTL_MS = 100 * 365 * 24 * 60 * 60 * 1000;
+export const SESSION_IDLE_REAUTH_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * A returning user whose server library was synced within this window gets a
- * DELTA first-sync at login (the 24h scheduler keeps them fresh anyway); any
+ * DELTA first-sync at login (activity-triggered deltas keep them fresh); any
  * longer and we re-run a FULL library sync. Full sync only refreshes the
  * library (tombstoning removed entries) — playlists, likes/dislikes, and play
  * counts are never touched by it.
  */
-export const FULL_RESYNC_AFTER_MS = 180 * 24 * 60 * 60 * 1000;
+export const FULL_RESYNC_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type LoginSyncMode = "FULL" | "DELTA";
 
@@ -84,7 +85,7 @@ export class AuthService {
       userId: user.kitsuUserId,
       tokenHash: hashToken(token),
       deviceName: input.deviceName ?? "unknown",
-      expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+      expiresAt: new Date(this.now().getTime() + SESSION_TTL_MS),
     });
 
     return {
@@ -110,8 +111,13 @@ export class AuthService {
   async authenticate(token: string): Promise<AuthContext | null> {
     const found = await this.repo.findSessionByTokenHash(hashToken(token));
     if (!found) return null;
-    if (found.session.expiresAt.getTime() <= Date.now()) return null;
-    await this.repo.touchSession(found.session.id, new Date());
+    const now = this.now();
+    if (found.session.expiresAt.getTime() <= now.getTime()) return null;
+    if (now.getTime() - found.session.lastUsedAt.getTime() >= SESSION_IDLE_REAUTH_AFTER_MS) {
+      await this.repo.deleteSession(found.session.id);
+      return null;
+    }
+    await this.repo.touchSession(found.session.id, now);
     return found;
   }
 

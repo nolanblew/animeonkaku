@@ -100,6 +100,65 @@ describe("JobQueue", () => {
     expect(second.priority).toBe(JobPriority.HIGH);
     expect(await queue.list("QUEUED")).toHaveLength(1);
   });
+
+  it("collapses queued Kitsu sync jobs to the highest sync type and priority", async () => {
+    const time = new FakeTime();
+    const queue = new JobQueue(new FakeJobRepository(() => new Date(time.now())), {
+      now: () => new Date(time.now()),
+    });
+
+    const delta = await queue.enqueue({
+      type: "KITSU_DELTA_SYNC",
+      priority: JobPriority.NORMAL,
+      payload: { userId: "u1" },
+      dedupeKey: "KITSU_SYNC:u1",
+    });
+    const full = await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.HIGH,
+      payload: { userId: "u1" },
+      dedupeKey: "KITSU_SYNC:u1",
+    });
+    const laterDelta = await queue.enqueue({
+      type: "KITSU_DELTA_SYNC",
+      priority: JobPriority.MAINTENANCE,
+      payload: { userId: "u1" },
+      dedupeKey: "KITSU_SYNC:u1",
+    });
+
+    expect(full.id).toBe(delta.id);
+    expect(laterDelta.id).toBe(delta.id);
+    expect(laterDelta.type).toBe("KITSU_FULL_SYNC");
+    expect(laterDelta.priority).toBe(JobPriority.HIGH);
+    expect(await queue.list()).toHaveLength(1);
+  });
+
+  it("does not let a completed full sync pin future delta requests to full", async () => {
+    const time = new FakeTime();
+    const queue = new JobQueue(new FakeJobRepository(() => new Date(time.now())), {
+      now: () => new Date(time.now()),
+    });
+
+    const full = await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.HIGH,
+      payload: { userId: "u1" },
+      dedupeKey: "KITSU_SYNC:u1",
+    });
+    await queue.complete(full.id);
+    time.advance(60_000);
+
+    const delta = await queue.enqueue({
+      type: "KITSU_DELTA_SYNC",
+      priority: JobPriority.NORMAL,
+      payload: { userId: "u1" },
+      dedupeKey: "KITSU_SYNC:u1",
+    });
+
+    expect(delta.id).toBe(full.id);
+    expect(delta.type).toBe("KITSU_DELTA_SYNC");
+    expect(delta.priority).toBe(JobPriority.NORMAL);
+  });
 });
 
 describe("JobWorker", () => {

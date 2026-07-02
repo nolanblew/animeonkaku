@@ -1,5 +1,6 @@
 import { JobPriority, type JobQueue, type JobRecord, type JobType } from "../jobs/index.js";
 import type { SyncApiService, SyncMappingStatus, SyncStatusResponse } from "./syncRoutes.js";
+import { kitsuSyncDedupeKey } from "../sync/syncJobKeys.js";
 
 const SYNC_TYPES = new Set<JobType>(["KITSU_FULL_SYNC", "KITSU_DELTA_SYNC"]);
 
@@ -15,7 +16,7 @@ export class JobSyncApiService implements SyncApiService {
       type,
       priority: JobPriority.HIGH,
       payload: { userId, full },
-      dedupeKey: `${type}:${userId}`,
+      dedupeKey: kitsuSyncDedupeKey(userId),
     });
     return { jobId: job.id };
   }
