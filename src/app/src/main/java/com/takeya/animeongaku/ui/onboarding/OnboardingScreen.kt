@@ -30,7 +30,6 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -58,7 +57,6 @@ import com.takeya.animeongaku.ui.theme.Rose500
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OnboardingScreen(
-    onOpenServerSettings: () -> Unit,
     viewModel: OnboardingViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -184,10 +182,6 @@ fun OnboardingScreen(
                         Text("Sign In", color = Ink900, fontWeight = FontWeight.SemiBold)
                     }
                 }
-            }
-
-            TextButton(onClick = onOpenServerSettings) {
-                Text("Server settings", color = Ember400)
             }
 
             Spacer(Modifier.height(24.dp))

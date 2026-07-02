@@ -26,11 +26,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -43,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.takeya.animeongaku.BuildConfig
+import com.takeya.animeongaku.ui.player.MiniPlayerHeight
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
 import com.takeya.animeongaku.ui.theme.Ink900
@@ -63,12 +62,10 @@ fun SettingsScreen(
     onCheckForUpdates: () -> Unit = {},
     onDownloadUpdate: () -> Unit = {},
     onOpenReleasePage: () -> Unit = {},
+    onOpenAbout: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val wifiOnly by viewModel.wifiOnly.collectAsStateWithLifecycle()
-    val serverBaseUrl by viewModel.serverBaseUrl.collectAsStateWithLifecycle()
-    val serverBaseUrlCompiled = viewModel.isServerBaseUrlCompiled
-    val compiledServerBaseUrl = viewModel.compiledServerBaseUrl
 
     Column(
         modifier = Modifier
@@ -111,32 +108,6 @@ fun SettingsScreen(
                 title = "Kitsu Sync",
                 subtitle = "Manage your Kitsu connection",
                 onClick = onOpenImport
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            OutlinedTextField(
-                value = serverBaseUrl,
-                onValueChange = viewModel::setServerBaseUrl,
-                label = { Text("Server URL") },
-                placeholder = { Text("https://ongaku.lan:8080") },
-                supportingText = if (serverBaseUrlCompiled) {
-                    { Text("Default from this build: $compiledServerBaseUrl. Edit to use a different test server.") }
-                } else {
-                    null
-                },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                textStyle = MaterialTheme.typography.bodyMedium.copy(color = Mist100),
-                colors = TextFieldDefaults.colors(
-                    focusedTextColor = Mist100,
-                    unfocusedTextColor = Mist100,
-                    focusedContainerColor = Ink800,
-                    unfocusedContainerColor = Ink800,
-                    focusedIndicatorColor = Rose500,
-                    unfocusedIndicatorColor = Mist200.copy(alpha = 0.45f),
-                    focusedLabelColor = Mist200,
-                    unfocusedLabelColor = Mist200,
-                    cursorColor = Rose500
-                )
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -201,38 +172,14 @@ fun SettingsScreen(
 
             // --- About Section ---
             SectionHeader("About")
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Ink800)
-                    .padding(16.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Rounded.Info,
-                        contentDescription = null,
-                        tint = Rose500,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            "Anime Ongaku",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = Mist100,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            "Version ${BuildConfig.DISPLAY_VERSION}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Mist200
-                        )
-                    }
-                }
-            }
+            SettingsRow(
+                icon = Icons.Rounded.Info,
+                title = "Anime Ongaku",
+                subtitle = "Version ${BuildConfig.DISPLAY_VERSION}",
+                onClick = onOpenAbout
+            )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(MiniPlayerHeight + 32.dp))
         }
     }
 }

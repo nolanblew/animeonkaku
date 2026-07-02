@@ -67,6 +67,7 @@ import com.takeya.animeongaku.ui.onboarding.ReconnectBanner
 import com.takeya.animeongaku.ui.player.PlayerContainer
 import com.takeya.animeongaku.ui.player.MiniPlayerHeight
 import com.takeya.animeongaku.ui.search.SearchScreen
+import com.takeya.animeongaku.ui.settings.AboutScreen
 import com.takeya.animeongaku.ui.settings.DownloadManagerScreen
 import com.takeya.animeongaku.ui.settings.SettingsScreen
 import com.takeya.animeongaku.ui.sync.ImportScreen
@@ -93,6 +94,7 @@ private object Routes {
     const val Player = "player"
     const val Settings = "settings"
     const val DownloadManager = "downloadManager"
+    const val About = "about"
 }
 
 private const val ShowLibraryBadgesArg = "showLibraryBadges"
@@ -388,11 +390,17 @@ fun AnimeOngakuApp(
                         availableUpdate = updateState.availableUpdate,
                         onCheckForUpdates = { appUpdateViewModel.checkForUpdates(openWhenAvailable = true) },
                         onDownloadUpdate = { appUpdateViewModel.openAvailableUpdate() },
-                        onOpenReleasePage = { appUpdateViewModel.openReleasePage() }
+                        onOpenReleasePage = { appUpdateViewModel.openReleasePage() },
+                        onOpenAbout = { navController.navigate(Routes.About) }
                     )
                 }
                 composable(Routes.DownloadManager) {
                     DownloadManagerScreen(
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable(Routes.About) {
+                    AboutScreen(
                         onBack = { navController.popBackStack() }
                     )
                 }
@@ -524,7 +532,7 @@ fun AnimeOngakuApp(
             showReconnect = false
         }
         Box(Modifier.fillMaxSize()) {
-            OnboardingScreen(onOpenServerSettings = {})
+            OnboardingScreen()
             IconButton(
                 onClick = { showReconnect = false },
                 modifier = Modifier
@@ -544,24 +552,6 @@ fun AnimeOngakuApp(
 
 @Composable
 private fun LoggedOutGate() {
-    // Allow reaching a limited settings screen before sign-in for private builds.
-    val gateNav = rememberNavController()
-    NavHost(navController = gateNav, startDestination = "onboarding") {
-        composable("onboarding") {
-            OnboardingScreen(onOpenServerSettings = { gateNav.navigate("gateSettings") })
-        }
-        composable("gateSettings") {
-            SettingsScreen(
-                onBack = { gateNav.popBackStack() },
-                onOpenImport = {},
-                onOpenDownloadManager = {},
-                updaterEnabled = false,
-                isCheckingForUpdates = false,
-                availableUpdate = null,
-                onCheckForUpdates = {},
-                onDownloadUpdate = {},
-                onOpenReleasePage = {}
-            )
-        }
-    }
+    // The server URL is fixed at build time, so onboarding only needs the sign-in screen.
+    OnboardingScreen()
 }
