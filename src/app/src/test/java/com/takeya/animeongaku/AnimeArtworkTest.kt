@@ -2,9 +2,9 @@ package com.takeya.animeongaku
 
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.backgroundArtworkUrls
+import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AnimeArtworkTest {
@@ -38,16 +38,42 @@ class AnimeArtworkTest {
     }
 
     @Test
-    fun `stored artwork is tried first, derived route appended as fallback`() {
+    fun `server media routes are tried before stored artwork`() {
         val urls = anime(
             kitsuId = "8403",
             coverUrl = "http://127.0.0.1:8080/v1/media/images/anime/8403/cover",
             thumbnailUrl = "http://127.0.0.1:8080/v1/media/images/anime/8403/poster"
         ).primaryArtworkUrls()
 
-        assertEquals("http://127.0.0.1:8080/v1/media/images/anime/8403/cover", urls.first())
-        assertTrue(urls.contains("https://ongaku.local/v1/media/images/anime/8403/cover"))
-        assertTrue(urls.contains("https://ongaku.local/v1/media/images/anime/8403/poster"))
+        assertEquals(
+            listOf(
+                "https://ongaku.local/v1/media/images/anime/8403/cover",
+                "https://ongaku.local/v1/media/images/anime/8403/poster",
+                "http://127.0.0.1:8080/v1/media/images/anime/8403/cover",
+                "http://127.0.0.1:8080/v1/media/images/anime/8403/poster"
+            ),
+            urls
+        )
+    }
+
+    @Test
+    fun `single primary artwork prefers server media route`() {
+        val url = anime(
+            kitsuId = "8403",
+            coverUrl = "https://media.kitsu.test/cover.jpg"
+        ).primaryArtworkUrl()
+
+        assertEquals("https://ongaku.local/v1/media/images/anime/8403/cover", url)
+    }
+
+    @Test
+    fun `synthetic online anime id falls back to stored artwork`() {
+        val urls = anime(
+            kitsuId = "online-123",
+            coverUrl = "https://media.kitsu.test/cover.jpg"
+        ).primaryArtworkUrls()
+
+        assertEquals(listOf("https://media.kitsu.test/cover.jpg"), urls)
     }
 
     @Test

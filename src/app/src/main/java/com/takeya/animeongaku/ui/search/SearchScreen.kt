@@ -58,7 +58,6 @@ import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ArtistTrackCount
 import com.takeya.animeongaku.data.local.PlaylistWithCount
-import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
@@ -115,28 +114,31 @@ fun SearchScreen(
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
     val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
-    val likedThemeIds by viewModel.likedThemeIds.collectAsStateWithLifecycle()
-    val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
 
     // Song ActionSheet (local)
     sheetTheme?.let { theme ->
         val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
+        val sheetAnimeImageUrls = sheetAnime?.primaryArtworkUrls() ?: emptyList()
         val info = theme.displayInfo(sheetAnime)
         val isDownloaded = theme.id in downloadedThemeIds
         val isDownloading = theme.id in downloadingThemeIds
+        val preference by remember(theme.id) {
+            viewModel.observePreference(theme.id)
+        }.collectAsStateWithLifecycle(initialValue = null)
         ActionSheet(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.primaryArtworkUrl(),
+                imageUrl = sheetAnimeImageUrls.firstOrNull(),
+                imageUrls = sheetAnimeImageUrls,
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 showGoToAnime = sheetAnime?.kitsuId != null,
                 showDownload = !isDownloaded && !isDownloading,
                 showDownloading = isDownloading,
                 showRemoveDownload = isDownloaded,
                 showLike = true,
-                isLiked = theme.id in likedThemeIds,
-                showRemoveDislike = theme.id in dislikedThemeIds,
+                isLiked = preference?.isLiked == true,
+                showRemoveDislike = preference?.isDisliked == true,
                 artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
                 animeName = sheetAnime?.title
             ),
@@ -161,12 +163,16 @@ fun SearchScreen(
 
     // Online song ActionSheet
     sheetOnlineEntry?.let { entry ->
+        val themeId = entry.themeId.toLongOrNull()
         val info = themeDisplayInfo(
             title = entry.title,
             artistName = entry.artist,
             themeType = entry.themeType,
             animeName = entry.animeName
         )
+        val preference by remember(themeId) {
+            viewModel.observePreference(themeId)
+        }.collectAsStateWithLifecycle(initialValue = null)
         ActionSheet(
             config = ActionSheetConfig(
                 title = info.primaryText,
@@ -175,8 +181,8 @@ fun SearchScreen(
                 showGoToArtist = !entry.artist.isNullOrBlank(),
                 showGoToAnime = entry.kitsuId != null,
                 showLike = true,
-                isLiked = entry.themeId.toLongOrNull()?.let { it in likedThemeIds } == true,
-                showRemoveDislike = entry.themeId.toLongOrNull()?.let { it in dislikedThemeIds } == true,
+                isLiked = preference?.isLiked == true,
+                showRemoveDislike = preference?.isDisliked == true,
                 artistName = entry.artist?.split(",")?.firstOrNull()?.trim(),
                 animeName = entry.animeNameEn ?: entry.animeName
             ),
@@ -206,8 +212,8 @@ fun SearchScreen(
             onGoToAnime = {
                 entry.kitsuId?.let { onOpenAnime(it) }
             },
-            onLike = { entry.themeId.toLongOrNull()?.let { viewModel.toggleLike(it) } },
-            onRemoveDislike = { entry.themeId.toLongOrNull()?.let { viewModel.toggleDislike(it) } }
+            onLike = { themeId?.let { viewModel.toggleLike(it) } },
+            onRemoveDislike = { themeId?.let { viewModel.toggleDislike(it) } }
         )
     }
 

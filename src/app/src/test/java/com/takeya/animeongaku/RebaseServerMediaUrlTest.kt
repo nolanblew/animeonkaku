@@ -39,6 +39,17 @@ class RebaseServerMediaUrlTest {
     }
 
     @Test
+    fun `sentinel media url is rebased onto the configured server`() {
+        assertEquals(
+            "http://takeya.hopto.org:48668/v1/media/images/anime/13635/cover",
+            rebaseServerMediaUrl(
+                serverBaseUrl = "http://takeya.hopto.org:48668/",
+                url = "https://ongaku.local/v1/media/images/anime/13635/cover"
+            )
+        )
+    }
+
+    @Test
     fun `non-server-media urls are left untouched`() {
         assertEquals(
             "https://a.animethemes.moe/Toradora-OP1.ogg",

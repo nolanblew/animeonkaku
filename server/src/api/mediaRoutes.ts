@@ -53,6 +53,11 @@ interface ByteRange {
   end: number;
 }
 
+interface ReadyMediaFile {
+  absolutePath: string;
+  size: number;
+}
+
 export class MediaStreamingService {
   private readonly mediaRoot: string;
   private readonly fetchImpl: FetchLike;
@@ -72,35 +77,32 @@ export class MediaStreamingService {
     const audio = await this.deps.repo.findAudio(themeId);
     if (!audio) throw new ApiError(404, "NOT_FOUND", "Theme not found.");
 
-    if (audio.state === "READY" && audio.filePath) {
-      const absolutePath = this.safeMediaPath(audio.filePath);
-      const fileStat = await stat(absolutePath).catch(() => null);
-      if (fileStat?.isFile()) {
-        const logger = this.deps.logger ?? log;
-        logger?.info(
-          {
-            themeId,
-            state: audio.state,
-            method,
-            range: rangeHeader,
-            originHost: originHost(audio.originUrl),
-            originUrl: safeExternalUrl(audio.originUrl),
-            externalHit: false,
-            byteSize: fileStat.size,
-            videoFallback: audio.videoFallback ?? false,
-          },
-          "serving cached audio file",
-        );
-        return this.sendReadyFile({
-          absolutePath,
+    const readyAudio = audio.state === "READY" ? await this.readyMediaFile(audio.filePath) : null;
+    if (readyAudio) {
+      const logger = this.deps.logger ?? log;
+      logger?.info(
+        {
+          themeId,
+          state: audio.state,
           method,
-          rangeHeader,
-          reply,
-          totalSize: fileStat.size,
-          etag: audio.sha256,
-          contentType: audio.videoFallback ? "video/webm" : "audio/ogg",
-        });
-      }
+          range: rangeHeader,
+          originHost: originHost(audio.originUrl),
+          originUrl: safeExternalUrl(audio.originUrl),
+          externalHit: false,
+          byteSize: readyAudio.size,
+          videoFallback: audio.videoFallback ?? false,
+        },
+        "serving cached audio file",
+      );
+      return this.sendReadyFile({
+        absolutePath: readyAudio.absolutePath,
+        method,
+        rangeHeader,
+        reply,
+        totalSize: readyAudio.size,
+        etag: audio.sha256,
+        contentType: audio.videoFallback ? "video/webm" : "audio/ogg",
+      });
     }
 
     if (audio.state === "FAILED") {
@@ -124,14 +126,18 @@ export class MediaStreamingService {
     if (!audio) throw new ApiError(404, "NOT_FOUND", "Theme not found.");
     // Already cached locally — never re-hit AnimeThemes for media the server owns.
     // jobId 0 signals "no fetch needed"; clients warm-poll this until audioState is READY.
-    if (audio.state === "READY" && audio.filePath) {
+    if (audio.state === "READY" && await this.readyMediaFile(audio.filePath)) {
       return { themeId, audioState: "READY", jobId: 0 };
     }
     if (audio.state === "FAILED") {
       return { themeId, audioState: "FAILED", jobId: 0 };
     }
     const job = await this.enqueueFetch(themeId, JobPriority.HIGH);
-    return { themeId, audioState: audioState(audio.state), jobId: job.id };
+    return {
+      themeId,
+      audioState: audio.state === "READY" ? "MISSING" : audioState(audio.state),
+      jobId: job.id,
+    };
   }
 
   async sendImage(
@@ -143,20 +149,17 @@ export class MediaStreamingService {
     const image = await this.deps.repo.findImage(kind, refId);
     if (!image) throw new ApiError(404, "NOT_FOUND", "Image not found.");
 
-    if (image.state === "READY" && image.filePath) {
-      const absolutePath = this.safeMediaPath(image.filePath);
-      const fileStat = await stat(absolutePath).catch(() => null);
-      if (fileStat?.isFile()) {
-        return this.sendReadyFile({
-          absolutePath,
-          method: "GET",
-          rangeHeader: undefined,
-          reply,
-          totalSize: fileStat.size,
-          etag: image.sha256,
-          contentType: "image/jpeg",
-        });
-      }
+    const readyImage = image.state === "READY" ? await this.readyMediaFile(image.filePath) : null;
+    if (readyImage) {
+      return this.sendReadyFile({
+        absolutePath: readyImage.absolutePath,
+        method: "GET",
+        rangeHeader: undefined,
+        reply,
+        totalSize: readyImage.size,
+        etag: image.sha256,
+        contentType: "image/jpeg",
+      });
     }
 
     await this.enqueueImageFetch(kind, refId, JobPriority.NORMAL);
@@ -346,6 +349,14 @@ export class MediaStreamingService {
       throw new ApiError(500, "INTERNAL", "Invalid media path.");
     }
     return absolutePath;
+  }
+
+  private async readyMediaFile(relativePath: string | null): Promise<ReadyMediaFile | null> {
+    if (!relativePath) return null;
+    const absolutePath = this.safeMediaPath(relativePath);
+    const fileStat = await stat(absolutePath).catch(() => null);
+    if (!fileStat?.isFile()) return null;
+    return { absolutePath, size: fileStat.size };
   }
 }
 

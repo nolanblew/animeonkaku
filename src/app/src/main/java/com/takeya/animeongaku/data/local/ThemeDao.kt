@@ -17,6 +17,9 @@ interface ThemeDao {
     @Query("SELECT * FROM themes WHERE animeId = :animeId ORDER BY title ASC")
     fun observeByAnimeId(animeId: Long): Flow<List<ThemeEntity>>
 
+    @Query("SELECT * FROM themes WHERE animeId = :animeId ORDER BY title ASC")
+    suspend fun getByAnimeId(animeId: Long): List<ThemeEntity>
+
     @Query("SELECT * FROM themes WHERE artistName = :artistName ORDER BY title ASC")
     fun observeByArtistName(artistName: String): Flow<List<ThemeEntity>>
 

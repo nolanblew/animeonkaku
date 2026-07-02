@@ -51,12 +51,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil.compose.AsyncImage
-import com.takeya.animeongaku.data.local.backgroundArtworkUrl
-import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
 import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.theme.Ember400
@@ -85,10 +84,9 @@ fun AnimeDetailScreen(
     val libraryThemeIds by viewModel.libraryThemeIds.collectAsStateWithLifecycle()
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
     val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
-    val likedThemeIds by viewModel.likedThemeIds.collectAsStateWithLifecycle()
-    val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
     val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
-    val coverUrl = anime?.primaryArtworkUrl()
+    val coverUrls = remember(anime) { anime?.primaryArtworkUrls() ?: emptyList() }
+    val coverUrl = coverUrls.firstOrNull()
 
     var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }
     var showAnimeSheet by remember { mutableStateOf(false) }
@@ -99,11 +97,15 @@ fun AnimeDetailScreen(
         val songInLibrary = theme.id in libraryThemeIds
         val isDownloaded = theme.id in downloadedThemeIds
         val isDownloading = theme.id in downloadingThemeIds
+        val preference by remember(theme.id) {
+            viewModel.observePreference(theme.id)
+        }.collectAsStateWithLifecycle(initialValue = null)
         ActionSheet(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
                 imageUrl = coverUrl,
+                imageUrls = coverUrls,
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
                 showAddToLibrary = !songInLibrary,
@@ -111,8 +113,8 @@ fun AnimeDetailScreen(
                 showDownloading = isDownloading,
                 showRemoveDownload = isDownloaded,
                 showLike = true,
-                isLiked = theme.id in likedThemeIds,
-                showRemoveDislike = theme.id in dislikedThemeIds
+                isLiked = preference?.isLiked == true,
+                showRemoveDislike = preference?.isDisliked == true
             ),
             onDismiss = { sheetTheme = null },
             onPlayNext = { viewModel.nowPlayingManager.playNext(theme, anime) },
@@ -139,6 +141,7 @@ fun AnimeDetailScreen(
                 title = anime?.title ?: "Anime",
                 subtitle = "${themes.size} themes",
                 imageUrl = coverUrl,
+                imageUrls = coverUrls,
                 showAddToLibrary = !isInLibrary,
                 showDownload = !allDownloaded && !anyDownloading && themes.isNotEmpty(),
                 showDownloading = anyDownloading && !allDownloaded,
@@ -184,9 +187,9 @@ fun AnimeDetailScreen(
                         .fillMaxWidth()
                         .aspectRatio(1.4f)
                 ) {
-                    if (!coverUrl.isNullOrBlank()) {
-                        AsyncImage(
-                            model = coverUrl,
+                    if (coverUrls.isNotEmpty()) {
+                        FallbackAsyncImage(
+                            urls = coverUrls,
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
@@ -345,10 +348,13 @@ fun AnimeDetailScreen(
                     }
                 }
             } else {
-                itemsIndexed(themes) { index, theme ->
+                itemsIndexed(
+                    items = themes,
+                    key = { _, theme -> theme.id }
+                ) { _, theme ->
                     ThemeRow(
                         theme = theme,
-                        coverUrl = coverUrl,
+                        coverUrls = coverUrls,
                         inLibrary = showLibraryBadges && theme.id in libraryThemeIds,
                         isDownloaded = theme.id in downloadedThemeIds,
                         isDownloading = theme.id in downloadingThemeIds,
@@ -371,7 +377,7 @@ fun AnimeDetailScreen(
 @Composable
 private fun ThemeRow(
     theme: ThemeEntity,
-    coverUrl: String?,
+    coverUrls: List<String>,
     inLibrary: Boolean = true,
     isDownloaded: Boolean = false,
     isDownloading: Boolean = false,
@@ -398,9 +404,9 @@ private fun ThemeRow(
                 .clip(RoundedCornerShape(8.dp))
                 .background(Ember400.copy(alpha = 0.2f))
         ) {
-            if (!coverUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = coverUrl,
+            if (coverUrls.isNotEmpty()) {
+                FallbackAsyncImage(
+                    urls = coverUrls,
                     contentDescription = null,
                     modifier = Modifier.matchParentSize(),
                     contentScale = ContentScale.Crop

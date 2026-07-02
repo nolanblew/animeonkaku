@@ -324,6 +324,9 @@ class SearchViewModel @Inject constructor(
         .map { it.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
+    fun observePreference(themeId: Long?) =
+        themeId?.let { userPreferencesRepository.observePreference(it) } ?: flowOf(null)
+
     fun toggleLike(themeId: Long) {
         viewModelScope.launch { userPreferencesRepository.toggleLike(themeId) }
     }

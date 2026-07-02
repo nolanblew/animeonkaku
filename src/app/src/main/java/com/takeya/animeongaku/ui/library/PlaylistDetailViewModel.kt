@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -238,6 +239,9 @@ class PlaylistDetailViewModel @Inject constructor(
     val dislikedThemeIds: StateFlow<Set<Long>> = userPreferencesRepository.observeDislikedThemeIds()
         .map { it.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    fun observePreference(themeId: Long?) =
+        themeId?.let { userPreferencesRepository.observePreference(it) } ?: flowOf(null)
 
     fun toggleLike(themeId: Long) {
         viewModelScope.launch { userPreferencesRepository.toggleLike(themeId) }

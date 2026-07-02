@@ -4,11 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.AnimeEntity
-import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.AnimeWithThemeCount
 import com.takeya.animeongaku.data.local.ArtistDao
 import com.takeya.animeongaku.data.local.ArtistImageDao
 import com.takeya.animeongaku.data.local.PlaylistDao
+import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.DownloadRequestEntity
 import com.takeya.animeongaku.data.local.DynamicPlaylistSpecDao
@@ -50,6 +50,9 @@ internal fun filterLibrarySongs(
 
 internal fun librarySongsContextLabel(showDownloadedOnly: Boolean): String =
     if (showDownloadedOnly) "Downloaded Songs" else "All Songs"
+
+internal fun animeItemCoverUrls(anime: AnimeEntity): List<String> =
+    anime.primaryArtworkUrls()
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -154,7 +157,7 @@ class LibraryViewModel @Inject constructor(
                     animeThemesId = row.anime.animeThemesId,
                     title = title,
                     trackCount = row.themeCount,
-                    coverUrl = row.anime.primaryArtworkUrl()
+                    coverUrls = animeItemCoverUrls(row.anime)
                 )
             }.sortedBy { it.title.lowercase() }
         }
@@ -264,6 +267,9 @@ class LibraryViewModel @Inject constructor(
         .map { it.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
+    fun observePreference(themeId: Long?) =
+        themeId?.let { userPreferencesRepository.observePreference(it) } ?: flowOf(null)
+
     fun toggleLike(themeId: Long) {
         viewModelScope.launch { userPreferencesRepository.toggleLike(themeId) }
     }
@@ -311,7 +317,7 @@ data class AnimeItem(
     val animeThemesId: Long?,
     val title: String,
     val trackCount: Int,
-    val coverUrl: String?
+    val coverUrls: List<String>
 )
 
 data class ArtistItem(

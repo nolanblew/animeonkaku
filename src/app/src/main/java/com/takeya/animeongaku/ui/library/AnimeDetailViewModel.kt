@@ -80,6 +80,11 @@ internal fun entryToThemeEntity(entry: AnimeThemeEntry): ThemeEntity {
     )
 }
 
+internal fun shouldFetchAnimeDetailFromServer(
+    hasLocalAnime: Boolean,
+    localThemeCount: Int
+): Boolean = !hasLocalAnime || localThemeCount == 0
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class AnimeDetailViewModel @Inject constructor(
@@ -147,14 +152,23 @@ class AnimeDetailViewModel @Inject constructor(
     private var hasFetched = false
 
     init {
-        // Always fetch the full online catalog
-        fetchFromApi()
+        fetchFromApiIfNeeded()
     }
 
-    private fun fetchFromApi() {
+    private fun fetchFromApiIfNeeded() {
         if (hasFetched) return
         hasFetched = true
         viewModelScope.launch {
+            val localSnapshot = animeDao.getByKitsuId(kitsuId)
+            val localThemeCount = localSnapshot
+                ?.animeThemesId
+                ?.let { animeThemesId -> themeDao.getByAnimeId(animeThemesId).size }
+                ?: 0
+
+            if (!shouldFetchAnimeDetailFromServer(localSnapshot != null, localThemeCount)) {
+                return@launch
+            }
+
             _isLoading.value = true
             _fetchError.value = null
             try {
@@ -317,6 +331,9 @@ class AnimeDetailViewModel @Inject constructor(
     val dislikedThemeIds: StateFlow<Set<Long>> = userPreferencesRepository.observeDislikedThemeIds()
         .map { it.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    fun observePreference(themeId: Long?) =
+        themeId?.let { userPreferencesRepository.observePreference(it) } ?: flowOf(null)
 
     fun toggleLike(themeId: Long) {
         viewModelScope.launch { userPreferencesRepository.toggleLike(themeId) }

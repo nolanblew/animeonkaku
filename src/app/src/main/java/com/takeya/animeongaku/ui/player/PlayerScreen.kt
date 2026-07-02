@@ -78,7 +78,6 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Size
 import com.takeya.animeongaku.data.local.backgroundArtworkUrl
-import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.media.MediaControllerManager
@@ -150,6 +149,7 @@ fun PlayerScreen(
         val theme = npState.currentTheme
         if (theme != null) {
             val animeEntity = theme.animeId?.let { npState.animeMap[it] }
+            val animeImageUrls = animeEntity?.primaryArtworkUrls() ?: emptyList()
             val info = theme.displayInfo(animeEntity)
             var songInLibrary by remember { mutableStateOf(true) }
             LaunchedEffect(theme.id) {
@@ -157,7 +157,8 @@ fun PlayerScreen(
             }
             ActionSheet(
                 config = ActionSheetConfig(
-                    title = info.primaryText, subtitle = info.secondaryText, imageUrl = animeEntity?.primaryArtworkUrl(),
+                    title = info.primaryText, subtitle = info.secondaryText,
+                    imageUrl = animeImageUrls.firstOrNull(), imageUrls = animeImageUrls,
                     showPlayNext = false, showAddToQueue = false, showReplaceQueue = false, showSaveToPlaylist = true,
                     showAddToLibrary = !songInLibrary,
                     showGoToArtist = !theme.artistName.isNullOrBlank(),

@@ -26,7 +26,7 @@ Features include:
 
 ## Server Requirement
 
-Network sync, search, and playback of non-downloaded tracks use the configured Anime Ongaku server URL. Normal builds default to the published server at `http://takeya.hopto.org:48668/`. The server authenticates against Kitsu using either a Kitsu username or email plus password, then exposes stable `/v1/media/audio/{themeId}` URLs to the app.
+Network sync, search, and playback of non-downloaded tracks use the configured Anime Ongaku server URL. Normal builds default to the published server at `https://ongaku-api.takeya.ninja/`. The server authenticates against Kitsu using either a Kitsu username or email plus password, then exposes stable `/v1/media/audio/{themeId}` URLs to the app.
 
 Already-downloaded files remain playable offline because the Android app keeps its Room cache and downloaded audio files on device.
 
@@ -66,7 +66,7 @@ adb reverse tcp:48668 tcp:48668
 
 ### Build-Time Server URL
 
-Gradle compiles `BuildConfig.ONGAKU_SERVER_BASE_URL` into the APK. By default this is `http://takeya.hopto.org:48668/`. For local development, override it before running Gradle with either an environment variable, a Gradle property, or an ignored `src/local.properties` entry:
+Gradle compiles `BuildConfig.ONGAKU_SERVER_BASE_URL` into the APK. By default this is `https://ongaku-api.takeya.ninja/`. For local development, override it before running Gradle with either an environment variable, a Gradle property, or an ignored `src/local.properties` entry:
 
 ```powershell
 cd .\src

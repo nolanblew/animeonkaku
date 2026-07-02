@@ -48,7 +48,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
 import com.takeya.animeongaku.ui.theme.Ink900
@@ -60,6 +59,7 @@ data class ActionSheetConfig(
     val title: String,
     val subtitle: String,
     val imageUrl: String? = null,
+    val imageUrls: List<String> = emptyList(),
     val isSkippedContext: Boolean = false,
     val showPlayNext: Boolean = true,
     val showAddToQueue: Boolean = true,
@@ -136,9 +136,12 @@ fun ActionSheet(
                         .clip(RoundedCornerShape(8.dp))
                         .background(Ink800)
                 ) {
-                    if (!config.imageUrl.isNullOrBlank()) {
-                        AsyncImage(
-                            model = config.imageUrl,
+                    val headerImageUrls = config.imageUrls.ifEmpty {
+                        listOfNotNull(config.imageUrl?.takeIf { it.isNotBlank() })
+                    }
+                    if (headerImageUrls.isNotEmpty()) {
+                        FallbackAsyncImage(
+                            urls = headerImageUrls,
                             contentDescription = null,
                             modifier = Modifier.matchParentSize(),
                             contentScale = ContentScale.Crop
