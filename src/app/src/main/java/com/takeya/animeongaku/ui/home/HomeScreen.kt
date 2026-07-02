@@ -82,14 +82,15 @@ fun HomeScreen(
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
     val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
-    val likedThemeIds by viewModel.likedThemeIds.collectAsStateWithLifecycle()
-    val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
 
     sheetTheme?.let { theme ->
         val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
         val info = theme.displayInfo(sheetAnime)
         val isDownloaded = theme.id in downloadedThemeIds
         val isDownloading = theme.id in downloadingThemeIds
+        val preference by remember(theme.id) {
+            viewModel.observePreference(theme.id)
+        }.collectAsStateWithLifecycle(initialValue = null)
         ActionSheet(
             config = ActionSheetConfig(
                 title = info.primaryText,
@@ -101,8 +102,8 @@ fun HomeScreen(
                 showDownloading = isDownloading,
                 showRemoveDownload = isDownloaded,
                 showLike = true,
-                isLiked = theme.id in likedThemeIds,
-                showRemoveDislike = theme.id in dislikedThemeIds,
+                isLiked = preference?.isLiked == true,
+                showRemoveDislike = preference?.isDisliked == true,
                 artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
                 animeName = sheetAnime?.title
             ),

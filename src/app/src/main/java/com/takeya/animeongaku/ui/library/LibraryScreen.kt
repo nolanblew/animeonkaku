@@ -120,8 +120,6 @@ fun LibraryScreen(
     val artists by viewModel.artists.collectAsStateWithLifecycle()
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
     val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
-    val likedThemeIds by viewModel.likedThemeIds.collectAsStateWithLifecycle()
-    val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
     val showDownloadedOnly by viewModel.showDownloadedOnly.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val pendingPlaylistWriteStatus by viewModel.pendingPlaylistWriteStatus.collectAsStateWithLifecycle()
@@ -154,6 +152,9 @@ fun LibraryScreen(
         val info = theme.displayInfo(sheetAnime)
         val isDownloaded = theme.id in downloadedThemeIds
         val isDownloading = theme.id in downloadingThemeIds
+        val preference by remember(theme.id) {
+            viewModel.observePreference(theme.id)
+        }.collectAsStateWithLifecycle(initialValue = null)
         ActionSheet(
             config = ActionSheetConfig(
                 title = info.primaryText,
@@ -165,8 +166,8 @@ fun LibraryScreen(
                 showDownloading = isDownloading,
                 showRemoveDownload = isDownloaded,
                 showLike = true,
-                isLiked = theme.id in likedThemeIds,
-                showRemoveDislike = theme.id in dislikedThemeIds,
+                isLiked = preference?.isLiked == true,
+                showRemoveDislike = preference?.isDisliked == true,
                 artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
                 animeName = sheetAnime?.title
             ),

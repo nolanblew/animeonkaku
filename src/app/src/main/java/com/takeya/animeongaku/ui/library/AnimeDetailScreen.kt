@@ -85,8 +85,6 @@ fun AnimeDetailScreen(
     val libraryThemeIds by viewModel.libraryThemeIds.collectAsStateWithLifecycle()
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
     val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
-    val likedThemeIds by viewModel.likedThemeIds.collectAsStateWithLifecycle()
-    val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
     val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
     val coverUrl = anime?.primaryArtworkUrl()
 
@@ -99,6 +97,9 @@ fun AnimeDetailScreen(
         val songInLibrary = theme.id in libraryThemeIds
         val isDownloaded = theme.id in downloadedThemeIds
         val isDownloading = theme.id in downloadingThemeIds
+        val preference by remember(theme.id) {
+            viewModel.observePreference(theme.id)
+        }.collectAsStateWithLifecycle(initialValue = null)
         ActionSheet(
             config = ActionSheetConfig(
                 title = info.primaryText,
@@ -111,8 +112,8 @@ fun AnimeDetailScreen(
                 showDownloading = isDownloading,
                 showRemoveDownload = isDownloaded,
                 showLike = true,
-                isLiked = theme.id in likedThemeIds,
-                showRemoveDislike = theme.id in dislikedThemeIds
+                isLiked = preference?.isLiked == true,
+                showRemoveDislike = preference?.isDisliked == true
             ),
             onDismiss = { sheetTheme = null },
             onPlayNext = { viewModel.nowPlayingManager.playNext(theme, anime) },
@@ -345,7 +346,10 @@ fun AnimeDetailScreen(
                     }
                 }
             } else {
-                itemsIndexed(themes) { index, theme ->
+                itemsIndexed(
+                    items = themes,
+                    key = { _, theme -> theme.id }
+                ) { _, theme ->
                     ThemeRow(
                         theme = theme,
                         coverUrl = coverUrl,

@@ -112,8 +112,6 @@ fun PlaylistDetailScreen(
     val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
     val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
-    val likedThemeIds by viewModel.likedThemeIds.collectAsStateWithLifecycle()
-    val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val dynamicSpec by viewModel.dynamicSpec.collectAsStateWithLifecycle()
     val isDynamic by viewModel.isDynamic.collectAsStateWithLifecycle()
@@ -164,6 +162,9 @@ fun PlaylistDetailScreen(
         val info = theme.displayInfo(sheetAnime)
         val isDownloaded = theme.id in downloadedThemeIds
         val isDownloading = theme.id in downloadingThemeIds
+        val preference by remember(theme.id) {
+            viewModel.observePreference(theme.id)
+        }.collectAsStateWithLifecycle(initialValue = null)
         ActionSheet(
             config = ActionSheetConfig(
                 title = info.primaryText,
@@ -175,8 +176,8 @@ fun PlaylistDetailScreen(
                 showDownloading = isDownloading,
                 showRemoveDownload = isDownloaded,
                 showLike = true,
-                isLiked = theme.id in likedThemeIds,
-                showRemoveDislike = theme.id in dislikedThemeIds,
+                isLiked = preference?.isLiked == true,
+                showRemoveDislike = preference?.isDisliked == true,
                 artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
                 animeName = sheetAnime?.title
             ),

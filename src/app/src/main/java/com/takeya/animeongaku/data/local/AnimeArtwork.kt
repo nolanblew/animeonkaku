@@ -15,39 +15,37 @@ package com.takeya.animeongaku.data.local
 private const val MEDIA_ROUTE_SENTINEL = "https://ongaku.local"
 
 private fun AnimeEntity.animeImageRouteUrl(variant: String): String? =
-    kitsuId.takeIf { it.isNotBlank() }
+    kitsuId.takeIf { it.toLongOrNull() != null }
         ?.let { "$MEDIA_ROUTE_SENTINEL/v1/media/images/anime/$it/$variant" }
 
 fun AnimeEntity.primaryArtworkUrl(): String? =
-    coverUrl?.takeIf { it.isNotBlank() }
+    animeImageRouteUrl("cover")
+        ?: coverUrl?.takeIf { it.isNotBlank() }
         ?: thumbnailUrl?.takeIf { it.isNotBlank() }
-        ?: animeImageRouteUrl("cover")
 
 fun AnimeEntity.backgroundArtworkUrl(): String? =
-    thumbnailUrl?.takeIf { it.isNotBlank() }
+    animeImageRouteUrl("poster")
+        ?: thumbnailUrl?.takeIf { it.isNotBlank() }
         ?: coverUrl?.takeIf { it.isNotBlank() }
-        ?: animeImageRouteUrl("poster")
 
 /**
- * Ordered list of artwork URLs to try in sequence (highest quality first, fallbacks after).
- * Cover original → cover large → poster original → poster large → kitsu-derived cover/poster
- * routes. Used by FallbackAsyncImage to retry with the next URL on a load error, so a stale
- * or missing stored URL still falls through to the deterministic server image route.
+ * Ordered list of artwork URLs to try in sequence. Server media routes come first.
+ * FallbackAsyncImage retries stale or unavailable stored URLs after the server route fails.
  */
 fun AnimeEntity.primaryArtworkUrls(): List<String> = listOfNotNull(
+    animeImageRouteUrl("cover"),
+    animeImageRouteUrl("poster"),
     coverUrl?.takeIf { it.isNotBlank() },
     coverUrlLarge?.takeIf { it.isNotBlank() },
     thumbnailUrl?.takeIf { it.isNotBlank() },
-    thumbnailUrlLarge?.takeIf { it.isNotBlank() },
-    animeImageRouteUrl("cover"),
-    animeImageRouteUrl("poster")
+    thumbnailUrlLarge?.takeIf { it.isNotBlank() }
 ).distinct()
 
 fun AnimeEntity.backgroundArtworkUrls(): List<String> = listOfNotNull(
+    animeImageRouteUrl("poster"),
+    animeImageRouteUrl("cover"),
     thumbnailUrl?.takeIf { it.isNotBlank() },
     thumbnailUrlLarge?.takeIf { it.isNotBlank() },
     coverUrl?.takeIf { it.isNotBlank() },
-    coverUrlLarge?.takeIf { it.isNotBlank() },
-    animeImageRouteUrl("poster"),
-    animeImageRouteUrl("cover")
+    coverUrlLarge?.takeIf { it.isNotBlank() }
 ).distinct()
