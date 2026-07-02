@@ -116,6 +116,8 @@ const syncScheduler = new SyncScheduler({
 });
 syncScheduler.start();
 
+const clientApi = new DrizzleClientApiService(db, jobQueue);
+
 const app = buildApp({
   authService: new AuthService(
     new DrizzleAuthRepo(db),
@@ -128,7 +130,8 @@ const app = buildApp({
     mediaRoot: config.MEDIA_ROOT,
   },
   jobs: jobQueue,
-  clientApi: new DrizzleClientApiService(db, jobQueue),
+  clientApi,
+  legacyLibraryImport: clientApi,
   mediaApi: new MediaStreamingService({
     repo: new DrizzleMediaApiRepository(db),
     queue: jobQueue,

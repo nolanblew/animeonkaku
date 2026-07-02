@@ -2,7 +2,10 @@ package com.takeya.animeongaku
 
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import com.takeya.animeongaku.data.remote.OngakuLegacyLibraryImport
+import com.takeya.animeongaku.data.remote.OngakuLegacyLibraryImportEntry
 import com.takeya.animeongaku.data.remote.OngakuLibraryResponse
+import com.takeya.animeongaku.data.remote.OngakuLoginRequest
 import com.takeya.animeongaku.data.remote.OngakuLoginResponse
 import com.takeya.animeongaku.data.remote.OngakuSyncStatusResponse
 import org.junit.Assert.assertEquals
@@ -33,6 +36,33 @@ class OngakuModelsTest {
         assertEquals("12345", response.user.kitsuUserId)
         assertEquals("nblewtest", response.user.username)
         assertTrue(response.isNewUser)
+    }
+
+    @Test
+    fun `serializes login request with legacy import payload`() {
+        val adapter = moshi.adapter(OngakuLoginRequest::class.java)
+        val json = adapter.toJson(
+            OngakuLoginRequest(
+                username = "nblewtest",
+                password = "hunter2",
+                deviceName = "Pixel 9",
+                legacyLibraryImport = OngakuLegacyLibraryImport(
+                    entries = listOf(
+                        OngakuLegacyLibraryImportEntry(
+                            themeId = 100,
+                            liked = true,
+                            playCount = 3,
+                            lastPlayedAt = 1700000000000
+                        )
+                    )
+                )
+            )
+        )
+
+        assertTrue(json.contains(""""legacyLibraryImport""""))
+        assertTrue(json.contains(""""themeId":100"""))
+        assertTrue(json.contains(""""liked":true"""))
+        assertTrue(json.contains(""""playCount":3"""))
     }
 
     @Test

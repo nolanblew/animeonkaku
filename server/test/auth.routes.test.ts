@@ -6,18 +6,45 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.js";
 import { AuthService, SESSION_TTL_MS } from "../src/auth/service.js";
 import { StubKitsuAuthClient } from "../src/auth/stubKitsuAuthClient.js";
+import type {
+  LegacyLibraryImportPayload,
+  LegacyLibraryImportResult,
+  LegacyLibraryImportService,
+} from "../src/legacyLibraryImport.js";
 import { FakeAuthRepo } from "./helpers/fakeAuthRepo.js";
 
 const mediaRoot = mkdtempSync(join(tmpdir(), "ongaku-test-"));
 
 let repo: FakeAuthRepo;
 let app: FastifyInstance;
+let legacyImporter: FakeLegacyLibraryImportService;
+
+class FakeLegacyLibraryImportService implements LegacyLibraryImportService {
+  calls: Array<{ userId: string; payload: LegacyLibraryImportPayload }> = [];
+
+  async importLegacyLibrary(
+    userId: string,
+    payload: LegacyLibraryImportPayload,
+  ): Promise<LegacyLibraryImportResult> {
+    this.calls.push({ userId, payload });
+    return {
+      requestedEntries: payload.entries.length,
+      importedEntries: payload.entries.length,
+      skippedEntries: 0,
+      importedLikes: payload.entries.filter((entry) => entry.liked).length,
+      importedDislikes: payload.entries.filter((entry) => entry.disliked).length,
+      importedPlayCounts: payload.entries.filter((entry) => entry.playCount > 0).length,
+    };
+  }
+}
 
 beforeEach(() => {
   repo = new FakeAuthRepo();
+  legacyImporter = new FakeLegacyLibraryImportService();
   app = buildApp({
     authService: new AuthService(repo, new StubKitsuAuthClient()),
     health: { pingDb: async () => {}, mediaRoot },
+    legacyLibraryImport: legacyImporter,
   });
 });
 
@@ -50,6 +77,72 @@ describe("POST /v1/auth/login", () => {
     expect(second.json().isNewUser).toBe(false);
     expect(second.json().token).not.toBe(first.json().token);
     expect(repo.sessions.size).toBe(2);
+  });
+
+  it("imports legacy library preferences during login when provided", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/auth/login",
+      payload: {
+        username: "nolan",
+        password: "hunter2",
+        deviceName: "Pixel 9",
+        legacyLibraryImport: {
+          entries: [
+            {
+              themeId: 100,
+              liked: true,
+              disliked: false,
+              playCount: 3,
+              lastPlayedAt: 1700000000000,
+            },
+          ],
+        },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(legacyImporter.calls).toEqual([
+      {
+        userId: "stub-nolan",
+        payload: {
+          entries: [
+            {
+              themeId: 100,
+              liked: true,
+              disliked: false,
+              playCount: 3,
+              lastPlayedAt: 1700000000000,
+            },
+          ],
+        },
+      },
+    ]);
+    expect(res.json().legacyLibraryImport).toEqual({
+      requestedEntries: 1,
+      importedEntries: 1,
+      skippedEntries: 0,
+      importedLikes: 1,
+      importedDislikes: 0,
+      importedPlayCounts: 1,
+    });
+  });
+
+  it("rejects contradictory legacy import entries", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/auth/login",
+      payload: {
+        username: "nolan",
+        password: "hunter2",
+        legacyLibraryImport: {
+          entries: [{ themeId: 100, liked: true, disliked: true }],
+        },
+      },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(legacyImporter.calls).toHaveLength(0);
   });
 
   it("rejects bad credentials with a 401 error envelope", async () => {

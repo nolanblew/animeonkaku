@@ -24,6 +24,11 @@ import {
   themes,
 } from "../db/schema.js";
 import { JobPriority, type JobQueue } from "../jobs/index.js";
+import type {
+  LegacyLibraryImportPayload,
+  LegacyLibraryImportResult,
+  LegacyLibraryImportService,
+} from "../legacyLibraryImport.js";
 import { CANONICAL_AUDIO } from "../media/types.js";
 import { DrizzleDynamicPlaylistEvaluator } from "../playlists/dynamicPlaylistEvaluator.js";
 import { DrizzleAutoPlaylistRefresher } from "../sync/autoPlaylistRefresher.js";
@@ -43,7 +48,7 @@ import type {
   ThemePrefPatch,
 } from "./clientRoutes.js";
 
-export class DrizzleClientApiService implements ClientApiService {
+export class DrizzleClientApiService implements ClientApiService, LegacyLibraryImportService {
   private readonly autoPlaylistRefresher: DrizzleAutoPlaylistRefresher;
   private readonly dynamicPlaylistEvaluator: DrizzleDynamicPlaylistEvaluator;
 
@@ -432,6 +437,79 @@ export class DrizzleClientApiService implements ClientApiService {
       dedupeKey: `AUTO_PLAYLIST_REFRESH:${userId}`,
     });
     return pref!;
+  }
+
+  async importLegacyLibrary(
+    userId: string,
+    payload: LegacyLibraryImportPayload,
+  ): Promise<LegacyLibraryImportResult> {
+    const normalized = normalizeLegacyImportEntries(payload);
+    const requestedEntries = payload.entries.length;
+    const themeIds = normalized.map((entry) => entry.themeId);
+    const now = this.now();
+
+    const knownThemeRows = themeIds.length === 0
+      ? []
+      : await this.db
+        .select({ id: themes.id })
+        .from(themes)
+        .where(and(inArray(themes.id, themeIds), isNull(themes.deletedAt)));
+    const knownThemeIds = new Set(knownThemeRows.map((row) => row.id));
+    const importable = normalized.filter((entry) => knownThemeIds.has(entry.themeId));
+
+    if (importable.length > 0) {
+      await this.db
+        .update(themePrefs)
+        .set({
+          liked: false,
+          disliked: false,
+          playCount: 0,
+          lastPlayedAt: null,
+          likedUpdatedAt: now,
+          updatedAt: now,
+          deletedAt: now,
+        })
+        .where(and(eq(themePrefs.userId, userId), isNull(themePrefs.deletedAt)));
+
+      await this.ensureLibraryForThemeIds(userId, importable.map((entry) => entry.themeId));
+      await this.db
+        .insert(themePrefs)
+        .values(
+          importable.map((entry) => ({
+            userId,
+            themeId: entry.themeId,
+            liked: entry.liked,
+            disliked: entry.disliked,
+            playCount: entry.playCount,
+            lastPlayedAt: entry.lastPlayedAt == null ? null : new Date(entry.lastPlayedAt),
+            likedUpdatedAt: now,
+            updatedAt: now,
+            deletedAt: null,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [themePrefs.userId, themePrefs.themeId],
+          set: {
+            liked: sql`excluded.liked`,
+            disliked: sql`excluded.disliked`,
+            playCount: sql`excluded.play_count`,
+            lastPlayedAt: sql`excluded.last_played_at`,
+            likedUpdatedAt: now,
+            updatedAt: now,
+            deletedAt: null,
+          },
+        });
+      await this.refreshAutoPlaylists(userId);
+    }
+
+    return {
+      requestedEntries,
+      importedEntries: importable.length,
+      skippedEntries: requestedEntries - importable.length,
+      importedLikes: importable.filter((entry) => entry.liked).length,
+      importedDislikes: importable.filter((entry) => entry.disliked).length,
+      importedPlayCounts: importable.filter((entry) => entry.playCount > 0).length,
+    };
   }
 
   async refreshAutoPlaylists(userId: string): Promise<void> {
@@ -1066,6 +1144,25 @@ function normalizedPrefPatch(patch: ThemePrefPatch, now: Date): Partial<typeof t
     if (patch.disliked) set.liked = false;
   }
   return set;
+}
+
+function normalizeLegacyImportEntries(payload: LegacyLibraryImportPayload): LegacyLibraryImportPayload["entries"] {
+  const byThemeId = new Map<number, LegacyLibraryImportPayload["entries"][number]>();
+  for (const entry of payload.entries) {
+    if (!Number.isInteger(entry.themeId) || entry.themeId <= 0) continue;
+    if (entry.liked && entry.disliked) continue;
+    const playCount = Math.max(0, Math.floor(entry.playCount));
+    const normalized = {
+      themeId: entry.themeId,
+      liked: entry.liked,
+      disliked: entry.disliked,
+      playCount,
+      lastPlayedAt: playCount > 0 ? entry.lastPlayedAt ?? null : null,
+    };
+    if (!normalized.liked && !normalized.disliked && normalized.playCount === 0) continue;
+    byThemeId.set(normalized.themeId, normalized);
+  }
+  return [...byThemeId.values()];
 }
 
 function groupPlays(plays: Array<{ themeId: number; playedAt: number }>) {

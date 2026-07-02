@@ -1,10 +1,15 @@
 package com.takeya.animeongaku
 
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import com.takeya.animeongaku.data.auth.OngakuAuthRepository
 import com.takeya.animeongaku.data.auth.ServerSession
 import com.takeya.animeongaku.data.auth.SessionState
 import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.auth.ServerTokenStore
+import com.takeya.animeongaku.data.importer.LegacyLibraryImportParser
+import com.takeya.animeongaku.data.remote.OngakuLegacyLibraryImport
+import com.takeya.animeongaku.data.remote.OngakuLegacyLibraryImportEntry
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.sync.InitialLibrarySync
 import com.takeya.animeongaku.ui.onboarding.OnboardingViewModel
@@ -40,8 +45,15 @@ class OnboardingViewModelTest {
     ) : OngakuAuthRepository {
         var loginCalls = 0
         var cleared = false
-        override suspend fun login(username: String, password: String, deviceName: String): ServerSession {
+        var legacyImport: OngakuLegacyLibraryImport? = null
+        override suspend fun login(
+            username: String,
+            password: String,
+            deviceName: String,
+            legacyLibraryImport: OngakuLegacyLibraryImport?
+        ): ServerSession {
             loginCalls++
+            legacyImport = legacyLibraryImport
             error?.let { throw it }
             return result!!
         }
@@ -50,6 +62,13 @@ class OnboardingViewModelTest {
             cleared = true
         }
     }
+
+    private fun parser(): LegacyLibraryImportParser =
+        LegacyLibraryImportParser(
+            Moshi.Builder()
+                .add(KotlinJsonAdapterFactory())
+                .build()
+        )
 
     private class FakeInitialLibrarySync(
         private val error: Exception? = null
@@ -73,7 +92,13 @@ class OnboardingViewModelTest {
         val tokenStore = ServerTokenStore(FakeSharedPreferences())
         val sessionState = SessionStateManager(tokenStore)
         val initialSync = FakeInitialLibrarySync()
-        val vm = OnboardingViewModel(FakeAuthRepo(result = session), sessionState, settings(true), initialSync)
+        val vm = OnboardingViewModel(
+            FakeAuthRepo(result = session),
+            sessionState,
+            settings(true),
+            initialSync,
+            parser()
+        )
 
         vm.onUsernameChange("nblew")
         vm.onPasswordChange("pw")
@@ -95,7 +120,8 @@ class OnboardingViewModelTest {
             repo,
             SessionStateManager(ServerTokenStore(FakeSharedPreferences())),
             settings(false),
-            initialSync
+            initialSync,
+            parser()
         )
 
         vm.onUsernameChange("nblew")
@@ -114,7 +140,8 @@ class OnboardingViewModelTest {
             FakeAuthRepo(error = RuntimeException("bad creds")),
             SessionStateManager(ServerTokenStore(FakeSharedPreferences())),
             settings(true),
-            FakeInitialLibrarySync()
+            FakeInitialLibrarySync(),
+            parser()
         )
         vm.onUsernameChange("nblew")
         vm.onPasswordChange("pw")
@@ -135,7 +162,8 @@ class OnboardingViewModelTest {
             repo,
             sessionState,
             settings(true),
-            FakeInitialLibrarySync(error = RuntimeException("server offline"))
+            FakeInitialLibrarySync(error = RuntimeException("server offline")),
+            parser()
         )
 
         vm.onUsernameChange("nblew")
@@ -147,5 +175,55 @@ class OnboardingViewModelTest {
         assertEquals(SessionState.LoggedOut, sessionState.state.value)
         assertNotNull(vm.uiState.value.error)
         assertEquals(false, vm.uiState.value.isSubmitting)
+    }
+
+    @Test
+    fun `selected legacy import is sent with login request`() = runTest(dispatcher) {
+        val session = ServerSession("tok", "uid", "nblew")
+        val repo = FakeAuthRepo(result = session)
+        val vm = OnboardingViewModel(
+            repo,
+            SessionStateManager(ServerTokenStore(FakeSharedPreferences())),
+            settings(true),
+            FakeInitialLibrarySync(),
+            parser()
+        )
+
+        vm.onUsernameChange("nblew")
+        vm.onPasswordChange("pw")
+        vm.onLegacyImportFileSelected(
+            fileName = "anime-ongaku-export.json",
+            contents = """
+                {
+                  "userPreferences": [
+                    { "themeId": 10, "isLiked": true, "isDisliked": false }
+                  ],
+                  "playCounts": [
+                    { "themeId": 10, "playCount": 3, "lastPlayedAt": 1000 }
+                  ]
+                }
+            """.trimIndent()
+        )
+
+        assertEquals("anime-ongaku-export.json", vm.uiState.value.legacyImportFileName)
+
+        vm.signIn()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(1, repo.loginCalls)
+        assertEquals(
+            OngakuLegacyLibraryImport(
+                entries = listOf(
+                    OngakuLegacyLibraryImportEntry(
+                        themeId = 10,
+                        liked = true,
+                        disliked = false,
+                        playCount = 3,
+                        lastPlayedAt = 1000
+                    )
+                )
+            ),
+            repo.legacyImport
+        )
     }
 }

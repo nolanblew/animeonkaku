@@ -3,18 +3,41 @@ package com.takeya.animeongaku.data.remote
 data class OngakuLoginRequest(
     val username: String,
     val password: String,
-    val deviceName: String
+    val deviceName: String,
+    val legacyLibraryImport: OngakuLegacyLibraryImport? = null
 )
 
 data class OngakuLoginResponse(
     val token: String,
     val user: OngakuUserDto,
-    val isNewUser: Boolean
+    val isNewUser: Boolean,
+    val legacyLibraryImport: OngakuLegacyLibraryImportSummary? = null
 )
 
 data class OngakuUserDto(
     val kitsuUserId: String,
     val username: String
+)
+
+data class OngakuLegacyLibraryImport(
+    val entries: List<OngakuLegacyLibraryImportEntry>
+)
+
+data class OngakuLegacyLibraryImportEntry(
+    val themeId: Long,
+    val liked: Boolean = false,
+    val disliked: Boolean = false,
+    val playCount: Int = 0,
+    val lastPlayedAt: Long? = null
+)
+
+data class OngakuLegacyLibraryImportSummary(
+    val requestedEntries: Int,
+    val importedEntries: Int,
+    val skippedEntries: Int,
+    val importedLikes: Int,
+    val importedDislikes: Int,
+    val importedPlayCounts: Int
 )
 
 data class OngakuMeResponse(
