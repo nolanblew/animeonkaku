@@ -1,6 +1,7 @@
 package com.takeya.animeongaku.data.auth
 
 import com.takeya.animeongaku.data.remote.OngakuApi
+import com.takeya.animeongaku.data.remote.OngakuLegacyLibraryImport
 import com.takeya.animeongaku.data.remote.OngakuLoginRequest
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -10,12 +11,18 @@ class OngakuAuthRepositoryImpl @Inject constructor(
     private val api: OngakuApi,
     private val tokenStore: ServerTokenStore
 ) : OngakuAuthRepository {
-    override suspend fun login(username: String, password: String, deviceName: String): ServerSession {
+    override suspend fun login(
+        username: String,
+        password: String,
+        deviceName: String,
+        legacyLibraryImport: OngakuLegacyLibraryImport?
+    ): ServerSession {
         val response = api.login(
             OngakuLoginRequest(
                 username = username,
                 password = password,
-                deviceName = deviceName
+                deviceName = deviceName,
+                legacyLibraryImport = legacyLibraryImport
             )
         )
         val session = ServerSession(

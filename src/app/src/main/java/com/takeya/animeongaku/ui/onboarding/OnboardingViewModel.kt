@@ -5,6 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.takeya.animeongaku.data.auth.OngakuAuthRepository
 import com.takeya.animeongaku.data.auth.SessionStateManager
+import com.takeya.animeongaku.data.importer.LegacyLibraryImportParseException
+import com.takeya.animeongaku.data.importer.LegacyLibraryImportParser
+import com.takeya.animeongaku.data.remote.OngakuLegacyLibraryImport
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.network.toFriendReadableMessage
 import com.takeya.animeongaku.sync.InitialLibrarySync
@@ -21,7 +24,9 @@ data class OnboardingUiState(
     val password: String = "",
     val isSubmitting: Boolean = false,
     val status: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val legacyImportFileName: String? = null,
+    val legacyImportEntryCount: Int = 0
 ) {
     val canSubmit: Boolean get() = !isSubmitting && username.isNotBlank() && password.isNotBlank()
 }
@@ -31,11 +36,13 @@ class OnboardingViewModel @Inject constructor(
     private val authRepository: OngakuAuthRepository,
     private val sessionStateManager: SessionStateManager,
     private val serverSettingsStore: ServerSettingsStore,
-    private val initialLibrarySync: InitialLibrarySync
+    private val initialLibrarySync: InitialLibrarySync,
+    private val legacyLibraryImportParser: LegacyLibraryImportParser
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(OnboardingUiState())
     val uiState: StateFlow<OnboardingUiState> = _uiState.asStateFlow()
+    private var selectedLegacyImport: SelectedLegacyImport? = null
 
     fun onUsernameChange(value: String) {
         _uiState.update { it.copy(username = value.replace(Regex("[\\r\\n]"), ""), error = null) }
@@ -43,6 +50,58 @@ class OnboardingViewModel @Inject constructor(
 
     fun onPasswordChange(value: String) {
         _uiState.update { it.copy(password = value.replace(Regex("[\\r\\n]"), ""), error = null) }
+    }
+
+    fun onLegacyImportFileSelected(fileName: String, contents: String) {
+        try {
+            val payload = legacyLibraryImportParser.parse(contents)
+            selectedLegacyImport = SelectedLegacyImport(
+                fileName = fileName.ifBlank { "legacy-library-export.json" },
+                payload = payload
+            )
+            _uiState.update {
+                it.copy(
+                    legacyImportFileName = selectedLegacyImport?.fileName,
+                    legacyImportEntryCount = payload.entries.size,
+                    status = "Legacy import ready: ${payload.entries.size} tracks",
+                    error = null
+                )
+            }
+        } catch (e: LegacyLibraryImportParseException) {
+            selectedLegacyImport = null
+            _uiState.update {
+                it.copy(
+                    legacyImportFileName = null,
+                    legacyImportEntryCount = 0,
+                    status = null,
+                    error = "Legacy import failed: ${e.message}"
+                )
+            }
+        }
+    }
+
+    fun onLegacyImportReadFailed(message: String) {
+        selectedLegacyImport = null
+        _uiState.update {
+            it.copy(
+                legacyImportFileName = null,
+                legacyImportEntryCount = 0,
+                status = null,
+                error = message
+            )
+        }
+    }
+
+    fun clearLegacyImport() {
+        selectedLegacyImport = null
+        _uiState.update {
+            it.copy(
+                legacyImportFileName = null,
+                legacyImportEntryCount = 0,
+                status = null,
+                error = null
+            )
+        }
     }
 
     fun signIn() {
@@ -61,7 +120,12 @@ class OnboardingViewModel @Inject constructor(
             var loggedIn = false
             _uiState.update { it.copy(isSubmitting = true, status = "Signing in...", error = null) }
             try {
-                val session = authRepository.login(username, password, deviceName())
+                val session = authRepository.login(
+                    username,
+                    password,
+                    deviceName(),
+                    selectedLegacyImport?.payload
+                )
                 sessionStateManager.onInitialSync(session)
                 loggedIn = true
                 initialLibrarySync.runFullSync { status ->
@@ -85,3 +149,8 @@ class OnboardingViewModel @Inject constructor(
         listOf(Build.MANUFACTURER, Build.MODEL).joinToString(" ").trim().ifBlank { "Android" }
 
 }
+
+private data class SelectedLegacyImport(
+    val fileName: String,
+    val payload: OngakuLegacyLibraryImport
+)

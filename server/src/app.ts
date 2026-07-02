@@ -13,6 +13,7 @@ import { registerProxyRoutes, type ProxyApiService } from "./api/proxyRoutes.js"
 import type { AuthService, LoginResult } from "./auth/service.js";
 import { KitsuAuthError } from "./auth/types.js";
 import { registerJobAdminRoutes, type JobAdminService } from "./jobs/adminRoutes.js";
+import type { LegacyLibraryImportService } from "./legacyLibraryImport.js";
 import { registerSyncRoutes, type SyncApiService } from "./api/syncRoutes.js";
 
 export interface AppDeps {
@@ -23,6 +24,7 @@ export interface AppDeps {
   mediaApi?: MediaStreamingService;
   syncApi?: SyncApiService;
   proxyApi?: ProxyApiService;
+  legacyLibraryImport?: LegacyLibraryImportService;
   onLogin?: (result: LoginResult) => Promise<void>;
   logger?: boolean;
 }
@@ -72,7 +74,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 }
 
 function registerApiRoutes(app: FastifyInstance, deps: AppDeps): void {
-  registerAuthRoutes(app, deps.authService, { onLogin: deps.onLogin });
+  registerAuthRoutes(app, deps.authService, {
+    onLogin: deps.onLogin,
+    legacyLibraryImport: deps.legacyLibraryImport,
+  });
   if (deps.clientApi) {
     registerClientRoutes(app, deps.authService, deps.clientApi);
   }
