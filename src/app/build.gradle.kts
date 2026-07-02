@@ -48,7 +48,7 @@ val localProperties = Properties().apply {
         localPropertiesFile.inputStream().use { load(it) }
     }
 }
-val defaultOngakuServerBaseUrl = "http://takeya.hopto.org:48668/"
+val defaultOngakuServerBaseUrl = "https://ongaku-api.takeya.ninja/"
 val ongakuServerBaseUrl = providers.environmentVariable("ONGAKU_SERVER_BASE_URL")
     .orNull
     ?.trim()
