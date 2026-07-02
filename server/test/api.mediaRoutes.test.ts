@@ -327,6 +327,34 @@ describe("media API routes", () => {
     expect(fetchCalls).toHaveLength(0);
   });
 
+  it("re-warms READY audio when the cached file is missing on disk", async () => {
+    repo.audio.set(100, {
+      themeId: 100,
+      originUrl: "https://a.animethemes.moe/Ready.ogg",
+      state: "READY",
+      filePath: "audio/missing.ogg",
+      byteSize: 16,
+      sha256: "abc123",
+    });
+    const token = await bearer();
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/media/audio/100/request",
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ themeId: 100, audioState: "MISSING", jobId: 1 });
+    expect((await queue.list("QUEUED"))[0]).toMatchObject({
+      type: "FETCH_AUDIO",
+      priority: JobPriority.HIGH,
+      payload: { themeId: 100 },
+      dedupeKey: "FETCH_AUDIO:100",
+    });
+    expect(fetchCalls).toHaveLength(0);
+  });
+
   it("returns a stable failure for FAILED audio without re-hitting the origin", async () => {
     repo.audio.set(100, {
       themeId: 100,
