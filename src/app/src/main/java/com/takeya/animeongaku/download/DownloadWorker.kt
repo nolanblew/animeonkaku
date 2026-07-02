@@ -30,6 +30,9 @@ import com.takeya.animeongaku.network.serverMediaRequestHeaders
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -39,6 +42,7 @@ import java.io.File
 import java.io.FileOutputStream
 
 internal const val DOWNLOAD_MAX_ATTEMPTS = 3
+internal const val DOWNLOAD_MAX_PARALLEL_TRANSFERS = 6
 
 /** What to do next while waiting for the server to cache a track's audio. */
 internal enum class AudioWarmupDecision { READY, FAILED, WAIT }
@@ -98,6 +102,20 @@ internal fun downloadFileExtension(url: String, defaultExtension: String): Strin
         ?.substringAfterLast('.')
         ?.takeIf { extension -> extension.length in 1..12 && extension.all { it.isLetterOrDigit() } }
         ?: defaultExtension
+}
+
+internal suspend fun <T, R> mapWithDownloadParallelism(
+    items: List<T>,
+    parallelism: Int = DOWNLOAD_MAX_PARALLEL_TRANSFERS,
+    block: suspend (T) -> R
+): List<R> {
+    if (items.isEmpty()) return emptyList()
+    val safeParallelism = parallelism.coerceIn(1, DOWNLOAD_MAX_PARALLEL_TRANSFERS)
+    return items.chunked(safeParallelism).flatMap { chunk ->
+        coroutineScope {
+            chunk.map { item -> async { block(item) } }.awaitAll()
+        }
+    }
 }
 
 /**
@@ -170,13 +188,24 @@ class DownloadWorker @AssistedInject constructor(
 
         try {
             while (true) {
-                val next = downloadDao.getNextDownloadable(processed.toList()) ?: break
-                processed += next.themeId
-                when (downloadTheme(next.themeId)) {
-                    ThemeDownloadOutcome.DEFERRED -> deferredAny = true
-                    ThemeDownloadOutcome.COMPLETED,
-                    ThemeDownloadOutcome.FAILED,
-                    ThemeDownloadOutcome.SKIPPED -> Unit
+                val batch = downloadDao.getNextDownloadableBatch(
+                    excludedThemeIds = processed.toList(),
+                    limit = DOWNLOAD_MAX_PARALLEL_TRANSFERS
+                )
+                if (batch.isEmpty()) break
+
+                val themeIds = batch.map { it.themeId }
+                processed.addAll(themeIds)
+                val outcomes = mapWithDownloadParallelism(themeIds) { themeId ->
+                    downloadTheme(themeId)
+                }
+                for (outcome in outcomes) {
+                    when (outcome) {
+                        ThemeDownloadOutcome.DEFERRED -> deferredAny = true
+                        ThemeDownloadOutcome.COMPLETED,
+                        ThemeDownloadOutcome.FAILED,
+                        ThemeDownloadOutcome.SKIPPED -> Unit
+                    }
                 }
                 showAggregateNotification()
             }

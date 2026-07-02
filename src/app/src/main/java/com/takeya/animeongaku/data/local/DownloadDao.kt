@@ -47,9 +47,9 @@ interface DownloadDao {
         WHERE status IN ('${DownloadRequestEntity.STATUS_PENDING}', '${DownloadRequestEntity.STATUS_DOWNLOADING}', '${DownloadRequestEntity.STATUS_RETRYING}', '${DownloadRequestEntity.STATUS_WAITING_FOR_WIFI}')
           AND themeId NOT IN (:excludedThemeIds)
         ORDER BY createdAt ASC
-        LIMIT 1
+        LIMIT :limit
     """)
-    suspend fun getNextDownloadable(excludedThemeIds: List<Long>): DownloadRequestEntity?
+    suspend fun getNextDownloadableBatch(excludedThemeIds: List<Long>, limit: Int): List<DownloadRequestEntity>
 
     @Query("SELECT COALESCE(SUM(fileSize), 0) FROM download_request WHERE status = '${DownloadRequestEntity.STATUS_COMPLETED}'")
     fun observeTotalDownloadSize(): Flow<Long>

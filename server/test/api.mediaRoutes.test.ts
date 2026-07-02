@@ -305,12 +305,14 @@ describe("media API routes", () => {
   });
 
   it("does not re-fetch already-cached audio on explicit request", async () => {
+    const contents = Buffer.from("0123456789abcdef");
+    writeFileSync(join(mediaRoot, "audio", "100.ogg"), contents);
     repo.audio.set(100, {
       themeId: 100,
       originUrl: "https://a.animethemes.moe/Ready.ogg",
       state: "READY",
       filePath: "audio/100.ogg",
-      byteSize: 16,
+      byteSize: contents.length,
       sha256: "abc123",
     });
     const token = await bearer();
