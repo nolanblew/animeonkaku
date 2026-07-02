@@ -26,6 +26,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import java.net.Proxy
 import javax.inject.Named
 import javax.inject.Singleton
 import okhttp3.OkHttpClient
@@ -102,6 +103,7 @@ object NetworkModule {
         }
 
         return OkHttpClient.Builder()
+            .proxy(Proxy.NO_PROXY)
             .addInterceptor(RetryInterceptor())
             .addInterceptor(logging)
             .build()
