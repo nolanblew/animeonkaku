@@ -13,6 +13,10 @@ import type {
 class FakeMediaRepo implements MediaFileRepo {
   records = new Map<string, MediaFileRecord>();
 
+  async find(descriptor: { kind: string; refId: string; variant: string }): Promise<MediaFileRecord | null> {
+    return this.records.get(`${descriptor.kind}:${descriptor.refId}:${descriptor.variant}`) ?? null;
+  }
+
   async markDownloading(input: SaveMediaFileInput): Promise<void> {
     this.records.set(`${input.kind}:${input.refId}:${input.variant}`, {
       id: 1,
@@ -156,6 +160,68 @@ describe("MediaStore", () => {
 
     expect(repo.records.get("AUDIO:3040:SHORT")?.state).toBe("FAILED");
     expect(existsSync(join(mediaRoot, "audio", "3040.ogg"))).toBe(false);
+  });
+
+  it("never re-downloads media that is already READY with the file on disk", async () => {
+    mediaRoot = mkdtempSync(join(tmpdir(), "ongaku-media-"));
+    const repo = new FakeMediaRepo();
+    let originHits = 0;
+    const store = new MediaStore({
+      mediaRoot,
+      repo,
+      fetch: async () => {
+        originHits++;
+        return response("abcdef", { "content-type": "audio/ogg", "content-length": "6" });
+      },
+      minBytes: 4,
+    });
+    const input = {
+      kind: "AUDIO" as const,
+      refId: "3040",
+      variant: "SHORT" as const,
+      originUrl: "https://a.animethemes.moe/Toradora-OP1.ogg",
+      filePath: "audio/3040.ogg",
+      videoFallback: false,
+    };
+
+    const first = await store.fetchToMediaFile(input);
+    const second = await store.fetchToMediaFile(input);
+
+    expect(originHits).toBe(1);
+    expect(first.state).toBe("READY");
+    expect(second.state).toBe("READY");
+    expect(second.filePath).toBe("audio/3040.ogg");
+  });
+
+  it("re-downloads when the repo says READY but the file is missing from disk", async () => {
+    mediaRoot = mkdtempSync(join(tmpdir(), "ongaku-media-"));
+    const repo = new FakeMediaRepo();
+    let originHits = 0;
+    const store = new MediaStore({
+      mediaRoot,
+      repo,
+      fetch: async () => {
+        originHits++;
+        return response("abcdef", { "content-type": "audio/ogg", "content-length": "6" });
+      },
+      minBytes: 4,
+    });
+    const input = {
+      kind: "AUDIO" as const,
+      refId: "3040",
+      variant: "SHORT" as const,
+      originUrl: "https://a.animethemes.moe/Toradora-OP1.ogg",
+      filePath: "audio/3040.ogg",
+      videoFallback: false,
+    };
+
+    await store.fetchToMediaFile(input);
+    rmSync(join(mediaRoot, "audio", "3040.ogg"));
+    const recovered = await store.fetchToMediaFile(input);
+
+    expect(originHits).toBe(2);
+    expect(recovered.state).toBe("READY");
+    expect(existsSync(join(mediaRoot, "audio", "3040.ogg"))).toBe(true);
   });
 });
 

@@ -1,10 +1,42 @@
 import { and, eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { mediaFiles } from "../db/schema.js";
-import type { MediaFileRepo, SaveMediaFileInput } from "./types.js";
+import type { MediaDescriptor, MediaFileRecord, MediaFileRepo, MediaKind, MediaState, MediaVariant, SaveMediaFileInput } from "./types.js";
 
 export class DrizzleMediaFileRepo implements MediaFileRepo {
   constructor(private readonly db: Db) {}
+
+  async find(descriptor: MediaDescriptor): Promise<MediaFileRecord | null> {
+    const rows = await this.db
+      .select()
+      .from(mediaFiles)
+      .where(
+        and(
+          eq(mediaFiles.kind, descriptor.kind),
+          eq(mediaFiles.refId, descriptor.refId),
+          eq(mediaFiles.variant, descriptor.variant),
+        ),
+      )
+      .limit(1);
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      kind: row.kind as MediaKind,
+      refId: row.refId,
+      variant: row.variant as MediaVariant,
+      originUrl: row.originUrl,
+      state: row.state as MediaState,
+      filePath: row.filePath,
+      byteSize: row.byteSize,
+      sha256: row.sha256,
+      errorMessage: row.errorMessage,
+      attempts: row.attempts,
+      fetchedAt: row.fetchedAt,
+      updatedAt: row.updatedAt,
+      videoFallback: row.videoFallback,
+    };
+  }
 
   async markDownloading(input: SaveMediaFileInput): Promise<void> {
     await this.upsert(input, {

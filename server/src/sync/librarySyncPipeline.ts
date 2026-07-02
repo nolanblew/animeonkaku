@@ -7,15 +7,20 @@ import type { KitsuAnimeEntry, KitsuGenre } from "../kitsu/types.js";
 import type { KitsuCatalogRecord, LibrarySyncPipelineDeps, MapThemesInput, SyncJobInput } from "./types.js";
 
 const DEFAULT_MAPPING_BATCH_SIZE = 50;
+// Kept well under the MAP_THEMES job timeout so a single invocation always
+// checkpoints (re-enqueues remaining work) before the worker would time it out.
+const DEFAULT_MAPPING_TIME_BUDGET_MS = 45_000;
 const TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
 
 export class LibrarySyncPipeline {
   private readonly now: () => Date;
   private readonly mappingBatchSize: number;
+  private readonly mappingTimeBudgetMs: number;
 
   constructor(private readonly deps: LibrarySyncPipelineDeps) {
     this.now = deps.now ?? (() => new Date());
     this.mappingBatchSize = deps.mappingBatchSize ?? DEFAULT_MAPPING_BATCH_SIZE;
+    this.mappingTimeBudgetMs = deps.mappingTimeBudgetMs ?? DEFAULT_MAPPING_TIME_BUDGET_MS;
   }
 
   async runKitsuSync(input: SyncJobInput): Promise<void> {
@@ -78,6 +83,7 @@ export class LibrarySyncPipeline {
       ]),
     );
     const allMapped = new Map<string, number>();
+    const startedAt = this.now().getTime();
 
     await this.updateProgress(input.job.id, {
       phase: "MAPPING_THEMES",
@@ -102,8 +108,12 @@ export class LibrarySyncPipeline {
         processed,
       });
 
+      // Checkpoint before the job timeout: hand remaining work to a fresh
+      // MAP_THEMES so title-search-heavy libraries progress across many short
+      // invocations instead of one long one that times out and restarts.
       const remaining = kitsuIds.slice(processed);
-      if (remaining.length > 0 && (await this.deps.queue.hasUrgentQueued())) {
+      const overTimeBudget = this.now().getTime() - startedAt >= this.mappingTimeBudgetMs;
+      if (remaining.length > 0 && (overTimeBudget || (await this.deps.queue.hasUrgentQueued()))) {
         await this.deps.queue.enqueue({
           type: "MAP_THEMES",
           priority: JobPriority.NORMAL,
@@ -113,6 +123,7 @@ export class LibrarySyncPipeline {
         await this.updateProgress(input.job.id, {
           phase: "YIELDED",
           remaining: remaining.length,
+          reason: overTimeBudget ? "TIME_BUDGET" : "URGENT_WORK",
         });
         return;
       }

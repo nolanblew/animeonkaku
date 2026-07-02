@@ -11,6 +11,8 @@ import com.takeya.animeongaku.data.importer.LegacyLibraryImportParser
 import com.takeya.animeongaku.data.remote.OngakuLegacyLibraryImport
 import com.takeya.animeongaku.data.remote.OngakuLegacyLibraryImportEntry
 import com.takeya.animeongaku.data.server.ServerSettingsStore
+import com.takeya.animeongaku.sync.FirstSyncProgress
+import com.takeya.animeongaku.sync.FirstSyncStep
 import com.takeya.animeongaku.sync.InitialLibrarySync
 import com.takeya.animeongaku.ui.onboarding.OnboardingViewModel
 import kotlinx.coroutines.Dispatchers
@@ -76,12 +78,12 @@ class OnboardingViewModelTest {
         var calls = 0
         val statuses = mutableListOf<String>()
 
-        override suspend fun runFullSync(onStatus: (String) -> Unit) {
+        override suspend fun runFullSync(onProgress: (FirstSyncProgress) -> Unit) {
             calls++
-            onStatus("Server sync queued")
+            onProgress(FirstSyncProgress(FirstSyncStep.SyncLibrary, "Server sync queued"))
             statuses += "Server sync queued"
             error?.let { throw it }
-            onStatus("Library ready")
+            onProgress(FirstSyncProgress(FirstSyncStep.LoadDevice, "Library ready"))
             statuses += "Library ready"
         }
     }
@@ -110,6 +112,73 @@ class OnboardingViewModelTest {
         assertEquals(SessionState.Active(session), sessionState.state.value)
         assertEquals("", vm.uiState.value.password)
         assertEquals(false, vm.uiState.value.isSubmitting)
+        assertEquals(null, vm.uiState.value.firstSync)
+    }
+
+    @Test
+    fun `first sync progress drives the first sync ui state`() = runTest(dispatcher) {
+        val session = ServerSession("tok", "uid", "nblew")
+        val sessionState = SessionStateManager(ServerTokenStore(FakeSharedPreferences()))
+        val sync = object : InitialLibrarySync {
+            override suspend fun runFullSync(onProgress: (FirstSyncProgress) -> Unit) {
+                onProgress(FirstSyncProgress(FirstSyncStep.SyncLibrary, "Server sync: syncing library"))
+                kotlinx.coroutines.delay(1)
+                onProgress(FirstSyncProgress(FirstSyncStep.MatchThemes, "Server sync: mapping themes"))
+                kotlinx.coroutines.delay(1)
+                onProgress(FirstSyncProgress(FirstSyncStep.LoadDevice, "Library ready"))
+            }
+        }
+        val vm = OnboardingViewModel(
+            FakeAuthRepo(result = session),
+            sessionState,
+            settings(true),
+            sync,
+            parser()
+        )
+
+        vm.onUsernameChange("nblew")
+        vm.onPasswordChange("pw")
+        vm.signIn()
+
+        dispatcher.scheduler.runCurrent()
+        val step1 = vm.uiState.value.firstSync
+        assertNotNull(step1)
+        assertEquals(1, step1?.stepNumber)
+        assertEquals(3, step1?.totalSteps)
+
+        dispatcher.scheduler.advanceTimeBy(1)
+        dispatcher.scheduler.runCurrent()
+        assertEquals(2, vm.uiState.value.firstSync?.stepNumber)
+
+        dispatcher.scheduler.advanceUntilIdle()
+        // Cleared once the sync finishes so the app can leave the first-sync screen.
+        assertEquals(null, vm.uiState.value.firstSync)
+    }
+
+    @Test
+    fun `first sync failure clears the first sync ui state`() = runTest(dispatcher) {
+        val session = ServerSession("tok", "uid", "nblew")
+        val sync = object : InitialLibrarySync {
+            override suspend fun runFullSync(onProgress: (FirstSyncProgress) -> Unit) {
+                onProgress(FirstSyncProgress(FirstSyncStep.SyncLibrary, "Server sync queued"))
+                throw RuntimeException("server offline")
+            }
+        }
+        val vm = OnboardingViewModel(
+            FakeAuthRepo(result = session),
+            SessionStateManager(ServerTokenStore(FakeSharedPreferences())),
+            settings(true),
+            sync,
+            parser()
+        )
+
+        vm.onUsernameChange("nblew")
+        vm.onPasswordChange("pw")
+        vm.signIn()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(null, vm.uiState.value.firstSync)
+        assertNotNull(vm.uiState.value.error)
     }
 
     @Test

@@ -213,6 +213,45 @@ describe("LibrarySyncPipeline theme mapping", () => {
     expect(continuation?.payload).toEqual({ kitsuIds: ["2", "3"], userId: "u1" });
   });
 
+  it("checkpoints and re-enqueues remaining work when the time budget is exceeded", async () => {
+    const repo = new FakeMappingRepo([catalog("1", "A"), catalog("2", "B"), catalog("3", "C")]);
+    const queue = new JobQueue(new FakeJobRepository());
+    // Clock: startedAt=0, then the post-batch check reads 50s — over the 45s budget.
+    const times = [0, 50_000];
+    let tick = 0;
+    const pipeline = new LibrarySyncPipeline({
+      repo: repo as never,
+      kitsu: {} as never,
+      animeThemes: {
+        fetchByKitsuIds: async (ids: string[]) =>
+          lookup(
+            Object.fromEntries(ids.map((id) => [id, Number(id)])),
+            ids.map((id) => theme({ animeId: Number(id), themeId: Number(id) * 10 })),
+          ),
+      },
+      queue,
+      mappingBatchSize: 1,
+      mappingTimeBudgetMs: 45_000,
+      now: () => new Date(times[Math.min(tick++, times.length - 1)]!),
+    });
+    await queue.enqueue({
+      type: "MAP_THEMES",
+      priority: JobPriority.NORMAL,
+      payload: { kitsuIds: ["1", "2", "3"], userId: "u1" },
+      dedupeKey: "MAP_THEMES:u1:1,2,3",
+    });
+    const job = (await queue.claimNext())!;
+
+    await pipeline.runMapThemes({ kitsuIds: ["1", "2", "3"], userId: "u1", job });
+
+    // Only the first batch ran; the rest was handed to a fresh MAP_THEMES.
+    expect(repo.mappings).toEqual(new Map([["1", 1]]));
+    const continuation = (await queue.list("QUEUED")).find((queued) => queued.type === "MAP_THEMES");
+    expect(continuation?.payload).toEqual({ kitsuIds: ["2", "3"], userId: "u1" });
+    const yielded = (await queue.list()).find((queued) => queued.id === job.id);
+    expect(yielded?.progress).toMatchObject({ phase: "YIELDED", reason: "TIME_BUDGET", remaining: 2 });
+  });
+
   it("flushes only each mapped batch instead of rewriting cumulative theme catalogs", async () => {
     const repo = new FakeMappingRepo([
       catalog("1", "A"),

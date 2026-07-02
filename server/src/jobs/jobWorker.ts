@@ -27,7 +27,10 @@ const DEFAULT_TIMEOUTS_MS: Record<JobType, number> = {
   FETCH_IMAGE: 2 * 60_000,
   KITSU_FULL_SYNC: 30 * 60_000,
   KITSU_DELTA_SYNC: 30 * 60_000,
-  MAP_THEMES: 2 * 60_000,
+  // Safety net only: the pipeline checkpoints on a ~45s wall-clock budget, so a
+  // healthy invocation finishes well under this. The margin covers a single
+  // unusually slow batch without tripping a timeout-and-restart-from-scratch.
+  MAP_THEMES: 4 * 60_000,
   BACKFILL_SCAN: 2 * 60_000,
   AUTO_PLAYLIST_REFRESH: 2 * 60_000,
 };

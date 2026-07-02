@@ -10,6 +10,8 @@ import com.takeya.animeongaku.data.importer.LegacyLibraryImportParser
 import com.takeya.animeongaku.data.remote.OngakuLegacyLibraryImport
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.network.toFriendReadableMessage
+import com.takeya.animeongaku.sync.FirstSyncProgress
+import com.takeya.animeongaku.sync.FirstSyncStep
 import com.takeya.animeongaku.sync.InitialLibrarySync
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -19,12 +21,27 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+data class FirstSyncUiState(
+    val stepNumber: Int,
+    val totalSteps: Int,
+    val stepTitle: String,
+    val message: String
+)
+
+fun FirstSyncProgress.toUiState(): FirstSyncUiState = FirstSyncUiState(
+    stepNumber = step.stepNumber,
+    totalSteps = FirstSyncStep.totalSteps,
+    stepTitle = step.title,
+    message = message
+)
+
 data class OnboardingUiState(
     val username: String = "",
     val password: String = "",
     val isSubmitting: Boolean = false,
     val status: String? = null,
     val error: String? = null,
+    val firstSync: FirstSyncUiState? = null,
     val legacyImportFileName: String? = null,
     val legacyImportEntryCount: Int = 0
 ) {
@@ -128,18 +145,27 @@ class OnboardingViewModel @Inject constructor(
                 )
                 sessionStateManager.onInitialSync(session)
                 loggedIn = true
-                initialLibrarySync.runFullSync { status ->
-                    _uiState.update { it.copy(status = status) }
+                initialLibrarySync.runFullSync { progress ->
+                    _uiState.update {
+                        it.copy(status = progress.message, firstSync = progress.toUiState())
+                    }
                 }
                 sessionStateManager.onLogin(session)
-                _uiState.update { it.copy(isSubmitting = false, password = "", status = null) }
+                _uiState.update {
+                    it.copy(isSubmitting = false, password = "", status = null, firstSync = null)
+                }
             } catch (e: Exception) {
                 if (loggedIn) {
                     authRepository.clearSession()
                     sessionStateManager.onLogout()
                 }
                 _uiState.update {
-                    it.copy(isSubmitting = false, status = null, error = e.toFriendReadableMessage("Sign-in failed"))
+                    it.copy(
+                        isSubmitting = false,
+                        status = null,
+                        firstSync = null,
+                        error = e.toFriendReadableMessage("Sign-in failed")
+                    )
                 }
             }
         }

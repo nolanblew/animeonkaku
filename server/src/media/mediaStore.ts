@@ -36,6 +36,9 @@ export class MediaStore {
   }
 
   async fetchToMediaFile(input: SaveMediaFileInput): Promise<MediaFileRecord> {
+    const cached = await this.findReadyCached(input);
+    if (cached) return cached;
+
     const finalPath = join(this.options.mediaRoot, input.filePath);
     const tmpDir = join(this.options.mediaRoot, "audio", "tmp");
     const tmpPath = join(tmpDir, `${input.kind}-${input.refId}-${Date.now()}.tmp`);
@@ -109,6 +112,33 @@ export class MediaStore {
       await this.options.repo.markFailed({ ...input, errorMessage: err.message });
       throw err;
     }
+  }
+
+  /**
+   * Each media file is downloaded from the origin at most once: if the repo says
+   * READY and the file is still on disk, reuse it. A READY row whose file has
+   * disappeared falls through to a normal re-fetch.
+   */
+  private async findReadyCached(input: SaveMediaFileInput): Promise<MediaFileRecord | null> {
+    const existing = await this.options.repo.find?.({
+      kind: input.kind,
+      refId: input.refId,
+      variant: input.variant,
+    });
+    if (!existing || existing.state !== "READY" || !existing.filePath) return null;
+    const fileStat = await stat(join(this.options.mediaRoot, existing.filePath)).catch(() => null);
+    if (!fileStat?.isFile()) return null;
+    this.options.logger?.info(
+      {
+        kind: input.kind,
+        refId: input.refId,
+        variant: input.variant,
+        filePath: existing.filePath,
+        externalHit: false,
+      },
+      "media already cached, skipping download",
+    );
+    return existing;
   }
 }
 

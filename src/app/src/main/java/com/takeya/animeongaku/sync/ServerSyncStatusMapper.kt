@@ -65,18 +65,29 @@ fun OngakuSyncStatusResponse.toSyncState(): SyncState {
 
     return SyncState(
         phase = syncPhase,
-        status = syncPhase.serverStatusText(),
+        status = syncPhase.serverStatusText(progressCounts()),
         isRunning = stateKey == "RUNNING" || stateKey == "QUEUED",
         unmatchedAnime = unmatched
     )
 }
 
-private fun SyncPhase.serverStatusText(): String = when (this) {
-    SyncPhase.SyncingLibrary -> "Server sync: syncing library"
-    SyncPhase.MappingThemes -> "Server sync: mapping themes"
-    SyncPhase.FallbackSearch -> "Server sync: fallback search"
-    SyncPhase.Saving -> "Server sync: saving"
-    SyncPhase.Done -> "Server sync complete"
-    SyncPhase.Error -> "Server sync failed"
-    SyncPhase.Idle -> "Server sync idle"
+/** (processed, total) pulled from the job progress map when the server reports them. */
+private fun OngakuSyncStatusResponse.progressCounts(): Pair<Int, Int>? {
+    val processed = (progress["processed"] as? Number)?.toInt() ?: return null
+    val total = (progress["total"] as? Number)?.toInt() ?: return null
+    if (total <= 0) return null
+    return processed to total
+}
+
+private fun SyncPhase.serverStatusText(counts: Pair<Int, Int>?): String {
+    val suffix = counts?.let { (processed, total) -> " ($processed/$total)" } ?: ""
+    return when (this) {
+        SyncPhase.SyncingLibrary -> "Server sync: syncing library"
+        SyncPhase.MappingThemes -> "Server sync: mapping themes$suffix"
+        SyncPhase.FallbackSearch -> "Server sync: fallback search"
+        SyncPhase.Saving -> "Server sync: saving"
+        SyncPhase.Done -> "Server sync complete"
+        SyncPhase.Error -> "Server sync failed"
+        SyncPhase.Idle -> "Server sync idle"
+    }
 }

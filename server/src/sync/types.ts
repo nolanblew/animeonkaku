@@ -88,4 +88,11 @@ export interface LibrarySyncPipelineDeps {
   queue: JobQueue;
   now?: () => Date;
   mappingBatchSize?: number;
+  /**
+   * Wall-clock budget for a single MAP_THEMES invocation. When exceeded, the
+   * job re-enqueues its remaining kitsuIds as a fresh MAP_THEMES and completes,
+   * so no invocation ever approaches the job timeout (which would otherwise
+   * retry from scratch and strand the client on "matching themes").
+   */
+  mappingTimeBudgetMs?: number;
 }

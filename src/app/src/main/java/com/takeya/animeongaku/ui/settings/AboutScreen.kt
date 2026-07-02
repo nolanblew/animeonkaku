@@ -1,6 +1,5 @@
 package com.takeya.animeongaku.ui.settings
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -27,14 +27,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.takeya.animeongaku.BuildConfig
-import com.takeya.animeongaku.R
 import com.takeya.animeongaku.ui.theme.Ink800
 import com.takeya.animeongaku.ui.theme.Ink900
 import com.takeya.animeongaku.ui.theme.Mist100
@@ -119,7 +117,7 @@ fun AboutScreen(
 }
 
 @Composable
-private fun AboutHero() {
+internal fun AboutHero() {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -136,14 +134,15 @@ private fun AboutHero() {
             modifier = Modifier
                 .size(96.dp)
                 .clip(RoundedCornerShape(24.dp))
-                .background(Ink900)
+                .background(Ink900),
+            contentAlignment = Alignment.Center
         ) {
-            Image(
-                painter = painterResource(R.mipmap.ic_launcher),
+            Icon(
+                imageVector = Icons.Rounded.LibraryMusic,
                 contentDescription = "Anime Ongaku",
+                tint = Rose500,
                 modifier = Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(24.dp))
+                    .size(56.dp)
             )
         }
         Spacer(modifier = Modifier.height(16.dp))

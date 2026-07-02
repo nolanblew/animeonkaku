@@ -59,5 +59,7 @@ export interface MediaFileRepo {
   markDownloading(input: SaveMediaFileInput): Promise<void>;
   markReady(input: SaveMediaFileInput & { byteSize: number; sha256: string }): Promise<void>;
   markFailed(input: SaveMediaFileInput & { errorMessage: string }): Promise<void>;
+  /** Optional: lets MediaStore skip downloads for media that is already READY on disk. */
+  find?(descriptor: MediaDescriptor): Promise<MediaFileRecord | null>;
 }
 
