@@ -26,6 +26,7 @@ import {
   createFetchMediaHandlers,
   DrizzleMediaCatalogLookup,
   DrizzleMediaFileRepo,
+  InteractiveMediaActivity,
   MediaStore,
 } from "./media/index.js";
 import {
@@ -50,22 +51,70 @@ await mkdir(join(config.MEDIA_ROOT, "images", "artists"), { recursive: true });
 
 const jobQueue = new JobQueue(new PgJobRepository(pool));
 const syncRepo = new DrizzleSyncRepository(db);
+
+// Each upstream host shares one politeness budget (bucket) and one breaker
+// across two lanes: "interactive" for request/response paths a client is
+// waiting on, "background" for job-queue work. Background requests yield the
+// budget whenever interactive traffic wants it, so cache hydration can never
+// slow down on-demand serving.
+const kitsuBucket = new TokenBucket({ capacity: 2, refillPerSecond: 2 });
+const kitsuBreaker = new CircuitBreaker();
 const kitsuHttp = new UpstreamHttp({
-  bucket: new TokenBucket({ capacity: 2, refillPerSecond: 2 }),
-  breaker: new CircuitBreaker(),
+  bucket: kitsuBucket,
+  breaker: kitsuBreaker,
   name: "kitsu",
   logger: externalLogger,
 });
+const kitsuBackgroundHttp = new UpstreamHttp({
+  bucket: kitsuBucket,
+  breaker: kitsuBreaker,
+  name: "kitsu",
+  logger: externalLogger,
+  lane: "background",
+});
+
+const animeThemesBucket = new TokenBucket({ capacity: 3, refillPerSecond: 3 });
+const animeThemesBreaker = new CircuitBreaker();
+// Cloudflare hard-blocks with 403 (and occasionally 451); treat repeated
+// blocks as breaker failures so the queue stops hammering a blocked origin.
+const animeThemesBreakerStatuses = [403, 451];
 const animeThemesHttp = new UpstreamHttp({
-  bucket: new TokenBucket({ capacity: 3, refillPerSecond: 3 }),
-  breaker: new CircuitBreaker(),
+  bucket: animeThemesBucket,
+  breaker: animeThemesBreaker,
   name: "animethemes",
   logger: externalLogger,
-  // Cloudflare hard-blocks with 403 (and occasionally 451); treat repeated
-  // blocks as breaker failures so the queue stops hammering a blocked origin.
-  breakerStatuses: [403, 451],
+  breakerStatuses: animeThemesBreakerStatuses,
 });
+const animeThemesBackgroundHttp = new UpstreamHttp({
+  bucket: animeThemesBucket,
+  breaker: animeThemesBreaker,
+  name: "animethemes",
+  logger: externalLogger,
+  breakerStatuses: animeThemesBreakerStatuses,
+  lane: "background",
+});
+
+// Poster/cover art lives on image CDNs (media.kitsu.app, i.animethemes.moe),
+// not the AnimeThemes API host — give it its own budget and breaker so an API
+// block or a busy audio queue can never take cover art down with it.
+const imagesBucket = new TokenBucket({ capacity: 4, refillPerSecond: 4 });
+const imagesBreaker = new CircuitBreaker();
+const imagesHttp = new UpstreamHttp({
+  bucket: imagesBucket,
+  breaker: imagesBreaker,
+  name: "media-images",
+  logger: externalLogger,
+});
+const imagesBackgroundHttp = new UpstreamHttp({
+  bucket: imagesBucket,
+  breaker: imagesBreaker,
+  name: "media-images",
+  logger: externalLogger,
+  lane: "background",
+});
+
 const kitsuClient = new KitsuClient({ http: kitsuHttp });
+const kitsuBackgroundClient = new KitsuClient({ http: kitsuBackgroundHttp });
 const kitsuAuthClient =
   config.KITSU_AUTH_MODE === "real"
     ? new RealKitsuAuthClient({
@@ -78,19 +127,31 @@ const animeThemesClient = new AnimeThemesClient({
   http: animeThemesHttp,
   baseUrl: config.ANIMETHEMES_BASE_URL,
 });
+const animeThemesBackgroundClient = new AnimeThemesClient({
+  http: animeThemesBackgroundHttp,
+  baseUrl: config.ANIMETHEMES_BASE_URL,
+});
 const animeThemesFetch = (url: string | URL | Request, init?: RequestInit) =>
   animeThemesHttp.request(String(url), init);
+const animeThemesBackgroundFetch = (url: string | URL | Request, init?: RequestInit) =>
+  animeThemesBackgroundHttp.request(String(url), init);
+const imagesFetch = (url: string | URL | Request, init?: RequestInit) =>
+  imagesHttp.request(String(url), init);
+const imagesBackgroundFetch = (url: string | URL | Request, init?: RequestInit) =>
+  imagesBackgroundHttp.request(String(url), init);
+
 const syncPipeline = new LibrarySyncPipeline({
   repo: syncRepo,
-  kitsu: kitsuClient,
+  kitsu: kitsuBackgroundClient,
   kitsuAuth: kitsuAuthClient,
-  animeThemes: animeThemesClient,
+  animeThemes: animeThemesBackgroundClient,
   queue: jobQueue,
 });
 const mediaStore = new MediaStore({
   mediaRoot: config.MEDIA_ROOT,
   repo: new DrizzleMediaFileRepo(db),
-  fetch: animeThemesFetch,
+  fetch: animeThemesBackgroundFetch,
+  imageFetch: imagesBackgroundFetch,
   logger: externalLogger,
 });
 const fetchHandlers = createFetchMediaHandlers({
@@ -103,11 +164,21 @@ const fetchHandlers = createFetchMediaHandlers({
 });
 await jobQueue.recoverRunningJobs();
 const syncHandlers = createSyncJobHandlers(syncPipeline);
+// Background hydration waits until on-demand media traffic has been quiet.
+const mediaActivity = new InteractiveMediaActivity();
 const worker = new JobWorker(jobQueue, {
   handlers: { ...fetchHandlers, ...syncHandlers },
   maintenanceFetchDelayMs: config.AUDIO_BACKFILL_DELAY_SECONDS * 1000,
+  holdMaintenanceWork: () => !mediaActivity.isQuiet(),
 });
 worker.start();
+// A second worker restricted to urgent/high jobs so a client-facing fetch is
+// never queued behind a long-running background download on the main worker.
+const interactiveWorker = new JobWorker(jobQueue, {
+  handlers: { ...fetchHandlers, ...syncHandlers },
+  maxPriority: JobPriority.HIGH,
+});
+interactiveWorker.start();
 
 const syncScheduler = new SyncScheduler({
   queue: jobQueue,
@@ -118,7 +189,7 @@ const syncScheduler = new SyncScheduler({
 });
 syncScheduler.start();
 
-const clientApi = new DrizzleClientApiService(db, jobQueue);
+const clientApi = new DrizzleClientApiService(db, jobQueue, undefined, externalLogger);
 const deviceActivitySync = new DeviceActivitySyncTrigger({ queue: jobQueue });
 
 const app = buildApp({
@@ -140,7 +211,9 @@ const app = buildApp({
     queue: jobQueue,
     mediaRoot: config.MEDIA_ROOT,
     fetch: animeThemesFetch,
+    imageFetch: imagesFetch,
     logger: externalLogger,
+    activity: mediaActivity,
   }),
   syncApi: new JobSyncApiService(jobQueue),
   proxyApi: new CachedProxyService({
@@ -166,6 +239,7 @@ async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, "shutting down");
   syncScheduler.stop();
   worker.stop();
+  interactiveWorker.stop();
   await app.close();
   await pool.end();
   process.exit(0);
