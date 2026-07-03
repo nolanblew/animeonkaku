@@ -48,6 +48,9 @@ export interface SyncRepository {
   setAnimeThemeMappings?(mappings: Map<string, number>): Promise<void>;
   markAnimeUnmatched?(kitsuIds: string[]): Promise<void>;
   getThemeIdsMissingReadyAudio?(userId?: string): Promise<number[]>;
+  getAnimeImagesMissingReady?(
+    userId?: string,
+  ): Promise<Array<{ kind: "ANIME_POSTER" | "ANIME_COVER"; refId: string }>>;
   getFailedAudioThemeIds?(): Promise<number[]>;
   markAudioMediaMissing?(themeIds: string[]): Promise<void>;
   listReadyMediaFilePaths?(): Promise<string[]>;

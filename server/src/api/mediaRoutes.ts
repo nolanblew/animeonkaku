@@ -45,7 +45,11 @@ export interface MediaStreamingServiceDeps {
   queue: JobQueue;
   mediaRoot: string;
   fetch?: FetchLike;
+  /** Fetch used for image origins (Kitsu CDN etc.); falls back to `fetch`. */
+  imageFetch?: FetchLike;
   logger?: AppLogger;
+  /** Notified on every cache miss so background hydration can yield to on-demand traffic. */
+  activity?: { markMiss(): void };
 }
 
 interface ByteRange {
@@ -61,10 +65,12 @@ interface ReadyMediaFile {
 export class MediaStreamingService {
   private readonly mediaRoot: string;
   private readonly fetchImpl: FetchLike;
+  private readonly imageFetchImpl: FetchLike;
 
   constructor(private readonly deps: MediaStreamingServiceDeps) {
     this.mediaRoot = resolve(deps.mediaRoot);
     this.fetchImpl = deps.fetch ?? ((url, init) => fetch(url, init));
+    this.imageFetchImpl = deps.imageFetch ?? this.fetchImpl;
   }
 
   async sendAudio(
@@ -109,6 +115,7 @@ export class MediaStreamingService {
       throw new ApiError(503, "AUDIO_UNAVAILABLE", "Audio is currently unavailable after a failed cache fetch.");
     }
 
+    this.deps.activity?.markMiss();
     if (method === "GET") {
       await this.enqueueFetch(themeId, JobPriority.URGENT);
     }
@@ -132,6 +139,7 @@ export class MediaStreamingService {
     if (audio.state === "FAILED") {
       return { themeId, audioState: "FAILED", jobId: 0 };
     }
+    this.deps.activity?.markMiss();
     const job = await this.enqueueFetch(themeId, JobPriority.HIGH);
     return {
       themeId,
@@ -162,7 +170,10 @@ export class MediaStreamingService {
       });
     }
 
-    await this.enqueueImageFetch(kind, refId, JobPriority.NORMAL);
+    // A client is actively waiting on this image, so the cache-fill job is as
+    // urgent as an audio miss — it must jump ahead of background hydration.
+    this.deps.activity?.markMiss();
+    await this.enqueueImageFetch(kind, refId, JobPriority.URGENT);
     return this.proxyImage(reply, image.originUrl, { kind, refId, log });
   }
 
@@ -198,7 +209,7 @@ export class MediaStreamingService {
       externalHit: true,
     };
     logger?.info(logData, "external image origin request");
-    const response = await this.fetchImpl(originUrl);
+    const response = await this.imageFetchImpl(originUrl);
     logger?.info(
       {
         ...logData,

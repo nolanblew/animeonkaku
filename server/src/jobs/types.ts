@@ -52,7 +52,8 @@ export interface RetryJobInput {
 
 export interface JobRepository {
   enqueue(input: EnqueueJobInput): Promise<JobRecord>;
-  claimNext(now: Date): Promise<JobRecord | null>;
+  /** Claim the next runnable job; `maxPriority` limits the claim to jobs at that priority or better (lower). */
+  claimNext(now: Date, maxPriority?: number): Promise<JobRecord | null>;
   complete(id: number): Promise<void>;
   fail(id: number, input: RetryJobInput): Promise<JobRecord | null>;
   recoverRunning(): Promise<number>;

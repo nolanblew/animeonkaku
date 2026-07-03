@@ -1,6 +1,6 @@
 import type { CircuitBreaker } from "./circuitBreaker.js";
 import { fetchWithRetry, type RetryOptions } from "./retry.js";
-import type { TokenBucket } from "./tokenBucket.js";
+import type { TokenBucket, UpstreamLane } from "./tokenBucket.js";
 import { realSleep, type FetchLike, type Sleep } from "./types.js";
 import type { AppLogger } from "../logging.js";
 import { safeExternalUrl } from "../logging.js";
@@ -20,6 +20,13 @@ export interface UpstreamHttpOptions {
   name?: string;
   logger?: AppLogger;
   maxRetries?: number;
+  /**
+   * Which token-bucket lane this instance's requests use. "interactive"
+   * (default) is for request/response paths a client is actively waiting on;
+   * "background" is for job-queue work that must yield the shared per-host
+   * budget to interactive traffic.
+   */
+  lane?: UpstreamLane;
   /**
    * Non-5xx response statuses that should additionally count as breaker
    * failures. Used for hosts that hard-block with a non-retryable status —
@@ -45,8 +52,10 @@ export class UpstreamHttp {
   private readonly logger: AppLogger | undefined;
   private readonly retryOptions: RetryOptions;
   private readonly breakerStatuses: Set<number>;
+  private readonly lane: UpstreamLane;
 
   constructor(options: UpstreamHttpOptions = {}) {
+    this.lane = options.lane ?? "interactive";
     this.fetchImpl = options.fetch ?? ((url, init) => fetch(url, init));
     this.bucket = options.bucket;
     this.breaker = options.breaker;
@@ -75,7 +84,7 @@ export class UpstreamHttp {
     }
 
     const limitedFetch: FetchLike = async (u, i) => {
-      await this.bucket?.acquire();
+      await this.bucket?.acquire(this.lane);
       return this.fetchImpl(u, i);
     };
 

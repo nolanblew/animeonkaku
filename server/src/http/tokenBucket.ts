@@ -8,8 +8,18 @@ export interface TokenBucketOptions {
 }
 
 /**
+ * Which caller class is asking for upstream capacity. Interactive work (a
+ * client actively waiting on a response) always gets tokens before background
+ * work (job-queue hydration), so cache warming can never starve on-demand
+ * requests of the shared per-host budget.
+ */
+export type UpstreamLane = "interactive" | "background";
+
+/**
  * Per-host politeness budget (doc 06): allows a small burst up to `capacity`,
  * then sustains `refillPerSecond`. `acquire()` resolves when a token is taken.
+ * Background acquisitions additionally yield while any interactive caller is
+ * waiting for a token.
  */
 export class TokenBucket {
   private readonly capacity: number;
@@ -18,6 +28,7 @@ export class TokenBucket {
   private readonly sleep: Sleep;
   private tokens: number;
   private lastRefillAt: number;
+  private interactiveWaiters = 0;
 
   constructor(options: TokenBucketOptions) {
     this.capacity = options.capacity;
@@ -28,16 +39,24 @@ export class TokenBucket {
     this.lastRefillAt = this.now();
   }
 
-  async acquire(): Promise<void> {
-    for (;;) {
-      this.refill();
-      if (this.tokens >= 1) {
-        this.tokens -= 1;
-        return;
+  async acquire(lane: UpstreamLane = "interactive"): Promise<void> {
+    if (lane === "interactive") this.interactiveWaiters += 1;
+    try {
+      for (;;) {
+        this.refill();
+        // An interactive waiter that is not us means we (background) must hold
+        // back even when a token is available — the waiter takes it first.
+        const mustYield = lane === "background" && this.interactiveWaiters > 0;
+        if (!mustYield && this.tokens >= 1) {
+          this.tokens -= 1;
+          return;
+        }
+        const deficit = Math.max(1 - this.tokens, 0);
+        const waitMs = Math.max(Math.ceil((deficit / this.refillPerSecond) * 1000), 25);
+        await this.sleep(waitMs);
       }
-      const deficit = 1 - this.tokens;
-      const waitMs = Math.ceil((deficit / this.refillPerSecond) * 1000);
-      await this.sleep(waitMs);
+    } finally {
+      if (lane === "interactive") this.interactiveWaiters -= 1;
     }
   }
 

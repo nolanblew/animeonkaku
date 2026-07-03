@@ -22,16 +22,20 @@ export interface MediaStoreOptions {
   mediaRoot: string;
   repo: MediaFileRepo;
   fetch?: FetchLike;
+  /** Fetch used for image origins (Kitsu CDN etc.); falls back to `fetch`. */
+  imageFetch?: FetchLike;
   logger?: AppLogger;
   minBytes?: number;
 }
 
 export class MediaStore {
   private readonly fetchImpl: FetchLike;
+  private readonly imageFetchImpl: FetchLike;
   private readonly minBytes: number;
 
   constructor(private readonly options: MediaStoreOptions) {
     this.fetchImpl = options.fetch ?? ((url, init) => fetch(url, init));
+    this.imageFetchImpl = options.imageFetch ?? this.fetchImpl;
     this.minBytes = options.minBytes ?? DEFAULT_MIN_BYTES;
   }
 
@@ -56,7 +60,9 @@ export class MediaStore {
 
     try {
       this.options.logger?.info(logData, "external media download request");
-      const response = await this.fetchImpl(input.originUrl);
+      const fetchForKind =
+        input.kind === "AUDIO" || input.kind === "VIDEO" ? this.fetchImpl : this.imageFetchImpl;
+      const response = await fetchForKind(input.originUrl);
       this.options.logger?.info(
         {
           ...logData,
