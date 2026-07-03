@@ -26,7 +26,16 @@ export class DrizzleDynamicPlaylistEvaluator {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  async refresh(userId: string): Promise<void> {
+  /** Re-materialize the user's auto-update dynamic playlists; `playlistId` limits it to one. */
+  async refresh(userId: string, playlistId?: number): Promise<void> {
+    const conditions = [
+      eq(playlists.userId, userId),
+      eq(playlists.isAuto, false),
+      eq(playlists.isDynamic, true),
+      eq(playlists.dynamicAutoUpdate, true),
+      isNull(playlists.deletedAt),
+    ];
+    if (playlistId !== undefined) conditions.push(eq(playlists.id, playlistId));
     const dynamicRows = await this.db
       .select({
         id: playlists.id,
@@ -34,15 +43,7 @@ export class DrizzleDynamicPlaylistEvaluator {
         dynamicSortJson: playlists.dynamicSortJson,
       })
       .from(playlists)
-      .where(
-        and(
-          eq(playlists.userId, userId),
-          eq(playlists.isAuto, false),
-          eq(playlists.isDynamic, true),
-          eq(playlists.dynamicAutoUpdate, true),
-          isNull(playlists.deletedAt),
-        ),
-      );
+      .where(and(...conditions));
     if (dynamicRows.length === 0) return;
 
     const ctx = await this.loadContext(userId);

@@ -27,4 +27,16 @@ describe("playlist create contract", () => {
     // violating playlists_user_id_name_active_unique.
     expect(service).toContain("activePlaylistByName(userId, input.name)");
   });
+
+  it("materializes auto-update dynamic playlists server-side, ignoring client entries", async () => {
+    const service = await readFile(
+      new URL("../src/api/drizzleClientApiService.ts", import.meta.url),
+      "utf8",
+    );
+
+    // Create: spec is evaluated on the server for dynamic+autoUpdate playlists.
+    expect(service).toMatch(/serverEvaluated[\s\S]*?dynamicPlaylistEvaluator\.refresh\(userId, playlistId\)/);
+    // Update: same authority flip after a spec/autoUpdate change.
+    expect(service).toMatch(/state\?\.isDynamic && state\.autoUpdate[\s\S]*?dynamicPlaylistEvaluator\.refresh\(userId, id\)/);
+  });
 });

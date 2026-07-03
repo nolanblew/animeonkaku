@@ -600,6 +600,10 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     const now = this.now();
     const opDate = new Date(resolveOpTs(input.opTs ?? null, now.getTime()));
     const isDynamic = input.dynamicSpecJson !== undefined && input.dynamicSpecJson !== null;
+    // Auto-update dynamic (smart) playlists are server-authoritative: the spec —
+    // not the device's local evaluation — decides the entries, so client-sent
+    // entries are ignored and the spec is materialized here.
+    const serverEvaluated = isDynamic && (input.autoUpdate ?? true);
     // Transactional so a failed entries insert cannot leave an orphaned playlist
     // row that blocks every retry on the active-name unique index.
     const playlistId = await this.db.transaction(async (tx) => {
@@ -618,9 +622,14 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
           updatedAt: now,
         })
         .returning({ id: playlists.id });
-      await this.replacePlaylistEntries(row!.id, input.entries ?? [], tx);
+      if (!serverEvaluated) {
+        await this.replacePlaylistEntries(row!.id, input.entries ?? [], tx);
+      }
       return row!.id;
     });
+    if (serverEvaluated) {
+      await this.dynamicPlaylistEvaluator.refresh(userId, playlistId);
+    }
     const playlist = await this.findPlaylist(userId, playlistId);
     return playlist!;
   }
@@ -667,7 +676,17 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       set.dynamicSpecUpdatedAt = now;
     }
     await this.db.update(playlists).set(set).where(eq(playlists.id, id));
-    if (input.entries !== undefined) {
+    // Auto-update dynamic playlists are server-authoritative: re-materialize
+    // from the (possibly just-changed) spec and ignore client-sent entries.
+    // Snapshot dynamic playlists and manual playlists keep the client's entries.
+    const [state] = await this.db
+      .select({ isDynamic: playlists.isDynamic, autoUpdate: playlists.dynamicAutoUpdate })
+      .from(playlists)
+      .where(eq(playlists.id, id))
+      .limit(1);
+    if (state?.isDynamic && state.autoUpdate) {
+      await this.dynamicPlaylistEvaluator.refresh(userId, id);
+    } else if (input.entries !== undefined) {
       await this.replacePlaylistEntries(id, input.entries);
     }
     return this.findPlaylist(userId, id);
