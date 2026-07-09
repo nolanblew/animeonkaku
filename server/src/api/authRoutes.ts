@@ -51,18 +51,31 @@ export function registerAuthRoutes(
 
   app.post("/v1/auth/login", { schema: { body: loginBody } }, async (request) => {
     const result = await authService.login(request.body);
-    let legacyLibraryImport;
-    if (request.body.legacyLibraryImport !== undefined) {
-      if (!options.legacyLibraryImport) {
-        throw new ApiError(503, "IMPORT_UNAVAILABLE", "Legacy library import is not available.");
+    try {
+      let legacyLibraryImport;
+      if (request.body.legacyLibraryImport !== undefined) {
+        if (!options.legacyLibraryImport) {
+          throw new ApiError(503, "IMPORT_UNAVAILABLE", "Legacy library import is not available.");
+        }
+        legacyLibraryImport = await options.legacyLibraryImport.importLegacyLibrary(
+          result.user.kitsuUserId,
+          request.body.legacyLibraryImport,
+        );
       }
-      legacyLibraryImport = await options.legacyLibraryImport.importLegacyLibrary(
-        result.user.kitsuUserId,
-        request.body.legacyLibraryImport,
-      );
+      await options.onLogin?.(result);
+      return legacyLibraryImport === undefined ? result : { ...result, legacyLibraryImport };
+    } catch (error) {
+      // Authentication already created the device session. If later setup fails
+      // before the token reaches the client, revoke it here so retries do not
+      // accumulate invisible sessions in the device list.
+      try {
+        const auth = await authService.authenticate(result.token);
+        if (auth) await authService.logout(auth);
+      } catch {
+        // Preserve the original setup failure; cleanup is best effort.
+      }
+      throw error;
     }
-    await options.onLogin?.(result);
-    return legacyLibraryImport === undefined ? result : { ...result, legacyLibraryImport };
   });
 
   app.post("/v1/auth/logout", { preHandler: requireAuth }, async (request, reply) => {
