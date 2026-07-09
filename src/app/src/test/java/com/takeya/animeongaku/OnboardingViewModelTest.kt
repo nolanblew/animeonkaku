@@ -51,6 +51,8 @@ class OnboardingViewModelTest {
         var loginCalls = 0
         var cleared = false
         var legacyImport: OngakuLegacyLibraryImport? = null
+        var lastUsername: String? = null
+        var lastPassword: String? = null
         override suspend fun login(
             username: String,
             password: String,
@@ -58,6 +60,8 @@ class OnboardingViewModelTest {
             legacyLibraryImport: OngakuLegacyLibraryImport?
         ): ServerLoginResult {
             loginCalls++
+            lastUsername = username
+            lastPassword = password
             legacyImport = legacyLibraryImport
             error?.let { throw it }
             return ServerLoginResult(session = result!!, syncMode = syncMode)
@@ -66,6 +70,27 @@ class OnboardingViewModelTest {
         override fun clearSession() {
             cleared = true
         }
+    }
+
+    @Test
+    fun `sign in trims the username but preserves password whitespace`() = runTest(dispatcher) {
+        val session = ServerSession("tok", "uid", "nblew")
+        val repo = FakeAuthRepo(result = session)
+        val vm = OnboardingViewModel(
+            repo,
+            SessionStateManager(ServerTokenStore(FakeSharedPreferences())),
+            settings(true),
+            FakeInitialLibrarySync(),
+            parser()
+        )
+
+        vm.onUsernameChange("  nblew  ")
+        vm.onPasswordChange("  password with spaces  ")
+        vm.signIn()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals("nblew", repo.lastUsername)
+        assertEquals("  password with spaces  ", repo.lastPassword)
     }
 
     private fun parser(): LegacyLibraryImportParser =

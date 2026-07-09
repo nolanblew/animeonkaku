@@ -43,6 +43,40 @@ describe("JobSyncApiService.getStatus upstream-blocked surfacing", () => {
     expect(status.mapping?.lastError).toContain("403");
   });
 
+  it("does not let an old mapping failure poison a newly queued sync retry", async () => {
+    const { repo, queue, service } = setup();
+    const oldSync = await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.HIGH,
+      payload: { userId: USER },
+      dedupeKey: `old:KITSU_FULL_SYNC:${USER}`,
+    });
+    await repo.complete(oldSync.id);
+    const oldMapping = await queue.enqueue({
+      type: "MAP_THEMES",
+      priority: JobPriority.NORMAL,
+      payload: { kitsuIds: ["1"], userId: USER },
+      dedupeKey: `old:MAP_THEMES:${USER}:1`,
+    });
+    await repo.fail(oldMapping.id, {
+      state: "FAILED",
+      nextRunAt: new Date(),
+      lastError: "AnimeThemes request failed with HTTP 403: cloudflare",
+      incrementAttempts: true,
+    });
+    await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.HIGH,
+      payload: { userId: USER },
+      dedupeKey: `retry:KITSU_FULL_SYNC:${USER}`,
+    });
+
+    const status = await service.getStatus(USER);
+
+    expect(status.state).toBe("QUEUED");
+    expect(status.upstreamBlocked).toBe(false);
+  });
+
   it("does not report upstreamBlocked when mapping completed", async () => {
     const { repo, queue, service } = setup();
     const map = await queue.enqueue({
