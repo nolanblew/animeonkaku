@@ -128,7 +128,9 @@ class OnboardingViewModel @Inject constructor(
     fun signIn() {
         val state = _uiState.value
         val username = state.username.trim()
-        val password = state.password.trim()
+        // Password whitespace is significant. Validate with isBlank(), but send
+        // exactly what the user entered instead of silently changing credentials.
+        val password = state.password
         if (username.isBlank() || password.isBlank()) {
             _uiState.update { it.copy(error = "Enter your Kitsu email/username and password.") }
             return

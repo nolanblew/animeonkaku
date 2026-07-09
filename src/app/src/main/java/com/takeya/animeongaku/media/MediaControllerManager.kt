@@ -9,6 +9,7 @@ import android.graphics.Rect
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import coil.ImageLoader
@@ -52,6 +53,7 @@ import javax.inject.Singleton
  * All queue changes flow through NowPlayingManager → this class → MediaController.
  */
 @Singleton
+@androidx.annotation.OptIn(UnstableApi::class)
 class MediaControllerManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val nowPlayingManager: NowPlayingManager,

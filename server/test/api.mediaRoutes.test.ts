@@ -103,7 +103,7 @@ describe("media API routes", () => {
     });
 
     expect(res.statusCode).toBe(401);
-    expect(res.body).toBe("");
+    expect(res.json()).toMatchObject({ error: { code: "UNAUTHORIZED" } });
   });
 
   it("serves READY audio with byte range semantics", async () => {

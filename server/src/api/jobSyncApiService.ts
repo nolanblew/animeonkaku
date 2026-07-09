@@ -52,7 +52,7 @@ export class JobSyncApiService implements SyncApiService {
         upstreamBlocked: isUpstreamBlocked(mapping),
       };
     }
-    return statusFromJob(latest, lastDone, mapping);
+    return statusFromJob(latest, lastDone, mapping, active !== undefined);
   }
 }
 
@@ -79,6 +79,7 @@ function statusFromJob(
   job: JobRecord,
   lastDone: JobRecord | null,
   mapping: SyncMappingStatus | null,
+  hasActiveLibrarySync: boolean,
 ): SyncStatusResponse {
   const phase = typeof job.progress.phase === "string" ? job.progress.phase : null;
   const unmatched = Array.isArray(job.progress.unmatched)
@@ -91,7 +92,10 @@ function statusFromJob(
     lastCompletedAt: lastDone?.updatedAt.getTime() ?? (job.state === "DONE" ? job.updatedAt.getTime() : null),
     unmatched,
     mapping,
-    upstreamBlocked: isUpstreamBlocked(mapping),
+    // A failed mapping row can belong to the previous attempt. While a fresh
+    // library sync is active, let it enqueue a new mapping job before surfacing
+    // the old failure again; otherwise retrying first sync fails immediately.
+    upstreamBlocked: !hasActiveLibrarySync && isUpstreamBlocked(mapping),
   };
 }
 

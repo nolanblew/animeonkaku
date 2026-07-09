@@ -1,6 +1,6 @@
 # Spike 04 — Internal API Specification (v1)
 
-Base path `/v1`. JSON bodies, validated with zod schemas (Fastify type provider). Auth: `Authorization: Bearer <session-token>` on everything except `/auth/login`, `/healthz`, and stable media stream reads. Errors: `{ "error": { "code": string, "message": string } }`.
+Base path `/v1`. JSON bodies, validated with zod schemas (Fastify type provider). Auth: `Authorization: Bearer <session-token>` on everything except `/auth/login`, `/healthz`, and image reads used by Coil. Errors: `{ "error": { "code": string, "message": string } }`.
 
 ## Auth — Kitsu-backed accounts
 
@@ -91,8 +91,8 @@ Conflict policy (small-project pragmatism): last-write-wins on prefs; play count
 
 | | |
 |---|---|
-| `GET /v1/media/audio/{themeId}` | no bearer required; 206/200 with Range support when READY; **302 to origin + enqueue URGENT job** when not; 404 if theme unknown |
-| `HEAD /v1/media/audio/{themeId}` | no bearer required; state probe (200 READY / 302 / 404) |
+| `GET /v1/media/audio/{themeId}` | bearer required; 206/200 with Range support when READY; proxy origin + enqueue URGENT job when not; 404 if theme unknown |
+| `HEAD /v1/media/audio/{themeId}` | bearer required; state probe (200 READY / proxied origin metadata / 404) |
 | `GET /v1/media/images/anime/{kitsuId}/poster|cover` | local or 302 to Kitsu CDN |
 | `GET /v1/media/images/artists/{slug}` | local or 302 |
 | `POST /v1/media/audio/{themeId}/request` | explicit "client wants to offline this" → HIGH priority enqueue; returns current state. Client download flow calls this, then polls/streams when READY (or follows 302 immediately — see doc 07) |
