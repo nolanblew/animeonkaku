@@ -50,6 +50,7 @@ class OnboardingViewModelTest {
     ) : OngakuAuthRepository {
         var loginCalls = 0
         var cleared = false
+        var logoutCalls = 0
         var legacyImport: OngakuLegacyLibraryImport? = null
         var lastUsername: String? = null
         var lastPassword: String? = null
@@ -67,6 +68,10 @@ class OnboardingViewModelTest {
             return ServerLoginResult(session = result!!, syncMode = syncMode)
         }
         override fun currentSession(): ServerSession? = null
+        override suspend fun logout() {
+            logoutCalls++
+            cleared = true
+        }
         override fun clearSession() {
             cleared = true
         }
@@ -317,6 +322,7 @@ class OnboardingViewModelTest {
         dispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(repo.cleared)
+        assertEquals(1, repo.logoutCalls)
         assertEquals(SessionState.LoggedOut, sessionState.state.value)
         assertNotNull(vm.uiState.value.error)
         assertEquals(false, vm.uiState.value.isSubmitting)
