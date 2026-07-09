@@ -21,12 +21,14 @@ let legacyImporter: FakeLegacyLibraryImportService;
 
 class FakeLegacyLibraryImportService implements LegacyLibraryImportService {
   calls: Array<{ userId: string; payload: LegacyLibraryImportPayload }> = [];
+  error: Error | null = null;
 
   async importLegacyLibrary(
     userId: string,
     payload: LegacyLibraryImportPayload,
   ): Promise<LegacyLibraryImportResult> {
     this.calls.push({ userId, payload });
+    if (this.error) throw this.error;
     return {
       requestedEntries: payload.entries.length,
       importedEntries: payload.entries.length,
@@ -176,6 +178,25 @@ describe("POST /v1/auth/login", () => {
 
     expect(res.statusCode).toBe(400);
     expect(legacyImporter.calls).toHaveLength(0);
+  });
+
+  it("revokes the newly created session when post-login import fails", async () => {
+    legacyImporter.error = new Error("legacy import failed");
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/auth/login",
+      payload: {
+        username: "nolan",
+        password: "hunter2",
+        legacyLibraryImport: {
+          entries: [{ themeId: 100, liked: true }],
+        },
+      },
+    });
+
+    expect(res.statusCode).toBe(500);
+    expect(repo.sessions.size).toBe(0);
   });
 
   it("rejects bad credentials with a 401 error envelope", async () => {
