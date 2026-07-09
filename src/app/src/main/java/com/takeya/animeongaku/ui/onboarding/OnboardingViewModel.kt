@@ -164,7 +164,13 @@ class OnboardingViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 if (loggedIn) {
-                    authRepository.clearSession()
+                    try {
+                        authRepository.logout()
+                    } catch (_: Exception) {
+                        // A setup error can coincide with an outage. Always clear the
+                        // local token even when the best-effort server revoke cannot run.
+                        authRepository.clearSession()
+                    }
                     sessionStateManager.onLogout()
                 }
                 _uiState.update {

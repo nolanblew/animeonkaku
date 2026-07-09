@@ -38,6 +38,15 @@ class OngakuAuthRepositoryImpl @Inject constructor(
         )
     }
 
+    override suspend fun logout() {
+        try {
+            api.logout()
+        } finally {
+            // Local logout must complete even if the server is temporarily unreachable.
+            tokenStore.clear()
+        }
+    }
+
     override fun currentSession(): ServerSession? = tokenStore.currentSession()
 
     override fun clearSession() {
