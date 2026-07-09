@@ -1,8 +1,9 @@
 # Handoff: server-side authority for dynamic (smart) playlist entries
 
-**Status:** server-side authority flip is DONE on branch `fix/playlist-sync-and-media-priority`
-(PR #54, base `feature/server-initiative`). The remaining work is Android-side plus one design
-decision. Written 2026-07-02 as an agent handoff; read `.planning/10-offline-sync-and-server-dynamic-playlists.md` first for the original design.
+**Status:** server and Android authority work is complete on branch
+`fix/playlist-sync-and-media-priority` (PR #54, base `feature/server-initiative`). Written
+2026-07-02 as an agent handoff and updated after the 2026-07-09 review; read
+`.planning/10-offline-sync-and-server-dynamic-playlists.md` first for the original design.
 
 ## Objective
 
@@ -32,35 +33,35 @@ Server (`server/src/`):
   and the `AUTO_PLAYLIST_REFRESH` job that library syncs enqueue. The evaluator's `saveEntries`
   bumps `playlists.updated_at`, so re-materialized entries flow to devices through the existing
   `since`-cursor pull (`/v1/changes` / `/v1/playlists?since=`).
-- Tests: `test/playlistCreate.contract.test.ts` guards the authority flip; suite is 198 passing
+- Tests: `test/playlistCreate.contract.test.ts` guards the authority flip; suite is 201 passing
   via `cd server && node ./node_modules/vitest/vitest.mjs run` (also `tsc -p tsconfig.json --noEmit`).
 
-## Remaining work (in order)
+## Android implementation
 
-### 1. Android: stop pushing entries for dynamic auto playlists
+### 1. Stop pushing entries for dynamic auto playlists
 
 Files: `src/app/src/main/java/com/takeya/animeongaku/`
 `data/repository/ServerPlaylistWriter.kt`, `data/repository/DynamicPlaylistRepository.kt`,
 `sync/SyncEngine.kt` (`playlistPayload`, `pushPlaylist`), `sync/DynamicPlaylistManager.kt`.
 
-- When creating/updating a playlist that has a dynamic spec with AUTO mode, the pending op payload
+- Creating/updating a playlist that has a dynamic spec with AUTO mode now produces a pending payload
   should carry `name`, `dynamicSpecJson`, `dynamicSortJson`, `autoUpdate`, `opTs` — **no
   `entries`** (the server ignores them now, but sending 150+ ids per op is waste and was the
   source of the FK bug).
-- Local evaluation (`DynamicPlaylistRepository.refreshOne`) may keep running as an *offline
-  preview*, but it must NOT enqueue entry writes to the server for AUTO dynamic playlists, and the
-  server's pulled entries must win on reconcile: check `LibraryPullManager` / whatever applies
-  `OngakuPlaylistDto.entries` to Room, and make sure a local re-evaluation doesn't clobber a fresher
-  server pull (compare against playlist `updatedAt`).
-- `SyncEngine.pushPlaylist` OP_REORDER on a dynamic auto playlist is meaningless now (order comes
-  from the sort spec) — don't enqueue it for those playlists.
+- Local evaluation (`DynamicPlaylistRepository.refreshOne`) remains available as an offline
+  preview for client-managed specs. Its final freshness check and entry replacement are atomic, so
+  a fresher server pull cannot be clobbered.
+- `SyncEngine.pushPlaylist` strips legacy AUTO entries at send time and drains stale `OP_REORDER`
+  rows for AUTO dynamic playlists without calling the server.
 
-### 2. Design decision: device-only filter dimensions
+### 2. Device-only filter dimensions
 
-`downloaded` (filter) and `DOWNLOADED` (sort) only exist on the device; the server evaluates them
-as the empty set (documented in plan 10 and in `server/src/playlists/evaluate.ts` header). With
-server authority, a spec like "downloaded AND liked" would evaluate to zero entries for everyone.
-Options (pick one with the user if unclear):
+`downloaded` (filter) and `DOWNLOADED` (sort) only exist on the device. Option (a) was chosen:
+the server treats downloaded dimensions as broad no-ops and materializes a server-computable
+superset; Android applies the actual downloaded filter/sort as a view-time overlay without writing
+entries back.
+
+Original options:
 
 a. **Hybrid overlay (recommended):** server materializes the server-computable spec; the device
    applies device-only predicates as a *view-time filter* on the server's entry list without
@@ -68,7 +69,7 @@ a. **Hybrid overlay (recommended):** server materializes the server-computable s
 b. Keep specs containing device-only dimensions fully client-evaluated (mark them, skip server
    materialization) — more code paths, keeps the old bug class alive.
 
-### 3. Verify end-to-end on device
+### 3. End-to-end device verification
 
 - Deploy PR #54's server (`scripts/deploy-server.ps1 -SshTarget nolan@192.168.68.68 ...` — note:
   the workstation's ssh key is NOT authorized non-interactively; the user runs the deploy).
@@ -95,11 +96,10 @@ b. Keep specs containing device-only dimensions fully client-evaluated (mark the
   multi-statement `psql -c` is one transaction — errors roll back earlier statements).
 - Mint a bearer session without Kitsu: insert `users` row + `device_sessions` row with
   `token_hash = sha256hex(raw token)`, future `expires_at`; then hit `/v1/*` with the raw token.
-- Rebuild loop after server edits (run in `server/`):
+- Rebuild loop after server edits and before live tests (run in `server/`):
   `docker compose -p anime-ongaku-server build api && docker compose -p anime-ongaku-server up -d api`.
-  **The container currently runs the build from before the dynamic-authority commit — rebuild
-  before live-testing it.** Seed a couple of `animethemes_anime` + `themes` + `library_entries`
-  rows to give the evaluator a universe.
+  Seed a couple of `animethemes_anime` + `themes` + `library_entries` rows to give the evaluator a
+  universe.
 
 ## Gotchas learned this session
 

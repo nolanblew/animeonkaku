@@ -133,12 +133,12 @@ private fun OngakuPlaylistDto.toDynamicSpecEntity(anyAdapter: JsonAdapter<Any>):
     return DynamicPlaylistSpecEntity(
         playlistId = id,
         filterJson = filterJson,
-        mode = spec?.stringField("mode") ?: "AUTO",
+        mode = if (autoUpdate) "AUTO" else "SNAPSHOT",
         createdMode = spec?.stringField("createdMode") ?: "ADVANCED",
         schemaVersion = spec?.numberField("schemaVersion") ?: 1,
         sortJson = dynamicSortJson?.jsonValue(anyAdapter) ?: spec?.jsonField("sortJson", anyAdapter),
         simpleStateJson = spec?.jsonField("simpleStateJson", anyAdapter),
-        serverManaged = true
+        serverManaged = autoUpdate
     )
 }
 

@@ -6,6 +6,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  lte,
   or,
   sql,
 } from "drizzle-orm";
@@ -621,12 +622,30 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
           mutationUpdatedAt: opDate,
           updatedAt: now,
         })
+        .onConflictDoNothing()
         .returning({ id: playlists.id });
+      if (!row) return null;
       if (!serverEvaluated) {
-        await this.replacePlaylistEntries(row!.id, input.entries ?? [], tx);
+        await this.replacePlaylistEntries(row.id, input.entries ?? [], tx);
       }
-      return row!.id;
+      return row.id;
     });
+    // A same-name create can appear after the preflight but before INSERT. The
+    // unique index is the final arbiter; converge after ON CONFLICT instead of
+    // surfacing a transient 500 to an offline client that will replay forever.
+    if (playlistId === null) {
+      const raced = await this.activePlaylistByName(userId, input.name);
+      if (!raced || raced.isAuto) {
+        throw new ApiError(409, "CONFLICT", "A playlist with this name already exists.");
+      }
+      const replay: PlaylistInput = { entries: input.entries ?? [] };
+      if (input.dynamicSpecJson !== undefined) replay.dynamicSpecJson = input.dynamicSpecJson;
+      if (input.dynamicSortJson !== undefined) replay.dynamicSortJson = input.dynamicSortJson;
+      if (input.autoUpdate !== undefined) replay.autoUpdate = input.autoUpdate;
+      if (input.opTs !== undefined) replay.opTs = input.opTs;
+      const playlist = await this.updatePlaylist(userId, raced.id, replay);
+      return playlist!;
+    }
     if (serverEvaluated) {
       await this.dynamicPlaylistEvaluator.refresh(userId, playlistId);
     }
@@ -675,7 +694,21 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       set.isDynamic = input.dynamicSpecJson !== null;
       set.dynamicSpecUpdatedAt = now;
     }
-    await this.db.update(playlists).set(set).where(eq(playlists.id, id));
+    const applied = await this.db
+      .update(playlists)
+      .set(set)
+      .where(
+        and(
+          eq(playlists.id, id),
+          eq(playlists.userId, userId),
+          isNull(playlists.deletedAt),
+          lte(playlists.mutationUpdatedAt, opDate),
+        ),
+      )
+      .returning({ id: playlists.id });
+    if (applied.length === 0) {
+      return this.findPlaylist(userId, id);
+    }
     // Auto-update dynamic playlists are server-authoritative: re-materialize
     // from the (possibly just-changed) spec and ignore client-sent entries.
     // Snapshot dynamic playlists and manual playlists keep the client's entries.
@@ -708,7 +741,14 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     await this.db
       .update(playlists)
       .set({ deletedAt: now, updatedAt: now, mutationUpdatedAt: opDate })
-      .where(eq(playlists.id, id));
+      .where(
+        and(
+          eq(playlists.id, id),
+          eq(playlists.userId, userId),
+          isNull(playlists.deletedAt),
+          lte(playlists.mutationUpdatedAt, opDate),
+        ),
+      );
     return true;
   }
 

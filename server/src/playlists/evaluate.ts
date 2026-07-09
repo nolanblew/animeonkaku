@@ -7,8 +7,9 @@
  * object with a `"type"` discriminator (`and`, `or`, `genre_in`, `aired_on`, …). We evaluate the
  * parsed JSON directly rather than reifying a TS union, so unknown/legacy nodes degrade safely.
  *
- * Device-specific dimensions (`downloaded` filter, `DOWNLOADED` sort) have no server meaning;
- * the server treats "downloaded" as the empty set (nothing downloaded) — documented in plan 10.
+ * Device-specific dimensions (`downloaded` filter, `DOWNLOADED` sort) have no server meaning.
+ * The server treats them as broad no-ops so it materializes a superset; Android applies the real
+ * device-only download filter/sort as a view-time overlay.
  */
 
 export interface EvalAnime {
@@ -87,6 +88,7 @@ export function matches(node: unknown, theme: EvalTheme, ctx: EvalContext): bool
       return children.length > 0 && children.some((c) => matches(c, theme, ctx));
     }
     case "not":
+      if (containsDeviceOnlyFilter(node.child)) return true;
       return !matches(node.child, theme, ctx);
 
     case "genre_in": {
@@ -162,7 +164,7 @@ export function matches(node: unknown, theme: EvalTheme, ctx: EvalContext): bool
     case "disliked":
       return ctx.dislikedThemeIds.has(theme.id);
     case "downloaded":
-      return ctx.downloadedThemeIds.has(theme.id); // server: empty set
+      return true;
     case "play_count_gte":
       return (ctx.playCountByTheme.get(theme.id) ?? 0) >= num(node.min);
     case "played_on": {
@@ -262,6 +264,21 @@ function matchesPattern(text: string, pattern: string, isRegex: boolean): boolea
     }
   }
   return text.toLowerCase().includes(pattern.toLowerCase());
+}
+
+function containsDeviceOnlyFilter(node: unknown): boolean {
+  if (!isJson(node) || typeof node.type !== "string") return false;
+  switch (node.type) {
+    case "downloaded":
+      return true;
+    case "and":
+    case "or":
+      return asArray(node.children).some(containsDeviceOnlyFilter);
+    case "not":
+      return containsDeviceOnlyFilter(node.child);
+    default:
+      return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -408,7 +425,7 @@ function comparatorForKey(key: Json, ctx: EvalContext): Cmp {
     case "LIKED":
       return boolCmp(desc, (t) => ctx.likedThemeIds.has(t.id));
     case "DOWNLOADED":
-      return boolCmp(desc, (t) => ctx.downloadedThemeIds.has(t.id));
+      return () => 0;
     default:
       return () => 0;
   }

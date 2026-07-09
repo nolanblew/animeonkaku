@@ -5,6 +5,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.takeya.animeongaku.data.local.AppDatabase
 import com.takeya.animeongaku.data.local.DynamicPlaylistSpecDao
+import com.takeya.animeongaku.data.local.DynamicPlaylistSpecEntity
 import com.takeya.animeongaku.data.local.PendingOpDao
 import com.takeya.animeongaku.data.local.PendingOpEntity
 import com.takeya.animeongaku.data.local.PendingPlayDao
@@ -36,6 +37,7 @@ interface SyncEngineStore {
     suspend fun deletePendingOps(ids: List<Long>)
     suspend fun incrementPendingOpAttempts(id: Long)
     suspend fun remapPlaylistId(tempId: Long, serverPlaylist: OngakuPlaylistDto)
+    suspend fun isAutoDynamicPlaylist(playlistId: Long): Boolean = false
     suspend fun oldestPendingPlays(limit: Int): List<PendingPlayEntity> = emptyList()
     suspend fun deletePendingPlays(ids: List<Long>) = Unit
 }
@@ -70,7 +72,7 @@ class SyncEngine @Inject constructor(
     suspend fun enqueuePlaylistCreate(
         playlistId: Long,
         name: String,
-        entries: List<Long>,
+        entries: List<Long>?,
         dynamicSpecJson: Any? = null,
         dynamicSortJson: Any? = null,
         autoUpdate: Boolean? = null,
@@ -236,6 +238,9 @@ class SyncEngine @Inject constructor(
 
     private suspend fun pushPlaylist(op: PendingOpEntity, payload: Map<String, Any?>) {
         val playlistId = op.entityKey.toLong()
+        if (op.opType == PendingOpEntity.OP_REORDER && store.isAutoDynamicPlaylist(playlistId)) {
+            return
+        }
         when (op.opType) {
             PendingOpEntity.OP_CREATE -> {
                 val response = api.createPlaylist(payload.toPlaylistRequest(op.opTs)).playlist
@@ -301,7 +306,9 @@ class SyncEngine @Inject constructor(
     ): Map<String, Any?> =
         buildMap {
             if (name != null) put("name", name)
-            if (entries != null) put("entries", entries)
+            if (entries != null && !(dynamicSpecJson != null && autoUpdate != false)) {
+                put("entries", entries)
+            }
             if (dynamicSpecJson != null) put("dynamicSpecJson", dynamicSpecJson)
             if (dynamicSortJson != null) put("dynamicSortJson", dynamicSortJson)
             if (autoUpdate != null) put("autoUpdate", autoUpdate)
@@ -310,15 +317,23 @@ class SyncEngine @Inject constructor(
     private fun parsePayload(json: String): Map<String, Any?> =
         mapAdapter.fromJson(json).orEmpty()
 
-    private fun Map<String, Any?>.toPlaylistRequest(opTs: Long): OngakuPlaylistRequest =
-        OngakuPlaylistRequest(
+    private fun Map<String, Any?>.toPlaylistRequest(opTs: Long): OngakuPlaylistRequest {
+        val dynamicSpec = this["dynamicSpecJson"]
+        val autoUpdate = this["autoUpdate"] as? Boolean
+        val serverOwnsEntries = dynamicSpec != null && autoUpdate != false
+        return OngakuPlaylistRequest(
             name = this["name"] as? String,
-            entries = (this["entries"] as? List<*>)?.mapNotNull { (it as? Number)?.toLong() },
-            dynamicSpecJson = this["dynamicSpecJson"],
+            entries = if (serverOwnsEntries) {
+                null
+            } else {
+                (this["entries"] as? List<*>)?.mapNotNull { (it as? Number)?.toLong() }
+            },
+            dynamicSpecJson = dynamicSpec,
             dynamicSortJson = this["dynamicSortJson"],
-            autoUpdate = this["autoUpdate"] as? Boolean,
+            autoUpdate = autoUpdate,
             opTs = opTs
         )
+    }
 }
 
 @Singleton
@@ -347,6 +362,9 @@ class RoomSyncEngineStore @Inject constructor(
         pendingOpDao.incrementAttempts(id)
     }
 
+    override suspend fun isAutoDynamicPlaylist(playlistId: Long): Boolean =
+        dynamicPlaylistSpecDao.getById(playlistId)?.mode == "AUTO"
+
     override suspend fun oldestPendingPlays(limit: Int): List<PendingPlayEntity> =
         pendingPlayDao.oldest(limit)
 
@@ -357,15 +375,19 @@ class RoomSyncEngineStore @Inject constructor(
     override suspend fun remapPlaylistId(tempId: Long, serverPlaylist: OngakuPlaylistDto) {
         database.withTransaction {
             val local = playlistDao.getPlaylistByIdIncludingDeleted(tempId)
-            val entries = serverPlaylist.entries.ifEmpty { playlistDao.getThemeIdsInPlaylist(tempId) }
             val localSpec = dynamicPlaylistSpecDao.getById(tempId)
+            val entries = if (localSpec != null || serverPlaylist.dynamicSpecJson != null) {
+                serverPlaylist.entries
+            } else {
+                serverPlaylist.entries.ifEmpty { playlistDao.getThemeIdsInPlaylist(tempId) }
+            }
             val locallyDeletedAt = local?.deletedAt
             playlistDao.insertPlaylist(
                 PlaylistEntity(
                     id = serverPlaylist.id,
                     name = serverPlaylist.name,
                     createdAt = local?.createdAt ?: serverPlaylist.updatedAt,
-                    isAuto = serverPlaylist.isAuto || serverPlaylist.dynamicSpecJson != null || localSpec != null,
+                    isAuto = serverPlaylist.isAuto || serverPlaylist.dynamicSpecJson != null,
                     gradientSeed = local?.gradientSeed ?: 0,
                     updatedAt = local?.updatedAt?.takeIf { locallyDeletedAt != null } ?: serverPlaylist.updatedAt,
                     deletedAt = locallyDeletedAt
@@ -383,13 +405,9 @@ class RoomSyncEngineStore @Inject constructor(
                     }
                 )
             }
-            if (locallyDeletedAt == null && localSpec != null) {
-                dynamicPlaylistSpecDao.upsert(
-                    localSpec.copy(
-                        playlistId = serverPlaylist.id,
-                        serverManaged = true
-                    )
-                )
+            val remappedSpec = remappedDynamicSpec(localSpec, serverPlaylist)
+            if (locallyDeletedAt == null && remappedSpec != null) {
+                dynamicPlaylistSpecDao.upsert(remappedSpec)
             }
             if (tempId != serverPlaylist.id) {
                 playlistDao.deletePlaylistEntries(tempId)
@@ -403,4 +421,16 @@ class RoomSyncEngineStore @Inject constructor(
             }
         }
     }
+}
+
+internal fun remappedDynamicSpec(
+    localSpec: DynamicPlaylistSpecEntity?,
+    serverPlaylist: OngakuPlaylistDto
+): DynamicPlaylistSpecEntity? {
+    if (localSpec == null || serverPlaylist.dynamicSpecJson == null) return null
+    return localSpec.copy(
+        playlistId = serverPlaylist.id,
+        mode = if (serverPlaylist.autoUpdate) "AUTO" else "SNAPSHOT",
+        serverManaged = serverPlaylist.autoUpdate
+    )
 }

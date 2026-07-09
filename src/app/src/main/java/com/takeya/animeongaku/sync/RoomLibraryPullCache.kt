@@ -12,6 +12,8 @@ import com.takeya.animeongaku.data.local.GenreDao
 import com.takeya.animeongaku.data.local.GenreEntity
 import com.takeya.animeongaku.data.local.PlayCountDao
 import com.takeya.animeongaku.data.local.PlayCountEntity
+import com.takeya.animeongaku.data.local.PendingOpDao
+import com.takeya.animeongaku.data.local.PendingOpEntity
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
@@ -32,6 +34,7 @@ class RoomLibraryPullCache @Inject constructor(
     private val genreDao: GenreDao,
     private val userPreferenceDao: UserPreferenceDao,
     private val playCountDao: PlayCountDao,
+    private val pendingOpDao: PendingOpDao,
     private val playlistDao: PlaylistDao,
     private val dynamicPlaylistSpecDao: DynamicPlaylistSpecDao
 ) : LibraryPullCache {
@@ -154,15 +157,28 @@ class RoomLibraryPullCache @Inject constructor(
                     .filter { it.isAuto }
                     .map { it.id }
                     .toSet()
-                playlistDao.getAutoPlaylistIds()
-                    .filterNot { it in serverAutoIds }
+                val dynamicPlaylistIds = dynamicPlaylistSpecDao.getAll()
+                    .map { it.playlistId }
+                    .toSet()
+                val pendingCreateIds = pendingOpDao.entityKeys(
+                    PendingOpEntity.ENTITY_PLAYLIST,
+                    PendingOpEntity.OP_CREATE
+                ).mapNotNull { it.toLongOrNull() }.toSet()
+                val protectedDynamicIds = dynamicPlaylistIds.filterTo(mutableSetOf()) { playlistId ->
+                    OfflineSync.isTempId(playlistId) || playlistId in pendingCreateIds
+                }
+                autoPlaylistIdsToPrune(
+                    localAutoIds = playlistDao.getAutoPlaylistIds(),
+                    serverAutoIds = serverAutoIds,
+                    protectedDynamicIds = protectedDynamicIds
+                )
                     .forEach { playlistDao.deletePlaylist(it) }
             }
 
             val dynamicSpecByPlaylistId = dynamicSpecs.associateBy { it.playlistId }
             val appliedPlaylistIds = playlists.mapNotNull { playlist ->
                 val local = localById[playlist.id]
-                if (local != null && playlist.updatedAt < local.updatedAt) {
+                if (!shouldApplyIncomingPlaylist(playlist, local)) {
                     return@mapNotNull null
                 }
                 playlistDao.insertPlaylist(playlist)
@@ -182,6 +198,19 @@ class RoomLibraryPullCache @Inject constructor(
         }
     }
 }
+
+internal fun shouldApplyIncomingPlaylist(
+    incoming: PlaylistEntity,
+    local: PlaylistEntity?
+): Boolean =
+    local == null || incoming.updatedAt >= local.updatedAt
+
+internal fun autoPlaylistIdsToPrune(
+    localAutoIds: List<Long>,
+    serverAutoIds: Set<Long>,
+    protectedDynamicIds: Set<Long>
+): List<Long> =
+    localAutoIds.filterNot { it in serverAutoIds || it in protectedDynamicIds }
 
 internal data class ThemePrefApplyPlan(
     val preferences: List<UserPreferenceEntity>,

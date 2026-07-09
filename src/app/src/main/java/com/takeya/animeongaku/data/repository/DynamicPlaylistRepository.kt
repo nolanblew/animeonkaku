@@ -1,5 +1,6 @@
 package com.takeya.animeongaku.data.repository
 
+import androidx.room.withTransaction
 import com.squareup.moshi.JsonAdapter
 import com.squareup.moshi.Moshi
 import com.takeya.animeongaku.data.server.ServerSettingsStore
@@ -7,6 +8,7 @@ import com.takeya.animeongaku.data.filter.FilterEvaluator
 import com.takeya.animeongaku.data.filter.FilterNode
 import com.takeya.animeongaku.data.filter.SimpleSectionsState
 import com.takeya.animeongaku.data.filter.SortSpec
+import com.takeya.animeongaku.data.local.AppDatabase
 import com.takeya.animeongaku.data.local.DynamicPlaylistSpecDao
 import com.takeya.animeongaku.data.local.DynamicPlaylistSpecEntity
 import com.takeya.animeongaku.data.local.PlaylistDao
@@ -14,6 +16,7 @@ import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.PlaylistTrack
 import com.takeya.animeongaku.data.local.ThemeDao
+import com.takeya.animeongaku.sync.OfflineSync
 import com.takeya.animeongaku.sync.SyncEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -24,6 +27,7 @@ import kotlin.random.Random
 
 @Singleton
 class DynamicPlaylistRepository @Inject constructor(
+    private val database: AppDatabase,
     private val specDao: DynamicPlaylistSpecDao,
     private val playlistDao: PlaylistDao,
     private val evaluator: FilterEvaluator,
@@ -79,8 +83,10 @@ class DynamicPlaylistRepository @Inject constructor(
         simpleState: SimpleSectionsState? = null
     ): Long = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
+        val localId = if (serverSettingsStore.isConfigured) OfflineSync.nextTempId() else 0L
         val id = playlistDao.insertPlaylist(
             PlaylistEntity(
+                id = localId,
                 name = name,
                 createdAt = now,
                 isAuto = true,
@@ -103,13 +109,14 @@ class DynamicPlaylistRepository @Inject constructor(
         specDao.upsert(spec)
         refreshOne(id)
         if (serverSettingsStore.isConfigured) {
+            val autoUpdate = spec.mode == "AUTO"
             syncEngine.enqueuePlaylistCreate(
                 playlistId = id,
                 name = name,
-                entries = playlistDao.getThemeIdsInPlaylist(id),
+                entries = if (autoUpdate) null else playlistDao.getThemeIdsInPlaylist(id),
                 dynamicSpecJson = spec.toServerSpecPayload(),
                 dynamicSortJson = spec.sortJson?.let(::parseJson),
-                autoUpdate = spec.mode == "AUTO",
+                autoUpdate = autoUpdate,
                 opTs = now
             )
             syncEngine.pushPendingWrites()
@@ -137,13 +144,14 @@ class DynamicPlaylistRepository @Inject constructor(
             refreshOne(playlistId)
         }
         if (serverSettingsStore.isConfigured) {
+            val autoUpdate = updated.mode == "AUTO"
             syncEngine.enqueueDynamicPlaylistUpsert(
                 playlistId = playlistId,
                 name = null,
-                entries = playlistDao.getThemeIdsInPlaylist(playlistId),
+                entries = if (autoUpdate) null else playlistDao.getThemeIdsInPlaylist(playlistId),
                 dynamicSpecJson = updated.toServerSpecPayload(),
                 dynamicSortJson = updated.sortJson?.let(::parseJson),
-                autoUpdate = updated.mode == "AUTO",
+                autoUpdate = autoUpdate,
                 opTs = opTs
             )
             syncEngine.pushPendingWrites()
@@ -165,12 +173,12 @@ class DynamicPlaylistRepository @Inject constructor(
     suspend fun refreshOne(playlistId: Long) = withContext(Dispatchers.IO) {
         val spec = specDao.getById(playlistId) ?: return@withContext
         if (spec.serverManaged) return@withContext
+        val startedPlaylist = playlistDao.getPlaylistByIdIncludingDeleted(playlistId) ?: return@withContext
         val filter = runCatching { deserializeFilter(spec.filterJson) }
             .getOrElse { return@withContext }
             ?: return@withContext
         val sort = deserializeSortOrDefault(spec.sortJson)
         val themeIds = evaluator.evaluate(filter, sort)
-        playlistDao.deletePlaylistEntries(playlistId)
         val entries = themeIds.mapIndexed { index, themeId ->
             PlaylistEntryEntity(
                 playlistId = playlistId,
@@ -178,8 +186,17 @@ class DynamicPlaylistRepository @Inject constructor(
                 orderIndex = index
             )
         }
-        playlistDao.insertEntries(entries)
-        specDao.markEvaluated(playlistId, System.currentTimeMillis(), entries.size)
+        database.withTransaction {
+            val latestSpec = specDao.getById(playlistId) ?: return@withTransaction
+            val latestPlaylist = playlistDao.getPlaylistByIdIncludingDeleted(playlistId)
+                ?: return@withTransaction
+            if (!shouldApplyDynamicRefresh(startedPlaylist.updatedAt, latestPlaylist, latestSpec)) {
+                return@withTransaction
+            }
+            playlistDao.deletePlaylistEntries(playlistId)
+            playlistDao.insertEntries(entries)
+            specDao.markEvaluated(playlistId, System.currentTimeMillis(), entries.size)
+        }
     }
 
     /** Observe the spec for a given playlist (null if not dynamic). */
@@ -233,3 +250,10 @@ class DynamicPlaylistRepository @Inject constructor(
     private fun parseJson(json: String): Any? =
         runCatching { anyAdapter.fromJson(json) }.getOrNull()
 }
+
+internal fun shouldApplyDynamicRefresh(
+    startedPlaylistUpdatedAt: Long,
+    latestPlaylist: PlaylistEntity,
+    latestSpec: DynamicPlaylistSpecEntity
+): Boolean =
+    !latestSpec.serverManaged && latestPlaylist.updatedAt == startedPlaylistUpdatedAt

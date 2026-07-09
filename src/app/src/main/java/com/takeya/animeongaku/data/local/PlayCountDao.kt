@@ -46,6 +46,9 @@ interface PlayCountDao {
     @Query("SELECT * FROM play_count")
     suspend fun getAllPlayCounts(): List<PlayCountEntity>
 
+    @Query("SELECT * FROM play_count")
+    fun observeAllPlayCounts(): Flow<List<PlayCountEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(playCounts: List<PlayCountEntity>)
 }

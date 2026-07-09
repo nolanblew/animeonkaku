@@ -237,9 +237,9 @@ class DownloadManager @Inject constructor(
         }
     }
 
-    fun downloadPlaylist(playlistId: Long) {
+    fun downloadPlaylist(playlistId: Long, visibleThemeIds: List<Long>? = null) {
         scope.launch {
-            val themeIds = playlistDao.getThemeIdsInPlaylist(playlistId)
+            val themeIds = visibleThemeIds ?: playlistDao.getThemeIdsInPlaylist(playlistId)
             if (themeIds.isEmpty()) return@launch
 
             val themes = themeDao.getByIds(themeIds)

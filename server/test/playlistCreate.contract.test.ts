@@ -23,6 +23,10 @@ describe("playlist create contract", () => {
     // Create is atomic: a failed entries insert cannot orphan the playlist row.
     expect(service).toMatch(/createPlaylist[\s\S]*?this\.db\.transaction/);
 
+    // Concurrent same-name creates converge at the unique index as well as the
+    // optimistic preflight, instead of one racing request leaking a 500.
+    expect(service).toMatch(/insert\(playlists\)[\s\S]*?onConflictDoNothing\(\)/);
+
     // A replayed create converges on the existing active row instead of
     // violating playlists_user_id_name_active_unique.
     expect(service).toContain("activePlaylistByName(userId, input.name)");
@@ -38,5 +42,20 @@ describe("playlist create contract", () => {
     expect(service).toMatch(/serverEvaluated[\s\S]*?dynamicPlaylistEvaluator\.refresh\(userId, playlistId\)/);
     // Update: same authority flip after a spec/autoUpdate change.
     expect(service).toMatch(/state\?\.isDynamic && state\.autoUpdate[\s\S]*?dynamicPlaylistEvaluator\.refresh\(userId, id\)/);
+    // The LWW check must be part of the SQL write; a read-then-write check alone
+    // lets two concurrent operations commit in the wrong timestamp order.
+    expect(service).toMatch(/updatePlaylist[\s\S]*?lte\(playlists\.mutationUpdatedAt, opDate\)[\s\S]*?returning/);
+  });
+
+  it("serializes refreshes before evaluation and materializes entries atomically", async () => {
+    const evaluator = await readFile(
+      new URL("../src/playlists/dynamicPlaylistEvaluator.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(evaluator).toMatch(/refresh[\s\S]*?this\.db\.transaction/);
+    expect(evaluator).toContain('.for("update")');
+    expect(evaluator).toMatch(/transaction[\s\S]*?loadContext[\s\S]*?saveEntries/);
+    expect(evaluator).toMatch(/saveEntries[\s\S]*?delete\(playlistEntries\)[\s\S]*?insert\(playlistEntries\)[\s\S]*?updatedAt/);
   });
 });
