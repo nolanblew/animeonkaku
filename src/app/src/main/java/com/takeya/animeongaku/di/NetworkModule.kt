@@ -149,20 +149,35 @@ object NetworkModule {
         return retrofit.create(OngakuApi::class.java)
     }
 
+    @Provides
+    @Singleton
+    @Named("image")
+    fun provideImageOkHttpClient(
+        @Named("base") baseClient: OkHttpClient
+    ): OkHttpClient {
+        return baseClient.newBuilder()
+            .apply {
+                interceptors().removeAll { it is RetryInterceptor }
+            }
+            .build()
+    }
+
     /**
      * Coil image loader whose HTTP client rebases stale server-media URLs onto the
      * current server base (see [ServerMediaRebaseInterceptor]). Installed as the app's
      * default loader via [com.takeya.animeongaku.AnimeOngakuApp] so every AsyncImage
-     * survives a server host change instead of rendering broken artwork.
+     * survives a server host change instead of rendering broken artwork. Image
+     * requests do not use the API retry loop, so fallback URLs advance immediately
+     * after an HTTP failure without imposing a deadline on slow full-size artwork.
      */
     @Provides
     @Singleton
     fun provideImageLoader(
         @ApplicationContext context: Context,
-        @Named("base") baseClient: OkHttpClient,
+        @Named("image") imageClient: OkHttpClient,
         rebaseInterceptor: ServerMediaRebaseInterceptor
     ): ImageLoader {
-        val client = baseClient.newBuilder()
+        val client = imageClient.newBuilder()
             .addInterceptor(rebaseInterceptor)
             .build()
         return ImageLoader.Builder(context)

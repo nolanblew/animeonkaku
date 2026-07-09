@@ -5,6 +5,7 @@ import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.remote.OngakuPlaylistDto
 import com.takeya.animeongaku.data.server.ServerSettingsStore
+import com.takeya.animeongaku.sync.OfflineSync
 import com.takeya.animeongaku.sync.SyncEngine
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -126,7 +127,7 @@ class ServerPlaylistWriter @Inject constructor(
 ) {
     suspend fun createPlaylist(name: String, entries: List<Long> = emptyList()): Long {
         val opTs = System.currentTimeMillis()
-        val id = if (serverSettingsStore.isConfigured) -opTs else null
+        val id = if (serverSettingsStore.isConfigured) OfflineSync.nextTempId() else null
         val localId = store.createLocalPlaylist(name, entries, playlistId = id, updatedAt = opTs)
         if (serverSettingsStore.isConfigured) {
             syncEngine.enqueuePlaylistCreate(localId, name, entries, opTs = opTs)

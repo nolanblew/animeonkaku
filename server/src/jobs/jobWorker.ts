@@ -20,6 +20,19 @@ export interface JobWorkerOptions {
   jitterMs?: () => number;
   maintenanceFetchDelayMs?: number;
   timeoutsMs?: Partial<Record<JobType, number>>;
+  /**
+   * When it returns true, MAINTENANCE-priority jobs are not claimed — used to
+   * pause background media hydration while clients have on-demand media
+   * requests in flight, so hydration only proceeds when the server is idle.
+   */
+  holdMaintenanceWork?: () => boolean;
+  /**
+   * Fixed claim ceiling for this worker. A worker with `maxPriority:
+   * JobPriority.HIGH` only ever runs urgent/high jobs, guaranteeing on-demand
+   * work is never stuck behind a long-running background download on another
+   * worker.
+   */
+  maxPriority?: number;
 }
 
 const DEFAULT_TIMEOUTS_MS: Record<JobType, number> = {
@@ -65,7 +78,7 @@ export class JobWorker {
   }
 
   async runOnce(): Promise<boolean> {
-    const job = await this.queue.claimNext();
+    const job = await this.queue.claimNext(this.claimCeiling());
     if (!job) return false;
 
     const handler = this.options.handlers[job.type];
@@ -80,7 +93,9 @@ export class JobWorker {
     try {
       await withTimeout(handler(job.payload, job), this.timeoutsMs[job.type], job.type);
       await this.queue.complete(job.id);
-      if (shouldMaintenanceDelay(job, this.maintenanceFetchDelayMs)) {
+      // The politeness pause between background fetches must not delay urgent
+      // (client-facing) jobs that arrived while this one ran.
+      if (shouldMaintenanceDelay(job, this.maintenanceFetchDelayMs) && !(await this.queue.hasUrgentQueued())) {
         await this.sleep(this.maintenanceFetchDelayMs);
       }
     } catch (error) {
@@ -102,6 +117,14 @@ export class JobWorker {
       }
     }
     return true;
+  }
+
+  private claimCeiling(): number | undefined {
+    const hold = this.options.holdMaintenanceWork?.() ? JobPriority.NORMAL : undefined;
+    const fixed = this.options.maxPriority;
+    if (hold === undefined) return fixed;
+    if (fixed === undefined) return hold;
+    return Math.min(hold, fixed);
   }
 
   private async loop(): Promise<void> {

@@ -49,4 +49,7 @@ interface GenreDao {
 
     @Query("SELECT * FROM anime_genres")
     suspend fun getAllCrossRefs(): List<AnimeGenreCrossRef>
+
+    @Query("SELECT * FROM anime_genres")
+    fun observeAllCrossRefs(): Flow<List<AnimeGenreCrossRef>>
 }

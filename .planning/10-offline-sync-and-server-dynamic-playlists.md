@@ -43,9 +43,9 @@ interruption between).
 - **Server-side dynamic evaluation.** The filter+sort DSL is ported to TypeScript so the server
   materializes dynamic playlists (like the existing auto-playlists). Triggered on: spec
   create/edit, library sync, pref change, plays recorded, and periodic refresh. `Downloaded`
-  filter and `DOWNLOADED` sort are **device-specific** — server treats them as `false`/neutral and
-  this is documented; a dynamic playlist using them still syncs but the "downloaded" dimension is
-  not applied server-side (acceptable: downloads are per-device anyway).
+  filter and `DOWNLOADED` sort are **device-specific**: server treats them as broad no-ops so it
+  materializes a server-computable superset, then Android applies downloaded filtering/sorting as a
+  view-time overlay without writing entries back.
 
 ---
 
@@ -62,8 +62,9 @@ interruption between).
 - [x] `server/src/playlists/evaluate.ts` — FilterNode/DateAnchor/SortSpec evaluated directly from
       the Moshi `"type"` JSON; `matches` + anchors + sort comparators ported from Kotlin, including
       the deterministic RANDOM shuffle (BigInt 64-bit) and categorical/default ordering.
-- [x] `test/playlists.evaluate.test.ts` — 15 parity cases (operators, leaves, anchors, sort,
-      nulls-last, RANDOM determinism). `downloaded`/`DOWNLOADED` are empty server-side by design.
+- [x] `test/playlists.evaluate.test.ts` — parity cases (operators, leaves, anchors, sort,
+      nulls-last, RANDOM determinism). `downloaded`/`DOWNLOADED` are broad no-ops server-side by
+      design so Android can apply device-local downloaded state at render time.
 
 ### A3 — Evaluator + materialization
 - [x] `DrizzleDynamicPlaylistEvaluator`: loads user library/catalog/prefs context, evaluates each

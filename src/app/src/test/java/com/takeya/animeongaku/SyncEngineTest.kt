@@ -6,6 +6,7 @@ import com.takeya.animeongaku.data.auth.ServerSession
 import com.takeya.animeongaku.data.auth.ServerTokenStore
 import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.local.PendingOpEntity
+import com.takeya.animeongaku.data.local.DynamicPlaylistSpecEntity
 import com.takeya.animeongaku.data.remote.OngakuAnimeDetailResponse
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.remote.OngakuAudioRequestResponse
@@ -29,8 +30,10 @@ import com.takeya.animeongaku.data.remote.OngakuThemePrefPatch
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.sync.SyncEngine
 import com.takeya.animeongaku.sync.SyncEngineStore
+import com.takeya.animeongaku.sync.remappedDynamicSpec
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import retrofit2.Response
@@ -114,6 +117,120 @@ class SyncEngineTest {
     }
 
     @Test
+    fun `auto dynamic playlist create omits materialized entries from pending payload and request`() = runBlocking {
+        val store = FakeSyncEngineStore()
+        val api = SyncRecordingOngakuApi()
+        val engine = syncEngine(store, api)
+
+        engine.enqueuePlaylistCreate(
+            playlistId = -20L,
+            name = "Downloaded Likes",
+            entries = listOf(100L, 101L),
+            dynamicSpecJson = mapOf("filterJson" to mapOf("type" to "downloaded"), "mode" to "AUTO"),
+            dynamicSortJson = mapOf("keys" to listOf(mapOf("attribute" to "DOWNLOADED", "direction" to "ASC"))),
+            autoUpdate = true,
+            opTs = 10L
+        )
+
+        assertTrue(store.ops.single().payloadJson.contains("\"dynamicSpecJson\""))
+        assertTrue(!store.ops.single().payloadJson.contains("\"entries\""))
+
+        val result = engine.pushPendingWrites()
+
+        assertEquals(1, result.opCount)
+        assertEquals(null, api.createdPlaylistRequest?.entries)
+        assertEquals(true, api.createdPlaylistRequest?.autoUpdate)
+    }
+
+    @Test
+    fun `snapshot dynamic playlist upsert keeps entries in pending payload and request`() = runBlocking {
+        val store = FakeSyncEngineStore()
+        val api = SyncRecordingOngakuApi()
+        val engine = syncEngine(store, api)
+
+        engine.enqueueDynamicPlaylistUpsert(
+            playlistId = 88L,
+            name = null,
+            entries = listOf(100L, 101L),
+            dynamicSpecJson = mapOf("filterJson" to mapOf("type" to "liked"), "mode" to "SNAPSHOT"),
+            dynamicSortJson = null,
+            autoUpdate = false,
+            opTs = 20L
+        )
+
+        assertTrue(store.ops.single().payloadJson.contains("\"entries\""))
+
+        val result = engine.pushPendingWrites()
+
+        assertEquals(1, result.opCount)
+        assertEquals(listOf(100L, 101L), api.updatedPlaylistRequest?.entries)
+        assertEquals(false, api.updatedPlaylistRequest?.autoUpdate)
+    }
+
+    @Test
+    fun `legacy auto dynamic payload strips entries when pushed`() = runBlocking {
+        val store = FakeSyncEngineStore()
+        val api = SyncRecordingOngakuApi()
+        val engine = syncEngine(store, api)
+        store.insertPendingOp(
+            PendingOpEntity(
+                entityType = PendingOpEntity.ENTITY_PLAYLIST,
+                entityKey = "88",
+                opType = PendingOpEntity.OP_UPSERT,
+                payloadJson = """{"entries":[100,101],"dynamicSpecJson":{"filterJson":{"type":"liked"},"mode":"AUTO"},"autoUpdate":true}""",
+                opTs = 30L,
+                createdAt = 30L
+            )
+        )
+
+        val result = engine.pushPendingWrites()
+
+        assertEquals(1, result.opCount)
+        assertNull(api.updatedPlaylistRequest?.entries)
+    }
+
+    @Test
+    fun `queued reorder for auto dynamic playlist drains without server call`() = runBlocking {
+        val store = FakeSyncEngineStore(autoDynamicPlaylistIds = setOf(88L))
+        val api = SyncRecordingOngakuApi()
+        val engine = syncEngine(store, api)
+        engine.enqueuePlaylistReorder(playlistId = 88L, entries = listOf(101L, 100L), opTs = 40L)
+
+        val result = engine.pushPendingWrites()
+
+        assertEquals(1, result.opCount)
+        assertNull(api.updatedPlaylistId)
+        assertTrue(store.ops.isEmpty())
+    }
+
+    @Test
+    fun `playlist remap follows server dynamic ownership and kind`() {
+        val localSpec = DynamicPlaylistSpecEntity(
+            playlistId = -10L,
+            filterJson = """{"type":"liked"}""",
+            mode = "AUTO",
+            createdMode = "SIMPLE"
+        )
+        val snapshot = OngakuPlaylistDto(
+            id = 90L,
+            name = "Snapshot",
+            entries = listOf(1L),
+            isAuto = false,
+            updatedAt = 10L,
+            dynamicSpecJson = mapOf("filterJson" to mapOf("type" to "liked")),
+            autoUpdate = false
+        )
+        val manual = snapshot.copy(id = 91L, dynamicSpecJson = null)
+
+        val remappedSnapshot = remappedDynamicSpec(localSpec, snapshot)
+
+        assertEquals(90L, remappedSnapshot?.playlistId)
+        assertEquals("SNAPSHOT", remappedSnapshot?.mode)
+        assertEquals(false, remappedSnapshot?.serverManaged)
+        assertNull(remappedDynamicSpec(localSpec, manual))
+    }
+
+    @Test
     fun `pushPendingWrites does not hit server when session is not active`() = runBlocking {
         val store = FakeSyncEngineStore()
         val api = SyncRecordingOngakuApi()
@@ -155,7 +272,9 @@ class SyncEngineTest {
         activeSessionStateManager().apply { markUnauthorized() }
 }
 
-private class FakeSyncEngineStore : SyncEngineStore {
+private class FakeSyncEngineStore(
+    private val autoDynamicPlaylistIds: Set<Long> = emptySet()
+) : SyncEngineStore {
     val ops = mutableListOf<PendingOpEntity>()
     val remaps = mutableListOf<Pair<Long, Long>>()
     private var nextId = 1L
@@ -182,6 +301,9 @@ private class FakeSyncEngineStore : SyncEngineStore {
         if (index >= 0) ops[index] = ops[index].copy(attempts = ops[index].attempts + 1)
     }
 
+    override suspend fun isAutoDynamicPlaylist(playlistId: Long): Boolean =
+        playlistId in autoDynamicPlaylistIds
+
     override suspend fun remapPlaylistId(tempId: Long, serverPlaylist: OngakuPlaylistDto) {
         remaps += tempId to serverPlaylist.id
         ops.replaceAll { op ->
@@ -207,6 +329,7 @@ private class SyncRecordingOngakuApi(
     )
 ) : OngakuApi {
     val prefWrites = mutableListOf<Pair<Long, OngakuThemePrefPatch>>()
+    var createdPlaylistRequest: OngakuPlaylistRequest? = null
     var updatedPlaylistId: Long? = null
     var updatedPlaylistRequest: OngakuPlaylistRequest? = null
 
@@ -239,8 +362,10 @@ private class SyncRecordingOngakuApi(
     override suspend fun recordPlays(plays: List<OngakuPlayEvent>): OngakuPlayAcceptedResponse = error("unused")
     override suspend fun playlists(since: Long?): List<OngakuPlaylistDto> = error("unused")
     override suspend fun autoPlaylists(): List<OngakuPlaylistDto> = error("unused")
-    override suspend fun createPlaylist(request: OngakuPlaylistRequest): OngakuPlaylistResponse =
-        OngakuPlaylistResponse(createPlaylistResponse)
+    override suspend fun createPlaylist(request: OngakuPlaylistRequest): OngakuPlaylistResponse {
+        createdPlaylistRequest = request
+        return OngakuPlaylistResponse(createPlaylistResponse)
+    }
     override suspend fun updatePlaylist(id: Long, request: OngakuPlaylistRequest): OngakuPlaylistResponse {
         updatedPlaylistId = id
         updatedPlaylistRequest = request

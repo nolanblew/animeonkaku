@@ -9,6 +9,10 @@ import { FakeJobRepository } from "./helpers/fakeJobRepository.js";
 
 class FakeMaintenanceRepo {
   missingAudioIds = [101, 202];
+  missingImages: Array<{ kind: "ANIME_POSTER" | "ANIME_COVER"; refId: string }> = [
+    { kind: "ANIME_POSTER", refId: "42" },
+    { kind: "ANIME_COVER", refId: "42" },
+  ];
   failedAudioIds = [303];
   refreshed: string[] = [];
   markedMissing: string[] = [];
@@ -16,6 +20,10 @@ class FakeMaintenanceRepo {
 
   async getThemeIdsMissingReadyAudio(userId?: string) {
     return userId === "u1" ? this.missingAudioIds : [];
+  }
+
+  async getAnimeImagesMissingReady(userId?: string) {
+    return userId === "u1" ? this.missingImages : [];
   }
 
   async refreshAutoPlaylists(userId: string) {
@@ -63,6 +71,26 @@ describe("LibrarySyncPipeline backfill/playlists/maintenance", () => {
       [JobPriority.MAINTENANCE, { themeId: 101 }, "FETCH_AUDIO:101"],
       [JobPriority.MAINTENANCE, { themeId: 202 }, "FETCH_AUDIO:202"],
     ]);
+  });
+
+  it("enqueues MAINTENANCE image fetches so cover art is cached before clients ask", async () => {
+    const repo = new FakeMaintenanceRepo();
+    const queue = new JobQueue(new FakeJobRepository());
+    const pipeline = new LibrarySyncPipeline({ repo: repo as never, kitsu: {} as never, animeThemes: {}, queue });
+    const job = await claimedJob(queue, "BACKFILL_SCAN");
+
+    await pipeline.runBackfillScan({ userId: "u1", job });
+
+    const imageJobs = (await queue.list("QUEUED")).filter((queued) => queued.type === "FETCH_IMAGE");
+    expect(imageJobs.map((queued) => [queued.priority, queued.payload, queued.dedupeKey])).toEqual([
+      [JobPriority.MAINTENANCE, { kind: "ANIME_POSTER", refId: "42" }, "FETCH_IMAGE:ANIME_POSTER:42"],
+      [JobPriority.MAINTENANCE, { kind: "ANIME_COVER", refId: "42" }, "FETCH_IMAGE:ANIME_COVER:42"],
+    ]);
+    expect((await queue.list()).find((queued) => queued.id === job.id)?.progress).toMatchObject({
+      phase: "DONE",
+      enqueued: 2,
+      enqueuedImages: 2,
+    });
   });
 
   it("refreshes auto playlists for the user", async () => {

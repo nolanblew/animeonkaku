@@ -197,7 +197,7 @@ class LibraryPullManagerTest {
     }
 
     @Test
-    fun `pull accepts raw dynamic filter specs and top-level dynamic sort json`() = runBlocking {
+    fun `pull keeps snapshot dynamic playlists client managed`() = runBlocking {
         val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
             serverBaseUrl = "http://192.168.1.5:8080/api"
         }
@@ -222,7 +222,8 @@ class LibraryPullManagerTest {
                                 "direction" to "DESC"
                             )
                         )
-                    )
+                    ),
+                    autoUpdate = false
                 )
             )
         )
@@ -234,7 +235,8 @@ class LibraryPullManagerTest {
         assertEquals(99L, cache.dynamicSpecs.single().playlistId)
         assertEquals("""{"type":"theme_type_in","types":["OP"]}""", cache.dynamicSpecs.single().filterJson)
         assertEquals("""{"keys":[{"attribute":"PLAY_COUNT","direction":"DESC"}]}""", cache.dynamicSpecs.single().sortJson)
-        assertTrue(cache.dynamicSpecs.single().serverManaged)
+        assertEquals("SNAPSHOT", cache.dynamicSpecs.single().mode)
+        assertFalse(cache.dynamicSpecs.single().serverManaged)
     }
 
     @Test

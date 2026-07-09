@@ -174,9 +174,21 @@ export class LibrarySyncPipeline {
         dedupeKey: `FETCH_AUDIO:${themeId}`,
       });
     }
+    // Pre-warm poster/cover art too, so first-view screens hit the local cache
+    // instead of proxying every image from the origin on demand.
+    const images = (await this.deps.repo.getAnimeImagesMissingReady?.(input.userId)) ?? [];
+    for (const image of images) {
+      await this.deps.queue.enqueue({
+        type: "FETCH_IMAGE",
+        priority: JobPriority.MAINTENANCE,
+        payload: { kind: image.kind, refId: image.refId },
+        dedupeKey: `FETCH_IMAGE:${image.kind}:${image.refId}`,
+      });
+    }
     await this.updateProgress(input.job.id, {
       phase: "DONE",
       enqueued: themeIds.length,
+      enqueuedImages: images.length,
     });
   }
 

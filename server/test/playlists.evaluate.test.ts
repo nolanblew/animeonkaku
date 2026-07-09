@@ -109,11 +109,16 @@ describe("matches — leaves", () => {
     expect(matches(node, theme(1), c)).toBe(true);
   });
 
-  it("liked / disliked / downloaded use the sets (downloaded empty server-side)", () => {
+  it("liked and disliked use sets while downloaded is a broad server-side match", () => {
     const c = ctx([theme(1)], new Map([[1, anime()]]), { likedThemeIds: new Set([1]) });
     expect(matches({ type: "liked" }, theme(1), c)).toBe(true);
     expect(matches({ type: "disliked" }, theme(1), c)).toBe(false);
-    expect(matches({ type: "downloaded" }, theme(1), c)).toBe(false);
+    expect(matches({ type: "downloaded" }, theme(1), c)).toBe(true);
+  });
+
+  it("negated downloaded filters stay broad server-side for device overlay", () => {
+    const c = ctx([theme(1)], new Map([[1, anime()]]));
+    expect(matches({ type: "not", child: { type: "downloaded" } }, theme(1), c)).toBe(true);
   });
 
   it("play_count_gte and song/anime title matching", () => {
@@ -176,5 +181,18 @@ describe("evaluate — sort + fallback", () => {
     const cmp = buildComparator({ keys: [{ attribute: "AVERAGE_RATING", direction: "DESC" }] }, c);
     expect(cmp(withRating, without)).toBeLessThan(0);
     expect(cmp(without, withRating)).toBeGreaterThan(0);
+  });
+
+  it("DOWNLOADED sort is neutral server-side", () => {
+    const themes = [theme(1), theme(2), theme(3)];
+    const animeMap = new Map([
+      [1, anime({ title: "Bbb" })],
+      [2, anime({ title: "Aaa" })],
+      [3, anime({ title: "Ccc" })],
+    ]);
+    const c = ctx(themes, animeMap, { downloadedThemeIds: new Set([3]) });
+    const sort = { keys: [{ attribute: "DOWNLOADED", direction: "ASC" }] };
+
+    expect(evaluate({ type: "and", children: [] }, sort, c)).toEqual([2, 1, 3]);
   });
 });

@@ -25,7 +25,7 @@ import {
   users,
 } from "../db/schema.js";
 import type { KitsuAnimeEntry, KitsuGenre } from "../kitsu/types.js";
-import { CANONICAL_AUDIO } from "../media/types.js";
+import { CANONICAL_AUDIO, IMAGE_VARIANT } from "../media/types.js";
 import { DrizzleDynamicPlaylistEvaluator } from "../playlists/dynamicPlaylistEvaluator.js";
 import { DrizzleAutoPlaylistRefresher } from "./autoPlaylistRefresher.js";
 import type { KitsuCatalogRecord, SyncRepository, SyncUserAuth } from "./types.js";
@@ -459,6 +459,48 @@ export class DrizzleSyncRepository implements SyncRepository {
       );
     const ready = new Set(readyRows.map((row) => row.refId));
     return themeIds.filter((themeId) => !ready.has(String(themeId)));
+  }
+
+  async getAnimeImagesMissingReady(
+    userId?: string,
+  ): Promise<Array<{ kind: "ANIME_POSTER" | "ANIME_COVER"; refId: string }>> {
+    const conditions = [isNull(libraryEntries.deletedAt), isNull(kitsuAnime.deletedAt)];
+    if (userId !== undefined) conditions.push(eq(libraryEntries.userId, userId));
+    const animeRows = await this.db
+      .selectDistinct({
+        kitsuId: kitsuAnime.kitsuId,
+        posterUrl: kitsuAnime.posterUrl,
+        coverUrl: kitsuAnime.coverUrl,
+      })
+      .from(libraryEntries)
+      .innerJoin(kitsuAnime, eq(libraryEntries.kitsuId, kitsuAnime.kitsuId))
+      .where(and(...conditions))
+      .orderBy(asc(kitsuAnime.kitsuId));
+    if (animeRows.length === 0) return [];
+
+    const readyRows = await this.db
+      .select({ kind: mediaFiles.kind, refId: mediaFiles.refId })
+      .from(mediaFiles)
+      .where(
+        and(
+          inArray(mediaFiles.kind, ["ANIME_POSTER", "ANIME_COVER"]),
+          eq(mediaFiles.variant, IMAGE_VARIANT),
+          eq(mediaFiles.state, "READY"),
+          inArray(mediaFiles.refId, animeRows.map((row) => row.kitsuId)),
+        ),
+      );
+    const ready = new Set(readyRows.map((row) => `${row.kind}:${row.refId}`));
+
+    const missing: Array<{ kind: "ANIME_POSTER" | "ANIME_COVER"; refId: string }> = [];
+    for (const row of animeRows) {
+      if (row.posterUrl && !ready.has(`ANIME_POSTER:${row.kitsuId}`)) {
+        missing.push({ kind: "ANIME_POSTER", refId: row.kitsuId });
+      }
+      if (row.coverUrl && !ready.has(`ANIME_COVER:${row.kitsuId}`)) {
+        missing.push({ kind: "ANIME_COVER", refId: row.kitsuId });
+      }
+    }
+    return missing;
   }
 
   async getFailedAudioThemeIds(): Promise<number[]> {

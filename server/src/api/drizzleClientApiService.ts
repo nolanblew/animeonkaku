@@ -6,10 +6,14 @@ import {
   inArray,
   isNotNull,
   isNull,
+  lte,
   or,
   sql,
 } from "drizzle-orm";
 import type { Db } from "../db/client.js";
+
+/** Either the root drizzle handle or the `tx` inside `db.transaction(...)`. */
+type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
 import {
   animeGenres,
   genres,
@@ -29,6 +33,7 @@ import type {
   LegacyLibraryImportResult,
   LegacyLibraryImportService,
 } from "../legacyLibraryImport.js";
+import type { AppLogger } from "../logging.js";
 import { CANONICAL_AUDIO } from "../media/types.js";
 import { DrizzleDynamicPlaylistEvaluator } from "../playlists/dynamicPlaylistEvaluator.js";
 import { DrizzleAutoPlaylistRefresher } from "../sync/autoPlaylistRefresher.js";
@@ -56,6 +61,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     private readonly db: Db,
     private readonly queue: JobQueue,
     private readonly now: () => Date = () => new Date(),
+    private readonly logger?: AppLogger,
   ) {
     this.autoPlaylistRefresher = new DrizzleAutoPlaylistRefresher(db);
     this.dynamicPlaylistEvaluator = new DrizzleDynamicPlaylistEvaluator(db, now);
@@ -574,27 +580,95 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     userId: string,
     input: PlaylistCreateInput,
   ): Promise<PlaylistDto> {
+    // Offline clients replay pending create ops until acknowledged, so a create
+    // whose earlier attempt partially landed (or that raced another device) must
+    // converge on the existing active row instead of violating the
+    // (user_id, name) active unique index.
+    const existing = await this.activePlaylistByName(userId, input.name);
+    if (existing) {
+      if (existing.isAuto) {
+        throw new ApiError(409, "CONFLICT", "A playlist with this name already exists.");
+      }
+      const replay: PlaylistInput = { entries: input.entries ?? [] };
+      if (input.dynamicSpecJson !== undefined) replay.dynamicSpecJson = input.dynamicSpecJson;
+      if (input.dynamicSortJson !== undefined) replay.dynamicSortJson = input.dynamicSortJson;
+      if (input.autoUpdate !== undefined) replay.autoUpdate = input.autoUpdate;
+      if (input.opTs !== undefined) replay.opTs = input.opTs;
+      const playlist = await this.updatePlaylist(userId, existing.id, replay);
+      return playlist!;
+    }
+
     const now = this.now();
     const opDate = new Date(resolveOpTs(input.opTs ?? null, now.getTime()));
     const isDynamic = input.dynamicSpecJson !== undefined && input.dynamicSpecJson !== null;
-    const [row] = await this.db
-      .insert(playlists)
-      .values({
-        userId,
-        name: input.name,
-        isAuto: false,
-        isDynamic,
-        dynamicAutoUpdate: input.autoUpdate ?? true,
-        dynamicSpecJson: stringifySpec(input.dynamicSpecJson),
-        dynamicSortJson: stringifySpec(input.dynamicSortJson),
-        dynamicSpecUpdatedAt: isDynamic ? now : null,
-        mutationUpdatedAt: opDate,
-        updatedAt: now,
-      })
-      .returning({ id: playlists.id });
-    await this.replacePlaylistEntries(row!.id, input.entries ?? []);
-    const playlist = await this.findPlaylist(userId, row!.id);
+    // Auto-update dynamic (smart) playlists are server-authoritative: the spec —
+    // not the device's local evaluation — decides the entries, so client-sent
+    // entries are ignored and the spec is materialized here.
+    const serverEvaluated = isDynamic && (input.autoUpdate ?? true);
+    // Transactional so a failed entries insert cannot leave an orphaned playlist
+    // row that blocks every retry on the active-name unique index.
+    const playlistId = await this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(playlists)
+        .values({
+          userId,
+          name: input.name,
+          isAuto: false,
+          isDynamic,
+          dynamicAutoUpdate: input.autoUpdate ?? true,
+          dynamicSpecJson: stringifySpec(input.dynamicSpecJson),
+          dynamicSortJson: stringifySpec(input.dynamicSortJson),
+          dynamicSpecUpdatedAt: isDynamic ? now : null,
+          mutationUpdatedAt: opDate,
+          updatedAt: now,
+        })
+        .onConflictDoNothing()
+        .returning({ id: playlists.id });
+      if (!row) return null;
+      if (!serverEvaluated) {
+        await this.replacePlaylistEntries(row.id, input.entries ?? [], tx);
+      }
+      return row.id;
+    });
+    // A same-name create can appear after the preflight but before INSERT. The
+    // unique index is the final arbiter; converge after ON CONFLICT instead of
+    // surfacing a transient 500 to an offline client that will replay forever.
+    if (playlistId === null) {
+      const raced = await this.activePlaylistByName(userId, input.name);
+      if (!raced || raced.isAuto) {
+        throw new ApiError(409, "CONFLICT", "A playlist with this name already exists.");
+      }
+      const replay: PlaylistInput = { entries: input.entries ?? [] };
+      if (input.dynamicSpecJson !== undefined) replay.dynamicSpecJson = input.dynamicSpecJson;
+      if (input.dynamicSortJson !== undefined) replay.dynamicSortJson = input.dynamicSortJson;
+      if (input.autoUpdate !== undefined) replay.autoUpdate = input.autoUpdate;
+      if (input.opTs !== undefined) replay.opTs = input.opTs;
+      const playlist = await this.updatePlaylist(userId, raced.id, replay);
+      return playlist!;
+    }
+    if (serverEvaluated) {
+      await this.dynamicPlaylistEvaluator.refresh(userId, playlistId);
+    }
+    const playlist = await this.findPlaylist(userId, playlistId);
     return playlist!;
+  }
+
+  private async activePlaylistByName(
+    userId: string,
+    name: string,
+  ): Promise<{ id: number; isAuto: boolean } | null> {
+    const rows = await this.db
+      .select({ id: playlists.id, isAuto: playlists.isAuto })
+      .from(playlists)
+      .where(
+        and(
+          eq(playlists.userId, userId),
+          eq(playlists.name, name),
+          isNull(playlists.deletedAt),
+        ),
+      )
+      .limit(1);
+    return rows[0] ?? null;
   }
 
   async updatePlaylist(userId: string, id: number, input: PlaylistInput): Promise<PlaylistDto | null> {
@@ -620,8 +694,32 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       set.isDynamic = input.dynamicSpecJson !== null;
       set.dynamicSpecUpdatedAt = now;
     }
-    await this.db.update(playlists).set(set).where(eq(playlists.id, id));
-    if (input.entries !== undefined) {
+    const applied = await this.db
+      .update(playlists)
+      .set(set)
+      .where(
+        and(
+          eq(playlists.id, id),
+          eq(playlists.userId, userId),
+          isNull(playlists.deletedAt),
+          lte(playlists.mutationUpdatedAt, opDate),
+        ),
+      )
+      .returning({ id: playlists.id });
+    if (applied.length === 0) {
+      return this.findPlaylist(userId, id);
+    }
+    // Auto-update dynamic playlists are server-authoritative: re-materialize
+    // from the (possibly just-changed) spec and ignore client-sent entries.
+    // Snapshot dynamic playlists and manual playlists keep the client's entries.
+    const [state] = await this.db
+      .select({ isDynamic: playlists.isDynamic, autoUpdate: playlists.dynamicAutoUpdate })
+      .from(playlists)
+      .where(eq(playlists.id, id))
+      .limit(1);
+    if (state?.isDynamic && state.autoUpdate) {
+      await this.dynamicPlaylistEvaluator.refresh(userId, id);
+    } else if (input.entries !== undefined) {
       await this.replacePlaylistEntries(id, input.entries);
     }
     return this.findPlaylist(userId, id);
@@ -643,7 +741,14 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     await this.db
       .update(playlists)
       .set({ deletedAt: now, updatedAt: now, mutationUpdatedAt: opDate })
-      .where(eq(playlists.id, id));
+      .where(
+        and(
+          eq(playlists.id, id),
+          eq(playlists.userId, userId),
+          isNull(playlists.deletedAt),
+          lte(playlists.mutationUpdatedAt, opDate),
+        ),
+      );
     return true;
   }
 
@@ -841,16 +946,44 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     return result;
   }
 
-  private async replacePlaylistEntries(playlistId: number, entries: number[]): Promise<void> {
-    await this.db.delete(playlistEntries).where(eq(playlistEntries.playlistId, playlistId));
+  private async replacePlaylistEntries(
+    playlistId: number,
+    entries: number[],
+    db: DbOrTx = this.db,
+  ): Promise<void> {
+    await db.delete(playlistEntries).where(eq(playlistEntries.playlistId, playlistId));
     if (entries.length === 0) return;
-    await this.db.insert(playlistEntries).values(
-      entries.map((themeId, orderIndex) => ({
+    // Devices can reference themes this server has never cataloged (e.g. liked
+    // themes pulled from an older server instance). playlist_entries.theme_id has
+    // an FK to themes.id, so persist the known subset instead of failing the
+    // whole playlist write.
+    const knownThemeIds = await this.knownThemeIds(entries, db);
+    const insertable = entries.filter((themeId) => knownThemeIds.has(themeId));
+    const droppedThemeIds = uniqueNumbers(entries.filter((themeId) => !knownThemeIds.has(themeId)));
+    if (droppedThemeIds.length > 0) {
+      this.logger?.warn?.(
+        { playlistId, droppedThemeIds, requestedEntries: entries.length, keptEntries: insertable.length },
+        "dropping playlist entries for theme ids unknown to this server",
+      );
+    }
+    if (insertable.length === 0) return;
+    await db.insert(playlistEntries).values(
+      insertable.map((themeId, orderIndex) => ({
         playlistId,
         themeId,
         orderIndex,
       })),
     );
+  }
+
+  private async knownThemeIds(themeIds: number[], db: DbOrTx = this.db): Promise<Set<number>> {
+    const ids = uniqueNumbers(themeIds);
+    if (ids.length === 0) return new Set();
+    const rows = await db
+      .select({ id: themes.id })
+      .from(themes)
+      .where(inArray(themes.id, ids));
+    return new Set(rows.map((row) => row.id));
   }
 
   private async findMutablePlaylist(userId: string, id: number): Promise<boolean> {

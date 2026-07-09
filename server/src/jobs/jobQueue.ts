@@ -42,8 +42,8 @@ export class JobQueue {
     return this.repo.enqueue(repoInput);
   }
 
-  async claimNext(): Promise<JobRecord | null> {
-    return this.repo.claimNext(this.now());
+  async claimNext(maxPriority?: number): Promise<JobRecord | null> {
+    return this.repo.claimNext(this.now(), maxPriority);
   }
 
   async complete(id: number): Promise<void> {

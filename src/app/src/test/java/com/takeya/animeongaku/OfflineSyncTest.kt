@@ -38,4 +38,14 @@ class OfflineSyncTest {
         val entries = listOf(temp, 5L, temp, 9L)
         assertEquals(listOf(100L, 5L, 100L, 9L), OfflineSync.remapId(entries, temp, 100L))
     }
+
+    @Test
+    fun `allocated temp ids stay negative and unique across rapid creates`() {
+        val first = OfflineSync.nextTempId()
+        val second = OfflineSync.nextTempId()
+
+        assertTrue(first < 0L)
+        assertTrue(second < 0L)
+        assertTrue(first != second)
+    }
 }

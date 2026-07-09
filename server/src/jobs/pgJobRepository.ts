@@ -63,7 +63,7 @@ export class PgJobRepository implements JobRepository {
     return toJobRecord(row);
   }
 
-  async claimNext(now: Date): Promise<JobRecord | null> {
+  async claimNext(now: Date, maxPriority?: number): Promise<JobRecord | null> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -71,12 +71,13 @@ export class PgJobRepository implements JobRepository {
         `
           SELECT *
           FROM jobs
-          WHERE state = 'QUEUED' AND next_run_at <= $1
+          WHERE state = 'QUEUED' AND next_run_at <= $1 AND priority <= $2
           ORDER BY priority, next_run_at, id
           LIMIT 1
           FOR UPDATE SKIP LOCKED
         `,
-        [now],
+        // priority is an int4 column — the no-ceiling default must fit in it.
+        [now, maxPriority ?? 2_147_483_647],
       );
       const row = selected.rows[0];
       if (!row) {

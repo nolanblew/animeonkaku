@@ -64,9 +64,13 @@ export class FakeJobRepository implements JobRepository {
     return { ...job };
   }
 
-  async claimNext(now: Date): Promise<JobRecord | null> {
+  async claimNext(now: Date, maxPriority?: number): Promise<JobRecord | null> {
+    const ceiling = maxPriority ?? Number.MAX_SAFE_INTEGER;
     const job = [...this.jobs.values()]
-      .filter((candidate) => candidate.state === "QUEUED" && candidate.nextRunAt <= now)
+      .filter(
+        (candidate) =>
+          candidate.state === "QUEUED" && candidate.nextRunAt <= now && candidate.priority <= ceiling,
+      )
       .sort((a, b) => a.priority - b.priority || a.nextRunAt.getTime() - b.nextRunAt.getTime() || a.id - b.id)[0];
     if (!job) return null;
     job.state = "RUNNING";

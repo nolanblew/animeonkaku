@@ -217,5 +217,146 @@ describe("JobWorker", () => {
     expect(failed.attempts).toBe(2);
     expect(failed.lastError).toContain("origin down");
   });
+
+  it("holds maintenance hydration while on-demand media traffic is active", async () => {
+    const time = new FakeTime();
+    const repo = new FakeJobRepository(() => new Date(time.now()));
+    const queue = new JobQueue(repo, { now: () => new Date(time.now()) });
+    await queue.enqueue({
+      type: "FETCH_AUDIO",
+      priority: JobPriority.MAINTENANCE,
+      payload: { themeId: 1 },
+      dedupeKey: "FETCH_AUDIO:1",
+    });
+
+    let interactiveBusy = true;
+    const ran: number[] = [];
+    const worker = new JobWorker(queue, {
+      handlers: {
+        FETCH_AUDIO: async (payload) => {
+          ran.push(payload.themeId as number);
+        },
+      },
+      now: () => new Date(time.now()),
+      sleep: time.sleep,
+      holdMaintenanceWork: () => interactiveBusy,
+    });
+
+    // While a client is actively pulling media, background hydration waits...
+    expect(await worker.runOnce()).toBe(false);
+    expect(ran).toEqual([]);
+
+    // ...but urgent (client-facing) jobs still run.
+    await queue.enqueue({
+      type: "FETCH_AUDIO",
+      priority: JobPriority.URGENT,
+      payload: { themeId: 2 },
+      dedupeKey: "FETCH_AUDIO:2",
+    });
+    expect(await worker.runOnce()).toBe(true);
+    expect(ran).toEqual([2]);
+
+    // Once traffic goes quiet, hydration resumes.
+    interactiveBusy = false;
+    expect(await worker.runOnce()).toBe(true);
+    expect(ran).toEqual([2, 1]);
+  });
+
+  it("restricts a worker with maxPriority to urgent/high jobs", async () => {
+    const time = new FakeTime();
+    const repo = new FakeJobRepository(() => new Date(time.now()));
+    const queue = new JobQueue(repo, { now: () => new Date(time.now()) });
+    await queue.enqueue({
+      type: "FETCH_AUDIO",
+      priority: JobPriority.NORMAL,
+      payload: { themeId: 1 },
+      dedupeKey: "FETCH_AUDIO:1",
+    });
+
+    const ran: number[] = [];
+    const worker = new JobWorker(queue, {
+      handlers: {
+        FETCH_AUDIO: async (payload) => {
+          ran.push(payload.themeId as number);
+        },
+      },
+      now: () => new Date(time.now()),
+      sleep: time.sleep,
+      maxPriority: JobPriority.HIGH,
+    });
+
+    expect(await worker.runOnce()).toBe(false);
+
+    await queue.enqueue({
+      type: "FETCH_AUDIO",
+      priority: JobPriority.HIGH,
+      payload: { themeId: 2 },
+      dedupeKey: "FETCH_AUDIO:2",
+    });
+    expect(await worker.runOnce()).toBe(true);
+    expect(ran).toEqual([2]);
+  });
+
+  it("skips the maintenance politeness delay when urgent work is queued", async () => {
+    const time = new FakeTime();
+    const repo = new FakeJobRepository(() => new Date(time.now()));
+    const queue = new JobQueue(repo, { now: () => new Date(time.now()) });
+    const worker = new JobWorker(queue, {
+      handlers: { FETCH_AUDIO: async () => {} },
+      now: () => new Date(time.now()),
+      sleep: time.sleep,
+      maintenanceFetchDelayMs: 8_000,
+    });
+
+    await queue.enqueue({
+      type: "FETCH_AUDIO",
+      priority: JobPriority.MAINTENANCE,
+      payload: { themeId: 1 },
+      dedupeKey: "FETCH_AUDIO:1",
+    });
+    await worker.runOnce();
+    // No urgent work waiting — the politeness delay applies.
+    expect(time.sleeps).toContain(8_000);
+
+    time.sleeps.length = 0;
+    await queue.enqueue({
+      type: "FETCH_AUDIO",
+      priority: JobPriority.MAINTENANCE,
+      payload: { themeId: 2 },
+      dedupeKey: "FETCH_AUDIO:2",
+    });
+    await queue.enqueue({
+      type: "FETCH_AUDIO",
+      priority: JobPriority.URGENT,
+      payload: { themeId: 3 },
+      dedupeKey: "FETCH_AUDIO:3",
+    });
+    await worker.runOnce(); // runs the urgent job (no delay: not maintenance)
+    await worker.runOnce(); // runs the maintenance job — but nothing urgent is left
+    expect(time.sleeps).toContain(8_000);
+
+    time.sleeps.length = 0;
+    await queue.enqueue({
+      type: "FETCH_AUDIO",
+      priority: JobPriority.MAINTENANCE,
+      payload: { themeId: 4 },
+      dedupeKey: "FETCH_AUDIO:4",
+    });
+    await queue.enqueue({
+      type: "FETCH_AUDIO",
+      priority: JobPriority.URGENT,
+      payload: { themeId: 5 },
+      dedupeKey: "FETCH_AUDIO:5",
+    });
+    await worker.runOnce(); // urgent first
+    await queue.enqueue({
+      type: "FETCH_AUDIO",
+      priority: JobPriority.URGENT,
+      payload: { themeId: 6 },
+      dedupeKey: "FETCH_AUDIO:6",
+    });
+    await worker.runOnce(); // maintenance job, but an urgent job is now waiting
+    expect(time.sleeps).not.toContain(8_000);
+  });
 });
 

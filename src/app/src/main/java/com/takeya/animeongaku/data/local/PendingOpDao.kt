@@ -26,6 +26,9 @@ interface PendingOpDao {
     @Query("SELECT COUNT(*) FROM pending_ops WHERE entityType = :entityType AND attempts > 0")
     fun observeRetriedCountForEntity(entityType: String): Flow<Int>
 
+    @Query("SELECT entityKey FROM pending_ops WHERE entityType = :entityType AND opType = :opType")
+    suspend fun entityKeys(entityType: String, opType: String): List<String>
+
     @Query("DELETE FROM pending_ops WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
 

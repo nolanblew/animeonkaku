@@ -12,13 +12,16 @@ import {
 } from "../db/schema.js";
 import { evaluate, type EvalAnime, type EvalContext, type EvalTheme } from "./evaluate.js";
 
+type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
+
 /**
  * Materializes user dynamic (smart) playlists server-side, mirroring the device's
  * FilterEvaluator so the same spec yields the same entries on every device. Only auto-update
  * dynamic playlists are recomputed; snapshot dynamic playlists keep whatever entries were last
  * written. The candidate theme set is the user's mapped library (same universe the device sees).
  *
- * Device-only dimensions (downloaded) evaluate as empty server-side — see plan 10.
+ * Device-only dimensions (downloaded) are broad no-ops server-side; Android applies them as a
+ * view-time overlay using local download state.
  */
 export class DrizzleDynamicPlaylistEvaluator {
   constructor(
@@ -26,37 +29,44 @@ export class DrizzleDynamicPlaylistEvaluator {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  async refresh(userId: string): Promise<void> {
-    const dynamicRows = await this.db
-      .select({
-        id: playlists.id,
-        dynamicSpecJson: playlists.dynamicSpecJson,
-        dynamicSortJson: playlists.dynamicSortJson,
-      })
-      .from(playlists)
-      .where(
-        and(
-          eq(playlists.userId, userId),
-          eq(playlists.isAuto, false),
-          eq(playlists.isDynamic, true),
-          eq(playlists.dynamicAutoUpdate, true),
-          isNull(playlists.deletedAt),
-        ),
-      );
-    if (dynamicRows.length === 0) return;
+  /** Re-materialize the user's auto-update dynamic playlists; `playlistId` limits it to one. */
+  async refresh(userId: string, playlistId?: number): Promise<void> {
+    const conditions = [
+      eq(playlists.userId, userId),
+      eq(playlists.isAuto, false),
+      eq(playlists.isDynamic, true),
+      eq(playlists.dynamicAutoUpdate, true),
+      isNull(playlists.deletedAt),
+    ];
+    if (playlistId !== undefined) conditions.push(eq(playlists.id, playlistId));
+    await this.db.transaction(async (tx) => {
+      // Serialize overlapping refresh triggers before loading evaluation state.
+      // Otherwise an older evaluation can finish last and overwrite fresher entries.
+      const dynamicRows = await tx
+        .select({
+          id: playlists.id,
+          dynamicSpecJson: playlists.dynamicSpecJson,
+          dynamicSortJson: playlists.dynamicSortJson,
+        })
+        .from(playlists)
+        .where(and(...conditions))
+        .orderBy(asc(playlists.id))
+        .for("update");
+      if (dynamicRows.length === 0) return;
 
-    const ctx = await this.loadContext(userId);
-    for (const row of dynamicRows) {
-      const { filter, sort } = dynamicPlaylistPayload(row.dynamicSpecJson, row.dynamicSortJson);
-      if (filter === null) continue;
-      const themeIds = evaluate(filter, sort, ctx);
-      await this.saveEntries(row.id, themeIds);
-    }
+      const ctx = await this.loadContext(userId, tx);
+      for (const row of dynamicRows) {
+        const { filter, sort } = dynamicPlaylistPayload(row.dynamicSpecJson, row.dynamicSortJson);
+        if (filter === null) continue;
+        const themeIds = evaluate(filter, sort, ctx);
+        await this.saveEntries(row.id, themeIds, tx);
+      }
+    });
   }
 
-  private async loadContext(userId: string): Promise<EvalContext> {
+  private async loadContext(userId: string, db: DbOrTx): Promise<EvalContext> {
     // Library anime the user owns and that is mapped to AnimeThemes.
-    const libraryRows = await this.db
+    const libraryRows = await db
       .select({
         kitsuId: kitsuAnime.kitsuId,
         animeThemesId: kitsuAnime.animethemesAnimeId,
@@ -102,7 +112,7 @@ export class DrizzleDynamicPlaylistEvaluator {
 
     const uniqueAnimeThemesIds = [...new Set(animeThemesIds)];
     const themeRows = uniqueAnimeThemesIds.length
-      ? await this.db
+      ? await db
           .select({
             id: themes.id,
             title: themes.title,
@@ -115,7 +125,7 @@ export class DrizzleDynamicPlaylistEvaluator {
       : [];
 
     const themeIds = themeRows.map((row) => row.id);
-    const artistNameByTheme = await this.artistNames(themeIds);
+    const artistNameByTheme = await this.artistNames(themeIds, db);
     const evalThemes: EvalTheme[] = themeRows.map((row) => ({
       id: row.id,
       title: row.title,
@@ -124,8 +134,8 @@ export class DrizzleDynamicPlaylistEvaluator {
       animeThemesId: row.animeThemesId,
     }));
 
-    const genresByKitsuId = await this.genres(kitsuIds);
-    const prefs = await this.prefs(userId);
+    const genresByKitsuId = await this.genres(kitsuIds, db);
+    const prefs = await this.prefs(userId, db);
 
     return {
       themes: evalThemes,
@@ -140,10 +150,10 @@ export class DrizzleDynamicPlaylistEvaluator {
     };
   }
 
-  private async artistNames(themeIds: number[]): Promise<Map<number, string>> {
+  private async artistNames(themeIds: number[], db: DbOrTx): Promise<Map<number, string>> {
     const result = new Map<number, string[]>();
     if (themeIds.length === 0) return new Map();
-    const rows = await this.db
+    const rows = await db
       .select({ themeId: themeArtists.themeId, name: themeArtists.artistName })
       .from(themeArtists)
       .where(inArray(themeArtists.themeId, themeIds))
@@ -156,11 +166,11 @@ export class DrizzleDynamicPlaylistEvaluator {
     return new Map([...result.entries()].map(([id, names]) => [id, names.join(", ")]));
   }
 
-  private async genres(kitsuIds: string[]): Promise<Map<string, Set<string>>> {
+  private async genres(kitsuIds: string[], db: DbOrTx): Promise<Map<string, Set<string>>> {
     const result = new Map<string, Set<string>>();
     const ids = [...new Set(kitsuIds)];
     if (ids.length === 0) return result;
-    const rows = await this.db
+    const rows = await db
       .select({ kitsuId: animeGenres.kitsuId, slug: animeGenres.genreSlug })
       .from(animeGenres)
       .where(inArray(animeGenres.kitsuId, ids));
@@ -172,13 +182,13 @@ export class DrizzleDynamicPlaylistEvaluator {
     return result;
   }
 
-  private async prefs(userId: string): Promise<{
+  private async prefs(userId: string, db: DbOrTx): Promise<{
     liked: Set<number>;
     disliked: Set<number>;
     playCount: Map<number, number>;
     lastPlayed: Map<number, number>;
   }> {
-    const rows = await this.db
+    const rows = await db
       .select({
         themeId: themePrefs.themeId,
         liked: themePrefs.liked,
@@ -201,14 +211,14 @@ export class DrizzleDynamicPlaylistEvaluator {
     return { liked, disliked, playCount, lastPlayed };
   }
 
-  private async saveEntries(playlistId: number, themeIds: number[]): Promise<void> {
-    await this.db.delete(playlistEntries).where(eq(playlistEntries.playlistId, playlistId));
+  private async saveEntries(playlistId: number, themeIds: number[], db: DbOrTx): Promise<void> {
+    await db.delete(playlistEntries).where(eq(playlistEntries.playlistId, playlistId));
     if (themeIds.length > 0) {
-      await this.db.insert(playlistEntries).values(
+      await db.insert(playlistEntries).values(
         themeIds.map((themeId, orderIndex) => ({ playlistId, themeId, orderIndex })),
       );
     }
-    await this.db
+    await db
       .update(playlists)
       .set({ updatedAt: this.now() })
       .where(eq(playlists.id, playlistId));

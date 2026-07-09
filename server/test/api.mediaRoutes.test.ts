@@ -465,9 +465,11 @@ describe("media API routes", () => {
       },
       message: "external image origin request",
     });
+    // A client is actively waiting on the image, so the cache fetch is urgent —
+    // it must jump ahead of background hydration.
     expect((await queue.list("QUEUED"))[0]).toMatchObject({
       type: "FETCH_IMAGE",
-      priority: JobPriority.NORMAL,
+      priority: JobPriority.URGENT,
       payload: { kind: "ANIME_COVER", refId: "123" },
       dedupeKey: "FETCH_IMAGE:ANIME_COVER:123",
     });

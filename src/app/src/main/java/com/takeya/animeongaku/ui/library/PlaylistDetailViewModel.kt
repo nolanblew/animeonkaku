@@ -3,12 +3,17 @@ package com.takeya.animeongaku.ui.library
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.takeya.animeongaku.data.filter.applyDynamicDeviceOverlay
+import com.takeya.animeongaku.data.filter.buildDynamicOverlayContext
+import com.takeya.animeongaku.data.filter.shouldApplyDynamicDeviceOverlay
 import com.takeya.animeongaku.data.local.AnimeDao
-import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.DynamicPlaylistSpecEntity
+import com.takeya.animeongaku.data.local.GenreDao
 import com.takeya.animeongaku.data.local.PendingOpDao
 import com.takeya.animeongaku.data.local.PendingOpEntity
+import com.takeya.animeongaku.data.local.PlayCountDao
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.PlaylistTrack
@@ -39,6 +44,8 @@ class PlaylistDetailViewModel @Inject constructor(
     private val playlistDao: PlaylistDao,
     private val themeDao: ThemeDao,
     animeDao: AnimeDao,
+    genreDao: GenreDao,
+    playCountDao: PlayCountDao,
     val nowPlayingManager: NowPlayingManager,
     val downloadManager: DownloadManager,
     private val downloadDao: DownloadDao,
@@ -86,7 +93,91 @@ class PlaylistDetailViewModel @Inject constructor(
     private val rawTracks = playlistDao.observePlaylistTracks(playlistId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val tracks: StateFlow<List<PlaylistTrack>> = combine(rawTracks, playlist, anime) { trackList, pl, animeList ->
+    val downloadedThemeIds: StateFlow<Set<Long>> = themeDao.observeDownloadedThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val likedThemeIds: StateFlow<Set<Long>> = userPreferencesRepository.observeLikedThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    val dislikedThemeIds: StateFlow<Set<Long>> = userPreferencesRepository.observeDislikedThemeIds()
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    private val genreCrossRefs = genreDao.observeAllCrossRefs()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val playCounts = playCountDao.observeAllPlayCounts()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private data class DynamicOverlayPrefs(
+        val downloadedThemeIds: Set<Long>,
+        val likedThemeIds: Set<Long>,
+        val dislikedThemeIds: Set<Long>
+    )
+
+    private data class DynamicOverlayState(
+        val spec: DynamicPlaylistSpecEntity?,
+        val prefs: DynamicOverlayPrefs,
+        val genreCrossRefs: List<com.takeya.animeongaku.data.local.AnimeGenreCrossRef>,
+        val playCounts: List<com.takeya.animeongaku.data.local.PlayCountEntity>
+    )
+
+    private val dynamicOverlayPrefs: StateFlow<DynamicOverlayPrefs> = combine(
+        downloadedThemeIds,
+        likedThemeIds,
+        dislikedThemeIds
+    ) { downloaded, liked, disliked ->
+        DynamicOverlayPrefs(downloaded, liked, disliked)
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        DynamicOverlayPrefs(emptySet(), emptySet(), emptySet())
+    )
+
+    private val dynamicOverlayState: StateFlow<DynamicOverlayState> = combine(
+        dynamicSpec,
+        dynamicOverlayPrefs,
+        genreCrossRefs,
+        playCounts
+    ) { spec, prefs, refs, counts ->
+        DynamicOverlayState(
+            spec = spec,
+            prefs = prefs,
+            genreCrossRefs = refs,
+            playCounts = counts
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        DynamicOverlayState(null, DynamicOverlayPrefs(emptySet(), emptySet(), emptySet()), emptyList(), emptyList())
+    )
+
+    val tracks: StateFlow<List<PlaylistTrack>> = combine(
+        rawTracks,
+        playlist,
+        anime,
+        dynamicOverlayState
+    ) { trackList, pl, animeList, overlay ->
+        val spec = overlay.spec
+        if (spec != null) {
+            val filter = dynamicPlaylistRepository.decodeFilter(spec)
+            val sort = dynamicPlaylistRepository.decodeSort(spec)
+            if (!shouldApplyDynamicDeviceOverlay(spec, filter, sort)) {
+                return@combine trackList
+            }
+            val context = buildDynamicOverlayContext(
+                tracks = trackList,
+                anime = animeList,
+                genreRefs = overlay.genreCrossRefs,
+                likedThemeIds = overlay.prefs.likedThemeIds,
+                dislikedThemeIds = overlay.prefs.dislikedThemeIds,
+                downloadedThemeIds = overlay.prefs.downloadedThemeIds,
+                playCounts = overlay.playCounts
+            )
+            return@combine applyDynamicDeviceOverlay(trackList, filter, sort, context)
+        }
         if (pl?.isAuto == true && trackList.isNotEmpty()) {
             val animeMap = animeList.mapNotNull { a -> a.animeThemesId?.let { it to a } }.toMap()
             trackList.sortedWith(compareBy<PlaylistTrack> { track ->
@@ -224,19 +315,7 @@ class PlaylistDetailViewModel @Inject constructor(
         }
     }
 
-    val downloadedThemeIds: StateFlow<Set<Long>> = themeDao.observeDownloadedThemeIds()
-        .map { it.toSet() }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
-
     val downloadingThemeIds: StateFlow<Set<Long>> = downloadDao.observeDownloadingThemeIds()
-        .map { it.toSet() }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
-
-    val likedThemeIds: StateFlow<Set<Long>> = userPreferencesRepository.observeLikedThemeIds()
-        .map { it.toSet() }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
-
-    val dislikedThemeIds: StateFlow<Set<Long>> = userPreferencesRepository.observeDislikedThemeIds()
         .map { it.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
@@ -261,7 +340,7 @@ class PlaylistDetailViewModel @Inject constructor(
     }
 
     fun downloadPlaylist() {
-        downloadManager.downloadPlaylist(playlistId)
+        downloadManager.downloadPlaylist(playlistId, tracks.value.map { it.theme.id })
     }
 
     fun removePlaylistDownload() {
