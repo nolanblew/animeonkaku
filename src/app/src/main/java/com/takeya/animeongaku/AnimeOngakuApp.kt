@@ -2,6 +2,7 @@ package com.takeya.animeongaku
 
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
+import androidx.media3.common.util.UnstableApi
 import androidx.work.Configuration
 import coil.ImageLoader
 import coil.ImageLoaderFactory
@@ -23,6 +24,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltAndroidApp
+@androidx.annotation.OptIn(UnstableApi::class)
 class AnimeOngakuApp : Application(), Configuration.Provider, ImageLoaderFactory {
 
     @Inject lateinit var workerFactory: HiltWorkerFactory

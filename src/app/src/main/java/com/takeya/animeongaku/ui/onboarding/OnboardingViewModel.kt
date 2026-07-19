@@ -128,7 +128,9 @@ class OnboardingViewModel @Inject constructor(
     fun signIn() {
         val state = _uiState.value
         val username = state.username.trim()
-        val password = state.password.trim()
+        // Password whitespace is significant. Validate with isBlank(), but send
+        // exactly what the user entered instead of silently changing credentials.
+        val password = state.password
         if (username.isBlank() || password.isBlank()) {
             _uiState.update { it.copy(error = "Enter your Kitsu email/username and password.") }
             return
@@ -162,7 +164,13 @@ class OnboardingViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 if (loggedIn) {
-                    authRepository.clearSession()
+                    try {
+                        authRepository.logout()
+                    } catch (_: Exception) {
+                        // A setup error can coincide with an outage. Always clear the
+                        // local token even when the best-effort server revoke cannot run.
+                        authRepository.clearSession()
+                    }
                     sessionStateManager.onLogout()
                 }
                 _uiState.update {

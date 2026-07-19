@@ -358,7 +358,9 @@ fun PlayerScreen(
                         FallbackAsyncImage(
                             urls = pageArtUrls,
                             contentDescription = pageTitle,
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
+                            loadOriginalSize = playerArtworkLoadsOriginalSize(progress),
+                            crossfade = true
                         )
                     }
                 }
@@ -631,6 +633,13 @@ fun PlayerScreen(
         }
     }
 }
+
+/**
+ * The artwork pager is first measured at mini-player size and then grows with the player.
+ * Switch to a distinct original-size Coil request as soon as expansion starts so the small
+ * mini-player decode cannot remain stretched across the full player.
+ */
+internal fun playerArtworkLoadsOriginalSize(progress: Float): Boolean = progress > 0.1f
 
 @Composable
 fun PlayerBackgroundArt(imageUrl: String?) {

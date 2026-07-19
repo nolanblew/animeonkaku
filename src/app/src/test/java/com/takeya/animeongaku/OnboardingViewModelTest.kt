@@ -50,7 +50,10 @@ class OnboardingViewModelTest {
     ) : OngakuAuthRepository {
         var loginCalls = 0
         var cleared = false
+        var logoutCalls = 0
         var legacyImport: OngakuLegacyLibraryImport? = null
+        var lastUsername: String? = null
+        var lastPassword: String? = null
         override suspend fun login(
             username: String,
             password: String,
@@ -58,14 +61,41 @@ class OnboardingViewModelTest {
             legacyLibraryImport: OngakuLegacyLibraryImport?
         ): ServerLoginResult {
             loginCalls++
+            lastUsername = username
+            lastPassword = password
             legacyImport = legacyLibraryImport
             error?.let { throw it }
             return ServerLoginResult(session = result!!, syncMode = syncMode)
         }
         override fun currentSession(): ServerSession? = null
+        override suspend fun logout() {
+            logoutCalls++
+            cleared = true
+        }
         override fun clearSession() {
             cleared = true
         }
+    }
+
+    @Test
+    fun `sign in trims the username but preserves password whitespace`() = runTest(dispatcher) {
+        val session = ServerSession("tok", "uid", "nblew")
+        val repo = FakeAuthRepo(result = session)
+        val vm = OnboardingViewModel(
+            repo,
+            SessionStateManager(ServerTokenStore(FakeSharedPreferences())),
+            settings(true),
+            FakeInitialLibrarySync(),
+            parser()
+        )
+
+        vm.onUsernameChange("  nblew  ")
+        vm.onPasswordChange("  password with spaces  ")
+        vm.signIn()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals("nblew", repo.lastUsername)
+        assertEquals("  password with spaces  ", repo.lastPassword)
     }
 
     private fun parser(): LegacyLibraryImportParser =
@@ -292,6 +322,7 @@ class OnboardingViewModelTest {
         dispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(repo.cleared)
+        assertEquals(1, repo.logoutCalls)
         assertEquals(SessionState.LoggedOut, sessionState.state.value)
         assertNotNull(vm.uiState.value.error)
         assertEquals(false, vm.uiState.value.isSubmitting)

@@ -85,49 +85,25 @@ async function bearer(prefix = "") {
 }
 
 describe("media API routes", () => {
-  it("serves READY audio playback without bearer auth", async () => {
-    const contents = Buffer.from("0123456789abcdef");
-    writeFileSync(join(mediaRoot, "audio", "100.ogg"), contents);
-    repo.audio.set(100, {
-      themeId: 100,
-      originUrl: "https://a.animethemes.moe/Ready.ogg",
-      state: "READY",
-      filePath: "audio/100.ogg",
-      byteSize: contents.length,
-      sha256: createHash("sha256").update(contents).digest("hex"),
-    });
-
+  it("requires bearer auth for audio playback", async () => {
     const res = await app.inject({
       method: "GET",
       url: "/v1/media/audio/100",
       headers: { range: "bytes=2-5" },
     });
 
-    expect(res.statusCode).toBe(206);
-    expect(res.headers["content-range"]).toBe("bytes 2-5/16");
-    expect(res.body).toBe("2345");
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toMatchObject({ error: { code: "UNAUTHORIZED" } });
   });
 
-  it("returns HEAD audio metadata without bearer auth", async () => {
-    const contents = Buffer.from("0123456789abcdef");
-    writeFileSync(join(mediaRoot, "audio", "100.ogg"), contents);
-    repo.audio.set(100, {
-      themeId: 100,
-      originUrl: "https://a.animethemes.moe/Ready.ogg",
-      state: "READY",
-      filePath: "audio/100.ogg",
-      byteSize: contents.length,
-      sha256: "abc123",
-    });
-
+  it("requires bearer auth for HEAD audio metadata", async () => {
     const res = await app.inject({
       method: "HEAD",
       url: "/v1/media/audio/100",
     });
 
-    expect(res.statusCode).toBe(200);
-    expect(res.headers.etag).toBe('"abc123"');
-    expect(res.body).toBe("");
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toMatchObject({ error: { code: "UNAUTHORIZED" } });
   });
 
   it("serves READY audio with byte range semantics", async () => {
@@ -373,11 +349,12 @@ describe("media API routes", () => {
         headers: { "content-type": "text/html" },
       });
     };
+    const token = await bearer();
 
     const res = await app.inject({
       method: "GET",
       url: "/v1/media/audio/100",
-      headers: { range: "bytes=0-" },
+      headers: { authorization: `Bearer ${token}`, range: "bytes=0-" },
     });
 
     expect(res.statusCode).toBe(503);

@@ -66,7 +66,7 @@ adb reverse tcp:48668 tcp:48668
 
 ### Build-Time Server URL
 
-Gradle compiles `BuildConfig.ONGAKU_SERVER_BASE_URL` into the APK. By default this is `https://ongaku-api.takeya.ninja/`. For local development, override it before running Gradle with either an environment variable, a Gradle property, or an ignored `src/local.properties` entry:
+Gradle compiles `BuildConfig.ONGAKU_SERVER_BASE_URL` into the APK. By default this is `https://ongaku-api.takeya.ninja/`. Debug builds allow local `http://` overrides; release builds require HTTPS so credentials and session tokens cannot be sent in cleartext. For local development, override the URL before running Gradle with either an environment variable, a Gradle property, or an ignored `src/local.properties` entry:
 
 ```powershell
 cd .\src
