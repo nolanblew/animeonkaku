@@ -517,6 +517,7 @@ keeps the adapter small.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete (2026-07-20) |
 | Area | Server / Lidarr |
 | Difficulty | High |
 | Effort | XL, 6–8 days |
@@ -561,6 +562,37 @@ Expected areas:
   imported files, path mapping, and cleanup ownership.
 - Test unexpected/missing fields and 401/404/429/500 handling.
 - Typecheck and full server suite.
+
+#### Completion and testing notes
+
+- Added the Lidarr v1 adapter for health, album lookup, existing-album reuse,
+  OpenAPI-shaped artist/album creation, monitoring, `AlbumSearch`, command
+  status, queue/history diagnostics, and imported track/file reads.
+- Provider context durably records the numeric Lidarr album ID, MusicBrainz
+  release-group identity, adapter ownership, created artist identity/tag, and
+  prior monitoring state.
+  Existing operator albums are never deleted; temporary monitoring is restored
+  only when requested, and adapter-created cleanup rechecks both durable IDs
+  before deleting the Lidarr resource without deleting media files. A created
+  artist is removed only after its exact identity/tag is rechecked and the
+  temporary owned album is proven to be its only album.
+- Imported files expose the exact MusicBrainz recording ID, album artist,
+  title, duration, content type, provider path, and mapped server-readable path.
+  Windows and POSIX path mapping rejects prefix lookalikes, dot segments, and
+  paths outside the configured shared root.
+- Added typed/retryable handling for malformed payloads, network failures, and
+  401/404/429/5xx responses. API-key authentication remains header-only and
+  redacted by the provider HTTP boundary established in MC-S04.
+- Focused OpenAPI-faithful Lidarr fixture tests passed: 23/23. Server TypeScript
+  typecheck passed. Full Vitest passed: 41 files passed, 2 skipped; 267 tests
+  passed and 3 environment-gated tests skipped.
+- Independent review initially found six contract and safety issues: invalid
+  album creation shape/ownership proof, incomplete imported metadata,
+  dot-segment path escape, missing monitoring restoration, unhandled `orphaned`
+  command state, and release/release-group identity conflation. Follow-up review
+  then found orphaned adapter-created artists; safe artist cleanup and
+  preservation cases were added. All findings are covered by regression tests,
+  and final review found no remaining actionable issue.
 
 #### Handoff notes
 

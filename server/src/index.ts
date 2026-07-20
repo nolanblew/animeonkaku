@@ -22,7 +22,12 @@ import { JobPriority, JobQueue, JobWorker, PgJobRepository } from "./jobs/index.
 import { RealKitsuAuthClient } from "./kitsu/kitsuAuthClient.js";
 import { KitsuClient } from "./kitsu/kitsuClient.js";
 import { createJsonStdoutLogger } from "./logging.js";
-import { createLidarrUpstreamHttp } from "./music/lidarrHttp.js";
+import {
+  createLidarrUpstreamHttp,
+  DisabledMusicAcquisitionProvider,
+  LidarrMusicAcquisitionProvider,
+  type MusicAcquisitionProvider,
+} from "./music/index.js";
 import {
   createFetchMediaHandlers,
   DrizzleMediaCatalogLookup,
@@ -42,15 +47,34 @@ import {
 const config = loadConfig();
 const externalLogger = createJsonStdoutLogger();
 
-// MC-S05 will consume this provider-specific instance. Creating it here keeps
-// Lidarr on the shared retry/breaker/logging stack without leaking its key.
 const lidarrHttp = config.MUSIC_PROVIDER === "LIDARR"
   ? createLidarrUpstreamHttp({
       apiKey: config.LIDARR_API_KEY!,
       logger: externalLogger,
     })
   : undefined;
-void lidarrHttp;
+const musicProvider: MusicAcquisitionProvider = lidarrHttp
+  ? new LidarrMusicAcquisitionProvider({
+      http: lidarrHttp,
+      baseUrl: config.LIDARR_BASE_URL!,
+      rootFolderPath: config.LIDARR_ROOT_FOLDER_PATH!,
+      sharedRoot: config.LIDARR_SHARED_ROOT!,
+      qualityProfileId: config.LIDARR_QUALITY_PROFILE_ID!,
+      metadataProfileId: config.LIDARR_METADATA_PROFILE_ID!,
+      ...(config.LIDARR_PATH_PREFIX_FROM === undefined
+        ? {}
+        : {
+            pathPrefixFrom: config.LIDARR_PATH_PREFIX_FROM,
+            pathPrefixTo: config.LIDARR_PATH_PREFIX_TO!,
+          }),
+      ...(config.LIDARR_OWNERSHIP_TAG_ID === undefined
+        ? {}
+        : { ownershipTagId: config.LIDARR_OWNERSHIP_TAG_ID }),
+    })
+  : new DisabledMusicAcquisitionProvider();
+// Discovery handlers are added by MC-S07; retaining the typed runtime provider
+// here ensures enabled deployments instantiate and validate the real adapter.
+void musicProvider;
 
 const { pool, db } = createDb(config.DATABASE_URL);
 
