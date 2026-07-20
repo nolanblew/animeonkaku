@@ -133,7 +133,8 @@ export class DrizzleAutoPlaylistRefresher {
       await this.db.delete(playlistEntries).where(eq(playlistEntries.playlistId, playlistId));
       const entries = nextThemeIds.map((themeId, index) => ({
         playlistId,
-        themeId,
+        itemType: "THEME" as const,
+        itemId: themeId,
         orderIndex: index,
       }));
       if (entries.length > 0) {
@@ -144,9 +145,12 @@ export class DrizzleAutoPlaylistRefresher {
 
   private async autoPlaylistThemeIds(playlistId: number): Promise<number[]> {
     const rows = await this.db
-      .select({ themeId: playlistEntries.themeId })
+      .select({ themeId: playlistEntries.itemId })
       .from(playlistEntries)
-      .where(eq(playlistEntries.playlistId, playlistId))
+      .where(and(
+        eq(playlistEntries.playlistId, playlistId),
+        eq(playlistEntries.itemType, "THEME"),
+      ))
       .orderBy(asc(playlistEntries.orderIndex));
     return rows.map((row) => row.themeId);
   }

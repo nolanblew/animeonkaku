@@ -24,6 +24,26 @@ const createdAt = () =>
 const updatedAt = () =>
   timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
 
+export type CatalogItemType = "THEME" | "SONG";
+export type PlaylistPlaybackMode = "TV_SIZE" | "FULL_SIZE";
+export type ActualPlaybackMode = PlaylistPlaybackMode | "VIDEO" | "AUDIO";
+export type MusicReleaseType =
+  | "SOUNDTRACK"
+  | "CHARACTER"
+  | "IMAGE"
+  | "THEME"
+  | "INSERT"
+  | "OTHER";
+export type MusicDiscoveryStatus = "NEVER" | "DUE" | "RUNNING" | "COMPLETE" | "FAILED";
+export type MusicAcquisitionPurpose = "FULL_SIZE" | "RELATED_RELEASE";
+export type MusicAcquisitionState =
+  | "REQUESTED"
+  | "ACQUIRING"
+  | "IMPORTING"
+  | "READY"
+  | "FAILED"
+  | "AMBIGUOUS";
+
 // ===== identity =====
 
 export const users = pgTable("users", {
@@ -109,6 +129,161 @@ export const themes = pgTable("themes", {
   index("themes_updated_at_idx").on(t.updatedAt),
 ]);
 
+export const songs = pgTable("songs", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  animethemesSongId: bigint("animethemes_song_id", { mode: "number" }).unique(),
+  musicbrainzRecordingId: text("musicbrainz_recording_id").unique(),
+  title: text("title").notNull(),
+  normalizedTitle: text("normalized_title").notNull(),
+  artistCredit: text("artist_credit").notNull(),
+  normalizedArtist: text("normalized_artist").notNull(),
+  durationSeconds: integer("duration_seconds"),
+  updatedAt: updatedAt(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => [
+  index("songs_normalized_title_artist_idx").on(t.normalizedTitle, t.normalizedArtist),
+  index("songs_updated_at_idx").on(t.updatedAt),
+]);
+
+export const musicReleases = pgTable("music_releases", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  provider: text("provider").notNull(),
+  providerReleaseId: text("provider_release_id").notNull(),
+  title: text("title").notNull(),
+  normalizedTitle: text("normalized_title").notNull(),
+  artistCredit: text("artist_credit").notNull(),
+  releaseType: text("release_type").$type<MusicReleaseType>().notNull(),
+  releaseDate: date("release_date"),
+  artworkUrl: text("artwork_url"),
+  updatedAt: updatedAt(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => [
+  unique("music_releases_provider_release_unique").on(t.provider, t.providerReleaseId),
+  index("music_releases_normalized_title_idx").on(t.normalizedTitle),
+  index("music_releases_updated_at_idx").on(t.updatedAt),
+]);
+
+export const releaseTracks = pgTable("release_tracks", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  releaseId: bigint("release_id", { mode: "number" })
+    .notNull()
+    .references(() => musicReleases.id, { onDelete: "cascade" }),
+  songId: bigint("song_id", { mode: "number" })
+    .notNull()
+    .references(() => songs.id),
+  discNumber: integer("disc_number").notNull().default(1),
+  trackNumber: integer("track_number"),
+  displayOrder: integer("display_order").notNull(),
+}, (t) => [
+  unique("release_tracks_release_display_order_unique").on(t.releaseId, t.displayOrder),
+  index("release_tracks_release_order_idx").on(t.releaseId, t.displayOrder),
+  index("release_tracks_song_id_idx").on(t.songId),
+]);
+
+export const animeMusicReleases = pgTable("anime_music_releases", {
+  animethemesAnimeId: bigint("animethemes_anime_id", { mode: "number" })
+    .notNull()
+    .references(() => animethemesAnime.id, { onDelete: "cascade" }),
+  releaseId: bigint("release_id", { mode: "number" })
+    .notNull()
+    .references(() => musicReleases.id, { onDelete: "cascade" }),
+  relationshipType: text("relationship_type").$type<MusicReleaseType>().notNull(),
+  confidence: doublePrecision("confidence").notNull(),
+  evidence: jsonb("evidence").notNull().default({}),
+  updatedAt: updatedAt(),
+}, (t) => [
+  primaryKey({ columns: [t.animethemesAnimeId, t.releaseId] }),
+  index("anime_music_releases_release_id_idx").on(t.releaseId),
+]);
+
+export const themeFullSongs = pgTable("theme_full_songs", {
+  themeId: bigint("theme_id", { mode: "number" })
+    .primaryKey()
+    .references(() => themes.id, { onDelete: "cascade" }),
+  songId: bigint("song_id", { mode: "number" })
+    .notNull()
+    .references(() => songs.id),
+  sourceReleaseId: bigint("source_release_id", { mode: "number" })
+    .references(() => musicReleases.id),
+  confidence: doublePrecision("confidence").notNull(),
+  evidence: jsonb("evidence").notNull().default({}),
+  matchedAt: timestamp("matched_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: updatedAt(),
+}, (t) => [
+  index("theme_full_songs_song_id_idx").on(t.songId),
+  index("theme_full_songs_source_release_id_idx").on(t.sourceReleaseId),
+]);
+
+export const themeVideoSources = pgTable("theme_video_sources", {
+  animethemesVideoId: bigint("animethemes_video_id", { mode: "number" }).primaryKey(),
+  animethemesEntryId: bigint("animethemes_entry_id", { mode: "number" }).notNull(),
+  themeId: bigint("theme_id", { mode: "number" })
+    .notNull()
+    .references(() => themes.id, { onDelete: "cascade" }),
+  entryVersion: integer("entry_version"),
+  entryOrder: integer("entry_order"),
+  link: text("link").notNull(),
+  mimeType: text("mime_type"),
+  resolution: integer("resolution"),
+  source: text("source"),
+  spoiler: boolean("spoiler").notNull().default(false),
+  nsfw: boolean("nsfw").notNull().default(false),
+  creditless: boolean("creditless").notNull().default(false),
+  subbed: boolean("subbed").notNull().default(false),
+  lyrics: boolean("lyrics").notNull().default(false),
+  preferenceRank: integer("preference_rank").notNull(),
+  updatedAt: updatedAt(),
+}, (t) => [
+  index("theme_video_sources_theme_rank_idx").on(t.themeId, t.preferenceRank),
+  index("theme_video_sources_entry_id_idx").on(t.animethemesEntryId),
+]);
+
+export const musicDiscoveryState = pgTable("music_discovery_state", {
+  animethemesAnimeId: bigint("animethemes_anime_id", { mode: "number" })
+    .primaryKey()
+    .references(() => animethemesAnime.id, { onDelete: "cascade" }),
+  lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+  lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+  nextScanAt: timestamp("next_scan_at", { withTimezone: true }),
+  status: text("status").$type<MusicDiscoveryStatus>().notNull().default("NEVER"),
+  missingFullCount: integer("missing_full_count").notNull().default(0),
+  failureCount: integer("failure_count").notNull().default(0),
+  lastError: text("last_error"),
+  updatedAt: updatedAt(),
+}, (t) => [
+  index("music_discovery_state_due_idx").on(t.status, t.nextScanAt),
+]);
+
+export const musicAcquisitions = pgTable("music_acquisitions", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  provider: text("provider").notNull(),
+  providerJobId: text("provider_job_id"),
+  providerReleaseId: text("provider_release_id"),
+  animethemesAnimeId: bigint("animethemes_anime_id", { mode: "number" })
+    .notNull()
+    .references(() => animethemesAnime.id),
+  purpose: text("purpose").$type<MusicAcquisitionPurpose>().notNull(),
+  themeId: bigint("theme_id", { mode: "number" }).references(() => themes.id),
+  songId: bigint("song_id", { mode: "number" }).references(() => songs.id),
+  releaseId: bigint("release_id", { mode: "number" }).references(() => musicReleases.id),
+  state: text("state").$type<MusicAcquisitionState>().notNull().default("REQUESTED"),
+  providerResourceCreated: boolean("provider_resource_created").notNull().default(false),
+  priorProviderMonitoringState: text("prior_provider_monitoring_state"),
+  nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  errorMessage: text("error_message"),
+  providerMetadata: jsonb("provider_metadata").notNull().default({}),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [
+  unique("music_acquisitions_provider_job_unique").on(t.provider, t.providerJobId),
+  index("music_acquisitions_state_retry_idx").on(t.state, t.nextRetryAt),
+  index("music_acquisitions_anime_id_idx").on(t.animethemesAnimeId),
+  index("music_acquisitions_theme_id_idx").on(t.themeId),
+  index("music_acquisitions_song_id_idx").on(t.songId),
+  index("music_acquisitions_release_id_idx").on(t.releaseId),
+]);
+
 export const themeArtists = pgTable(
   "theme_artists",
   {
@@ -186,6 +361,8 @@ export const themePrefs = pgTable(
       .references(() => themes.id),
     liked: boolean("liked").notNull().default(false),
     disliked: boolean("disliked").notNull().default(false),
+    dislikedTvSize: boolean("disliked_tv_size").notNull().default(false),
+    dislikedFullSize: boolean("disliked_full_size").notNull().default(false),
     playCount: integer("play_count").notNull().default(0),
     lastPlayedAt: timestamp("last_played_at", { withTimezone: true }),
     // Dedicated last-write-wins clock for the liked/disliked pair. Kept separate from
@@ -216,6 +393,7 @@ export const playlists = pgTable(
     isAuto: boolean("is_auto").notNull().default(false),
     autoKind: text("auto_kind"), // KITSU_LIBRARY | CURRENTLY_WATCHING | LIKED_SONGS | null
     gradientSeed: integer("gradient_seed").notNull().default(0),
+    defaultMode: text("default_mode").$type<PlaylistPlaybackMode>().notNull().default("TV_SIZE"),
     // Dynamic (smart) playlists: server-authoritative spec + sort, materialized like auto
     // playlists when dynamicAutoUpdate is true. dynamicSpecJson is the filter tree; a
     // non-null spec marks the playlist as dynamic.
@@ -246,21 +424,61 @@ export const playlists = pgTable(
 export const playlistEntries = pgTable(
   "playlist_entries",
   {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
     playlistId: bigint("playlist_id", { mode: "number" })
       .notNull()
       .references(() => playlists.id, { onDelete: "cascade" }),
-    themeId: bigint("theme_id", { mode: "number" })
-      .notNull()
-      .references(() => themes.id),
+    itemType: text("item_type").$type<CatalogItemType>().notNull().default("THEME"),
+    itemId: bigint("item_id", { mode: "number" }).notNull(),
     orderIndex: integer("order_index").notNull(),
+    modeOverride: text("mode_override").$type<PlaylistPlaybackMode>(),
   },
-  // duplicates of a song allowed at different positions
+  // Duplicate items are intentionally represented by independently identified occurrences.
   (t) => [
-    primaryKey({ columns: [t.playlistId, t.themeId, t.orderIndex] }),
     index("playlist_entries_playlist_order_idx").on(t.playlistId, t.orderIndex),
-    index("playlist_entries_theme_id_idx").on(t.themeId),
+    index("playlist_entries_item_idx").on(t.itemType, t.itemId),
   ],
 );
+
+export const songPrefs = pgTable("song_prefs", {
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.kitsuUserId, { onDelete: "cascade" }),
+  songId: bigint("song_id", { mode: "number" })
+    .notNull()
+    .references(() => songs.id),
+  liked: boolean("liked").notNull().default(false),
+  disliked: boolean("disliked").notNull().default(false),
+  playCount: integer("play_count").notNull().default(0),
+  lastPlayedAt: timestamp("last_played_at", { withTimezone: true }),
+  likedUpdatedAt: timestamp("liked_updated_at", { withTimezone: true }),
+  updatedAt: updatedAt(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.songId] }),
+  index("song_prefs_user_updated_idx").on(t.userId, t.updatedAt),
+  index("song_prefs_user_deleted_idx").on(t.userId, t.deletedAt),
+  index("song_prefs_user_liked_active_idx")
+    .on(t.userId, t.liked, t.songId)
+    .where(sql`${t.deletedAt} is null`),
+]);
+
+export const playEvents = pgTable("play_events", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.kitsuUserId, { onDelete: "cascade" }),
+  clientEventId: text("client_event_id").notNull(),
+  itemType: text("item_type").$type<CatalogItemType>().notNull(),
+  itemId: bigint("item_id", { mode: "number" }).notNull(),
+  actualMode: text("actual_mode").$type<ActualPlaybackMode>().notNull(),
+  playedAt: timestamp("played_at", { withTimezone: true }).notNull(),
+  createdAt: createdAt(),
+}, (t) => [
+  unique("play_events_user_client_event_unique").on(t.userId, t.clientEventId),
+  index("play_events_user_played_at_idx").on(t.userId, t.playedAt),
+  index("play_events_item_idx").on(t.itemType, t.itemId),
+]);
 
 // ===== media =====
 
@@ -284,6 +502,8 @@ export const mediaFiles = pgTable(
     fetchedAt: timestamp("fetched_at", { withTimezone: true }),
     updatedAt: updatedAt(),
     videoFallback: boolean("video_fallback").notNull().default(false),
+    contentType: text("content_type"),
+    sourceFileName: text("source_file_name"),
   },
   (t) => [unique("media_files_kind_ref_id_variant_unique").on(t.kind, t.refId, t.variant)],
 );

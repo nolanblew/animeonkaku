@@ -3,9 +3,11 @@
 export type MediaKind = "AUDIO" | "VIDEO" | "ANIME_POSTER" | "ANIME_COVER" | "ARTIST_IMAGE";
 
 // Which source/cut of a (kind, ref) a media row holds. Orthogonal to kind so a
-// single theme can store e.g. (AUDIO, SHORT), (AUDIO, FULL) and (VIDEO, FULL).
-// Images have no cut and use DEFAULT. See .planning/09-media-variants.md.
-export type MediaVariant = "SHORT" | "FULL" | "DEFAULT";
+// Catalog songs use ORIGINAL because the stored file is the accepted source
+// recording; FULL_SIZE is a user-facing playback mode, not a storage variant.
+// FULL remains for the pre-catalog media scaffold until its callers migrate.
+// Images have no cut and use DEFAULT. See .planning/13-media-catalog-tdr.md.
+export type MediaVariant = "SHORT" | "ORIGINAL" | "FULL" | "DEFAULT";
 
 export type MediaState = "MISSING" | "QUEUED" | "DOWNLOADING" | "READY" | "FAILED";
 

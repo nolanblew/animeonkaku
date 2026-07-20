@@ -118,10 +118,15 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       .from(themePrefs)
       .where(and(eq(themePrefs.userId, userId), isNull(themePrefs.deletedAt)));
     const playlistRows = await this.db
-      .select({ themeId: playlistEntries.themeId })
+      .select({ themeId: playlistEntries.itemId })
       .from(playlists)
       .innerJoin(playlistEntries, eq(playlists.id, playlistEntries.playlistId))
-      .where(and(eq(playlists.userId, userId), eq(playlists.isAuto, false), isNull(playlists.deletedAt)));
+      .where(and(
+        eq(playlists.userId, userId),
+        eq(playlists.isAuto, false),
+        isNull(playlists.deletedAt),
+        eq(playlistEntries.itemType, "THEME"),
+      ));
 
     return this.ensureLibraryForThemeIds(
       userId,
@@ -933,10 +938,13 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     const rows = await this.db
       .select({
         playlistId: playlistEntries.playlistId,
-        themeId: playlistEntries.themeId,
+        themeId: playlistEntries.itemId,
       })
       .from(playlistEntries)
-      .where(inArray(playlistEntries.playlistId, playlistIds))
+      .where(and(
+        inArray(playlistEntries.playlistId, playlistIds),
+        eq(playlistEntries.itemType, "THEME"),
+      ))
       .orderBy(asc(playlistEntries.playlistId), asc(playlistEntries.orderIndex));
     for (const row of rows) {
       const entries = result.get(row.playlistId) ?? [];
@@ -954,9 +962,9 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     await db.delete(playlistEntries).where(eq(playlistEntries.playlistId, playlistId));
     if (entries.length === 0) return;
     // Devices can reference themes this server has never cataloged (e.g. liked
-    // themes pulled from an older server instance). playlist_entries.theme_id has
-    // an FK to themes.id, so persist the known subset instead of failing the
-    // whole playlist write.
+    // themes pulled from an older server instance). The polymorphic item_id has
+    // no database FK, so keep the existing listener contract by persisting only
+    // the known THEME subset instead of retaining dangling catalog identities.
     const knownThemeIds = await this.knownThemeIds(entries, db);
     const insertable = entries.filter((themeId) => knownThemeIds.has(themeId));
     const droppedThemeIds = uniqueNumbers(entries.filter((themeId) => !knownThemeIds.has(themeId)));
@@ -970,7 +978,8 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     await db.insert(playlistEntries).values(
       insertable.map((themeId, orderIndex) => ({
         playlistId,
-        themeId,
+        itemType: "THEME" as const,
+        itemId: themeId,
         orderIndex,
       })),
     );

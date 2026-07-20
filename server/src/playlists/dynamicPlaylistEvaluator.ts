@@ -215,7 +215,12 @@ export class DrizzleDynamicPlaylistEvaluator {
     await db.delete(playlistEntries).where(eq(playlistEntries.playlistId, playlistId));
     if (themeIds.length > 0) {
       await db.insert(playlistEntries).values(
-        themeIds.map((themeId, orderIndex) => ({ playlistId, themeId, orderIndex })),
+        themeIds.map((themeId, orderIndex) => ({
+          playlistId,
+          itemType: "THEME" as const,
+          itemId: themeId,
+          orderIndex,
+        })),
       );
     }
     await db

@@ -57,6 +57,13 @@
       "when": 1781818419843,
       "tag": "0007_keen_blizzard",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784530373876,
+      "tag": "0008_silent_doctor_doom",
+      "breakpoints": true
     }
   ]
 }

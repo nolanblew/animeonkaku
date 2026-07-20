@@ -193,6 +193,7 @@ their direct dependencies are satisfied.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete (2026-07-19) |
 | Area | Server / PostgreSQL / Drizzle |
 | Difficulty | High |
 | Effort | L, 4–5 days |
@@ -244,6 +245,25 @@ Expected areas:
   ready TV media.
 - Apply migration twice through the normal migration runner to prove normal
   idempotent startup behavior.
+
+#### Completion and testing notes
+
+- Implemented the catalog, relationship, discovery, acquisition, preference,
+  playback-event, media metadata, playlist mode, and polymorphic playlist-entry
+  schema in Drizzle migration `0008_silent_doctor_doom.sql`.
+- Updated existing playlist readers and writers to retain the legacy
+  theme-only listener contract while storing independently identified `THEME`
+  occurrences. Existing duplicate occurrences and order are preserved.
+- Server TypeScript typecheck passed.
+- Full server Vitest passed: 36 files passed, 2 skipped; 206 tests passed and 3
+  skipped when the opt-in database fixture was not configured.
+- The opt-in populated PostgreSQL migration test passed separately against a
+  temporary PostgreSQL 16 container: 1 file and 1 test passed. It seeded
+  duplicate playlist occurrences and ready `AUDIO`/raw-theme-ID/`SHORT` media,
+  then ran the normal startup migrator twice and verified all rows and
+  backfills were preserved.
+- Independent light review found no blocking or actionable issues. The
+  temporary PostgreSQL test container was removed after verification.
 
 #### Handoff notes
 
