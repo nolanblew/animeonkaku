@@ -117,6 +117,8 @@ export interface PlaylistDto {
   id: number;
   name: string;
   entries: number[];
+  defaultMode: PlaylistPlaybackMode;
+  items: PlaylistItemDto[];
   isAuto: boolean;
   isDynamic: boolean;
   autoUpdate: boolean;
@@ -126,9 +128,22 @@ export interface PlaylistDto {
   dynamicSortJson: unknown | null;
 }
 
+export type PlaylistPlaybackMode = "TV_SIZE" | "FULL_SIZE";
+export type PlaylistItemInput =
+  | { entryId?: number | undefined; itemType: "THEME"; itemId: number; modeOverride?: PlaylistPlaybackMode | null | undefined }
+  | { entryId?: number | undefined; itemType: "SONG"; itemId: number; modeOverride?: null | undefined };
+export interface PlaylistItemDto {
+  entryId: number;
+  itemType: "THEME" | "SONG";
+  itemId: number;
+  modeOverride: PlaylistPlaybackMode | null;
+}
+
 export interface PlaylistInput {
   name?: string | undefined;
   entries?: number[] | undefined;
+  defaultMode?: PlaylistPlaybackMode | undefined;
+  items?: PlaylistItemInput[] | undefined;
   dynamicSpecJson?: unknown;
   dynamicSortJson?: unknown;
   autoUpdate?: boolean | undefined;
@@ -138,6 +153,8 @@ export interface PlaylistInput {
 export interface PlaylistCreateInput {
   name: string;
   entries?: number[] | undefined;
+  defaultMode?: PlaylistPlaybackMode | undefined;
+  items?: PlaylistItemInput[] | undefined;
   dynamicSpecJson?: unknown;
   dynamicSortJson?: unknown;
   autoUpdate?: boolean | undefined;
@@ -230,28 +247,40 @@ const playsBody = z
   )
   .max(1000);
 
+const playlistItemSchema = z.discriminatedUnion("itemType", [
+  z.object({ entryId: z.number().int().positive().optional(), itemType: z.literal("THEME"), itemId: z.number().int().positive(), modeOverride: z.enum(["TV_SIZE", "FULL_SIZE"]).nullable().optional() }).strict(),
+  z.object({ entryId: z.number().int().positive().optional(), itemType: z.literal("SONG"), itemId: z.number().int().positive(), modeOverride: z.null().optional() }).strict(),
+]);
+
 const playlistCreateBody = z.object({
   name: z.string().min(1).max(100),
   entries: z.array(z.number().int().positive()).optional(),
+  defaultMode: z.enum(["TV_SIZE", "FULL_SIZE"]).optional(),
+  items: z.array(playlistItemSchema).optional(),
   dynamicSpecJson: z.unknown().optional(),
   dynamicSortJson: z.unknown().optional(),
   autoUpdate: z.boolean().optional(),
   opTs: z.number().int().nonnegative().optional(),
-});
+}).refine((value) => value.entries === undefined || value.items === undefined, { message: "entries and items are mutually exclusive" });
 
 const playlistUpdateBody = z
   .object({
     name: z.string().min(1).max(100).optional(),
     entries: z.array(z.number().int().positive()).optional(),
+    defaultMode: z.enum(["TV_SIZE", "FULL_SIZE"]).optional(),
+    items: z.array(playlistItemSchema).optional(),
     dynamicSpecJson: z.unknown().optional(),
     dynamicSortJson: z.unknown().optional(),
     autoUpdate: z.boolean().optional(),
     opTs: z.number().int().nonnegative().optional(),
   })
+  .refine((value) => value.entries === undefined || value.items === undefined, { message: "entries and items are mutually exclusive" })
   .refine(
     (value) =>
       value.name !== undefined ||
       value.entries !== undefined ||
+      value.defaultMode !== undefined ||
+      value.items !== undefined ||
       value.dynamicSpecJson !== undefined ||
       value.dynamicSortJson !== undefined ||
       value.autoUpdate !== undefined,
@@ -401,10 +430,7 @@ export function registerClientRoutes(
     { schema: { body: playlistCreateBody }, preHandler: requireAuth },
     async (request, reply) => {
       const userId = request.auth!.user.kitsuUserId;
-      const entries = request.body.entries ?? [];
-      const changed = await service.ensureLibraryForThemeIds(userId, entries);
       const playlist = await service.createPlaylist(userId, request.body);
-      if (changed) await service.refreshAutoPlaylists(userId);
       return reply.code(201).send({ playlist });
     },
   );
@@ -414,16 +440,12 @@ export function registerClientRoutes(
     { schema: { params: idParams, body: playlistUpdateBody }, preHandler: requireAuth },
     async (request) => {
       const userId = request.auth!.user.kitsuUserId;
-      const changed = request.body.entries === undefined
-        ? false
-        : await service.ensureLibraryForThemeIds(userId, request.body.entries);
       const playlist = await service.updatePlaylist(
         userId,
         request.params.id,
         request.body,
       );
       if (!playlist) throw new ApiError(404, "NOT_FOUND", "Playlist not found.");
-      if (changed) await service.refreshAutoPlaylists(userId);
       return { playlist };
     },
   );

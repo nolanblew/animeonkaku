@@ -7,6 +7,7 @@ import {
   isNotNull,
   isNull,
   lte,
+  notInArray,
   or,
   sql,
 } from "drizzle-orm";
@@ -55,6 +56,8 @@ import type {
   LibraryAnimeDto,
   LibraryResponse,
   PlaylistCreateInput,
+  PlaylistItemDto,
+  PlaylistItemInput,
   LibraryThemeDto,
   MusicReleaseDto,
   PlaylistDto,
@@ -679,7 +682,10 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       if (existing.isAuto) {
         throw new ApiError(409, "CONFLICT", "A playlist with this name already exists.");
       }
-      const replay: PlaylistInput = { entries: input.entries ?? [] };
+      const replay: PlaylistInput = {};
+      if (input.entries !== undefined) replay.entries = input.entries;
+      if (input.defaultMode !== undefined) replay.defaultMode = input.defaultMode;
+      if (input.items !== undefined) replay.items = input.items;
       if (input.dynamicSpecJson !== undefined) replay.dynamicSpecJson = input.dynamicSpecJson;
       if (input.dynamicSortJson !== undefined) replay.dynamicSortJson = input.dynamicSortJson;
       if (input.autoUpdate !== undefined) replay.autoUpdate = input.autoUpdate;
@@ -709,6 +715,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
           dynamicSpecJson: stringifySpec(input.dynamicSpecJson),
           dynamicSortJson: stringifySpec(input.dynamicSortJson),
           dynamicSpecUpdatedAt: isDynamic ? now : null,
+          defaultMode: input.defaultMode ?? "TV_SIZE",
           mutationUpdatedAt: opDate,
           updatedAt: now,
         })
@@ -716,7 +723,8 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
         .returning({ id: playlists.id });
       if (!row) return null;
       if (!serverEvaluated) {
-        await this.replacePlaylistEntries(row.id, input.entries ?? [], tx);
+        if (input.items !== undefined) await this.replacePlaylistItems(row.id, input.items, tx);
+        else await this.replacePlaylistEntries(row.id, input.entries ?? [], tx);
       }
       return row.id;
     });
@@ -728,7 +736,10 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       if (!raced || raced.isAuto) {
         throw new ApiError(409, "CONFLICT", "A playlist with this name already exists.");
       }
-      const replay: PlaylistInput = { entries: input.entries ?? [] };
+      const replay: PlaylistInput = {};
+      if (input.entries !== undefined) replay.entries = input.entries;
+      if (input.defaultMode !== undefined) replay.defaultMode = input.defaultMode;
+      if (input.items !== undefined) replay.items = input.items;
       if (input.dynamicSpecJson !== undefined) replay.dynamicSpecJson = input.dynamicSpecJson;
       if (input.dynamicSortJson !== undefined) replay.dynamicSortJson = input.dynamicSortJson;
       if (input.autoUpdate !== undefined) replay.autoUpdate = input.autoUpdate;
@@ -774,9 +785,9 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     if (!shouldApplyWrite(opTs, storedTs)) {
       return this.findPlaylist(userId, id);
     }
-
     const set: Partial<typeof playlists.$inferInsert> = { updatedAt: now, mutationUpdatedAt: opDate };
     if (input.name !== undefined) set.name = input.name;
+    if (input.defaultMode !== undefined) set.defaultMode = input.defaultMode;
     if (input.autoUpdate !== undefined) set.dynamicAutoUpdate = input.autoUpdate;
     if (input.dynamicSortJson !== undefined) set.dynamicSortJson = stringifySpec(input.dynamicSortJson);
     if (input.dynamicSpecJson !== undefined) {
@@ -784,33 +795,32 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       set.isDynamic = input.dynamicSpecJson !== null;
       set.dynamicSpecUpdatedAt = now;
     }
-    const applied = await this.db
-      .update(playlists)
-      .set(set)
-      .where(
-        and(
-          eq(playlists.id, id),
-          eq(playlists.userId, userId),
-          isNull(playlists.deletedAt),
-          lte(playlists.mutationUpdatedAt, opDate),
-        ),
-      )
-      .returning({ id: playlists.id });
-    if (applied.length === 0) {
-      return this.findPlaylist(userId, id);
-    }
-    // Auto-update dynamic playlists are server-authoritative: re-materialize
-    // from the (possibly just-changed) spec and ignore client-sent entries.
-    // Snapshot dynamic playlists and manual playlists keep the client's entries.
-    const [state] = await this.db
-      .select({ isDynamic: playlists.isDynamic, autoUpdate: playlists.dynamicAutoUpdate })
-      .from(playlists)
-      .where(eq(playlists.id, id))
-      .limit(1);
-    if (state?.isDynamic && state.autoUpdate) {
+    const result = await this.db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select({ mutationUpdatedAt: playlists.mutationUpdatedAt })
+        .from(playlists)
+        .where(and(eq(playlists.id, id), eq(playlists.userId, userId), eq(playlists.isAuto, false), isNull(playlists.deletedAt)))
+        .for("update")
+        .limit(1);
+      if (!locked || !shouldApplyWrite(opTs, locked.mutationUpdatedAt.getTime())) return { applied: false, serverEvaluated: false };
+      if (input.entries !== undefined && input.items === undefined && await this.playlistRequiresNewClient(id, tx)) {
+        throw new ApiError(409, "PLAYLIST_REQUIRES_NEW_CLIENT", "This playlist contains modes or songs that require a newer client.");
+      }
+      if (input.items !== undefined) await this.validatePlaylistItems(input.items, tx);
+      await tx.update(playlists).set(set).where(eq(playlists.id, id));
+      const [state] = await tx
+        .select({ isDynamic: playlists.isDynamic, autoUpdate: playlists.dynamicAutoUpdate })
+        .from(playlists)
+        .where(eq(playlists.id, id))
+        .limit(1);
+      const serverEvaluated = state?.isDynamic === true && state.autoUpdate;
+      if (!serverEvaluated && input.items !== undefined) await this.replacePlaylistItems(id, input.items, tx, true);
+      else if (!serverEvaluated && input.entries !== undefined) await this.replacePlaylistEntries(id, input.entries, tx);
+      return { applied: true, serverEvaluated };
+    });
+    if (!result.applied) return this.findPlaylist(userId, id);
+    if (result.serverEvaluated) {
       await this.dynamicPlaylistEvaluator.refresh(userId, id);
-    } else if (input.entries !== undefined) {
-      await this.replacePlaylistEntries(id, input.entries);
     }
     return this.findPlaylist(userId, id);
   }
@@ -1018,24 +1028,29 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     );
   }
 
-  private async playlistEntryMap(playlistIds: number[]): Promise<Map<number, number[]>> {
-    const result = new Map<number, number[]>();
+  private async playlistEntryMap(playlistIds: number[]): Promise<Map<number, PlaylistItemDto[]>> {
+    const result = new Map<number, PlaylistItemDto[]>();
     if (playlistIds.length === 0) return result;
     const rows = await this.db
       .select({
         playlistId: playlistEntries.playlistId,
-        themeId: playlistEntries.itemId,
+        entryId: playlistEntries.id,
+        itemType: playlistEntries.itemType,
+        itemId: playlistEntries.itemId,
+        modeOverride: playlistEntries.modeOverride,
       })
       .from(playlistEntries)
-      .where(and(
-        inArray(playlistEntries.playlistId, playlistIds),
-        eq(playlistEntries.itemType, "THEME"),
-      ))
+      .where(inArray(playlistEntries.playlistId, playlistIds))
       .orderBy(asc(playlistEntries.playlistId), asc(playlistEntries.orderIndex));
     for (const row of rows) {
-      const entries = result.get(row.playlistId) ?? [];
-      entries.push(row.themeId);
-      result.set(row.playlistId, entries);
+      const items = result.get(row.playlistId) ?? [];
+      items.push({
+        entryId: row.entryId,
+        itemType: row.itemType,
+        itemId: row.itemId,
+        modeOverride: row.modeOverride,
+      });
+      result.set(row.playlistId, items);
     }
     return result;
   }
@@ -1045,8 +1060,6 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     entries: number[],
     db: DbOrTx = this.db,
   ): Promise<void> {
-    await db.delete(playlistEntries).where(eq(playlistEntries.playlistId, playlistId));
-    if (entries.length === 0) return;
     // Devices can reference themes this server has never cataloged (e.g. liked
     // themes pulled from an older server instance). The polymorphic item_id has
     // no database FK, so keep the existing listener contract by persisting only
@@ -1060,15 +1073,117 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
         "dropping playlist entries for theme ids unknown to this server",
       );
     }
-    if (insertable.length === 0) return;
-    await db.insert(playlistEntries).values(
-      insertable.map((themeId, orderIndex) => ({
-        playlistId,
-        itemType: "THEME" as const,
-        itemId: themeId,
-        orderIndex,
-      })),
+    await this.replacePlaylistItems(
+      playlistId,
+      insertable.map((itemId) => ({ itemType: "THEME", itemId, modeOverride: null })),
+      db,
+      true,
     );
+  }
+
+  private async replacePlaylistItems(
+    playlistId: number,
+    items: PlaylistItemInput[],
+    db: DbOrTx = this.db,
+    validated = false,
+  ): Promise<void> {
+    if (!validated) await this.validatePlaylistItems(items, db);
+    const requestedIds = items.flatMap((item) => item.entryId === undefined ? [] : [item.entryId]);
+    if (new Set(requestedIds).size !== requestedIds.length) {
+      throw new ApiError(422, "UNPROCESSABLE", "Playlist entry ids must be unique occurrences.");
+    }
+    const existingRows = await db
+      .select({ id: playlistEntries.id, itemType: playlistEntries.itemType, itemId: playlistEntries.itemId, modeOverride: playlistEntries.modeOverride })
+      .from(playlistEntries)
+      .where(eq(playlistEntries.playlistId, playlistId))
+      .orderBy(asc(playlistEntries.orderIndex))
+      .for("update");
+    if (items.every((item) => item.entryId === undefined)
+      && existingRows.length === items.length
+      && items.every((item, index) => {
+        const current = existingRows[index];
+        return current?.itemType === item.itemType
+          && current.itemId === item.itemId
+          && current.modeOverride === (item.modeOverride ?? null);
+      })) return;
+    const existingIds = new Set(existingRows.map((row) => row.id));
+    if (requestedIds.some((entryId) => !existingIds.has(entryId))) {
+      throw new ApiError(422, "UNPROCESSABLE", "Playlist entry id does not belong to this playlist.");
+    }
+    await db.delete(playlistEntries).where(requestedIds.length === 0
+      ? eq(playlistEntries.playlistId, playlistId)
+      : and(eq(playlistEntries.playlistId, playlistId), notInArray(playlistEntries.id, requestedIds))!);
+    for (const [orderIndex, item] of items.entries()) {
+      if (item.entryId === undefined) continue;
+      await db.update(playlistEntries).set({
+        itemType: item.itemType,
+        itemId: item.itemId,
+        orderIndex,
+        modeOverride: item.modeOverride ?? null,
+      }).where(and(eq(playlistEntries.playlistId, playlistId), eq(playlistEntries.id, item.entryId)));
+    }
+    const added = items.flatMap((item, orderIndex) => item.entryId === undefined ? [{
+      playlistId,
+      itemType: item.itemType,
+      itemId: item.itemId,
+      orderIndex,
+      modeOverride: item.modeOverride ?? null,
+    }] : []);
+    if (added.length > 0) await db.insert(playlistEntries).values(added);
+  }
+
+  private async validatePlaylistItems(items: PlaylistItemInput[], db: DbOrTx = this.db): Promise<void> {
+    const themeIds = uniqueNumbers(items.flatMap((item) => item.itemType === "THEME" ? [item.itemId] : []));
+    const songIds = uniqueNumbers(items.flatMap((item) => item.itemType === "SONG" ? [item.itemId] : []));
+    const knownThemes = await this.knownActiveThemeIds(themeIds, db);
+    const knownSongs = await this.knownReadyRelatedSongIds(songIds, db);
+    const invalid = items.filter((item) => item.itemType === "THEME"
+      ? !knownThemes.has(item.itemId)
+      : !knownSongs.has(item.itemId));
+    if (invalid.length > 0) {
+      throw new ApiError(422, "UNPROCESSABLE", "Playlist items must reference existing themes or ready Related songs.");
+    }
+  }
+
+  private async knownReadyRelatedSongIds(songIds: number[], db: DbOrTx = this.db): Promise<Set<number>> {
+    if (songIds.length === 0) return new Set();
+    const rows = await db
+      .selectDistinct({ id: songs.id })
+      .from(songs)
+      .innerJoin(releaseTracks, eq(releaseTracks.songId, songs.id))
+      .innerJoin(animeMusicReleases, eq(animeMusicReleases.releaseId, releaseTracks.releaseId))
+      .innerJoin(musicReleases, and(eq(musicReleases.id, releaseTracks.releaseId), isNull(musicReleases.deletedAt)))
+      .innerJoin(musicAcquisitions, and(
+        eq(musicAcquisitions.animethemesAnimeId, animeMusicReleases.animethemesAnimeId),
+        eq(musicAcquisitions.releaseId, releaseTracks.releaseId),
+        eq(musicAcquisitions.purpose, "RELATED_RELEASE"),
+        eq(musicAcquisitions.state, "READY"),
+      ))
+      .innerJoin(mediaFiles, and(
+        eq(mediaFiles.kind, "AUDIO"),
+        eq(mediaFiles.variant, "ORIGINAL"),
+        eq(mediaFiles.state, "READY"),
+        sql`${mediaFiles.refId} = ('song:' || ${songs.id}::text)`,
+      ))
+      .where(and(inArray(songs.id, songIds), isNull(songs.deletedAt)));
+    return new Set(rows.map((row) => row.id));
+  }
+
+  private async knownActiveThemeIds(themeIds: number[], db: DbOrTx = this.db): Promise<Set<number>> {
+    if (themeIds.length === 0) return new Set();
+    const rows = await db
+      .select({ id: themes.id })
+      .from(themes)
+      .where(and(inArray(themes.id, themeIds), isNull(themes.deletedAt)));
+    return new Set(rows.map((row) => row.id));
+  }
+
+  private async playlistRequiresNewClient(playlistId: number, db: DbOrTx = this.db): Promise<boolean> {
+    const rows = await db
+      .select({ itemType: playlistEntries.itemType, modeOverride: playlistEntries.modeOverride })
+      .from(playlistEntries)
+      .where(eq(playlistEntries.playlistId, playlistId));
+    return rows.some((row) => row.itemType === "SONG" || row.modeOverride !== null);
   }
 
   private async knownThemeIds(themeIds: number[], db: DbOrTx = this.db): Promise<Set<number>> {
@@ -1623,6 +1738,7 @@ function groupPlays(plays: Array<{ themeId: number; playedAt: number }>) {
 const playlistColumns = {
   id: playlists.id,
   name: playlists.name,
+  defaultMode: playlists.defaultMode,
   isAuto: playlists.isAuto,
   isDynamic: playlists.isDynamic,
   autoUpdate: playlists.dynamicAutoUpdate,
@@ -1636,6 +1752,7 @@ function playlistDto(
   row: {
     id: number;
     name: string;
+    defaultMode: "TV_SIZE" | "FULL_SIZE";
     isAuto: boolean;
     isDynamic: boolean;
     autoUpdate: boolean;
@@ -1644,12 +1761,14 @@ function playlistDto(
     dynamicSpecJson: string | null;
     dynamicSortJson: string | null;
   },
-  entries: number[],
+  items: PlaylistItemDto[],
 ): PlaylistDto {
   return {
     id: row.id,
     name: row.name,
-    entries,
+    entries: items.flatMap((item) => item.itemType === "THEME" ? [item.itemId] : []),
+    defaultMode: row.defaultMode,
+    items,
     isAuto: row.isAuto,
     isDynamic: row.isDynamic,
     autoUpdate: row.autoUpdate,

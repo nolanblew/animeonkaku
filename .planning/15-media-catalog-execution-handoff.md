@@ -13,70 +13,62 @@ Last updated: 2026-07-20
 - MC-S06: `dc673c0 feat(server): add conservative music catalog matching`
 - MC-S07: `f6f849e feat(server): add automatic music discovery workflows`
 - MC-S08: `d916d43 feat(server): import validated music acquisitions`
-- MC-S09: completed and verified in the next ticket commit after `d916d43`
+- MC-S09: `b11d198 feat(server): expose ready music catalog`
+- MC-S10: completed and verified in the next ticket commit after `b11d198`
   (use `git log -1 --oneline` for its final hash).
 
 The pre-existing untracked `.codex-remote-attachments/` directory is unrelated
 and must not be staged, modified, or deleted.
 
-## MC-S09 completed scope
+## MC-S10 completed scope
 
-- Theme reads now include additive `mediaModes` while legacy `audioUrl`,
-  `videoUrl`, `audioState`, duration, file size, timestamps, and tombstones keep
-  their old semantics. TV Size mirrors legacy audio; usable Full and Video are
-  nullable ready-only descriptors.
-- Full descriptors require the exact active theme/song/source-release tuple,
-  READY acquisition, and READY ORIGINAL media. Video uses the deterministic
-  direct AnimeThemes candidate URL and its mime/spoiler/nsfw/version flags.
-- Added authenticated `GET /v1/anime/{kitsuId}/music` and
-  `GET /v1/music/releases/{releaseId}` contracts with deterministic ready-only
-  Related releases/tracks and complete owning-anime context.
-- `/v1/changes` adds a complete ready `musicCatalog` snapshot for every active
-  anime in the caller's library on every pull, independent of `since`.
-  Active themes replay on both catalog-flag states so false-to-true publishes
-  old hidden READY modes and true-to-false clears cached modes immediately.
-- Existing Search keys are preserved and composed with fresh global music
-  release/track results, capped at 25 per kind, normalized for
-  punctuation/width/accents, and carrying owning anime/release context.
-- Existing authenticated song GET/HEAD streaming is gated by the catalog flag
-  and an exact published Full/Related edge. Orphan READY media and inactive
-  rows are hidden; original-format local streaming retains 200/206/416, HEAD,
-  content type, cache, and path-containment behavior without provider proxying.
+- Playlist reads add `defaultMode` and ordered polymorphic `items` with stable
+  occurrence `entryId`s. Legacy `entries` remains the ordered,
+  duplicate-preserving THEME projection and omits SONG occurrences.
+- Writes support duplicate/reordered THEME and ready Related SONG occurrences.
+  THEME overrides are null/TV_SIZE/FULL_SIZE; SONG overrides are null; Video,
+  inactive themes, unready/Full-only songs, mixed legacy/new shapes, and
+  foreign/duplicate entry IDs are rejected atomically.
+- Header/default/item mutation is one locked PostgreSQL LWW transaction. Stale
+  writes no-op before guards/validation; failed writes do not advance the clock
+  or alter items. Same-name replay and reorder retain stable occurrence IDs.
+- Legacy entries replacement returns 409 `PLAYLIST_REQUIRES_NEW_CLIENT` when it
+  would erase SONG or override data, while safe theme-only/name-only legacy
+  behavior and ownership scope remain compatible.
+- Auto playlists canonicalize to TV_SIZE plus THEME/null items. Dynamic
+  materialization emits THEME/null, preserves its explicit default, and skips
+  identical refresh writes so IDs/timestamps do not churn.
 
-## MC-S09 verification evidence
+## MC-S10 verification evidence
 
-- Independent Terra/High QA focused API/media/proxy/runtime matrix: 41/41.
-- Isolated PostgreSQL 16 opt-in matrix: 12/12 across catalog API/media,
-  migration, discovery, and acquisition SQL. It covered ready/partial/failed
-  visibility, soft deletes, catalog-flag delta replay, normalized alias search,
-  orphan media, and published Full/Related streaming. The exact temporary
-  container was removed and `server-db-1` was verified untouched.
-- Full default server Vitest: 46 files passed, 6 environment-gated files
-  skipped; 379 tests passed and 14 skipped. The 12 PostgreSQL skips were run
-  separately and passed; the other 2 are external AnimeThemes live tests.
+- Independent Terra/High QA focused matrix: 44/44.
+- Isolated PostgreSQL 16 playlist integration: 1/1, covering mixed duplicate
+  order, stable IDs/replay/reorder, LWW, destructive legacy guard, ready SONG
+  validation, inactive THEME rejection, and transactional rollback. The exact
+  temporary container was removed; `server-db-1` was verified untouched.
+- Full default server Vitest: 46 files passed, 7 environment-gated files
+  skipped; 381 tests passed and 15 skipped.
 - TypeScript `--noEmit` and `git diff --check` passed.
-- Independent Sol/Medium review found no remaining code blocker.
+- Independent Sol/Medium review found no remaining blocker.
 
-## Next ticket: MC-S10
+## Next ticket: MC-S11
 
-Read MC-S10 in `.planning/14-media-catalog-tickets.md` plus TDR section 8.5
-before editing. MC-S10 owns playlist mode policy and mixed THEME/SONG entries.
-Preserve these boundaries:
+Read MC-S11 in `.planning/14-media-catalog-tickets.md`, TDR 8.6, and the PRD
+reaction/history requirements before editing. MC-S11 owns mode-specific theme
+reactions, Related-song prefs, and actual-mode play events. Preserve:
 
-1. Existing playlist reads retain the legacy `entries` theme-ID projection;
-   new clients use additive `defaultMode` and ordered `items`.
-2. Stored playlist modes are only TV_SIZE/FULL_SIZE/null inheritance. Video is
-   never stored as a playlist mode.
-3. SONG entries represent ready Related catalog songs; Full Size remains a
-   THEME mode and is not stored as a separate SONG item.
-4. Preserve duplicate occurrences and exact mixed-item order. Do not dedupe by
-   theme/song identity.
-5. A legacy entries-only write must return 409
-   `PLAYLIST_REQUIRES_NEW_CLIENT` rather than erase SONG items or overrides.
-6. Dynamic/auto playlists continue producing THEME items and default TV_SIZE
-   unless explicitly changed; keep existing LWW/delta behavior.
-7. Preserve ownership scope, `.codex-remote-attachments/`, and commit MC-S10
-   separately.
+1. Existing theme-pref fields/routes and theme play aggregates remain additive
+   and compatible.
+2. Legacy themeId-only plays map to THEME/TV_SIZE and continue incrementing the
+   existing aggregate exactly once.
+3. New play events use stable clientEventId idempotency and record itemType,
+   itemId, actualMode, and playedAt without double counting retries.
+4. Song prefs are user-scoped LWW deltas with tombstones and join the normal
+   `/v1/changes` response.
+5. Broad like/dislike and TV-only/Full-only dislike clearing semantics must be
+   explicit and regression-tested; Related SONG reactions never mutate every
+   theme for an anime.
+6. Preserve `.codex-remote-attachments/` and commit MC-S11 separately.
 
 ## Agent model policy
 

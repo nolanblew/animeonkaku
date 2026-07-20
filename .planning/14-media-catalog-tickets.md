@@ -980,6 +980,7 @@ small result limits.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete (2026-07-20) |
 | Area | Server / playlists and sync |
 | Difficulty | High |
 | Effort | L, 4–5 days |
@@ -1025,6 +1026,39 @@ Expected areas:
 - Duplicate mixed-entry fixtures.
 - Auto/dynamic refresh regression tests.
 - Full server suite and typecheck.
+
+#### Completion and testing notes
+
+- Added additive playlist `defaultMode` and ordered polymorphic `items` while
+  preserving the legacy `entries` projection as duplicate-preserving THEME IDs
+  in relative order. Create defaults to TV Size; stored overrides permit only
+  THEME null/TV Size/Full Size and SONG null, never Video.
+- Mixed THEME/ready-Related-SONG occurrences retain exact order, duplicates,
+  and stable `entryId` identity through replay, reorder, and override edits.
+  Typed writes reject foreign/duplicate occurrence IDs, inactive themes,
+  Full-only/unready songs, conflicting legacy/new shapes, and invalid modes
+  atomically.
+- Playlist header/default/items replacement now locks and rechecks the mutation
+  clock in one PostgreSQL transaction. Stale LWW writes no-op before validation
+  or the downgrade guard; failed higher-clock writes do not advance the clock
+  or partially replace items.
+- Legacy entries-only replacement remains valid for theme-only playlists but
+  returns 409 `PLAYLIST_REQUIRES_NEW_CLIENT` before erasing any SONG or
+  non-null override. Name/default-only writes and same-name create replays
+  preserve enhanced data and stable occurrence IDs.
+- Auto playlists canonicalize to TV Size plus THEME/null entries and detect
+  corrupted SONG/override/default state. Dynamic materialization emits
+  THEME/null, preserves its explicit default, and skips identical refreshes so
+  entry IDs and timestamps do not churn. Delta/tombstone and existing ownership
+  behavior remain intact.
+- Independent Terra/High QA passed 44 focused API/playlist/LWW/dynamic/auto
+  tests. An isolated PostgreSQL 16 run passed the mixed-item/stable-ID/LWW/
+  legacy-guard/readiness/atomic-rejection integration suite; the exact
+  temporary container was removed and `server-db-1` was verified untouched.
+- Final full server Vitest passed with 381 tests passed and 15
+  environment-gated tests skipped. TypeScript `--noEmit` and
+  `git diff --check` passed (apart from expected Windows CRLF notices).
+  Independent Sol/Medium review found no remaining blocker.
 
 #### Handoff notes
 

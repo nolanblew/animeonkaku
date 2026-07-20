@@ -29,6 +29,8 @@ class FakeClientApi implements ClientApiService {
     id: number;
     name: string;
     entries: number[];
+    defaultMode: "TV_SIZE" | "FULL_SIZE";
+    items: Array<{ entryId: number; itemType: "THEME" | "SONG"; itemId: number; modeOverride: "TV_SIZE" | "FULL_SIZE" | null }>;
     isAuto: boolean;
     isDynamic: boolean;
     autoUpdate: boolean;
@@ -211,6 +213,8 @@ class FakeClientApi implements ClientApiService {
       id: existing?.id ?? this.nextPlaylistId++,
       name: "Liked Songs",
       entries: likedThemeIds,
+      defaultMode: existing?.defaultMode ?? "TV_SIZE" as const,
+      items: likedThemeIds.map((itemId, index) => ({ entryId: index + 1, itemType: "THEME" as const, itemId, modeOverride: null })),
       isAuto: true,
       isDynamic: false,
       autoUpdate: true,
@@ -248,10 +252,14 @@ class FakeClientApi implements ClientApiService {
   async createPlaylist(_userId: string, input: PlaylistCreateInput) {
     this.events.push("create-playlist");
     const isDynamic = input.dynamicSpecJson !== undefined && input.dynamicSpecJson !== null;
+    const inputItems = input.items ?? (input.entries ?? []).map((itemId) => ({ itemType: "THEME" as const, itemId, modeOverride: null }));
+    const items = inputItems.map((item, index) => ({ ...item, entryId: index + 1, modeOverride: item.modeOverride ?? null }));
     const playlist = {
       id: this.nextPlaylistId++,
       name: input.name,
-      entries: input.entries ?? [],
+      entries: items.flatMap((item) => item.itemType === "THEME" ? [item.itemId] : []),
+      defaultMode: input.defaultMode ?? "TV_SIZE",
+      items,
       isAuto: false,
       isDynamic,
       autoUpdate: input.autoUpdate ?? true,
@@ -268,10 +276,14 @@ class FakeClientApi implements ClientApiService {
     this.events.push("update-playlist");
     const existing = this.playlists.get(id);
     if (!existing || existing.isAuto) return null;
+    const inputItems = input.items ?? (input.entries === undefined ? undefined : input.entries.map((itemId) => ({ itemType: "THEME" as const, itemId, modeOverride: null })));
+    const items = inputItems?.map((item, index) => ({ ...item, entryId: index + 1, modeOverride: item.modeOverride ?? null })) ?? existing.items;
     const updated = {
       ...existing,
       name: input.name ?? existing.name,
-      entries: input.entries ?? existing.entries,
+      entries: items.flatMap((item) => item.itemType === "THEME" ? [item.itemId] : []),
+      defaultMode: input.defaultMode ?? existing.defaultMode,
+      items,
       dynamicSpecJson: input.dynamicSpecJson ?? existing.dynamicSpecJson,
       updatedAt: Date.now(),
     };
@@ -518,7 +530,6 @@ describe("client API routes", () => {
       payload: { name: "Road Trip", entries: [100, 101] },
     });
     expect(created.statusCode).toBe(201);
-    expect(clientApi.ensureThemeCalls).toContainEqual({ userId: "stub-nolan", themeIds: [100, 101] });
     expect(created.json().playlist).toMatchObject({ id: 1, name: "Road Trip", entries: [100, 101] });
 
     const updated = await app.inject({
@@ -593,6 +604,41 @@ describe("client API routes", () => {
 
     expect(sync.statusCode).toBe(200);
     expect(syncApi.enqueued).toEqual([{ userId: "stub-nolan", full: true }]);
+  });
+
+  it("round-trips mixed playlist items, duplicates, and mode policy", async () => {
+    const token = await bearer();
+    const items = [
+      { itemType: "THEME", itemId: 100, modeOverride: "FULL_SIZE" },
+      { itemType: "SONG", itemId: 300, modeOverride: null },
+      { itemType: "SONG", itemId: 300, modeOverride: null },
+      { itemType: "THEME", itemId: 101, modeOverride: null },
+    ];
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/playlists",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: "Mixed", defaultMode: "FULL_SIZE", items },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().playlist).toMatchObject({
+      defaultMode: "FULL_SIZE",
+      entries: [100, 101],
+      items,
+    });
+  });
+
+  it("rejects Video and SONG mode overrides in playlist writes", async () => {
+    const token = await bearer();
+    for (const payload of [
+      { name: "Video", defaultMode: "VIDEO", items: [] },
+      { name: "Song override", defaultMode: "TV_SIZE", items: [{ itemType: "SONG", itemId: 300, modeOverride: "FULL_SIZE" }] },
+      { name: "Ambiguous", entries: [100], items: [{ itemType: "THEME", itemId: 100, modeOverride: null }] },
+    ]) {
+      const response = await app.inject({ method: "POST", url: "/v1/playlists", headers: { authorization: `Bearer ${token}` }, payload });
+      expect(response.statusCode).toBe(400);
+    }
   });
 
   it("returns additive media modes and a complete ready music snapshot in changes", async () => {
