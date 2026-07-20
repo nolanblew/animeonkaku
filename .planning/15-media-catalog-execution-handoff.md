@@ -11,68 +11,79 @@ Last updated: 2026-07-20
 - MC-S04: `1ae8bac feat(server): define music provider contracts`
 - MC-S05: `5dbe22c feat(server): add Lidarr acquisition adapter`
 - MC-S06: `dc673c0 feat(server): add conservative music catalog matching`
-- MC-S07: completed and verified in the next ticket commit after `dc673c0`
+- MC-S07: `f6f849e feat(server): add automatic music discovery workflows`
+- MC-S08: completed and verified in the next ticket commit after `f6f849e`
   (use `git log -1 --oneline` for its final hash).
 
 The pre-existing untracked `.codex-remote-attachments/` directory is unrelated
 and must not be staged, modified, or deleted.
 
-## MC-S07 completed scope
+## MC-S08 completed scope
 
-- Added bounded discovery scan, per-anime discovery, and acquisition reconcile
-  jobs using the existing PostgreSQL queue.
-- Added daily oldest-due scheduling (maximum 25), weekly recent-anime cadence,
-  monthly missing-Full cadence, exact calendar-year/leap behavior, and orphan
-  mapping exclusion.
-- Added stable theme-to-AnimeThemes-song persistence and conservative concrete
-  discovery across Full Size and season-scoped Related Music targets.
-- Query lookups are sequential; only one conservatively selected provider
-  release is ensured/enriched, then re-resolved before acquisition begins.
-- Accepted intents, ambiguity/rejection evidence after provider mutation,
-  provider ownership, command IDs, and acquisition state are durable and
-  idempotent across normal retry/restart boundaries.
-- Lidarr command recovery reuses matching queued/running/completed commands;
-  older Lidarr command-list 404s allow fresh starts but fail safe during
-  recovery rather than risking a duplicate POST.
-- Multiple catalog intents may share one provider command ID. Related discovery
-  filters already-linked provider releases so later scans can advance.
-- Enabled startup recovers stale discovery/jobs, bootstraps metadata-ready
-  existing mappings, and requeues acquisitions before workers start. Disabled
-  discovery performs no discovery startup writes/provider work; queued jobs
-  pause without consuming attempts.
-- `MUSIC_CATALOG_ENABLED` remains independent and does not block hidden catalog
-  prepopulation. MC-S07 added no listener routes or READY publication.
+- Added durable `IMPORT_MUSIC_AUDIO` jobs, dedupe keys, bounded timeouts,
+  disabled-discovery pause behavior, finite failure handling, and direct
+  startup recovery for IMPORTING and READY-cleanup-pending acquisitions.
+- Provider completion transitions to IMPORTING and enqueues import work;
+  `completed_at` is reserved for final READY publication.
+- Full Size imports exactly one accepted provider file. Related imports require
+  the complete accepted release-track set. Provider/release/track identity,
+  recording conflicts, normalized title/artist/duration evidence, and mapped
+  readable paths are validated before copying.
+- Imports use `MediaStore.importLocalSongFile`. Per-song advisory locks,
+  verified READY reuse, and source-hash orphan recovery cover concurrent,
+  rename-before-DB, and cross-extension retry boundaries on Windows.
+- Catalog links, acquisition READY/completion, and song/release/theme timestamp
+  bumps publish in one PostgreSQL transaction only after all required
+  `media_files` rows are READY. Related albums therefore cannot become partly
+  listener-visible through the acquisition boundary.
+- Cleanup is serialized per provider release and elects authoritative durable
+  ownership/monitoring metadata across sibling acquisitions. Terminal siblings
+  release a READY peer; cleanup markers prevent replay; Lidarr cleanup is
+  idempotent when an owned album and/or artist was deleted before a crash.
+  Cleanup failure is best effort and never unpublishes READY media.
+- Legacy MC-S07 rows without `providerMetadata.catalogIntent` derive and
+  backfill expected tracks/evidence transactionally. Only their exact premature
+  theme/release junction is retracted before validated republishing, preserving
+  any newer different READY link.
+- Runtime passes `LIDARR_PATH_PREFIX_TO ?? LIDARR_SHARED_ROOT` as the provider
+  import containment root. Hidden population remains independent of
+  `MUSIC_CATALOG_ENABLED`.
 
-## MC-S07 verification evidence
+## MC-S08 verification evidence
 
-- Independent Terra/High QA ran the populated migration plus discovery due SQL
-  against an isolated PostgreSQL 16 container: 2 files, 4 tests passed. The
-  exact temporary container was removed.
-- Focused discovery/mapping/provider tests passed.
-- Full server Vitest passed: 44 files passed, 3 environment-gated files
-  skipped; 351 tests passed and 6 environment-gated tests skipped.
+- Independent Terra/High QA focused matrix: 142/142 passed.
+- Isolated PostgreSQL 16 opt-in matrix: 9/9 passed, including populated legacy
+  recovery, publication readiness/rollback/link/timestamp behavior, shared
+  cleanup ownership/serialization, and song-lock serialization. The exact
+  temporary container was removed; `server-db-1` was verified untouched.
+- Full default server Vitest: 45 files passed, 4 environment-gated files
+  skipped; 373 tests passed and 11 skipped. The 9 PostgreSQL skips were run
+  separately and passed; the other 2 are external AnimeThemes live tests.
 - TypeScript `--noEmit` passed.
-- `git diff --check` passed apart from expected Windows CRLF warnings.
-- Independent Sol/Medium review found no remaining functional blocker.
+- `git diff --check` passed apart from expected Windows CRLF notices.
+- Independent Sol/Medium review found no remaining blocker after multiple
+  targeted cleanup, upgrade, concurrency, and crash-boundary re-reviews.
 
-## Next ticket: MC-S08
+## Next ticket: MC-S09
 
-Read MC-S08 in `.planning/14-media-catalog-tickets.md` plus the PRD/TDR sections
-it references before editing. MC-S08 owns completed-acquisition validation,
-original-format import, READY publication, theme timestamp changes, and safe
-provider cleanup. Preserve these MC-S07 boundaries:
+Read MC-S09 in `.planning/14-media-catalog-tickets.md` plus the PRD/TDR sections
+it references before editing. MC-S09 owns ready-only listener API contracts,
+Related Music browsing, catalog Search, and authenticated song streaming.
+Preserve these MC-S08 boundaries:
 
-1. A healthy QUEUED/RUNNING provider state consumes zero job attempts and never
-   holds a worker while downloading.
-2. Provider/transport/DB failures use finite normal retry/backoff.
-3. Only validated imported audio may become READY or listener-visible.
-4. Full Size retains only the selected song; accepted Related releases retain
-   only their classified tracks.
-5. Cleanup may delete only adapter-created resources and may restore an
-   operator album's prior monitoring state only from durable ownership data.
-6. Shared provider command IDs are valid across distinct acquisition intents;
-   MC-S08 reconciliation/import must not assume command ID uniqueness.
-7. Keep `.codex-remote-attachments/` untouched and commit MC-S08 separately.
+1. Existing clients keep using the existing TV Size `audioUrl`; all catalog API
+   changes are additive.
+2. A song is streamable only when its `media_files` ORIGINAL row is READY and
+   the relevant Full/Related acquisition/link publication is READY.
+3. Never expose REQUESTED, ACQUIRING, IMPORTING, FAILED, AMBIGUOUS, partial
+   Related imports, provider paths, ownership metadata, or cleanup state.
+4. Full Size is global per theme. Related releases/tracks are global per anime,
+   ordered deterministically, and never widened beyond accepted release tracks.
+5. Reuse the authenticated media streaming/range/HEAD behavior from MC-S03;
+   do not proxy Lidarr or provider files.
+6. Keep `MUSIC_CATALOG_ENABLED` as the listener visibility switch. Discovery
+   may continue prepopulating hidden READY data while catalog APIs stay hidden.
+7. Preserve `.codex-remote-attachments/` and commit MC-S09 separately.
 
 ## Agent model policy
 

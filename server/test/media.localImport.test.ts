@@ -149,7 +149,7 @@ describe("MediaStore local catalog-song import", () => {
     expect(recovered.sha256).toBe(createHash("sha256").update("replacement-bytes").digest("hex"));
   });
 
-  it("removes the prior managed file only after an extension-changing reimport is READY", async () => {
+  it("reuses a verified READY original even when a later provider path has another extension", async () => {
     const { mediaRoot, providerRoot } = makeRoots();
     const mp3Path = join(providerRoot, "Track.mp3");
     const flacPath = join(providerRoot, "Track.flac");
@@ -158,22 +158,15 @@ describe("MediaStore local catalog-song import", () => {
     const repo = new FakeMediaRepo();
     const store = new MediaStore({ mediaRoot, providerImportRoot: providerRoot, repo, minBytes: 1 });
     const first = await store.importLocalSongFile({ songId: 77, sourcePath: mp3Path });
-    let observedReadyPublicationOrder = false;
-    repo.beforeMarkReady = (input) => {
-      observedReadyPublicationOrder = true;
-      expect(input.filePath).toBe("audio/songs/77/original.flac");
-      expect(existsSync(join(mediaRoot, input.filePath))).toBe(true);
-      expect(existsSync(join(mediaRoot, first.filePath!))).toBe(true);
-    };
+    repo.beforeMarkReady = () => { throw new Error("READY media must not be rewritten"); };
 
     const replacement = await store.importLocalSongFile({ songId: 77, sourcePath: flacPath });
 
     expect(first.filePath).toBe("audio/songs/77/original.mp3");
-    expect(replacement.filePath).toBe("audio/songs/77/original.flac");
-    expect(existsSync(join(mediaRoot, first.filePath!))).toBe(false);
-    expect(await readFile(join(mediaRoot, replacement.filePath!), "utf8")).toBe("flac-bytes");
+    expect(replacement.filePath).toBe("audio/songs/77/original.mp3");
+    expect(existsSync(join(mediaRoot, first.filePath!))).toBe(true);
+    expect(await readFile(join(mediaRoot, replacement.filePath!), "utf8")).toBe("mp3-bytes");
     expect(repo.records.get("AUDIO:song:77:ORIGINAL")?.filePath).toBe(replacement.filePath);
-    expect(observedReadyPublicationOrder).toBe(true);
   });
 
   it("never removes an old row path outside MEDIA_ROOT during extension replacement", async () => {
@@ -230,6 +223,50 @@ describe("MediaStore local catalog-song import", () => {
     await expect(store.importLocalSongFile({ songId: 77, sourcePath })).rejects.toBeInstanceOf(MediaValidationError);
     await expect(readFile(join(mediaRoot, "audio/songs/77/original.wav"))).rejects.toThrow();
     expect(repo.records.get("AUDIO:song:77:ORIGINAL")?.state).toBe("FAILED");
+  });
+
+  it("adopts an atomically renamed orphan after DB READY publication crashes", async () => {
+    const { mediaRoot, providerRoot } = makeRoots();
+    const sourcePath = join(providerRoot, "Track.flac");
+    writeFileSync(sourcePath, "orphan-recovery-bytes");
+    const repo = new FakeMediaRepo();
+    let crashOnce = true;
+    repo.beforeMarkReady = () => {
+      if (crashOnce) {
+        crashOnce = false;
+        throw new Error("database disconnected after rename");
+      }
+    };
+    const store = new MediaStore({ mediaRoot, providerImportRoot: providerRoot, repo, minBytes: 1 });
+
+    await expect(store.importLocalSongFile({ songId: 77, sourcePath })).rejects.toThrow("database disconnected");
+    expect(await readFile(join(mediaRoot, "audio/songs/77/original.flac"), "utf8")).toBe("orphan-recovery-bytes");
+
+    await expect(store.importLocalSongFile({ songId: 77, sourcePath })).resolves.toMatchObject({
+      state: "READY", filePath: "audio/songs/77/original.flac",
+    });
+    expect(repo.records.get("AUDIO:song:77:ORIGINAL")?.state).toBe("READY");
+  });
+
+  it("does not adopt orphaned final bytes when the current provider source changed", async () => {
+    const { mediaRoot, providerRoot } = makeRoots();
+    const sourcePath = join(providerRoot, "Track.flac");
+    writeFileSync(sourcePath, "old-provider-bytes");
+    const repo = new FakeMediaRepo();
+    let crashOnce = true;
+    repo.beforeMarkReady = () => {
+      if (crashOnce) {
+        crashOnce = false;
+        throw new Error("database disconnected after rename");
+      }
+    };
+    const store = new MediaStore({ mediaRoot, providerImportRoot: providerRoot, repo, minBytes: 1 });
+    await expect(store.importLocalSongFile({ songId: 77, sourcePath })).rejects.toThrow();
+    writeFileSync(sourcePath, "new-provider-bytes-with-different-size");
+
+    await store.importLocalSongFile({ songId: 77, sourcePath });
+
+    expect(await readFile(join(mediaRoot, "audio/songs/77/original.flac"), "utf8")).toBe("new-provider-bytes-with-different-size");
   });
 });
 

@@ -152,7 +152,7 @@ export class MediaStore {
 
     const descriptor = { kind: mediaInput.kind, refId: mediaInput.refId, variant: mediaInput.variant };
     const previous = await this.options.repo.find?.(descriptor) ?? null;
-    const cached = await this.findReadyImported(mediaInput, previous);
+    const cached = await this.findReadyImported(previous, input.songId);
     if (cached) return cached;
 
     const tmpRelativePath = `audio/tmp/song-${input.songId}-${randomUUID()}.tmp`;
@@ -172,6 +172,8 @@ export class MediaStore {
         error instanceof Error ? error.message : "Invalid managed media path.",
       );
     }
+    const recovered = await this.recoverOrphanedImported(mediaInput, previous, finalPath, sourcePath);
+    if (recovered) return recovered;
     await this.options.repo.markDownloading(mediaInput);
 
     try {
@@ -233,13 +235,14 @@ export class MediaStore {
   }
 
   private async findReadyImported(
-    input: SaveMediaFileInput,
     existing: MediaFileRecord | null,
+    songId: number,
   ): Promise<MediaFileRecord | null> {
     if (
       !existing ||
       existing.state !== "READY" ||
-      existing.filePath !== input.filePath ||
+      !existing.filePath ||
+      !isManagedCatalogSongPath(songId, existing.filePath) ||
       !existing.sha256
     ) {
       return null;
@@ -280,6 +283,30 @@ export class MediaStore {
         "old catalog-song media cleanup skipped",
       );
     }
+  }
+
+  /**
+   * A process/DB failure can happen after atomic rename but before markReady.
+   * On Windows a later rename may not replace that orphan reliably, so adopt
+   * the already-complete managed file before starting another copy.
+   */
+  private async recoverOrphanedImported(
+    input: SaveMediaFileInput,
+    previous: MediaFileRecord | null,
+    finalPath: string,
+    sourcePath: string,
+  ): Promise<MediaFileRecord | null> {
+    if (previous?.state === "READY") return null;
+    const saved = await stat(finalPath).catch(() => null);
+    if (!saved?.isFile() || saved.size < this.minBytes) return null;
+    const source = await stat(sourcePath);
+    const [sha256, sourceSha256] = await Promise.all([hashFile(finalPath), hashFile(sourcePath)]);
+    if (saved.size !== source.size || sha256 !== sourceSha256) {
+      await rm(finalPath, { force: true });
+      return null;
+    }
+    await this.options.repo.markReady({ ...input, byteSize: saved.size, sha256 });
+    return readyRecord(input, saved.size, sha256);
   }
 }
 

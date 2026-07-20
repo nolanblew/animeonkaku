@@ -19,7 +19,8 @@ export type JobType =
   | "AUTO_PLAYLIST_REFRESH"
   | "MUSIC_CATALOG_SCAN"
   | "DISCOVER_ANIME_MUSIC"
-  | "RECONCILE_MUSIC_ACQUISITION";
+  | "RECONCILE_MUSIC_ACQUISITION"
+  | "IMPORT_MUSIC_AUDIO";
 
 export interface JobRecord {
   id: number;

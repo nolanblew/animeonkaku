@@ -4,6 +4,7 @@ import type { JobRecord } from "../src/jobs/types.js";
 import {
   ConservativeMusicCatalogResolver,
   MusicDiscoveryWorkflowService,
+  PgDiscoveryCatalogRepository,
   type DiscoveryCatalogRepository,
 } from "../src/music/index.js";
 import type { MusicAcquisitionProvider, NormalizedProviderRelease } from "../src/music/types.js";
@@ -19,6 +20,15 @@ function release(): NormalizedProviderRelease {
 }
 
 describe("MusicDiscoveryWorkflow", () => {
+  it("routes only provider-poll recovery through reconcile, leaving IMPORTING to the import lane", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ id: "4" }] });
+    const catalog = new PgDiscoveryCatalogRepository({ query } as never);
+
+    await expect(catalog.listRecoverableAcquisitionIds()).resolves.toEqual([4]);
+
+    expect(String(query.mock.calls[0]![0])).toContain("state IN ('REQUESTED','ACQUIRING')");
+    expect(String(query.mock.calls[0]![0])).not.toContain("'IMPORTING'");
+  });
   it("enriches sequential query candidates, persists an accepted Full Size intent, and starts one durable acquisition", async () => {
     const catalog = {
       loadTargets: vi.fn().mockResolvedValue([{

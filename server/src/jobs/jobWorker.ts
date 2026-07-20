@@ -51,6 +51,7 @@ const DEFAULT_TIMEOUTS_MS: Record<JobType, number> = {
   // Reconciliation performs one provider status request and reschedules; it
   // never waits for a download in-process.
   RECONCILE_MUSIC_ACQUISITION: 2 * 60_000,
+  IMPORT_MUSIC_AUDIO: 10 * 60_000,
 };
 
 export class JobWorker {

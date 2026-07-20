@@ -785,6 +785,7 @@ Redis, or another worker service.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete (2026-07-20) |
 | Area | Server / acquisition completion |
 | Difficulty | High |
 | Effort | XL, 6–8 days |
@@ -832,6 +833,47 @@ Expected areas:
 - Crash-point/idempotency tests around READY and cleanup boundaries.
 - Reused-song and multi-release tests.
 - Full server suite and typecheck.
+
+#### Completion and testing notes
+
+- Added durable `IMPORT_MUSIC_AUDIO` jobs with per-acquisition dedupe, bounded
+  worker timeouts, disabled-discovery pause semantics, finite operational
+  retries, direct IMPORTING/cleanup-pending startup recovery, and a separate
+  reconcile-to-import transition. Provider completion no longer sets
+  `completed_at`; only final READY publication does.
+- Added conservative import orchestration. Full Size retains exactly one file
+  by accepted provider-track/recording identity or strong normalized
+  title/artist/duration evidence; Related imports require the complete accepted
+  release-track set and ignore unrelated provider files. Provider and release
+  identity, recording conflicts, ambiguous duplicates, and mapped
+  `readablePath` containment are revalidated before copy.
+- Imports use the MC-S03 media store and publish catalog junctions, acquisition
+  READY, completion time, and affected song/release/theme timestamps in one
+  PostgreSQL transaction only after every selected media row is READY.
+  Same-song advisory locks, verified cross-extension reuse, and source-hash
+  orphan recovery make copy/rename/DB retries idempotent on Windows.
+- Added shared provider-resource cleanup coordination with a provider-release
+  advisory lock, authoritative ownership/monitoring-context election, durable
+  cleanup markers, terminal-sibling cleanup, and idempotent Lidarr recovery
+  when an owned album and/or artist was already deleted. Cleanup remains best
+  effort and never rolls back otherwise valid READY audio.
+- Added upgrade recovery for MC-S07 acquisition rows that predate
+  `catalogIntent`: expected tracks/evidence are transactionally derived and
+  backfilled from the existing catalog, while only the matching premature
+  legacy junction is retracted until validated publication.
+- Runtime wiring passes the mapped Lidarr readable root to `MediaStore`, keeps
+  hidden catalog population independent of `MUSIC_CATALOG_ENABLED`, and leaves
+  listener APIs unchanged for MC-S09.
+- Independent Terra/High QA passed 142 focused tests. An isolated PostgreSQL 16
+  run passed 9/9 opt-in migration/import tests, including READY rollback and
+  publication, timestamp/link updates, legacy recovery, shared cleanup
+  serialization, and song-lock serialization; the exact temporary container
+  was removed and `server-db-1` was verified untouched.
+- Final full server Vitest passed with 373 tests passed and 11
+  environment-gated tests skipped. The 9 PostgreSQL skips were run separately
+  and passed; the remaining 2 are external AnimeThemes live tests. TypeScript
+  `--noEmit` and `git diff --check` passed (apart from expected Windows CRLF
+  notices). Independent Sol/Medium review found no remaining blocker.
 
 #### Handoff notes
 

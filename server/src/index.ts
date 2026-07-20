@@ -25,14 +25,18 @@ import { createJsonStdoutLogger } from "./logging.js";
 import {
   ConservativeMusicCatalogResolver,
   createAnimeMappedDiscoveryHook,
+  createMusicImportHandlers,
   createMusicDiscoveryHandlers,
   createLidarrUpstreamHttp,
   DisabledMusicAcquisitionProvider,
   LidarrMusicAcquisitionProvider,
   MusicDiscoveryScheduler,
   MusicDiscoveryWorkflowService,
+  MusicAcquisitionImportService,
   PgDiscoveryCatalogRepository,
+  PgMusicAcquisitionImportRepository,
   PgMusicDiscoveryRepository,
+  importMusicAudioDedupeKey,
   reconcileMusicAcquisitionDedupeKey,
   type MusicAcquisitionProvider,
 } from "./music/index.js";
@@ -213,10 +217,22 @@ const syncPipeline = new LibrarySyncPipeline({
 });
 const mediaStore = new MediaStore({
   mediaRoot: config.MEDIA_ROOT,
+  ...(config.MUSIC_PROVIDER === "LIDARR"
+    ? { providerImportRoot: config.LIDARR_PATH_PREFIX_TO ?? config.LIDARR_SHARED_ROOT! }
+    : {}),
   repo: new DrizzleMediaFileRepo(db),
   fetch: animeThemesBackgroundFetch,
   imageFetch: imagesBackgroundFetch,
   logger: externalLogger,
+});
+const musicImportService = new MusicAcquisitionImportService({
+  repo: new PgMusicAcquisitionImportRepository(pool),
+  provider: musicProvider,
+  mediaStore,
+});
+const musicImportHandlers = createMusicImportHandlers({
+  enabled: discoveryEnabled,
+  service: musicImportService,
 });
 const fetchHandlers = createFetchMediaHandlers({
   mediaStore,
@@ -238,12 +254,20 @@ if (discoveryEnabled) {
       dedupeKey: reconcileMusicAcquisitionDedupeKey(acquisitionId),
     });
   }
+  for (const acquisitionId of await discoveryCatalog.listRecoverableImportIds()) {
+    await jobQueue.enqueue({
+      type: "IMPORT_MUSIC_AUDIO",
+      priority: JobPriority.MAINTENANCE,
+      payload: { acquisitionId },
+      dedupeKey: importMusicAudioDedupeKey(acquisitionId),
+    });
+  }
 }
 const syncHandlers = createSyncJobHandlers(syncPipeline);
 // Background hydration waits until on-demand media traffic has been quiet.
 const mediaActivity = new InteractiveMediaActivity();
 const worker = new JobWorker(jobQueue, {
-  handlers: { ...fetchHandlers, ...syncHandlers, ...discoveryHandlers },
+  handlers: { ...fetchHandlers, ...syncHandlers, ...discoveryHandlers, ...musicImportHandlers },
   maintenanceFetchDelayMs: config.AUDIO_BACKFILL_DELAY_SECONDS * 1000,
   holdMaintenanceWork: () => !mediaActivity.isQuiet(),
 });
@@ -251,7 +275,7 @@ worker.start();
 // A second worker restricted to urgent/high jobs so a client-facing fetch is
 // never queued behind a long-running background download on the main worker.
 const interactiveWorker = new JobWorker(jobQueue, {
-  handlers: { ...fetchHandlers, ...syncHandlers, ...discoveryHandlers },
+  handlers: { ...fetchHandlers, ...syncHandlers, ...discoveryHandlers, ...musicImportHandlers },
   maxPriority: JobPriority.HIGH,
 });
 interactiveWorker.start();

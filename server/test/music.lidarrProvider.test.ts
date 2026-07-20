@@ -543,6 +543,54 @@ describe("LidarrMusicAcquisitionProvider imported files and cleanup", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]!.init?.method).toBe("GET");
   });
+
+  it("treats an already-absent adapter-owned album as idempotently cleaned after a crash", async () => {
+    const { provider, requests } = providerFor([
+      { match: "/api/v1/album/12", response: { status: 404, body: "not found" } },
+    ]);
+    const owned: MusicProviderResourceContext = {
+      provider: "LIDARR", providerReleaseId: "12", providerResourceCreated: true,
+      providerMetadata: { adapterOwned: true, lidarrAlbumId: 12, foreignAlbumId: "release-group-mbid" },
+    };
+
+    await expect(provider.cleanup({ resource: owned, restorePriorMonitoringState: false }))
+      .resolves.toEqual({ cleaned: true });
+    expect(requests).toHaveLength(1);
+  });
+
+  it("finishes verified adapter-created artist cleanup when replay starts after album deletion", async () => {
+    const { provider, requests } = providerFor([
+      { match: "/api/v1/album/12", response: { status: 404, body: "not found" } },
+      { match: "/api/v1/artist/21", response: { status: 200, body: JSON.stringify({ ...albumFixture.artist, tags: [42] }) } },
+      { match: "artistId=21", response: { status: 200, body: "[]" } },
+    ]);
+    const owned: MusicProviderResourceContext = {
+      provider: "LIDARR", providerReleaseId: "12", providerResourceCreated: true,
+      providerMetadata: { adapterOwned: true, lidarrAlbumId: 12, foreignAlbumId: "release-group-mbid",
+        artistCreated: true, createdArtistId: 21, createdArtistForeignId: "artist-mbid", ownershipTagId: 42 },
+    };
+
+    await expect(provider.cleanup({ resource: owned, restorePriorMonitoringState: false }))
+      .resolves.toEqual({ cleaned: true });
+    expect(requests.map((request) => request.init?.method)).toEqual(["GET", "GET", "GET", "DELETE"]);
+    expect(new URL(requests.at(-1)!.url).pathname).toBe("/api/v1/artist/21");
+  });
+
+  it("treats both durably identified owned album and created artist already absent as cleaned", async () => {
+    const { provider, requests } = providerFor([
+      { match: "/api/v1/album/12", response: { status: 404, body: "not found" } },
+      { match: "/api/v1/artist/21", response: { status: 404, body: "not found" } },
+    ]);
+    const owned: MusicProviderResourceContext = {
+      provider: "LIDARR", providerReleaseId: "12", providerResourceCreated: true,
+      providerMetadata: { adapterOwned: true, lidarrAlbumId: 12, foreignAlbumId: "release-group-mbid",
+        artistCreated: true, createdArtistId: 21, createdArtistForeignId: "artist-mbid", ownershipTagId: 42 },
+    };
+
+    await expect(provider.cleanup({ resource: owned, restorePriorMonitoringState: false }))
+      .resolves.toEqual({ cleaned: true });
+    expect(requests.map((request) => request.init?.method)).toEqual(["GET", "GET"]);
+  });
 });
 
 describe("LidarrMusicAcquisitionProvider deterministic errors", () => {

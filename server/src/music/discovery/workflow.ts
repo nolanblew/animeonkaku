@@ -12,7 +12,7 @@ import type {
   NormalizedProviderTrack,
 } from "../types.js";
 import { mergeMusicCandidates } from "../matching/candidates.js";
-import { reconcileMusicAcquisitionDedupeKey } from "./keys.js";
+import { importMusicAudioDedupeKey, reconcileMusicAcquisitionDedupeKey } from "./keys.js";
 import type { DiscoveryCompletion, MusicDiscoveryWorkflow as MusicDiscoveryWorkflowContract } from "./types.js";
 
 export interface DiscoveryTargetRecord {
@@ -109,6 +109,10 @@ export class MusicDiscoveryWorkflowService implements MusicDiscoveryWorkflowCont
     const acquisition = await this.input.catalog.getAcquisition(input.acquisitionId);
     if (!acquisition) return "COMPLETE";
     if (acquisition.state === "READY" || acquisition.state === "AMBIGUOUS") return "COMPLETE";
+    if (acquisition.state === "IMPORTING") {
+      await this.enqueueImport(acquisition.id);
+      return "COMPLETE";
+    }
     // A restart can recover a resource-persisted row before the external start
     // call returned. Leave it durable for an operator/retry; never invent a
     // second provider command without a provider-side idempotency key.
@@ -132,7 +136,15 @@ export class MusicDiscoveryWorkflowService implements MusicDiscoveryWorkflowCont
       throw new Error(detail);
     }
     await this.input.catalog.markAcquisitionImporting(acquisition.id);
+    await this.enqueueImport(acquisition.id);
     return "COMPLETE";
+  }
+
+  private async enqueueImport(acquisitionId: number): Promise<void> {
+    await this.input.queue.enqueue({
+      type: "IMPORT_MUSIC_AUDIO", priority: 30, payload: { acquisitionId },
+      dedupeKey: importMusicAudioDedupeKey(acquisitionId),
+    });
   }
 
   private async resolveTarget(target: MusicCatalogTarget, excludedProviderReleaseIds: string[] = []): Promise<{ resolution: MusicCatalogResolution; resource?: MusicProviderResourceContext }> {
@@ -294,17 +306,21 @@ export class PgDiscoveryCatalogRepository implements DiscoveryCatalogRepository 
       if (input.resolution.intent.kind === "FULL_SIZE") {
         purpose = "FULL_SIZE";
         songId = songIds.get(input.resolution.intent.song.providerTrackId)!;
-        if (input.themeId !== undefined) await client.query(`INSERT INTO theme_full_songs (theme_id,song_id,source_release_id,confidence,evidence,matched_at,updated_at)
-          VALUES ($1,$2,$3,$4,$5::jsonb,now(),now()) ON CONFLICT (theme_id) DO UPDATE SET song_id=EXCLUDED.song_id,
-          source_release_id=EXCLUDED.source_release_id,confidence=EXCLUDED.confidence,evidence=EXCLUDED.evidence,matched_at=now(),updated_at=now()`,
-          [input.themeId, songId, releaseId, input.resolution.confidence, JSON.stringify(input.resolution.evidence)]);
       } else {
         purpose = "RELATED_RELEASE";
-        await client.query(`INSERT INTO anime_music_releases (animethemes_anime_id,release_id,relationship_type,confidence,evidence,updated_at)
-          VALUES ($1,$2,$3,$4,$5::jsonb,now()) ON CONFLICT (animethemes_anime_id,release_id) DO UPDATE SET relationship_type=EXCLUDED.relationship_type,
-          confidence=EXCLUDED.confidence,evidence=EXCLUDED.evidence,updated_at=now()`,
-          [input.animeId, releaseId, input.resolution.intent.releaseType, input.resolution.confidence, JSON.stringify(input.resolution.evidence)]);
       }
+      const acceptedTracks = tracks.map((track) => ({
+        songId: songIds.get(track.providerTrackId)!, providerTrackId: track.providerTrackId,
+        ...(track.musicbrainzRecordingId ? { musicbrainzRecordingId: track.musicbrainzRecordingId } : {}),
+        normalizedTitle: track.normalizedTitle, normalizedArtist: track.normalizedArtist,
+        ...(track.durationSeconds === undefined ? {} : { durationSeconds: track.durationSeconds }),
+      }));
+      const providerMetadata = {
+        ...input.resource!.providerMetadata,
+        catalogIntent: { tracks: acceptedTracks, confidence: input.resolution.confidence,
+          evidence: input.resolution.evidence,
+          ...(input.resolution.intent.kind === "RELATED_RELEASE" ? { releaseType: input.resolution.intent.releaseType } : {}) },
+      };
       // Intent-level locking is essential because provider_job_id is null before
       // start. Lock/use the tuple that identifies one acquisition purpose.
       const intentIdentity = `${input.resource!.provider}:${input.animeId}:${purpose}:${releaseId}:${songId ?? "release"}`;
@@ -322,7 +338,7 @@ export class PgDiscoveryCatalogRepository implements DiscoveryCatalogRepository 
         (provider,provider_release_id,animethemes_anime_id,purpose,theme_id,song_id,release_id,state,provider_resource_created,prior_provider_monitoring_state,provider_metadata)
         VALUES ($1,$2,$3,$4,$5,$6,$7,'REQUESTED',$8,$9,$10::jsonb) RETURNING id`,
         [input.resource!.provider, input.resource!.providerReleaseId, input.animeId, purpose, input.themeId ?? null, songId, releaseId,
-          input.resource!.providerResourceCreated, input.resource!.priorProviderMonitoringState ?? null, JSON.stringify(input.resource!.providerMetadata)]);
+          input.resource!.providerResourceCreated, input.resource!.priorProviderMonitoringState ?? null, JSON.stringify(providerMetadata)]);
       await client.query("COMMIT");
       return { acquisitionId: Number(inserted.rows[0]!.id), alreadyStarted: false };
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
@@ -339,14 +355,19 @@ export class PgDiscoveryCatalogRepository implements DiscoveryCatalogRepository 
     return result.rows[0] ?? null;
   }
   async markAcquisitionImporting(acquisitionId: number): Promise<void> {
-    await this.pool.query(`UPDATE music_acquisitions SET state='IMPORTING',completed_at=now(),error_message=NULL,updated_at=now() WHERE id=$1`, [acquisitionId]);
+    await this.pool.query(`UPDATE music_acquisitions SET state='IMPORTING',completed_at=NULL,error_message=NULL,updated_at=now() WHERE id=$1`, [acquisitionId]);
   }
   async markAcquisitionFailed(acquisitionId: number, error: string): Promise<void> {
     await this.pool.query(`UPDATE music_acquisitions SET state='FAILED',error_message=$2,updated_at=now() WHERE id=$1`, [acquisitionId, error]);
   }
   async listRecoverableAcquisitionIds(): Promise<number[]> {
     const result = await this.pool.query<{ id: number | string }>(`SELECT id FROM music_acquisitions
-      WHERE state IN ('REQUESTED','ACQUIRING','IMPORTING') ORDER BY id`);
+      WHERE state IN ('REQUESTED','ACQUIRING') ORDER BY id`);
+    return result.rows.map((row) => Number(row.id));
+  }
+  async listRecoverableImportIds(): Promise<number[]> {
+    const result = await this.pool.query<{ id: number | string }>(`SELECT id FROM music_acquisitions
+      WHERE state='IMPORTING' OR (state='READY' AND (provider_metadata->>'cleanupComplete') IS DISTINCT FROM 'true') ORDER BY id`);
     return result.rows.map((row) => Number(row.id));
   }
 }

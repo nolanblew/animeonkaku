@@ -328,7 +328,8 @@ export class LidarrMusicAcquisitionProvider implements MusicAcquisitionProvider 
         return { cleaned: false };
       }
       const monitored = resource.priorProviderMonitoringState === "true";
-      const album = await this.get(`/api/v1/album/${albumId}`, lidarrAlbumSchema);
+      const album = await this.getCleanupAlbum(albumId);
+      if (!album) return { cleaned: true };
       if (album.foreignAlbumId !== resource.providerMetadata.foreignAlbumId) {
         return { cleaned: false };
       }
@@ -342,7 +343,17 @@ export class LidarrMusicAcquisitionProvider implements MusicAcquisitionProvider 
     }
 
     if (resource.providerMetadata.adapterOwned !== true) return { cleaned: false };
-    const album = await this.get(`/api/v1/album/${albumId}`, lidarrAlbumSchema);
+    const album = await this.getCleanupAlbum(albumId);
+    if (!album) {
+      const cleanupArtist = await this.canCleanupCreatedArtist(resource, albumId);
+      if (cleanupArtist !== undefined) {
+        await this.request(
+          `/api/v1/artist/${cleanupArtist}?${new URLSearchParams({ deleteFiles: "false", addImportListExclusion: "false" })}`,
+          { method: "DELETE" },
+        );
+      }
+      return { cleaned: true };
+    }
     if (album.foreignAlbumId !== resource.providerMetadata.foreignAlbumId) return { cleaned: false };
     const cleanupArtist = await this.canCleanupCreatedArtist(resource, albumId);
     await this.request(
@@ -358,6 +369,15 @@ export class LidarrMusicAcquisitionProvider implements MusicAcquisitionProvider 
     return { cleaned: true };
   }
 
+  private async getCleanupAlbum(albumId: number): Promise<LidarrAlbum | null> {
+    try {
+      return await this.get(`/api/v1/album/${albumId}`, lidarrAlbumSchema);
+    } catch (error) {
+      if (error instanceof LidarrProviderError && error.code === "NOT_FOUND") return null;
+      throw error;
+    }
+  }
+
   private async canCleanupCreatedArtist(
     resource: MusicProviderCleanupRequest["resource"],
     albumId: number,
@@ -365,13 +385,23 @@ export class LidarrMusicAcquisitionProvider implements MusicAcquisitionProvider 
     if (
       resource.providerMetadata.artistCreated !== true ||
       this.options.ownershipTagId === undefined ||
-      resource.providerMetadata.ownershipTagId !== this.options.ownershipTagId
+      resource.providerMetadata.ownershipTagId !== this.options.ownershipTagId ||
+      typeof resource.providerMetadata.createdArtistForeignId !== "string" ||
+      resource.providerMetadata.createdArtistForeignId.length === 0
     ) {
       return undefined;
     }
     const artistId = metadataPositiveId(resource.providerMetadata.createdArtistId);
     if (artistId === undefined) return undefined;
-    const artist = await this.get(`/api/v1/artist/${artistId}`, lidarrArtistSchema);
+    let artist: LidarrAlbum["artist"];
+    try {
+      artist = await this.get(`/api/v1/artist/${artistId}`, lidarrArtistSchema);
+    } catch (error) {
+      // Durable created-artist identity is present and the resource is already
+      // absent, so replay after its DELETE is an idempotent no-op.
+      if (error instanceof LidarrProviderError && error.code === "NOT_FOUND") return undefined;
+      throw error;
+    }
     if (
       artist.id !== artistId ||
       artist.foreignArtistId !== resource.providerMetadata.createdArtistForeignId ||
@@ -387,7 +417,10 @@ export class LidarrMusicAcquisitionProvider implements MusicAcquisitionProvider 
     const onlyOwnedAlbum = albums.length === 1 &&
       albums[0]?.id === albumId &&
       albums[0]?.foreignAlbumId === ownedForeignId;
-    return onlyOwnedAlbum ? artistId : undefined;
+    // On replay after the album DELETE committed, zero albums is the expected
+    // safe state. The durable artist identity and ownership tag checks above
+    // still prevent deleting an operator-owned or numerically reused artist.
+    return albums.length === 0 || onlyOwnedAlbum ? artistId : undefined;
   }
 
   private normalizeFile(
