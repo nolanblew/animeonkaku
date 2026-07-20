@@ -99,4 +99,6 @@ export interface LibrarySyncPipelineDeps {
    * retry from scratch and strand the client on "matching themes").
    */
   mappingTimeBudgetMs?: number;
+  /** Best-effort notification for newly observed AnimeThemes mappings. */
+  onAnimeMapped?: (animeThemesIds: number[]) => Promise<void>;
 }

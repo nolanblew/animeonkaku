@@ -1,0 +1,1 @@
+ALTER TABLE "themes" ADD COLUMN "animethemes_song_id" bigint;

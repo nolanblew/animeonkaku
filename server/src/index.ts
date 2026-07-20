@@ -23,9 +23,17 @@ import { RealKitsuAuthClient } from "./kitsu/kitsuAuthClient.js";
 import { KitsuClient } from "./kitsu/kitsuClient.js";
 import { createJsonStdoutLogger } from "./logging.js";
 import {
+  ConservativeMusicCatalogResolver,
+  createAnimeMappedDiscoveryHook,
+  createMusicDiscoveryHandlers,
   createLidarrUpstreamHttp,
   DisabledMusicAcquisitionProvider,
   LidarrMusicAcquisitionProvider,
+  MusicDiscoveryScheduler,
+  MusicDiscoveryWorkflowService,
+  PgDiscoveryCatalogRepository,
+  PgMusicDiscoveryRepository,
+  reconcileMusicAcquisitionDedupeKey,
   type MusicAcquisitionProvider,
 } from "./music/index.js";
 import {
@@ -86,6 +94,26 @@ await mkdir(join(config.MEDIA_ROOT, "images", "artists"), { recursive: true });
 
 const jobQueue = new JobQueue(new PgJobRepository(pool));
 const syncRepo = new DrizzleSyncRepository(db);
+const discoveryEnabled = config.MUSIC_DISCOVERY_ENABLED && config.MUSIC_PROVIDER !== "disabled";
+const discoveryRepo = new PgMusicDiscoveryRepository(pool);
+const discoveryCatalog = new PgDiscoveryCatalogRepository(pool);
+const discoveryWorkflow = new MusicDiscoveryWorkflowService({
+  catalog: discoveryCatalog,
+  provider: musicProvider,
+  resolver: new ConservativeMusicCatalogResolver(),
+  queue: jobQueue,
+});
+const discoveryHandlers = createMusicDiscoveryHandlers({
+  enabled: discoveryEnabled,
+  queue: jobQueue,
+  repo: discoveryRepo,
+  workflow: discoveryWorkflow,
+});
+const onAnimeMapped = createAnimeMappedDiscoveryHook({
+  enabled: discoveryEnabled,
+  queue: jobQueue,
+  repo: discoveryRepo,
+});
 
 // Each upstream host shares one politeness budget (bucket) and one breaker
 // across two lanes: "interactive" for request/response paths a client is
@@ -181,6 +209,7 @@ const syncPipeline = new LibrarySyncPipeline({
   kitsuAuth: kitsuAuthClient,
   animeThemes: animeThemesBackgroundClient,
   queue: jobQueue,
+  onAnimeMapped,
 });
 const mediaStore = new MediaStore({
   mediaRoot: config.MEDIA_ROOT,
@@ -198,11 +227,23 @@ const fetchHandlers = createFetchMediaHandlers({
   },
 });
 await jobQueue.recoverRunningJobs();
+if (discoveryEnabled) {
+  await discoveryRepo.recoverStaleRunning(new Date());
+  await onAnimeMapped(await discoveryRepo.listMappedAnimeIds());
+  for (const acquisitionId of await discoveryCatalog.listRecoverableAcquisitionIds()) {
+    await jobQueue.enqueue({
+      type: "RECONCILE_MUSIC_ACQUISITION",
+      priority: JobPriority.MAINTENANCE,
+      payload: { acquisitionId },
+      dedupeKey: reconcileMusicAcquisitionDedupeKey(acquisitionId),
+    });
+  }
+}
 const syncHandlers = createSyncJobHandlers(syncPipeline);
 // Background hydration waits until on-demand media traffic has been quiet.
 const mediaActivity = new InteractiveMediaActivity();
 const worker = new JobWorker(jobQueue, {
-  handlers: { ...fetchHandlers, ...syncHandlers },
+  handlers: { ...fetchHandlers, ...syncHandlers, ...discoveryHandlers },
   maintenanceFetchDelayMs: config.AUDIO_BACKFILL_DELAY_SECONDS * 1000,
   holdMaintenanceWork: () => !mediaActivity.isQuiet(),
 });
@@ -210,7 +251,7 @@ worker.start();
 // A second worker restricted to urgent/high jobs so a client-facing fetch is
 // never queued behind a long-running background download on the main worker.
 const interactiveWorker = new JobWorker(jobQueue, {
-  handlers: { ...fetchHandlers, ...syncHandlers },
+  handlers: { ...fetchHandlers, ...syncHandlers, ...discoveryHandlers },
   maxPriority: JobPriority.HIGH,
 });
 interactiveWorker.start();
@@ -223,6 +264,10 @@ const syncScheduler = new SyncScheduler({
   syncIntervalMinutes: config.SYNC_INTERVAL_MINUTES,
 });
 syncScheduler.start();
+const discoveryScheduler = new MusicDiscoveryScheduler(jobQueue, discoveryEnabled, (error) => {
+  externalLogger.warn({ err: error }, "music discovery scheduler enqueue failed");
+});
+discoveryScheduler.start();
 
 const clientApi = new DrizzleClientApiService(db, jobQueue, undefined, externalLogger);
 const deviceActivitySync = new DeviceActivitySyncTrigger({ queue: jobQueue });
@@ -273,6 +318,7 @@ const app = buildApp({
 async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, "shutting down");
   syncScheduler.stop();
+  discoveryScheduler.stop();
   worker.stop();
   interactiveWorker.stop();
   await app.close();

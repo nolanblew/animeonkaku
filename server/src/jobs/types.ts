@@ -16,7 +16,10 @@ export type JobType =
   | "FETCH_AUDIO"
   | "FETCH_IMAGE"
   | "BACKFILL_SCAN"
-  | "AUTO_PLAYLIST_REFRESH";
+  | "AUTO_PLAYLIST_REFRESH"
+  | "MUSIC_CATALOG_SCAN"
+  | "DISCOVER_ANIME_MUSIC"
+  | "RECONCILE_MUSIC_ACQUISITION";
 
 export interface JobRecord {
   id: number;

@@ -38,6 +38,7 @@ export const lidarrCommandSchema = z.object({
   message: z.string().nullish(),
   body: z.object({ albumIds: z.array(z.number().int().positive()).optional() }).passthrough().optional(),
 }).passthrough();
+export const lidarrCommandsSchema = z.array(lidarrCommandSchema);
 
 export const lidarrQueueSchema = z.object({
   records: z.array(z.object({

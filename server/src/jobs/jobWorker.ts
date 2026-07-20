@@ -46,6 +46,11 @@ const DEFAULT_TIMEOUTS_MS: Record<JobType, number> = {
   MAP_THEMES: 4 * 60_000,
   BACKFILL_SCAN: 2 * 60_000,
   AUTO_PLAYLIST_REFRESH: 2 * 60_000,
+  MUSIC_CATALOG_SCAN: 2 * 60_000,
+  DISCOVER_ANIME_MUSIC: 10 * 60_000,
+  // Reconciliation performs one provider status request and reschedules; it
+  // never waits for a download in-process.
+  RECONCILE_MUSIC_ACQUISITION: 2 * 60_000,
 };
 
 export class JobWorker {

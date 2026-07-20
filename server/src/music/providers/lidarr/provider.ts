@@ -30,6 +30,7 @@ import {
   lidarrAlbumsSchema,
   lidarrArtistSchema,
   lidarrCommandSchema,
+  lidarrCommandsSchema,
   lidarrHistorySchema,
   lidarrQueueSchema,
   lidarrSystemStatusSchema,
@@ -195,6 +196,11 @@ export class LidarrMusicAcquisitionProvider implements MusicAcquisitionProvider 
 
   async startAcquisition(input: StartMusicAcquisition): Promise<StartedMusicAcquisition> {
     const albumId = parsePositiveId(input.providerReleaseId, "provider release");
+    // The DB row is durable before this call, but a process can still die after
+    // Lidarr accepted AlbumSearch and before its command id is stored. Lidarr's
+    // command list is the provider-side idempotency recovery point.
+    const active = await this.findActiveAlbumSearch(albumId, input.recovery === true);
+    if (active !== undefined) return { providerJobId: String(active.id) };
     const command = await this.send(
       "/api/v1/command",
       "POST",
@@ -202,6 +208,25 @@ export class LidarrMusicAcquisitionProvider implements MusicAcquisitionProvider 
       lidarrCommandSchema,
     );
     return { providerJobId: String(command.id) };
+  }
+
+  private async findActiveAlbumSearch(albumId: number, recovery: boolean): Promise<{ id: number } | undefined> {
+    try {
+      const commands = await this.get("/api/v1/command?include=active", lidarrCommandsSchema);
+      return commands.find((command) =>
+        command.name === "AlbumSearch" &&
+        command.body?.albumIds?.includes(albumId) &&
+        !["failed", "aborted", "cancelled", "orphaned"].includes(command.status?.toLowerCase() ?? ""),
+      );
+    } catch (error) {
+      // Older Lidarr versions may not expose a list endpoint. The durable
+      // resource row still prevents normal retry duplication; this fallback is
+      // intentionally only supports an explicitly unsupported endpoint. A
+      // transient, auth, malformed, or 5xx list error must stop rather than
+      // risk posting a duplicate command.
+      if (error instanceof LidarrProviderError && error.code === "NOT_FOUND" && !recovery) return undefined;
+      throw error;
+    }
   }
 
   async getAcquisitionStatus(

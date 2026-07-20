@@ -689,6 +689,7 @@ product behavior.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete (2026-07-20) |
 | Area | Server / scheduler and jobs |
 | Difficulty | High |
 | Effort | L, 4–5 days |
@@ -735,6 +736,45 @@ Expected areas:
 - Job repository/handler tests for dedupe, requeue, failure, and restart.
 - Test new mapping immediate enqueue.
 - Full server suite and typecheck.
+
+#### Completion and testing notes
+
+- Added durable `MUSIC_CATALOG_SCAN`, `DISCOVER_ANIME_MUSIC`, and
+  `RECONCILE_MUSIC_ACQUISITION` jobs with bounded worker timeouts, stable
+  dedupe keys, a daily scheduler, oldest-due selection capped at 25, and
+  zero-attempt polling for healthy long-running provider work.
+- Added the concrete discovery workflow and PostgreSQL repositories. Discovery
+  loads mapped multilingual/season aliases plus stable AnimeThemes song,
+  artist, TV-duration, existing-ready, and linked-release evidence; runs the
+  query matrix sequentially; resolves conservatively; enriches only a selected
+  provider release through GET-only track listing; re-resolves; and persists
+  compact operator evidence, catalog intents, provider ownership, and durable
+  acquisition state before starting or reconciling provider work.
+- Added generated migrations `0009_lively_gravity.sql` and
+  `0010_milky_mephistopheles.sql`. Themes now retain their stable AnimeThemes
+  source-song ID, and multiple acquisition intents may safely share one
+  provider command while retaining a non-unique lookup index.
+- Runtime wiring is independent of `MUSIC_CATALOG_ENABLED`: enabled discovery
+  can prepopulate a hidden catalog, while disabled discovery performs no
+  provider/startup discovery work and queued jobs remain paused without
+  consuming attempts. Startup recovers job/discovery state, bootstraps
+  metadata-ready existing mappings, and requeues durable acquisitions before
+  workers claim jobs.
+- Added coverage for calendar-year/leap boundaries, weekly-over-monthly
+  precedence, future/unknown/old-complete/orphan exclusions, deterministic
+  25-of-27 ordering, mapping/remap/duplicate-user and failure isolation,
+  disabled pause, restart recovery, sequential call ordering, ambiguity,
+  linked-release progression, provider outages, and shared Lidarr commands.
+- Independent QA ran the populated migration and due-selection suites against
+  an isolated PostgreSQL 16 container: 2 files and 4 tests passed; the exact
+  temporary container was removed afterward.
+- Focused discovery/mapping/provider verification passed, server TypeScript
+  typecheck passed, and final full server Vitest passed with 351 tests passed
+  and 6 environment-gated tests skipped. `git diff --check` passed apart from
+  expected Windows CRLF conversion warnings.
+- Independent Sol/Medium review found no remaining functional blocker after
+  fixes for startup bootstrap, command recovery/sharing, provider ownership,
+  ambiguity locking, linked-release advancement, and explicit workflow order.
 
 #### Handoff notes
 

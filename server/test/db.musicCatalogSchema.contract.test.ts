@@ -48,6 +48,14 @@ describe("music catalog schema contract", () => {
     ]);
   });
 
+  it("allows one provider command to reconcile multiple durable catalog intents", () => {
+    const config = getTableConfig(musicAcquisitions);
+    expect(config.uniqueConstraints.some((constraint) => constraint.name === "music_acquisitions_provider_job_unique"))
+      .toBe(false);
+    expect(config.indexes.some((index) => index.config.name === "music_acquisitions_provider_job_idx"))
+      .toBe(true);
+  });
+
   it("extends existing media, playlist, and preference rows without changing TV media identity", () => {
     expect(columnNames(mediaFiles)).toEqual(expect.arrayContaining([
       "kind",

@@ -201,6 +201,8 @@ export interface EnsuredMusicProviderRelease {
 
 export interface StartMusicAcquisition {
   providerReleaseId: string;
+  /** Recovery must never POST when active-command lookup is unsupported. */
+  recovery?: boolean;
 }
 
 export interface StartedMusicAcquisition {

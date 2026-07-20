@@ -81,6 +81,15 @@ describe("music matching normalization and queries", () => {
     ]);
   });
 
+  it("keeps a no-duration non-MusicBrainz candidate ambiguous rather than falsely rejecting it", () => {
+    const { musicbrainzRecordingId: _recording, durationSeconds: _duration, ...target } = fullTarget;
+    const candidate = track({ musicbrainzRecordingId: undefined, durationSeconds: undefined });
+    expect(resolver.resolve({ target, candidates: [release({ tracks: [candidate] })] })).toMatchObject({
+      outcome: "AMBIGUOUS",
+      reasons: ["BELOW_CONFIDENCE_THRESHOLD"],
+    });
+  });
+
   it("builds multilingual related-release terminology for every title alias", () => {
     const queries = buildMusicCatalogQueries({ kind: "RELATED_RELEASE", animeThemesAnimeId: 1, animeTitles: ["Toradora!", "とらドラ！"] });
     expect(queries.map((query) => query.text)).toEqual(expect.arrayContaining([

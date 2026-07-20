@@ -114,6 +114,8 @@ export const kitsuAnime = pgTable("kitsu_anime", {
 
 export const themes = pgTable("themes", {
   id: bigint("id", { mode: "number" }).primaryKey(), // AnimeThemes theme id (numeric only)
+  // Stable source-song association. Title equality is not a safe catalog identity.
+  animethemesSongId: bigint("animethemes_song_id", { mode: "number" }),
   animethemesAnimeId: bigint("animethemes_anime_id", { mode: "number" })
     .notNull()
     .references(() => animethemesAnime.id),
@@ -276,7 +278,7 @@ export const musicAcquisitions = pgTable("music_acquisitions", {
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 }, (t) => [
-  unique("music_acquisitions_provider_job_unique").on(t.provider, t.providerJobId),
+  index("music_acquisitions_provider_job_idx").on(t.provider, t.providerJobId),
   index("music_acquisitions_state_retry_idx").on(t.state, t.nextRetryAt),
   index("music_acquisitions_anime_id_idx").on(t.animethemesAnimeId),
   index("music_acquisitions_theme_id_idx").on(t.themeId),

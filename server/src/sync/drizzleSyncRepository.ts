@@ -292,6 +292,7 @@ export class DrizzleSyncRepository implements SyncRepository {
         .insert(themes)
         .values({
           id: theme.themeId,
+          animethemesSongId: theme.animeThemesSongId,
           animethemesAnimeId: theme.animeId,
           title: theme.title,
           themeType: theme.themeType,
@@ -304,6 +305,7 @@ export class DrizzleSyncRepository implements SyncRepository {
         .onConflictDoUpdate({
           target: themes.id,
           set: {
+            animethemesSongId: theme.animeThemesSongId,
             animethemesAnimeId: theme.animeId,
             title: theme.title,
             themeType: theme.themeType,

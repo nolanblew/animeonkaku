@@ -385,6 +385,9 @@ export class LibrarySyncPipeline {
   ): Promise<void> {
     await this.deps.repo.saveAnimeThemesCatalog?.(dedupeThemes(themes));
     await this.deps.repo.setAnimeThemeMappings?.(mappings);
+    // Discovery is ancillary to library mapping. A provider/database outage
+    // must never roll back a valid AnimeThemes mapping or fail normal sync.
+    await this.deps.onAnimeMapped?.([...new Set(mappings.values())]).catch(() => undefined);
   }
 }
 

@@ -186,7 +186,12 @@ function scoreFullTrack(
     reasons.push("TRACK_NOT_IDENTIFIABLE");
   }
   if (!exactRecording && !(titleMatch && artistMatch)) reasons.push("TRACK_NOT_IDENTIFIABLE");
-  if (!exactRecording && !durationMatch) reasons.push("TRACK_NOT_IDENTIFIABLE");
+  // Duration is evidence only when both sides expose it. Older AnimeThemes
+  // records legitimately lack TV duration; that must remain below confidence,
+  // not become a false hard rejection.
+  if (!exactRecording && target.durationSeconds !== undefined && track.durationSeconds !== undefined && !durationMatch) {
+    reasons.push("TRACK_NOT_IDENTIFIABLE");
+  }
   const uniqueReasons = [...new Set(reasons)];
   return {
     release,

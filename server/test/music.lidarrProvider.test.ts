@@ -216,15 +216,54 @@ describe("LidarrMusicAcquisitionProvider catalog and ownership", () => {
 describe("LidarrMusicAcquisitionProvider search and status", () => {
   it("starts AlbumSearch and returns the parsed command id", async () => {
     const { provider, requests } = providerFor([
+      { match: /\/api\/v1\/command\?include=active$/, response: { status: 200, body: JSON.stringify([]) } },
       { match: "/api/v1/command", response: { status: 201, body: JSON.stringify({ id: 91, status: "queued" }) } },
     ]);
 
     await expect(provider.startAcquisition({ providerReleaseId: "12" }))
       .resolves.toEqual({ providerJobId: "91" });
-    expect(JSON.parse(String(requests[0]!.init?.body))).toEqual({
+    const startRequest = requests.find((request) => request.url.includes("/api/v1/command") && request.init?.method === "POST");
+    expect(JSON.parse(String(startRequest!.init?.body))).toEqual({
       name: "AlbumSearch",
       albumIds: [12],
     });
+  });
+
+  it("reuses an active identical AlbumSearch instead of posting a duplicate after restart recovery", async () => {
+    const { provider, requests } = providerFor([
+      { match: "/api/v1/command", response: { status: 200, body: JSON.stringify([{ id: 92, name: "AlbumSearch", status: "started", body: { albumIds: [12] } }]) } },
+    ]);
+
+    await expect(provider.startAcquisition({ providerReleaseId: "12" }))
+      .resolves.toEqual({ providerJobId: "92" });
+    expect(requests.filter((request) => request.init?.method === "POST")).toHaveLength(0);
+  });
+
+  it("reuses a completed matching AlbumSearch returned by Lidarr without posting another command", async () => {
+    const { provider, requests } = providerFor([
+      { match: "/api/v1/command?include=active", response: { status: 200, body: JSON.stringify([{ id: 93, name: "AlbumSearch", status: "completed", body: { albumIds: [12] } }]) } },
+    ]);
+    await expect(provider.startAcquisition({ providerReleaseId: "12", recovery: true }))
+      .resolves.toEqual({ providerJobId: "93" });
+    expect(requests.filter((request) => request.init?.method === "POST")).toHaveLength(0);
+  });
+
+  it("allows a fresh start to POST after an explicitly unsupported command-list endpoint", async () => {
+    const { provider, requests } = providerFor([
+      { match: "/api/v1/command?include=active", response: { status: 404, body: JSON.stringify({}) } },
+      { match: "/api/v1/command", response: { status: 201, body: JSON.stringify({ id: 94, status: "queued" }) } },
+    ]);
+    await expect(provider.startAcquisition({ providerReleaseId: "12" })).resolves.toEqual({ providerJobId: "94" });
+    expect(requests.filter((request) => request.init?.method === "POST")).toHaveLength(1);
+  });
+
+  it("does not post a duplicate recovery command when an older Lidarr lacks command listing", async () => {
+    const { provider, requests } = providerFor([
+      { match: "/api/v1/command?include=active", response: { status: 404, body: JSON.stringify({}) } },
+    ]);
+    await expect(provider.startAcquisition({ providerReleaseId: "12", recovery: true }))
+      .rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(requests.filter((request) => request.init?.method === "POST")).toHaveLength(0);
   });
 
   it.each([
