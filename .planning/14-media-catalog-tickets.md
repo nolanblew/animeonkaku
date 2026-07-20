@@ -275,6 +275,7 @@ matches the current project's pragmatic schema style.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete (2026-07-20) |
 | Area | Server / AnimeThemes client and sync |
 | Difficulty | Medium |
 | Effort | M, 2–3 days |
@@ -322,6 +323,26 @@ Expected areas:
 - Fixture with reused AnimeThemes song ID across themes.
 - Fixture with changed remote video link.
 - Full server suite and typecheck.
+
+#### Completion and testing notes
+
+- Expanded AnimeThemes includes and parsing to retain song IDs/resources and
+  every stable entry/video descriptor while keeping historical TV-audio
+  extraction unchanged.
+- Added deterministic video selection across safe-content flags, entry
+  version/order, source, resolution, and stable video ID. Regression coverage
+  proves the same result when unordered upstream entries are rearranged and
+  preserves warning flags when every candidate is warned.
+- Normal remapping now deduplicates songs by AnimeThemes song ID, persists a
+  case-insensitive MusicBrainz recording resource without erasing a previously
+  known ID, refreshes changed video links, and deletes stale descriptors.
+- Removed remote AnimeThemes video from downloadable media enumeration; no
+  video media row or fetch job is produced.
+- Server TypeScript typecheck passed. Full Vitest passed: 37 files passed, 2
+  skipped; 214 tests passed and 3 environment-gated tests skipped.
+- Independent light review initially found two issues (discarded MusicBrainz
+  identity and unstable array-order ranking); both were corrected and covered
+  by regression tests. Follow-up review found no remaining actionable issue.
 
 #### Handoff notes
 

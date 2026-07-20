@@ -102,6 +102,7 @@ describe("AnimeThemesClient query shapes", () => {
     expect(requestUrl.searchParams.get("q")).toBe("Serial Experiments Lain");
     expect(requestUrl.searchParams.get("page[size]")).toBe("5");
     expect(requestUrl.searchParams.get("include")).toContain("animesynonyms");
+    expect(requestUrl.searchParams.get("include")).toContain("animethemes.song.resources");
   });
 
   it("does not follow pagination for broad title fallback searches", async () => {

@@ -14,12 +14,15 @@ function theme(input: Partial<AnimeThemeEntry> & { animeId: number; themeId: num
     kitsuId: input.kitsuId ?? null,
     coverUrl: input.coverUrl ?? null,
     themeId: input.themeId,
+    animeThemesSongId: input.animeThemesSongId ?? null,
     title: input.title ?? `Song ${input.themeId}`,
     artistName: input.artistName ?? "Artist",
     audioUrl: input.audioUrl ?? `https://a.animethemes.moe/${input.themeId}.ogg`,
     videoUrl: input.videoUrl ?? `https://v.animethemes.moe/${input.themeId}.webm`,
     themeType: input.themeType ?? "OP1",
     artists: input.artists ?? [{ name: "Artist", asCharacter: null, alias: null }],
+    songResources: input.songResources ?? [],
+    videoCandidates: input.videoCandidates ?? [],
     videoFallback: input.videoFallback ?? false,
   };
 }

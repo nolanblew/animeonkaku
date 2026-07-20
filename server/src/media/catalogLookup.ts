@@ -28,9 +28,8 @@ export interface MediaCatalogLookup {
   findThemeAudio(themeId: number): Promise<ThemeAudioSource | null>;
   /**
    * Enumerate every media variant a theme can currently supply, derived from its
-   * catalog origin URLs. Today: the canonical (AUDIO, SHORT), plus (VIDEO, FULL)
-   * when a distinct video origin exists. Future variants (e.g. AUDIO/FULL) plug in
-   * here as new origin sources land — see .planning/09-media-variants.md.
+   * catalog origin URLs. Remote AnimeThemes video is intentionally excluded: it
+   * is streamed directly and is never fetched into MEDIA_ROOT.
    */
   listThemeMediaSources(themeId: number): Promise<ThemeMediaSource[]>;
   findImage(
@@ -57,17 +56,6 @@ export function deriveThemeMediaSources(source: ThemeAudioSource): ThemeMediaSou
     originUrl: source.audioOriginUrl,
     videoFallback: usesVideoAsAudio,
   });
-
-  // The full opening video, when a distinct video origin exists (not the audio fallback).
-  if (source.videoOriginUrl !== null && !usesVideoAsAudio) {
-    sources.push({
-      themeId: source.themeId,
-      kind: "VIDEO",
-      variant: "FULL",
-      originUrl: source.videoOriginUrl,
-      videoFallback: false,
-    });
-  }
 
   return sources;
 }

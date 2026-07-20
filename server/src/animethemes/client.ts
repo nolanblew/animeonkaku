@@ -12,16 +12,19 @@ const DEFAULT_API_BASE_URL = "https://api.animethemes.moe";
 const BATCH_LIMIT = 50;
 const MAP_INCLUDE =
   "resources,animethemes,animethemes.animethemeentries.videos," +
-  "animethemes.animethemeentries.videos.audio,animethemes.song,animethemes.song.artists";
+  "animethemes.animethemeentries.videos.audio,animethemes.song,animethemes.song.artists," +
+  "animethemes.song.resources";
 const SEARCH_INCLUDE =
   "resources,images,animesynonyms,animethemes,animethemes.animethemeentries.videos," +
-  "animethemes.animethemeentries.videos.audio,animethemes.song,animethemes.song.artists";
+  "animethemes.animethemeentries.videos.audio,animethemes.song,animethemes.song.artists," +
+  "animethemes.song.resources";
 const SINGLE_INCLUDE =
   "resources,images,animesynonyms,animethemes,animethemes.animethemeentries.videos," +
-  "animethemes.animethemeentries.videos.audio,animethemes.song,animethemes.song.artists";
+  "animethemes.animethemeentries.videos.audio,animethemes.song,animethemes.song.artists," +
+  "animethemes.song.resources";
 const ARTIST_INCLUDE =
   "images,songs.animethemes.anime,songs.animethemes.animethemeentries.videos," +
-  "songs.animethemes.animethemeentries.videos.audio,songs.artists";
+  "songs.animethemes.animethemeentries.videos.audio,songs.artists,songs.resources";
 const REQUEST_HEADERS = {
   Accept: "application/json",
   "Accept-Language": "en-US,en;q=0.9",

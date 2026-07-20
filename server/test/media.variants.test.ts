@@ -20,20 +20,19 @@ describe("deriveThemeMediaSources", () => {
     ]);
   });
 
-  it("adds a FULL video variant when a distinct video origin exists", () => {
+  it("never enumerates a remote AnimeThemes video as downloadable media", () => {
     const sources = deriveThemeMediaSources({
       themeId: 7,
       audioOriginUrl: "https://a.animethemes.moe/Show-OP1.ogg",
       videoOriginUrl: "https://v.animethemes.moe/Show-OP1.webm",
     });
-    expect(sources).toHaveLength(2);
-    expect(sources[1]).toEqual({
+    expect(sources).toEqual([{
       themeId: 7,
-      kind: "VIDEO",
-      variant: "FULL",
-      originUrl: "https://v.animethemes.moe/Show-OP1.webm",
+      kind: "AUDIO",
+      variant: "SHORT",
+      originUrl: "https://a.animethemes.moe/Show-OP1.ogg",
       videoFallback: false,
-    });
+    }]);
   });
 
   it("treats audio==video as a video fallback and exposes no separate video variant", () => {
