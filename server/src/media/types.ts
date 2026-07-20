@@ -46,6 +46,8 @@ export interface MediaFileRecord {
   fetchedAt: Date | null;
   updatedAt: Date;
   videoFallback: boolean;
+  contentType?: string | null;
+  sourceFileName?: string | null;
 }
 
 export interface SaveMediaFileInput {
@@ -55,6 +57,13 @@ export interface SaveMediaFileInput {
   originUrl: string;
   filePath: string;
   videoFallback: boolean;
+  contentType?: string | null;
+  sourceFileName?: string | null;
+}
+
+export interface ImportLocalSongFileInput {
+  songId: number;
+  sourcePath: string;
 }
 
 export interface MediaFileRepo {

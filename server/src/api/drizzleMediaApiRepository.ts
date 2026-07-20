@@ -1,12 +1,14 @@
 import { and, eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { artists, kitsuAnime, mediaFiles, themes } from "../db/schema.js";
+import { catalogSongMediaDescriptor } from "../media/mediaLayout.js";
 import { CANONICAL_AUDIO, IMAGE_VARIANT, type MediaState } from "../media/types.js";
 import type {
   ImageRouteKind,
   MediaApiRepository,
   MediaAudioRecord,
   MediaImageRecord,
+  MediaSongAudioRecord,
 } from "./mediaRoutes.js";
 
 export class DrizzleMediaApiRepository implements MediaApiRepository {
@@ -44,6 +46,39 @@ export class DrizzleMediaApiRepository implements MediaApiRepository {
       byteSize: row.byteSize,
       sha256: row.sha256,
       videoFallback: row.videoFallback ?? false,
+    };
+  }
+
+  async findSongAudio(songId: number): Promise<MediaSongAudioRecord | null> {
+    const descriptor = catalogSongMediaDescriptor(songId);
+    const rows = await this.db
+      .select({
+        state: mediaFiles.state,
+        filePath: mediaFiles.filePath,
+        byteSize: mediaFiles.byteSize,
+        sha256: mediaFiles.sha256,
+        contentType: mediaFiles.contentType,
+        sourceFileName: mediaFiles.sourceFileName,
+      })
+      .from(mediaFiles)
+      .where(
+        and(
+          eq(mediaFiles.kind, descriptor.kind),
+          eq(mediaFiles.refId, descriptor.refId),
+          eq(mediaFiles.variant, descriptor.variant),
+        ),
+      )
+      .limit(1);
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      songId,
+      state: mediaState(row.state),
+      filePath: row.filePath,
+      byteSize: row.byteSize,
+      sha256: row.sha256,
+      contentType: row.contentType,
+      sourceFileName: row.sourceFileName,
     };
   }
 

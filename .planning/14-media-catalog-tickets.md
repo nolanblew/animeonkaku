@@ -353,6 +353,7 @@ full-length music video and do not write it to MEDIA_ROOT.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete (2026-07-20) |
 | Area | Server / media storage and streaming |
 | Difficulty | High |
 | Effort | L, 4–5 days |
@@ -401,6 +402,30 @@ Expected areas:
 - Real temporary-file tests for copy/hash/atomic move.
 - GET/HEAD and valid/invalid Range tests for at least MP3 and FLAC.
 - Run full server suite and typecheck.
+
+#### Completion and testing notes
+
+- Added stable `song:{id}`/`ORIGINAL` media descriptors and
+  `audio/songs/{id}/original.{extension}` paths without changing canonical TV
+  `audio/{themeId}.ogg` identity or routes.
+- Added original-byte local imports for FLAC, MP3, M4A, AAC, Ogg, Opus, and
+  WAV with provider-root containment, temporary copy, SHA-256 hashing, atomic
+  publication, persisted content type/source filename, READY idempotency, and
+  missing/corrupt-file recovery.
+- Added canonical managed-media path checks for both imports and streaming so
+  symlink/junction escapes beneath `MEDIA_ROOT` are rejected. Extension-changing
+  reimports publish and mark the replacement READY before safely removing only
+  the prior allowlisted path for that same song.
+- Added authenticated ready-only catalog-song GET/HEAD streaming with ETag,
+  immutable caching, source filename, valid/invalid Range behavior, and no
+  proxy or on-demand provider fallback.
+- Focused MC-S03 tests passed: 41/41. Server TypeScript typecheck passed. Full
+  Vitest passed: 38 files passed, 2 skipped; 237 tests passed and 3
+  environment-gated tests skipped.
+- Independent light review found two medium issues (managed-path symlink escape
+  and stale files after an extension change). Both were fixed with regression
+  tests; targeted follow-up review cleared the ticket with no remaining
+  actionable findings.
 
 #### Handoff notes
 

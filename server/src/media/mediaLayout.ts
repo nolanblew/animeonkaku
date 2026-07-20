@@ -23,3 +23,30 @@ export function themeMediaFilePath(
   if (variant === "FULL") return `video/${themeId}.webm`;
   return `video/${themeId}.${variant.toLowerCase()}.webm`;
 }
+
+export function catalogSongRefId(songId: number): string {
+  assertSongId(songId);
+  return `song:${songId}`;
+}
+
+export function catalogSongMediaDescriptor(songId: number) {
+  return {
+    kind: "AUDIO",
+    refId: catalogSongRefId(songId),
+    variant: "ORIGINAL",
+  } as const;
+}
+
+export function catalogSongMediaFilePath(songId: number, safeExtension: string): string {
+  assertSongId(songId);
+  if (!/^[a-z0-9]+$/.test(safeExtension)) {
+    throw new Error("Invalid catalog-song media extension.");
+  }
+  return `audio/songs/${songId}/original.${safeExtension}`;
+}
+
+function assertSongId(songId: number): void {
+  if (!Number.isSafeInteger(songId) || songId <= 0) {
+    throw new Error("Invalid catalog song ID.");
+  }
+}
