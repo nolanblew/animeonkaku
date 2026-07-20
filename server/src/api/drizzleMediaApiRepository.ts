@@ -1,6 +1,17 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, exists, isNull, or } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { artists, kitsuAnime, mediaFiles, themes } from "../db/schema.js";
+import {
+  animeMusicReleases,
+  artists,
+  kitsuAnime,
+  mediaFiles,
+  musicAcquisitions,
+  musicReleases,
+  releaseTracks,
+  songs,
+  themeFullSongs,
+  themes,
+} from "../db/schema.js";
 import { catalogSongMediaDescriptor } from "../media/mediaLayout.js";
 import { CANONICAL_AUDIO, IMAGE_VARIANT, type MediaState } from "../media/types.js";
 import type {
@@ -51,6 +62,48 @@ export class DrizzleMediaApiRepository implements MediaApiRepository {
 
   async findSongAudio(songId: number): Promise<MediaSongAudioRecord | null> {
     const descriptor = catalogSongMediaDescriptor(songId);
+    const publishedFull = this.db
+      .select({ songId: themeFullSongs.songId })
+      .from(themeFullSongs)
+      .innerJoin(songs, and(eq(songs.id, themeFullSongs.songId), isNull(songs.deletedAt)))
+      .innerJoin(themes, and(eq(themes.id, themeFullSongs.themeId), isNull(themes.deletedAt)))
+      .innerJoin(
+        musicReleases,
+        and(eq(musicReleases.id, themeFullSongs.sourceReleaseId), isNull(musicReleases.deletedAt)),
+      )
+      .innerJoin(
+        musicAcquisitions,
+        and(
+          eq(musicAcquisitions.purpose, "FULL_SIZE"),
+          eq(musicAcquisitions.state, "READY"),
+          eq(musicAcquisitions.themeId, themeFullSongs.themeId),
+          eq(musicAcquisitions.songId, themeFullSongs.songId),
+          eq(musicAcquisitions.releaseId, themeFullSongs.sourceReleaseId),
+        ),
+      )
+      .where(eq(themeFullSongs.songId, songId));
+    const publishedRelated = this.db
+      .select({ songId: releaseTracks.songId })
+      .from(releaseTracks)
+      .innerJoin(songs, and(eq(songs.id, releaseTracks.songId), isNull(songs.deletedAt)))
+      .innerJoin(
+        musicReleases,
+        and(eq(musicReleases.id, releaseTracks.releaseId), isNull(musicReleases.deletedAt)),
+      )
+      .innerJoin(
+        animeMusicReleases,
+        eq(animeMusicReleases.releaseId, releaseTracks.releaseId),
+      )
+      .innerJoin(
+        musicAcquisitions,
+        and(
+          eq(musicAcquisitions.purpose, "RELATED_RELEASE"),
+          eq(musicAcquisitions.state, "READY"),
+          eq(musicAcquisitions.releaseId, animeMusicReleases.releaseId),
+          eq(musicAcquisitions.animethemesAnimeId, animeMusicReleases.animethemesAnimeId),
+        ),
+      )
+      .where(eq(releaseTracks.songId, songId));
     const rows = await this.db
       .select({
         state: mediaFiles.state,
@@ -66,6 +119,8 @@ export class DrizzleMediaApiRepository implements MediaApiRepository {
           eq(mediaFiles.kind, descriptor.kind),
           eq(mediaFiles.refId, descriptor.refId),
           eq(mediaFiles.variant, descriptor.variant),
+          eq(mediaFiles.state, "READY"),
+          or(exists(publishedFull), exists(publishedRelated)),
         ),
       )
       .limit(1);

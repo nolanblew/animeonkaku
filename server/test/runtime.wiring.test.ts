@@ -23,4 +23,12 @@ describe("server runtime wiring", () => {
     expect(source).toMatch(/for \(const acquisitionId of await discoveryCatalog\.listRecoverableImportIds\(\)\)[\s\S]*IMPORT_MUSIC_AUDIO/);
     expect(source).toMatch(/handlers: \{ \.\.\.fetchHandlers, \.\.\.syncHandlers, \.\.\.discoveryHandlers, \.\.\.musicImportHandlers \}/);
   });
+
+  it("wires listener catalog visibility into client, search, and song streaming services", async () => {
+    const source = await readFile(new URL("../src/index.ts", import.meta.url), "utf8");
+
+    expect(source).toMatch(/new DrizzleClientApiService\([\s\S]*config\.MUSIC_CATALOG_ENABLED[\s\S]*\)/);
+    expect(source).toMatch(/new MediaStreamingService\(\{[\s\S]*musicCatalogEnabled:\s*config\.MUSIC_CATALOG_ENABLED[\s\S]*\}\)/);
+    expect(source).toMatch(/new CachedProxyService\(\{[\s\S]*musicSearch:\s*\(userId, query\) => clientApi\.searchMusic\(userId, query\)[\s\S]*\}\)/);
+  });
 });

@@ -40,6 +40,39 @@ class FakeClientApi implements ClientApiService {
   deletedPlaylistCalls: Array<{ userId: string; id: number; opTs: number | null }> = [];
   private nextPlaylistId = 1;
 
+  async getAnimeMusic(_userId: string, kitsuId: string) {
+    if (kitsuId !== "1") return null;
+    return {
+      anime: { kitsuId: "1", title: "Bocchi the Rock!", titleEn: "Bocchi the Rock!", posterUrl: null },
+      releases: [{
+        id: 200,
+        title: "Bocchi the Rock! Original Soundtrack",
+        artistCredit: "Tomoki Kikuya",
+        relationshipType: "SOUNDTRACK",
+        releaseDate: "2022-12-28",
+        artworkUrl: "https://example.invalid/ost.jpg",
+        tracks: [{ id: 300, title: "Rockn' Roll, Morning Light Falls on You", artistCredit: "Kessoku Band", durationSeconds: 271, audioUrl: "/v1/media/songs/300/audio", fileSize: 1234 }],
+      }],
+    };
+  }
+
+  async getMusicRelease(_userId: string, releaseId: number) {
+    const result = await this.getAnimeMusic(_userId, "1");
+    return releaseId === 200 ? result!.releases[0]! : null;
+  }
+
+  async getMusicCatalog(_userId: string) {
+    const result = await this.getAnimeMusic(_userId, "1");
+    return result ? [result] : [];
+  }
+
+  async searchMusic(_userId: string, query: string) {
+    const tracks = query.toLowerCase().includes("kessoku")
+      ? [{ anime: { kitsuId: "1", title: "Bocchi the Rock!", titleEn: "Bocchi the Rock!", posterUrl: null }, releaseId: 200, releaseTitle: "Bocchi the Rock! Original Soundtrack", track: { id: 300, title: "Rockn' Roll, Morning Light Falls on You", artistCredit: "Kessoku Band", durationSeconds: 271, audioUrl: "/v1/media/songs/300/audio", fileSize: 1234 } }]
+      : [];
+    return { releases: [], tracks };
+  }
+
   private prefDto(themeId: number, pref: { liked: boolean; disliked: boolean; playCount: number; lastPlayedAt: number | null }) {
     return { themeId, ...pref, updatedAt: 1, deleted: false };
   }
@@ -110,6 +143,11 @@ class FakeClientApi implements ClientApiService {
           audioState: "READY",
           durationSeconds: 90,
           fileSize: 5_242_880,
+          mediaModes: {
+            tvSize: { url: "/v1/media/audio/100", durationSeconds: 90, fileSize: 5_242_880 },
+            fullSize: { songId: 300, url: "/v1/media/songs/300/audio", durationSeconds: 271, fileSize: 1234, sourceReleaseId: 200 },
+            video: { url: "https://example.invalid/op.webm", mimeType: "video/webm", spoiler: false, nsfw: false, entryVersion: 1 },
+          },
           updatedAt: 1_759_000_000_000,
           deleted: false,
         },
@@ -144,6 +182,7 @@ class FakeClientApi implements ClientApiService {
       themes: library.themes,
       prefs: await this.getThemePrefs(userId, since),
       playlists: await this.listPlaylists(userId, { since }),
+      musicCatalog: await this.getMusicCatalog(userId),
     };
   }
 
@@ -554,5 +593,43 @@ describe("client API routes", () => {
 
     expect(sync.statusCode).toBe(200);
     expect(syncApi.enqueued).toEqual([{ userId: "stub-nolan", full: true }]);
+  });
+
+  it("returns additive media modes and a complete ready music snapshot in changes", async () => {
+    const token = await bearer();
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/changes?since=1750000000000",
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().themes[0]).toMatchObject({
+      audioUrl: "/v1/media/audio/100",
+      mediaModes: {
+        tvSize: { url: "/v1/media/audio/100" },
+        fullSize: { songId: 300, url: "/v1/media/songs/300/audio" },
+        video: { url: "https://example.invalid/op.webm" },
+      },
+    });
+    expect(response.json().musicCatalog[0]).toMatchObject({
+      anime: { kitsuId: "1" },
+      releases: [{ id: 200, tracks: [{ id: 300 }] }],
+    });
+  });
+
+  it("serves authenticated ready-only anime music and release detail routes", async () => {
+    const token = await bearer();
+    const anime = await app.inject({ method: "GET", url: "/v1/anime/1/music", headers: { authorization: `Bearer ${token}` } });
+    expect(anime.statusCode).toBe(200);
+    expect(anime.json()).toMatchObject({ anime: { kitsuId: "1" }, releases: [{ id: 200, tracks: [{ id: 300 }] }] });
+
+    const release = await app.inject({ method: "GET", url: "/v1/music/releases/200", headers: { authorization: `Bearer ${token}` } });
+    expect(release.statusCode).toBe(200);
+    expect(release.json()).toMatchObject({ id: 200, tracks: [{ audioUrl: "/v1/media/songs/300/audio" }] });
+
+    const missing = await app.inject({ method: "GET", url: "/v1/music/releases/999", headers: { authorization: `Bearer ${token}` } });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json()).toMatchObject({ error: { code: "MUSIC_NOT_FOUND" } });
   });
 });

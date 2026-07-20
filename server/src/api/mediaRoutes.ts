@@ -56,6 +56,8 @@ export interface MediaStreamingServiceDeps {
   repo: MediaApiRepository;
   queue: JobQueue;
   mediaRoot: string;
+  /** Listener-facing catalog audio remains hidden while the catalog rollout flag is off. */
+  musicCatalogEnabled?: boolean;
   fetch?: FetchLike;
   /** Fetch used for image origins (Kitsu CDN etc.); falls back to `fetch`. */
   imageFetch?: FetchLike;
@@ -146,6 +148,9 @@ export class MediaStreamingService {
     rangeHeader: string | undefined,
     reply: FastifyReply,
   ): Promise<FastifyReply> {
+    if (!this.deps.musicCatalogEnabled) {
+      throw new ApiError(404, "MUSIC_NOT_FOUND", "Song audio is not in the ready catalog.");
+    }
     const audio = await this.deps.repo.findSongAudio(songId);
     if (!audio || audio.state !== "READY") {
       throw new ApiError(404, "MUSIC_NOT_FOUND", "Song audio is not in the ready catalog.");

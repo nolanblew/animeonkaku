@@ -7,6 +7,48 @@ import { makeRequireAuth } from "./requireAuth.js";
 
 export type AudioState = "READY" | "PENDING" | "FAILED" | "MISSING";
 
+export interface MusicTrackDto {
+  id: number;
+  title: string;
+  artistCredit: string;
+  durationSeconds: number | null;
+  audioUrl: string;
+  fileSize: number | null;
+  discNumber: number;
+  trackNumber: number | null;
+  displayOrder: number;
+}
+
+export interface MusicReleaseDto {
+  id: number;
+  title: string;
+  artistCredit: string;
+  relationshipType: string;
+  releaseDate: string | null;
+  year: number | null;
+  artworkUrl: string | null;
+  tracks: MusicTrackDto[];
+  anime?: Array<MusicAnimeSummaryDto & { relationshipType: string }>;
+}
+
+export interface MusicAnimeSummaryDto {
+  kitsuId: string;
+  title: string | null;
+  titleEn: string | null;
+  posterUrl: string | null;
+}
+
+export interface AnimeMusicDto {
+  anime: MusicAnimeSummaryDto;
+  releases: MusicReleaseDto[];
+}
+
+export interface ThemeMediaModesDto {
+  tvSize: { url: string; durationSeconds: number | null; fileSize: number | null };
+  fullSize: { songId: number; url: string; durationSeconds: number | null; fileSize: number | null; sourceReleaseId: number | null } | null;
+  video: { url: string; mimeType: string | null; spoiler: boolean; nsfw: boolean; entryVersion: number | null } | null;
+}
+
 export interface LibraryAnimeDto {
   kitsuId: string;
   animeThemesId: number | null;
@@ -43,6 +85,7 @@ export interface LibraryThemeDto {
   audioState: AudioState;
   durationSeconds: number | null;
   fileSize: number | null;
+  mediaModes: ThemeMediaModesDto;
   updatedAt: number;
   deleted: boolean;
 }
@@ -107,6 +150,7 @@ export interface ChangesResponse {
   themes: LibraryThemeDto[];
   prefs: ThemePrefDto[];
   playlists: PlaylistDto[];
+  musicCatalog: AnimeMusicDto[];
 }
 
 export interface ClientApiService {
@@ -116,6 +160,10 @@ export interface ClientApiService {
     userId: string,
     kitsuId: string,
   ): Promise<{ anime: LibraryAnimeDto; themes: LibraryThemeDto[] } | null>;
+  getAnimeMusic(userId: string, kitsuId: string): Promise<AnimeMusicDto | null>;
+  getMusicRelease(userId: string, releaseId: number): Promise<MusicReleaseDto | null>;
+  getMusicCatalog(userId: string): Promise<AnimeMusicDto[]>;
+  searchMusic(userId: string, query: string): Promise<{ releases: unknown[]; tracks: unknown[] }>;
   ensureLibraryForUserData(userId: string): Promise<boolean>;
   ensureLibraryForThemeIds(userId: string, themeIds: number[]): Promise<boolean>;
   addLibraryAnime(
@@ -151,6 +199,8 @@ const kitsuParams = z.object({
 const idParams = z.object({
   id: z.coerce.number().int().positive(),
 });
+
+const releaseParams = z.object({ releaseId: z.coerce.number().int().positive() });
 
 const manualAddBody = z
   .object({
@@ -245,6 +295,26 @@ export function registerClientRoutes(
     async (request) => {
       const result = await service.getAnime(request.auth!.user.kitsuUserId, request.params.kitsuId);
       if (!result) throw new ApiError(404, "NOT_FOUND", "Anime not found.");
+      return result;
+    },
+  );
+
+  app.get(
+    "/v1/anime/:kitsuId/music",
+    { schema: { params: kitsuParams }, preHandler: requireAuth },
+    async (request) => {
+      const result = await service.getAnimeMusic(request.auth!.user.kitsuUserId, request.params.kitsuId);
+      if (!result) throw new ApiError(404, "MUSIC_NOT_FOUND", "Ready music was not found for this anime.");
+      return result;
+    },
+  );
+
+  app.get(
+    "/v1/music/releases/:releaseId",
+    { schema: { params: releaseParams }, preHandler: requireAuth },
+    async (request) => {
+      const result = await service.getMusicRelease(request.auth!.user.kitsuUserId, request.params.releaseId);
+      if (!result) throw new ApiError(404, "MUSIC_NOT_FOUND", "Ready music release was not found.");
       return result;
     },
   );

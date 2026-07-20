@@ -21,12 +21,14 @@ class FakeMediaRepo implements MediaApiRepository {
   audio = new Map<number, Awaited<ReturnType<MediaApiRepository["findAudio"]>>>();
   songs = new Map<number, Awaited<ReturnType<MediaApiRepository["findSongAudio"]>>>();
   images = new Map<string, Awaited<ReturnType<MediaApiRepository["findImage"]>>>();
+  songLookups = 0;
 
   async findAudio(themeId: number) {
     return this.audio.get(themeId) ?? null;
   }
 
   async findSongAudio(songId: number) {
+    this.songLookups++;
     return this.songs.get(songId) ?? null;
   }
 
@@ -72,6 +74,7 @@ beforeEach(async () => {
       logger: {
         info: (data, message) => logs.push({ data, message }),
       },
+      musicCatalogEnabled: true,
     }),
   });
 });
@@ -93,9 +96,43 @@ async function bearer(prefix = "") {
 }
 
 describe("media API routes", () => {
-  it("requires bearer auth for catalog-song audio", async () => {
-    const res = await app.inject({ method: "GET", url: "/v1/media/songs/77/audio" });
+  it.each(["GET", "HEAD"] as const)("requires bearer auth for catalog-song %s", async (method) => {
+    const res = await app.inject({ method, url: "/v1/media/songs/77/audio" });
     expect(res.statusCode).toBe(401);
+  });
+
+  it("hides catalog-song audio behind MUSIC_CATALOG_ENABLED without querying storage", async () => {
+    await app.close();
+    app = buildApp({
+      authService: new AuthService(new FakeAuthRepo(), new StubKitsuAuthClient()),
+      health: { pingDb: async () => {}, mediaRoot },
+      mediaApi: new MediaStreamingService({
+        repo,
+        queue,
+        mediaRoot,
+        fetch: (input, init) => mediaFetch(input, init),
+        musicCatalogEnabled: false,
+      }),
+    });
+    const token = await bearer();
+
+    const [res, head] = await Promise.all([
+      app.inject({
+        method: "GET",
+        url: "/v1/media/songs/77/audio",
+        headers: { authorization: `Bearer ${token}` },
+      }),
+      app.inject({
+        method: "HEAD",
+        url: "/v1/media/songs/77/audio",
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    ]);
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ error: { code: "MUSIC_NOT_FOUND" } });
+    expect(head.statusCode).toBe(404);
+    expect(repo.songLookups).toBe(0);
   });
 
   it.each([

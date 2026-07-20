@@ -293,7 +293,13 @@ const discoveryScheduler = new MusicDiscoveryScheduler(jobQueue, discoveryEnable
 });
 discoveryScheduler.start();
 
-const clientApi = new DrizzleClientApiService(db, jobQueue, undefined, externalLogger);
+const clientApi = new DrizzleClientApiService(
+  db,
+  jobQueue,
+  undefined,
+  externalLogger,
+  config.MUSIC_CATALOG_ENABLED,
+);
 const deviceActivitySync = new DeviceActivitySyncTrigger({ queue: jobQueue });
 
 const app = buildApp({
@@ -318,10 +324,12 @@ const app = buildApp({
     imageFetch: imagesFetch,
     logger: externalLogger,
     activity: mediaActivity,
+    musicCatalogEnabled: config.MUSIC_CATALOG_ENABLED,
   }),
   syncApi: new JobSyncApiService(jobQueue),
   proxyApi: new CachedProxyService({
     upstream: new UpstreamProxyService(animeThemesClient, kitsuClient, syncRepo),
+    musicSearch: (userId, query) => clientApi.searchMusic(userId, query),
   }),
   onLogin: async (result) => {
     // New users and long-dormant libraries get a FULL sync; recently synced

@@ -884,6 +884,7 @@ Failure to clean must not unpublish otherwise valid audio.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete (2026-07-20) |
 | Area | Server / client API |
 | Difficulty | High |
 | Effort | L, 4–5 days |
@@ -931,6 +932,44 @@ Expected areas:
 - Additive JSON parsing/contract tests.
 - Range tests across original formats.
 - Full server suite and typecheck.
+
+#### Completion and testing notes
+
+- Added the additive `mediaModes` theme contract while preserving every legacy
+  theme field and keeping legacy `videoUrl` null. TV Size mirrors the existing
+  URL/duration/file-size behavior; Full Size requires an exact active
+  theme/song/source-release link plus READY acquisition and ORIGINAL media;
+  Video uses the deterministic direct AnimeThemes descriptor and flags.
+- Added authenticated anime-music and release-detail routes with ready-only,
+  deterministically ordered Related releases/tracks, release year/artwork,
+  complete owning-anime context, and omission of zero-ready, partial, failed,
+  ambiguous, metadata-only, or soft-deleted catalog state.
+- Added a complete current-library `musicCatalog` snapshot to every changes
+  response, independent of the delta cursor. Active theme descriptors replay
+  on catalog-enabled and catalog-disabled deltas so a feature-flag transition
+  immediately publishes or clears previously cached Full/Video modes; recent
+  tombstones remain included.
+- Extended the existing authenticated Search response without changing its
+  legacy keys. Cached upstream anime results are composed with fresh global
+  ready music release/track sections, capped at 25 per kind, normalized across
+  punctuation/width/accents, and retaining all owning anime contexts. Full-only
+  songs remain theme modes rather than Related results.
+- Hardened the existing song GET/HEAD route behind
+  `MUSIC_CATALOG_ENABLED` and exact published Full/Related visibility. READY
+  orphan media and soft-deleted songs/themes/releases return listener-safe 404;
+  published missing files retain the existing 503 distinction. Local original
+  formats keep authenticated 200/206/416, HEAD, content type, range, cache, and
+  containment behavior without provider proxying.
+- Independent Terra/High QA passed 41 focused API/media/proxy/runtime tests.
+  An isolated PostgreSQL 16 run passed 12/12 opt-in tests across catalog API,
+  media visibility, migrations, discovery due selection, and acquisition
+  publication; the exact temporary container was removed and `server-db-1`
+  was verified untouched.
+- Final full server Vitest passed with 379 tests passed and 14
+  environment-gated tests skipped. The 12 PostgreSQL skips were run separately
+  and passed; the other 2 are external AnimeThemes live tests. TypeScript
+  `--noEmit` and `git diff --check` passed (apart from expected Windows CRLF
+  notices). Independent Sol/Medium review found no remaining code blocker.
 
 #### Handoff notes
 
