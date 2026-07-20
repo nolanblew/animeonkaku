@@ -436,6 +436,7 @@ allowlisting/path safety is required.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete (2026-07-20) |
 | Area | Server / integration boundary |
 | Difficulty | Medium |
 | Effort | M, 2–3 days |
@@ -482,6 +483,30 @@ Expected areas:
 - Config tests for disabled, valid Lidarr, and missing-field cases.
 - Fake-provider contract test.
 - Typecheck and full server suite.
+
+#### Completion and testing notes
+
+- Added provider-neutral catalog resolver and acquisition contracts, normalized
+  release/track/imported-file records, match evidence/reasons, season release
+  classification, and a disabled provider implementation.
+- Ensure/cleanup contracts carry durable provider ownership, prior monitoring
+  state, and opaque cleanup context so later reconciliation remains safe after
+  process restarts. Imported records distinguish provider and server-readable
+  paths and expose the title/artist/duration/MusicBrainz evidence needed for
+  exact-track validation.
+- Added conditional catalog/discovery/Lidarr environment configuration. Existing
+  startup remains unchanged with music disabled; selecting Lidarr fails fast
+  when required fields are absent, and optional path prefixes must be paired.
+- Added a dedicated Lidarr upstream HTTP instance using the existing retry,
+  background token-bucket lane, and circuit-breaker patterns. The API key is
+  injected only through `X-Api-Key`; tests prove it is absent from URLs and
+  structured logs.
+- Focused contract/config tests passed: 7/7. Server TypeScript typecheck passed.
+  Full Vitest passed: 40 files passed, 2 skipped; 244 tests passed and 3
+  environment-gated tests skipped.
+- Independent light review found four downstream contract/wiring gaps. All were
+  corrected and the targeted follow-up review cleared the ticket with no
+  remaining actionable findings.
 
 #### Handoff notes
 

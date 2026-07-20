@@ -22,6 +22,7 @@ import { JobPriority, JobQueue, JobWorker, PgJobRepository } from "./jobs/index.
 import { RealKitsuAuthClient } from "./kitsu/kitsuAuthClient.js";
 import { KitsuClient } from "./kitsu/kitsuClient.js";
 import { createJsonStdoutLogger } from "./logging.js";
+import { createLidarrUpstreamHttp } from "./music/lidarrHttp.js";
 import {
   createFetchMediaHandlers,
   DrizzleMediaCatalogLookup,
@@ -40,6 +41,16 @@ import {
 
 const config = loadConfig();
 const externalLogger = createJsonStdoutLogger();
+
+// MC-S05 will consume this provider-specific instance. Creating it here keeps
+// Lidarr on the shared retry/breaker/logging stack without leaking its key.
+const lidarrHttp = config.MUSIC_PROVIDER === "LIDARR"
+  ? createLidarrUpstreamHttp({
+      apiKey: config.LIDARR_API_KEY!,
+      logger: externalLogger,
+    })
+  : undefined;
+void lidarrHttp;
 
 const { pool, db } = createDb(config.DATABASE_URL);
 

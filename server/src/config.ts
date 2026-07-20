@@ -8,6 +8,20 @@ export const PUBLIC_KITSU_CLIENT_SECRET =
 const blankToUndefined = (value: unknown): unknown =>
   typeof value === "string" && value.trim().length === 0 ? undefined : value;
 
+const booleanFromEnvironment = z.preprocess((value) => {
+  if (typeof value !== "string") return value;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true" || normalized === "1") return true;
+  if (normalized === "false" || normalized === "0" || normalized === "") return false;
+  return value;
+}, z.boolean());
+
+const optionalNonBlankString = z.preprocess(blankToUndefined, z.string().min(1).optional());
+const optionalPositiveInteger = z.preprocess(
+  blankToUndefined,
+  z.coerce.number().int().positive().optional(),
+);
+
 const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(8080),
   DATABASE_URL: z.string().min(1),
@@ -29,6 +43,19 @@ const EnvSchema = z.object({
     blankToUndefined,
     z.string().url().default("https://api.animethemes.moe"),
   ),
+  // Catalog exposure and automatic discovery are independent rollout switches.
+  MUSIC_CATALOG_ENABLED: booleanFromEnvironment.default(false),
+  MUSIC_DISCOVERY_ENABLED: booleanFromEnvironment.default(false),
+  MUSIC_PROVIDER: z.enum(["disabled", "LIDARR"]).default("disabled"),
+  LIDARR_BASE_URL: z.preprocess(blankToUndefined, z.string().url().optional()),
+  LIDARR_API_KEY: optionalNonBlankString,
+  LIDARR_ROOT_FOLDER_PATH: optionalNonBlankString,
+  LIDARR_SHARED_ROOT: optionalNonBlankString,
+  LIDARR_PATH_PREFIX_FROM: optionalNonBlankString,
+  LIDARR_PATH_PREFIX_TO: optionalNonBlankString,
+  LIDARR_QUALITY_PROFILE_ID: optionalPositiveInteger,
+  LIDARR_METADATA_PROFILE_ID: optionalPositiveInteger,
+  LIDARR_OWNERSHIP_TAG_ID: optionalPositiveInteger,
 });
 
 export type Config = z.infer<typeof EnvSchema>;
@@ -41,5 +68,32 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       .join("; ");
     throw new Error(`Invalid environment configuration — ${issues}`);
   }
-  return parsed.data;
+
+  const config = parsed.data;
+  const issues: string[] = [];
+  if (config.MUSIC_DISCOVERY_ENABLED && config.MUSIC_PROVIDER === "disabled") {
+    issues.push("MUSIC_DISCOVERY_ENABLED requires MUSIC_PROVIDER=LIDARR");
+  }
+
+  if (config.MUSIC_PROVIDER === "LIDARR") {
+    const requiredLidarrFields = [
+      "LIDARR_BASE_URL",
+      "LIDARR_API_KEY",
+      "LIDARR_ROOT_FOLDER_PATH",
+      "LIDARR_SHARED_ROOT",
+      "LIDARR_QUALITY_PROFILE_ID",
+      "LIDARR_METADATA_PROFILE_ID",
+    ] as const;
+    for (const field of requiredLidarrFields) {
+      if (config[field] === undefined) issues.push(`${field}: required when MUSIC_PROVIDER=LIDARR`);
+    }
+    if ((config.LIDARR_PATH_PREFIX_FROM === undefined) !== (config.LIDARR_PATH_PREFIX_TO === undefined)) {
+      issues.push("LIDARR_PATH_PREFIX_FROM and LIDARR_PATH_PREFIX_TO must be set together");
+    }
+  }
+
+  if (issues.length > 0) {
+    throw new Error(`Invalid environment configuration — ${issues.join("; ")}`);
+  }
+  return config;
 }
