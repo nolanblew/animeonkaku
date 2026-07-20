@@ -5,12 +5,14 @@ import type {
   MusicAcquisitionStatus,
   MusicAcquisitionStatusRequest,
   MusicImportedFilesRequest,
+  MusicProviderReleaseTracksRequest,
   MusicProviderCleanupRequest,
   MusicProviderCleanupResult,
   MusicProviderHealth,
   MusicProviderReleaseLookup,
   NormalizedProviderFile,
   NormalizedProviderRelease,
+  NormalizedProviderTrack,
   StartMusicAcquisition,
   StartedMusicAcquisition,
 } from "./types.js";
@@ -49,6 +51,10 @@ export class DisabledMusicAcquisitionProvider implements MusicAcquisitionProvide
   }
 
   async listImportedFiles(_input: MusicImportedFilesRequest): Promise<NormalizedProviderFile[]> {
+    throw new MusicProviderDisabledError();
+  }
+
+  async listReleaseTracks(_input: MusicProviderReleaseTracksRequest): Promise<NormalizedProviderTrack[]> {
     throw new MusicProviderDisabledError();
   }
 

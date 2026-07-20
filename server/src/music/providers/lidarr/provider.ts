@@ -11,8 +11,10 @@ import type {
   MusicProviderCleanupResult,
   MusicProviderHealth,
   MusicProviderReleaseLookup,
+  MusicProviderReleaseTracksRequest,
   NormalizedProviderFile,
   NormalizedProviderRelease,
+  NormalizedProviderTrack,
   StartMusicAcquisition,
   StartedMusicAcquisition,
 } from "../../types.js";
@@ -274,6 +276,16 @@ export class LidarrMusicAcquisitionProvider implements MusicAcquisitionProvider 
     });
   }
 
+  async listReleaseTracks(input: MusicProviderReleaseTracksRequest): Promise<NormalizedProviderTrack[]> {
+    const albumId = parsePositiveId(input.providerReleaseId, "provider release");
+    const [album, tracks] = await Promise.all([
+      this.get(`/api/v1/album/${albumId}`, lidarrAlbumSchema),
+      this.get(`/api/v1/track?${new URLSearchParams({ albumId: String(albumId) })}`, lidarrTracksSchema),
+    ]);
+    const artist = artistName(album.artist);
+    return tracks.map((track) => normalizeTrack(album.foreignAlbumId, artist, track));
+  }
+
   async cleanup(input: MusicProviderCleanupRequest): Promise<MusicProviderCleanupResult> {
     const resource = input.resource;
     if (resource.provider !== this.provider) {
@@ -439,6 +451,29 @@ function normalizeRelease(album: LidarrAlbum): NormalizedProviderRelease {
     ...(artworkUrl ? { artworkUrl } : {}),
     tracks: [],
   };
+}
+
+function normalizeTrack(providerReleaseId: string, artist: string, track: LidarrTrack): NormalizedProviderTrack {
+  const duration = durationSeconds(track.duration);
+  const parsedTrackNumber = track.absoluteTrackNumber ?? parseTrackNumber(track.trackNumber);
+  return {
+    provider: "LIDARR",
+    providerTrackId: track.foreignTrackId ?? String(track.id),
+    providerReleaseId,
+    ...(track.foreignRecordingId ? { musicbrainzRecordingId: track.foreignRecordingId } : {}),
+    title: track.title,
+    normalizedTitle: normalizeText(track.title),
+    artistCredit: artist,
+    normalizedArtist: normalizeText(artist),
+    discNumber: track.mediumNumber ?? 1,
+    ...(parsedTrackNumber === undefined ? {} : { trackNumber: parsedTrackNumber }),
+    ...(duration === undefined ? {} : { durationSeconds: duration }),
+  };
+}
+
+function parseTrackNumber(value: string | null | undefined): number | undefined {
+  const number = value ? Number.parseInt(value, 10) : Number.NaN;
+  return Number.isInteger(number) && number > 0 ? number : undefined;
 }
 
 function artistName(artist: LidarrAlbum["artist"]): string {

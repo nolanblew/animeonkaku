@@ -23,6 +23,8 @@ export interface NormalizedProviderTrack {
   discNumber: number;
   trackNumber?: number;
   durationSeconds?: number;
+  /** Contradictory metadata observed for the same provider-scoped track identity. */
+  metadataConflicts?: Array<"RECORDING_ID" | "TITLE" | "ARTIST" | "DURATION">;
 }
 
 export interface NormalizedProviderRelease {
@@ -66,10 +68,15 @@ export type MusicMatchEvidenceKind =
   | "MUSICBRAINZ_RECORDING_EXACT"
   | "MUSICBRAINZ_RECORDING_CONFLICT"
   | "TITLE_MATCH"
+  | "TITLE_CONFLICT"
   | "ARTIST_MATCH"
+  | "ARTIST_CONFLICT"
   | "DURATION_MATCH"
+  | "DURATION_CONFLICT"
   | "RELEASE_ANIME_ALIAS"
+  | "RELEASE_ANIME_ALIAS_MISSING"
   | "RELEASE_TYPE"
+  | "RELEASE_TYPE_UNCLASSIFIED"
   | "EXCLUSION";
 
 export interface MusicMatchEvidenceSignal {
@@ -98,8 +105,14 @@ export interface MusicCatalogTarget {
   kind: MusicCatalogTargetKind;
   animeThemesAnimeId: number;
   animeTitles: string[];
+  /** Aliases that distinguish this exact season/part/cour from its shared franchise. */
+  seasonSpecificTitles?: string[];
   animeThemesSongId?: number;
+  /** AnimeThemes song resource identifiers (for example MusicBrainz or other stable resource IDs). */
+  resourceIds?: string[];
   musicbrainzRecordingId?: string;
+  /** Explicit expected release/release-group identities from trusted theme metadata. */
+  expectedMusicbrainzReleaseIds?: string[];
   title?: string;
   artist?: string;
   durationSeconds?: number;
@@ -123,7 +136,25 @@ export interface MusicCatalogResolution {
   release?: NormalizedProviderRelease;
   track?: NormalizedProviderTrack;
   releaseClassification?: MusicReleaseClassification;
+  intent?: MusicCatalogAcceptanceIntent;
 }
+
+/** Pure catalog writes proposed by matching; acquisition is a later workflow. */
+export type MusicCatalogAcceptanceIntent =
+  | {
+      kind: "FULL_SIZE";
+      animeThemesAnimeId: number;
+      animeThemesSongId?: number;
+      release: NormalizedProviderRelease;
+      song: NormalizedProviderTrack;
+    }
+  | {
+      kind: "RELATED_RELEASE";
+      animeThemesAnimeId: number;
+      release: NormalizedProviderRelease;
+      releaseType: MusicReleaseType;
+      songs: NormalizedProviderTrack[];
+    };
 
 export interface MusicReleaseClassification {
   releaseType: MusicReleaseType;
@@ -189,6 +220,11 @@ export interface MusicImportedFilesRequest {
   providerReleaseId: string;
 }
 
+export interface MusicProviderReleaseTracksRequest {
+  /** Provider resource ID returned by ensureRelease; enrichment must not start a search. */
+  providerReleaseId: string;
+}
+
 export interface MusicProviderCleanupRequest {
   resource: MusicProviderResourceContext;
   restorePriorMonitoringState: boolean;
@@ -205,6 +241,8 @@ export interface MusicAcquisitionProvider {
   ensureRelease(input: EnsureMusicProviderRelease): Promise<EnsuredMusicProviderRelease>;
   startAcquisition(input: StartMusicAcquisition): Promise<StartedMusicAcquisition>;
   getAcquisitionStatus(input: MusicAcquisitionStatusRequest): Promise<MusicAcquisitionStatus>;
+  /** Enrich a candidate after ensureRelease and before matching/acquisition. */
+  listReleaseTracks(input: MusicProviderReleaseTracksRequest): Promise<NormalizedProviderTrack[]>;
   listImportedFiles(input: MusicImportedFilesRequest): Promise<NormalizedProviderFile[]>;
   cleanup(input: MusicProviderCleanupRequest): Promise<MusicProviderCleanupResult>;
 }

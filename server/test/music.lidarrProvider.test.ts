@@ -263,6 +263,40 @@ describe("LidarrMusicAcquisitionProvider search and status", () => {
 });
 
 describe("LidarrMusicAcquisitionProvider imported files and cleanup", () => {
+  it("enriches an ensured release with tracks without starting acquisition", async () => {
+    const { provider, requests } = providerFor([
+      { match: "/api/v1/album/12", response: { status: 200, body: JSON.stringify(albumFixture) } },
+      {
+        match: "/api/v1/track?",
+        response: { status: 200, body: JSON.stringify([{
+          id: 31,
+          albumId: 12,
+          foreignTrackId: "release-track-mbid",
+          foreignRecordingId: "recording-mbid",
+          title: "Pre-Parade",
+          duration: 241000,
+          mediumNumber: 2,
+          absoluteTrackNumber: 4,
+        }]) },
+      },
+    ]);
+
+    await expect(provider.listReleaseTracks({ providerReleaseId: "12" })).resolves.toEqual([{
+      provider: "LIDARR",
+      providerTrackId: "release-track-mbid",
+      providerReleaseId: "release-group-mbid",
+      musicbrainzRecordingId: "recording-mbid",
+      title: "Pre-Parade",
+      normalizedTitle: "pre-parade",
+      artistCredit: "Yukari Hashimoto",
+      normalizedArtist: "yukari hashimoto",
+      discNumber: 2,
+      trackNumber: 4,
+      durationSeconds: 241,
+    }]);
+    expect(requests.every((request) => !new URL(request.url).pathname.includes("/command"))).toBe(true);
+  });
+
   it("joins tracks to track files and maps the shared readable path", async () => {
     const { provider } = providerFor([
       { match: "/api/v1/album/12", response: { status: 200, body: JSON.stringify(albumFixture) } },

@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   DisabledMusicAcquisitionProvider,
+  ConservativeMusicCatalogResolver,
   MusicProviderDisabledError,
   type MusicAcquisitionProvider,
-  type MusicCatalogResolver,
   type MusicCatalogResolution,
   type NormalizedProviderFile,
   type NormalizedProviderRelease,
+  type NormalizedProviderTrack,
   type MusicProviderResourceContext,
 } from "../src/music/index.js";
 
@@ -21,8 +22,9 @@ const ownership: MusicProviderResourceContext = {
 const release: NormalizedProviderRelease = {
   provider: "fixture",
   providerReleaseId: "release-1",
-  title: "Fixture OST",
-  normalizedTitle: "fixture ost",
+  musicbrainzReleaseGroupId: "fixture-release-group",
+  title: "Fixture Anime OST",
+  normalizedTitle: "fixture anime ost",
   artistCredit: "Fixture Artist",
   normalizedArtist: "fixture artist",
   tracks: [],
@@ -42,6 +44,18 @@ const file: NormalizedProviderFile = {
   durationSeconds: 245,
   musicbrainzRecordingId: "recording-1",
   sizeBytes: 42,
+};
+
+const providerTrack: NormalizedProviderTrack = {
+  provider: "fixture",
+  providerTrackId: "track-1",
+  providerReleaseId: "release-1",
+  title: "Fixture Song",
+  normalizedTitle: "fixture song",
+  artistCredit: "Fixture Artist",
+  normalizedArtist: "fixture artist",
+  discNumber: 1,
+  durationSeconds: 245,
 };
 
 class FakeMusicAcquisitionProvider implements MusicAcquisitionProvider {
@@ -71,26 +85,14 @@ class FakeMusicAcquisitionProvider implements MusicAcquisitionProvider {
     return [file];
   }
 
+  async listReleaseTracks() {
+    return [providerTrack];
+  }
+
   async cleanup() {
     return { cleaned: true };
   }
 }
-
-const fakeResolver: MusicCatalogResolver = {
-  buildQueries: () => [{ text: "Fixture Song Fixture Artist", kind: "FULL_SIZE" }],
-  resolve: () => ({
-    outcome: "ACCEPTED",
-    confidence: 100,
-    evidence: { signals: [{ kind: "MUSICBRAINZ_RECORDING_EXACT", points: 60 }], reasons: [] },
-    reasons: [],
-    release,
-    releaseClassification: {
-      releaseType: "SOUNDTRACK",
-      relationship: "SEASON_SPECIFIC",
-      evidence: { signals: [{ kind: "RELEASE_ANIME_ALIAS", points: 10 }], reasons: [] },
-    },
-  }),
-};
 
 const ambiguousResolution: MusicCatalogResolution = {
   outcome: "AMBIGUOUS",
@@ -116,6 +118,20 @@ describe("music acquisition contracts", () => {
     const provider = new FakeMusicAcquisitionProvider();
     const candidates = await provider.lookupReleases({ query: "Fixture OST" });
     const ensured = await provider.ensureRelease({ release: candidates[0]! });
+    const tracks = await provider.listReleaseTracks({ providerReleaseId: ensured.resource.providerReleaseId });
+    const enrichedCandidates = [{ ...candidates[0]!, tracks }];
+    const resolution = new ConservativeMusicCatalogResolver().resolve({
+      target: {
+        kind: "FULL_SIZE",
+        animeThemesAnimeId: 1,
+        animeTitles: ["Fixture Anime"],
+        title: "Fixture Song",
+        artist: "Fixture Artist",
+        durationSeconds: 90,
+        expectedMusicbrainzReleaseIds: ["fixture-release-group"],
+      },
+      candidates: enrichedCandidates,
+    });
     const started = await provider.startAcquisition({ providerReleaseId: ensured.resource.providerReleaseId });
     const status = await provider.getAcquisitionStatus({ providerJobId: started.providerJobId });
     const files = await provider.listImportedFiles({ providerReleaseId: ensured.resource.providerReleaseId });
@@ -124,19 +140,17 @@ describe("music acquisition contracts", () => {
       restorePriorMonitoringState: true,
     });
 
-    expect({ candidates, ensured, status, files, cleanup, resolution: fakeResolver.resolve({
-      target: { kind: "FULL_SIZE", animeThemesAnimeId: 1, animeTitles: ["Fixture Anime"] },
-      candidates,
-    }) }).toMatchObject({
+    expect({ candidates, enrichedCandidates, ensured, status, files, cleanup, resolution }).toMatchObject({
       candidates: [release],
+      enrichedCandidates: [{ tracks: [providerTrack] }],
       ensured: { resource: ownership },
       status: { state: "COMPLETE" },
       files: [{ ...file, sourcePath: "/provider/music/fixture.flac", readablePath: "C:/shared/music/fixture.flac" }],
       cleanup: { cleaned: true },
       resolution: {
         outcome: "ACCEPTED",
-        confidence: 100,
-        releaseClassification: { releaseType: "SOUNDTRACK", relationship: "SEASON_SPECIFIC" },
+        confidence: 85,
+        intent: { kind: "FULL_SIZE", animeThemesAnimeId: 1 },
       },
     });
   });
@@ -163,6 +177,8 @@ describe("music acquisition contracts", () => {
     await expect(provider.startAcquisition({ providerReleaseId: "release-1" }))
       .rejects.toBeInstanceOf(MusicProviderDisabledError);
     await expect(provider.getAcquisitionStatus({ providerJobId: "job-1" }))
+      .rejects.toBeInstanceOf(MusicProviderDisabledError);
+    await expect(provider.listReleaseTracks({ providerReleaseId: "release-1" }))
       .rejects.toBeInstanceOf(MusicProviderDisabledError);
     await expect(provider.listImportedFiles({ providerReleaseId: "release-1" }))
       .rejects.toBeInstanceOf(MusicProviderDisabledError);

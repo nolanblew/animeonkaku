@@ -603,6 +603,7 @@ grab complexity unless a fixture proves it is required.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete (2026-07-20) |
 | Area | Server / catalog reasoning |
 | Difficulty | High |
 | Effort | XL, 6–8 days |
@@ -647,6 +648,37 @@ Expected areas:
   romaji, translated titles, and reused releases.
 - Golden tests for score/evidence stability.
 - Full server suite and typecheck.
+
+#### Completion and testing notes
+
+- Added provider-neutral Unicode NFKC normalization, width/case/punctuation
+  folding, Japanese-safe token comparison, and deterministic English, romaji,
+  Japanese, song/artist, AnimeThemes resource, and MusicBrainz query generation.
+- Candidate results merge deterministically through provider-scoped resource and
+  MusicBrainz aliases. Distinct editions and providers stay separate; conflicting
+  recording, title, artist, or duration metadata is retained as a hard rejection
+  instead of optimistically selecting one query result.
+- Added conservative Full Size matching with exact/conflicting recording
+  identity, title/artist/duration gates, expanded instrumental/off-vocal/live/
+  remix/cover/TV/short/edit exclusions, named 85-point and 10-point thresholds,
+  compact evidence, and pure accepted song/release/link intents.
+- Added Related Release classification for soundtrack, character, image, and
+  insert music with the 80-point/10-point rules. Explicit season/part/cour aliases
+  distinguish season ownership from shared franchise matches; core theme variants
+  and artist-only relationships remain unavailable or ambiguous.
+- Extended the acquisition contract with GET-only release-track enrichment after
+  `ensureRelease` and before matching/search acquisition. The Lidarr adapter reads
+  album/track metadata without starting a command and preserves the foreign
+  release identity, exact MusicBrainz recording ID, album artist, duration, disc,
+  and track number.
+- Focused matching/provider/contract verification passed: 84/84. Server TypeScript
+  typecheck passed. Full Vitest passed: 42 files passed, 2 skipped; 325 tests
+  passed and 3 environment-gated tests skipped.
+- Independent review found production gaps in real Lidarr track enrichment,
+  season ownership, provider-scoped identity merging, trusted release evidence,
+  version exclusions, and duplicate metadata/identity determinism. All findings
+  were corrected with forward/reverse and integration regressions; final review
+  found no remaining actionable issue.
 
 #### Handoff notes
 
