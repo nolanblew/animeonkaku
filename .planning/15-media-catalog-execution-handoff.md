@@ -38,6 +38,26 @@ into the separate canonical `MEDIA_ROOT`.
 The pre-existing untracked `.codex-remote-attachments/` directory is unrelated
 and must not be staged, modified, or deleted.
 
+## 2026-07-21 AMF replacement continuation
+
+- MC-S05R is complete in the ticket commit containing this handoff update.
+- Anime Music Fetcher 0.2 replaces Lidarr. Its first-iteration API base is
+  hardcoded to `http://192.168.68.68:9292/api/v1`; root `/health` and `/ready`
+  remain service-origin routes.
+- The AMF client supports validated/redacted health, readiness, submit, poll,
+  retry, cancel, status, result, and delivery contracts. It never projects AMF
+  absolute paths, raw provider URLs, opaque download data, or raw error text.
+- All Lidarr runtime/configuration/adapter code is removed. The old automatic
+  discovery/import/recovery wiring is paused so historical acquisition rows
+  cannot be submitted to AMF.
+- MC-S05R verification: focused 54/54; full server 397 passed and 15
+  environment-gated skipped; TypeScript `--noEmit` and diff check passed; live
+  AMF health/readiness were ready; independent Sol/Medium review passed after
+  two schema/redaction corrections.
+- Resume with MC-S07R durable whole-anime request persistence, routes,
+  deterministic <=12-item batches, job submission/polling, replay, and real
+  PostgreSQL concurrency/restart tests. Do not re-enable automatic scheduling.
+
 ## MC-S10 completed scope
 
 - Playlist reads add `defaultMode` and ordered polymorphic `items` with stable

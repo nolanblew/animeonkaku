@@ -123,7 +123,7 @@ export class MusicDiscoveryWorkflowService implements MusicDiscoveryWorkflowCont
         throw new Error(error);
       }
       // Repairs a crash between resource persistence and command-id write. The
-      // Lidarr adapter first reuses an active identical AlbumSearch command.
+      // A provider adapter must first reuse an active identical remote command.
       const started = await this.input.provider.startAcquisition({ providerReleaseId: acquisition.providerReleaseId, recovery: true });
       await this.input.catalog.markAcquisitionStarted(acquisition.id, started.providerJobId);
       return "PENDING";

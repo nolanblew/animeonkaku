@@ -23,22 +23,8 @@ import { RealKitsuAuthClient } from "./kitsu/kitsuAuthClient.js";
 import { KitsuClient } from "./kitsu/kitsuClient.js";
 import { createJsonStdoutLogger } from "./logging.js";
 import {
-  ConservativeMusicCatalogResolver,
-  createAnimeMappedDiscoveryHook,
-  createMusicImportHandlers,
-  createMusicDiscoveryHandlers,
-  createLidarrUpstreamHttp,
-  DisabledMusicAcquisitionProvider,
-  LidarrMusicAcquisitionProvider,
-  MusicDiscoveryScheduler,
-  MusicDiscoveryWorkflowService,
-  MusicAcquisitionImportService,
-  PgDiscoveryCatalogRepository,
-  PgMusicAcquisitionImportRepository,
-  PgMusicDiscoveryRepository,
-  importMusicAudioDedupeKey,
-  reconcileMusicAcquisitionDedupeKey,
-  type MusicAcquisitionProvider,
+  AnimeMusicFetcherClient,
+  createAnimeMusicFetcherUpstreamHttp,
 } from "./music/index.js";
 import {
   createFetchMediaHandlers,
@@ -59,34 +45,11 @@ import {
 const config = loadConfig();
 const externalLogger = createJsonStdoutLogger();
 
-const lidarrHttp = config.MUSIC_PROVIDER === "LIDARR"
-  ? createLidarrUpstreamHttp({
-      apiKey: config.LIDARR_API_KEY!,
-      logger: externalLogger,
-    })
-  : undefined;
-const musicProvider: MusicAcquisitionProvider = lidarrHttp
-  ? new LidarrMusicAcquisitionProvider({
-      http: lidarrHttp,
-      baseUrl: config.LIDARR_BASE_URL!,
-      rootFolderPath: config.LIDARR_ROOT_FOLDER_PATH!,
-      sharedRoot: config.LIDARR_SHARED_ROOT!,
-      qualityProfileId: config.LIDARR_QUALITY_PROFILE_ID!,
-      metadataProfileId: config.LIDARR_METADATA_PROFILE_ID!,
-      ...(config.LIDARR_PATH_PREFIX_FROM === undefined
-        ? {}
-        : {
-            pathPrefixFrom: config.LIDARR_PATH_PREFIX_FROM,
-            pathPrefixTo: config.LIDARR_PATH_PREFIX_TO!,
-          }),
-      ...(config.LIDARR_OWNERSHIP_TAG_ID === undefined
-        ? {}
-        : { ownershipTagId: config.LIDARR_OWNERSHIP_TAG_ID }),
-    })
-  : new DisabledMusicAcquisitionProvider();
-// Discovery handlers are added by MC-S07; retaining the typed runtime provider
-// here ensures enabled deployments instantiate and validate the real adapter.
-void musicProvider;
+const amfHttp = createAnimeMusicFetcherUpstreamHttp({ logger: externalLogger });
+const amfClient = new AnimeMusicFetcherClient({ http: amfHttp });
+// MC-S07R consumes this seam from the durable whole-anime request workflow.
+// It intentionally does not implement the old release/monitor ownership API.
+void amfClient;
 
 const { pool, db } = createDb(config.DATABASE_URL);
 
@@ -98,26 +61,6 @@ await mkdir(join(config.MEDIA_ROOT, "images", "artists"), { recursive: true });
 
 const jobQueue = new JobQueue(new PgJobRepository(pool));
 const syncRepo = new DrizzleSyncRepository(db);
-const discoveryEnabled = config.MUSIC_DISCOVERY_ENABLED && config.MUSIC_PROVIDER !== "disabled";
-const discoveryRepo = new PgMusicDiscoveryRepository(pool);
-const discoveryCatalog = new PgDiscoveryCatalogRepository(pool);
-const discoveryWorkflow = new MusicDiscoveryWorkflowService({
-  catalog: discoveryCatalog,
-  provider: musicProvider,
-  resolver: new ConservativeMusicCatalogResolver(),
-  queue: jobQueue,
-});
-const discoveryHandlers = createMusicDiscoveryHandlers({
-  enabled: discoveryEnabled,
-  queue: jobQueue,
-  repo: discoveryRepo,
-  workflow: discoveryWorkflow,
-});
-const onAnimeMapped = createAnimeMappedDiscoveryHook({
-  enabled: discoveryEnabled,
-  queue: jobQueue,
-  repo: discoveryRepo,
-});
 
 // Each upstream host shares one politeness budget (bucket) and one breaker
 // across two lanes: "interactive" for request/response paths a client is
@@ -213,26 +156,13 @@ const syncPipeline = new LibrarySyncPipeline({
   kitsuAuth: kitsuAuthClient,
   animeThemes: animeThemesBackgroundClient,
   queue: jobQueue,
-  onAnimeMapped,
 });
 const mediaStore = new MediaStore({
   mediaRoot: config.MEDIA_ROOT,
-  ...(config.MUSIC_PROVIDER === "LIDARR"
-    ? { providerImportRoot: config.LIDARR_PATH_PREFIX_TO ?? config.LIDARR_SHARED_ROOT! }
-    : {}),
   repo: new DrizzleMediaFileRepo(db),
   fetch: animeThemesBackgroundFetch,
   imageFetch: imagesBackgroundFetch,
   logger: externalLogger,
-});
-const musicImportService = new MusicAcquisitionImportService({
-  repo: new PgMusicAcquisitionImportRepository(pool),
-  provider: musicProvider,
-  mediaStore,
-});
-const musicImportHandlers = createMusicImportHandlers({
-  enabled: discoveryEnabled,
-  service: musicImportService,
 });
 const fetchHandlers = createFetchMediaHandlers({
   mediaStore,
@@ -243,31 +173,11 @@ const fetchHandlers = createFetchMediaHandlers({
   },
 });
 await jobQueue.recoverRunningJobs();
-if (discoveryEnabled) {
-  await discoveryRepo.recoverStaleRunning(new Date());
-  await onAnimeMapped(await discoveryRepo.listMappedAnimeIds());
-  for (const acquisitionId of await discoveryCatalog.listRecoverableAcquisitionIds()) {
-    await jobQueue.enqueue({
-      type: "RECONCILE_MUSIC_ACQUISITION",
-      priority: JobPriority.MAINTENANCE,
-      payload: { acquisitionId },
-      dedupeKey: reconcileMusicAcquisitionDedupeKey(acquisitionId),
-    });
-  }
-  for (const acquisitionId of await discoveryCatalog.listRecoverableImportIds()) {
-    await jobQueue.enqueue({
-      type: "IMPORT_MUSIC_AUDIO",
-      priority: JobPriority.MAINTENANCE,
-      payload: { acquisitionId },
-      dedupeKey: importMusicAudioDedupeKey(acquisitionId),
-    });
-  }
-}
 const syncHandlers = createSyncJobHandlers(syncPipeline);
 // Background hydration waits until on-demand media traffic has been quiet.
 const mediaActivity = new InteractiveMediaActivity();
 const worker = new JobWorker(jobQueue, {
-  handlers: { ...fetchHandlers, ...syncHandlers, ...discoveryHandlers, ...musicImportHandlers },
+  handlers: { ...fetchHandlers, ...syncHandlers },
   maintenanceFetchDelayMs: config.AUDIO_BACKFILL_DELAY_SECONDS * 1000,
   holdMaintenanceWork: () => !mediaActivity.isQuiet(),
 });
@@ -275,7 +185,7 @@ worker.start();
 // A second worker restricted to urgent/high jobs so a client-facing fetch is
 // never queued behind a long-running background download on the main worker.
 const interactiveWorker = new JobWorker(jobQueue, {
-  handlers: { ...fetchHandlers, ...syncHandlers, ...discoveryHandlers, ...musicImportHandlers },
+  handlers: { ...fetchHandlers, ...syncHandlers },
   maxPriority: JobPriority.HIGH,
 });
 interactiveWorker.start();
@@ -288,10 +198,6 @@ const syncScheduler = new SyncScheduler({
   syncIntervalMinutes: config.SYNC_INTERVAL_MINUTES,
 });
 syncScheduler.start();
-const discoveryScheduler = new MusicDiscoveryScheduler(jobQueue, discoveryEnabled, (error) => {
-  externalLogger.warn({ err: error }, "music discovery scheduler enqueue failed");
-});
-discoveryScheduler.start();
 
 const clientApi = new DrizzleClientApiService(
   db,
@@ -350,7 +256,6 @@ const app = buildApp({
 async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, "shutting down");
   syncScheduler.stop();
-  discoveryScheduler.stop();
   worker.stop();
   interactiveWorker.stop();
   await app.close();

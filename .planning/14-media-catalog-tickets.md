@@ -1193,7 +1193,7 @@ request contract, vfolder layout, and execution order are authoritative in
 
 | Field | Value |
 |---|---|
-| Status | ⬜ Pending |
+| Status | ✅ Complete |
 | Area | Server / Anime Music Fetcher integration |
 | Difficulty | High |
 | Effort | L, 4–5 days |
@@ -1222,7 +1222,22 @@ request contract, vfolder layout, and execution order are authoritative in
 
 #### Completion and testing notes
 
-Pending.
+Completed on 2026-07-21. Replaced the Lidarr runtime/configuration/adapter with
+an AMF 0.2-native client hardcoded to
+`http://192.168.68.68:9292/api/v1`. The client separates root health/readiness
+from API job routes; supports idempotent submit, poll, retry, and cancel; maps
+known statuses and retryability; validates lexical relative paths; and returns
+a safe projection that excludes controller host paths, source URLs, raw errors,
+and opaque operational fields. Legacy automatic discovery/import/recovery
+wiring is paused until MC-S07R rather than sending historical rows to AMF.
+
+TDD evidence: the RED checkpoint failed for the missing AMF module and active
+Lidarr validation. Focused GREEN passed 54/54 tests. The full server suite passed
+397 tests with 15 environment-gated skips across 46 passing and 7 skipped test
+files; TypeScript `--noEmit` and `git diff --check` passed. Live read-only AMF
+checks returned health `ok` and readiness `ready`, with database, Prowlarr,
+qBittorrent, and one custom source ready. Independent Sol/Medium review found
+and verified fixes for outbound schema parity and provider-data redaction.
 
 ### MC-S07R — Add durable whole-anime request orchestration
 

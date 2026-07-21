@@ -10,18 +10,20 @@ describe("server runtime wiring", () => {
     expect(source).toMatch(/new MediaStreamingService\(\{[\s\S]*fetch:\s*animeThemesFetch[\s\S]*\}\)/);
   });
 
-  it("wires validated music import work with the Lidarr shared mount and separate recovery lanes", async () => {
+  it("wires the hardcoded AMF client seam while leaving automatic acquisition off", async () => {
     const source = await readFile(new URL("../src/index.ts", import.meta.url), "utf8");
 
-    expect(source).toContain("createMusicImportHandlers");
-    expect(source).toContain("MusicAcquisitionImportService");
-    expect(source).toContain("PgMusicAcquisitionImportRepository");
-    expect(source).toMatch(/config\.MUSIC_PROVIDER === "LIDARR"[\s\S]*providerImportRoot:\s*config\.LIDARR_PATH_PREFIX_TO \?\? config\.LIDARR_SHARED_ROOT!/);
-    expect(source).toMatch(/new MusicAcquisitionImportService\(\{[\s\S]*repo:\s*new PgMusicAcquisitionImportRepository\(pool\)[\s\S]*provider:\s*musicProvider[\s\S]*mediaStore[\s\S]*\}\)/);
-    expect(source).toMatch(/const musicImportHandlers = createMusicImportHandlers\(\{[\s\S]*enabled:\s*discoveryEnabled[\s\S]*service:\s*musicImportService[\s\S]*\}\)/);
-    expect(source).toMatch(/for \(const acquisitionId of await discoveryCatalog\.listRecoverableAcquisitionIds\(\)\)[\s\S]*RECONCILE_MUSIC_ACQUISITION/);
-    expect(source).toMatch(/for \(const acquisitionId of await discoveryCatalog\.listRecoverableImportIds\(\)\)[\s\S]*IMPORT_MUSIC_AUDIO/);
-    expect(source).toMatch(/handlers: \{ \.\.\.fetchHandlers, \.\.\.syncHandlers, \.\.\.discoveryHandlers, \.\.\.musicImportHandlers \}/);
+    expect(source).toContain("createAnimeMusicFetcherUpstreamHttp");
+    expect(source).toContain("AnimeMusicFetcherClient");
+    expect(source).toContain("const amfClient");
+    expect(source).not.toMatch(/Lidarr|LIDARR/);
+    expect(source).not.toContain("providerImportRoot");
+    expect(source).not.toContain("MusicDiscoveryScheduler");
+    expect(source).not.toContain("createMusicDiscoveryHandlers");
+    expect(source).not.toContain("createMusicImportHandlers");
+    expect(source).not.toContain("listRecoverableAcquisitionIds");
+    expect(source).not.toContain("listRecoverableImportIds");
+    expect(source).toMatch(/handlers: \{ \.\.\.fetchHandlers, \.\.\.syncHandlers \}/);
   });
 
   it("wires listener catalog visibility into client, search, and song streaming services", async () => {
