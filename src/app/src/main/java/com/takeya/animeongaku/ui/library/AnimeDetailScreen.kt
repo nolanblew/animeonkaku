@@ -34,6 +34,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -46,11 +47,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.takeya.animeongaku.BuildConfig
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.ui.common.ActionSheet
@@ -84,6 +90,7 @@ fun AnimeDetailScreen(
     val libraryThemeIds by viewModel.libraryThemeIds.collectAsStateWithLifecycle()
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
     val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
+    val musicRequestState by viewModel.musicRequestState.collectAsStateWithLifecycle()
     val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
     val coverUrls = remember(anime) { anime?.primaryArtworkUrls() ?: emptyList() }
     val coverUrl = coverUrls.firstOrNull()
@@ -284,6 +291,63 @@ fun AnimeDetailScreen(
                         Icon(Icons.Rounded.Shuffle, contentDescription = null, modifier = Modifier.size(20.dp), tint = Mist100)
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Shuffle", color = Mist100)
+                    }
+                }
+            }
+
+            if (shouldShowMusicRequestAction(BuildConfig.DEBUG, themes.size, isInLibrary)) {
+                item {
+                    val presentation = musicRequestActionPresentation(musicRequestState)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 4.dp)
+                            .semantics {
+                                liveRegion = LiveRegionMode.Polite
+                            }
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                if (musicRequestState is MusicRequestUiState.StatusError) {
+                                    viewModel.retryMusicRequestStatus()
+                                } else {
+                                    viewModel.requestMusic()
+                                }
+                            },
+                            enabled = presentation.enabled,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .semantics {
+                                    stateDescription = presentation.statusDescription
+                                },
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            if (musicRequestState == MusicRequestUiState.Hydrating ||
+                                musicRequestState == MusicRequestUiState.Submitting
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            } else {
+                                Icon(
+                                    Icons.Rounded.CloudDownload,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            Text(presentation.label)
+                        }
+                        presentation.supportingText?.let { supportingText ->
+                            Text(
+                                text = supportingText,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Mist200,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+                            )
+                        }
                     }
                 }
             }

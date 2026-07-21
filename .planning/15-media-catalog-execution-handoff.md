@@ -55,7 +55,8 @@ and must not be staged, modified, or deleted.
   environment-gated skipped; TypeScript `--noEmit` and diff check passed; live
   AMF health/readiness were ready; independent Sol/Medium review passed after
   two schema/redaction corrections.
-- MC-S07R is complete in the ticket commit containing this handoff update.
+- MC-S07R is complete at `1a51ee5 feat(server): add durable anime music
+  requests`.
   It adds durable request/batch/item rows, global active replay, immutable AMF
   bodies and keys, deterministic <=12-item batches, authenticated wrapped
   request resources, and attempt-neutral submit/poll/recovery jobs.
@@ -65,8 +66,15 @@ and must not be staged, modified, or deleted.
 - The AMF destination is now
   `anime-ongaku-staging/request-{requestId}/batch-{batchIndex}` so untrusted
   route Kitsu IDs never enter filesystem paths.
-- Resume MC-A00 (already started in the shared worktree) and MC-S08R delivery
-  indexing/import. Do not re-enable automatic scheduling.
+- MC-A00 is complete in the ticket commit containing this handoff update. Its
+  debug-only anime-detail action hydrates/polls Anime Ongaku request resources;
+  Android never calls AMF. Only idle or POST-error states submit, while active
+  and terminal states are read-only.
+- MC-A00 verification: focused 16/16; full Android unit 383/383; lint, debug
+  assembly, release Kotlin compile, and diff check passed. Sol/Medium UX review
+  issues were fixed. Device/controller smoke remains MC-Q01R.
+- Resume MC-S08R delivery indexing/import, which is already in progress in the
+  shared server worktree. Do not re-enable automatic scheduling.
 
 ## MC-S10 completed scope
 

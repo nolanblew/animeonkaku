@@ -1372,7 +1372,7 @@ Pending.
 
 | Field | Value |
 |---|---|
-| Status | ⬜ Pending |
+| Status | ✅ Complete |
 | Area | Android / anime detail / debug tooling |
 | Difficulty | Medium |
 | Effort | M, 2–3 days |
@@ -1403,7 +1403,22 @@ Pending.
 
 #### Completion and testing notes
 
-Pending.
+Completed on 2026-07-21. Added an Anime Ongaku-only Retrofit contract and safe
+DTO/domain mapping, Hilt repository wiring, and a cancellable anime-detail
+coordinator that hydrates the latest durable request and polls its resource.
+The full-width **Request music** action is placed below Play/Shuffle and above
+the library action, remains available with no themes or local-library entry,
+and is gated by `BuildConfig.DEBUG` in both UI and ViewModel behavior.
+
+Only idle and recoverable POST-error states can submit. Active,
+operator-attention, completed, warning, failed, cancelled, and unknown states
+are read-only status; GET/latest failures retry status without POSTing. Async
+changes use a polite accessibility live region. RED compilation failed on the
+missing feature contracts as expected. Focused tests passed 16/16; the full
+Android unit suite passed 383/383; lint, debug APK assembly, and release Kotlin
+compilation passed. Independent focused verification passed, and Sol/Medium UX
+review findings for terminal re-requests, status retry semantics, and TalkBack
+announcements were corrected. Real-device controller smoke remains MC-Q01R.
 
 ## 7. Android tickets
 

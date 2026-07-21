@@ -15,6 +15,8 @@ import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.repository.AnimeRepository
+import com.takeya.animeongaku.data.repository.MusicRequestRepository
+import com.takeya.animeongaku.BuildConfig
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
@@ -98,7 +100,8 @@ class AnimeDetailViewModel @Inject constructor(
     val nowPlayingManager: NowPlayingManager,
     val downloadManager: DownloadManager,
     private val downloadDao: DownloadDao,
-    private val userPreferencesRepository: UserPreferencesRepository
+    private val userPreferencesRepository: UserPreferencesRepository,
+    musicRequestRepository: MusicRequestRepository
 ) : ViewModel() {
     private val kitsuId: String = savedStateHandle["kitsuId"] ?: ""
 
@@ -151,8 +154,29 @@ class AnimeDetailViewModel @Inject constructor(
 
     private var hasFetched = false
 
+    private val musicRequestCoordinator = MusicRequestCoordinator(
+        repository = musicRequestRepository,
+        scope = viewModelScope
+    )
+    val musicRequestState: StateFlow<MusicRequestUiState> = musicRequestCoordinator.state
+
     init {
         fetchFromApiIfNeeded()
+        if (BuildConfig.DEBUG) {
+            musicRequestCoordinator.hydrate(kitsuId)
+        }
+    }
+
+    fun requestMusic() {
+        if (BuildConfig.DEBUG) {
+            musicRequestCoordinator.request(kitsuId)
+        }
+    }
+
+    fun retryMusicRequestStatus() {
+        if (BuildConfig.DEBUG) {
+            musicRequestCoordinator.retryStatus()
+        }
     }
 
     private fun fetchFromApiIfNeeded() {
