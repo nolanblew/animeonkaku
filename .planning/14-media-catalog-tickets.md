@@ -1238,7 +1238,9 @@ Pending.
 
 - Add durable anime request and AMF batch persistence plus normal generated
   migration.
-- Add authenticated `POST /v1/anime/{animeId}/music-request` returning 202.
+- Add authenticated POST and GET `/v1/anime/:kitsuId/music-request` routes.
+  POST returns 202 for creation or active replay; GET hydrates the latest
+  durable request or an explicit no-request result.
 - Compose multilingual known numbered OP/ED Full targets plus OST, character
   song, drama, and other requests; split deterministically into AMF's maximum
   twelve items per job.
@@ -1252,7 +1254,8 @@ Pending.
 #### Verification
 
 - Unit/route tests for metadata composition, >12 batching, authentication,
-  missing mapping, active replay, and provider errors.
+  missing mapping, active replay, status aggregation/safe projection, GET
+  hydration, and provider errors.
 - Real PostgreSQL concurrency/restart/idempotency integration.
 - Focused and full server tests, typecheck, diff check, and independent review.
 
@@ -1347,13 +1350,18 @@ Pending.
   never call AMF directly.
 - Show one anime-level **Request music** action only when `BuildConfig.DEBUG`
   is true.
-- Model idle, submitting, accepted/already-active, and retryable error state;
-  disable concurrent taps and preserve existing anime-detail behavior.
+- Model hydration, idle, submitting, queued/searching/downloading/processing,
+  awaiting-operator, completed/warnings, terminal-attention, and retryable
+  submission error state; disable concurrent taps and preserve existing
+  anime-detail behavior.
+- Render it below Play/Shuffle and above Add All to Library, including when the
+  anime has no themes or is not yet in the local library.
 - Release builds expose no button or navigation/action path.
 
 #### Verification
 
-- ViewModel tests for success, replay, concurrent tap, and error recovery.
+- ViewModel tests for hydration/polling, success, replay, concurrent tap,
+  navigation cancellation without server cancellation, and error recovery.
 - Compose visibility/action tests where supported, Android unit suite, lint,
   debug assembly, Sol/Medium UX review, and real-device smoke against the
   Anime Ongaku server and AMF controller.

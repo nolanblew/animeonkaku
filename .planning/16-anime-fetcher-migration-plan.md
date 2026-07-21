@@ -77,12 +77,15 @@ state/work mount.
 ### 3.1 Debug Android experience
 
 - Render the action only when `BuildConfig.DEBUG` is true.
-- Place it on `AnimeDetailScreen` near the anime-level actions, not on each
-  individual theme row.
+- Place it as a full-width secondary/outlined section below Play/Shuffle and
+  above Add All to Library, not on each individual theme row.
+- Do not condition the section on themes being non-empty or the anime already
+  being in the library; missing music is the primary use case.
 - Initial state: **Request music**.
 - While submitting: disabled progress state.
 - Accepted/already active: show a concise acknowledgement and current summary
-  returned by Anime Ongaku (for example, `3 batches queued`).
+  returned by Anime Ongaku (for example, `3 batches queued`). Hydrate the
+  latest durable state on screen entry and poll only while it is nonterminal.
 - Failure: show a retryable error without losing the existing anime page.
 - A repeated tap/request is idempotent; it must not create duplicate AMF jobs.
 - Release builds contain no visible action and no navigation path to it.
@@ -92,13 +95,14 @@ AMF output remains operator-review work and never becomes listener-ready.
 
 ### 3.2 Server request endpoint
 
-Add an authenticated additive endpoint:
+Add authenticated additive endpoints using the existing anime-detail Kitsu ID:
 
-`POST /v1/anime/{animeId}/music-request`
+- `POST /v1/anime/:kitsuId/music-request`
+- `GET /v1/anime/:kitsuId/music-request`
 
 The endpoint:
 
-1. Verifies the anime is visible to the authenticated user and has mapped
+1. Verifies the Kitsu anime is visible to the authenticated user and has mapped
    catalog metadata.
 2. Loads English/Japanese/Romaji/alternate titles, AniList ID when known,
    AnimeThemes slug when known, and known OP/ED song/artist/sequence metadata.
@@ -110,8 +114,22 @@ The endpoint:
 5. Persists one anime-level request plus its batches before any remote effect.
 6. Enqueues the existing database-backed job workflow; the HTTP request does
    not wait for AMF searching or downloads.
-7. Returns 202 with request ID, batch count, and durable state. Replays return
-   the existing active request rather than resubmitting.
+7. Returns 202 for both creation and active replay, with a `Location` header
+   and an Anime Ongaku-owned summary. Replays return the existing active
+   request rather than resubmitting.
+
+GET returns the latest active request, otherwise the latest terminal request,
+or `200 { request: null }` when none exists. The safe summary contains:
+
+- request UUID and stable Anime Ongaku state enum;
+- batch count and counts for queued, searching, awaiting-operator,
+  downloading, processing, completed, completed-with-warnings, failed, and
+  cancelled batches;
+- whether POST created or replayed the request;
+- `requiresOperatorAction`, last-updated time, and optional poll interval.
+
+It never returns AMF job IDs, candidates, source/delivery paths, raw AMF
+statuses, or raw upstream errors.
 
 The internal trigger takes a source (`DEBUG_USER` initially, `AUTOMATIC`
 later) but otherwise uses the same orchestration.
@@ -151,7 +169,7 @@ Recommended mounts:
 
 AMF job destinations should be relative paths beneath its library root:
 
-`anime-ongaku-staging/anime-{animeId}/request-{requestId}/batch-{batchIndex}`
+`anime-ongaku-staging/anime-{kitsuId}/request-{requestId}/batch-{batchIndex}`
 
 Keep `AMF_CONFIG_PATH` on a separate private persistent path mounted only at
 `/config`; it contains SQLite, tracker/source settings, credentials, and
@@ -192,14 +210,16 @@ own regression coverage.
 ### MC-S07R — Add durable whole-anime request orchestration
 
 - Add anime request/batch persistence and generated migration.
-- Add authenticated request route and deterministic artifact/batch builder.
+- Add authenticated POST/GET request routes, stable aggregate states, and the
+  deterministic artifact/batch builder.
 - Route both debug and future automatic triggers through one service.
 - Enqueue/poll with the existing database-backed worker and no sleeping worker.
 - Preserve active-request idempotency and crash windows around AMF submission.
 - Keep automatic catalog scheduling disabled for the first controller
   acceptance pass; do not delete the reusable scheduler infrastructure.
 - TDD: title/item composition, >12 batching, user/anime guard, duplicate taps,
-  crash/restart recovery, provider outage, and PostgreSQL concurrency.
+  GET hydration/status aggregation, safe response projection, crash/restart
+  recovery, provider outage, and PostgreSQL concurrency.
 - Gate: focused tests, real PostgreSQL integration, full server suite,
   typecheck, independent review.
 
@@ -227,10 +247,14 @@ own regression coverage.
 
 - Add the Retrofit/server DTOs and repository/ViewModel action.
 - Render the anime-level action only under `BuildConfig.DEBUG`.
-- Model idle/submitting/accepted/error state and prevent concurrent taps.
+- Model idle/submitting, queued/searching/downloading/processing,
+  awaiting-operator, completed/warnings, terminal-attention, and submission
+  error states; prevent concurrent taps and stop polling on navigation or a
+  terminal state without cancelling server work.
 - Preserve all existing anime detail playback/library behavior.
-- TDD: ViewModel idempotency/error recovery and Compose visibility/action tests
-  for debug versus release configuration where the test harness permits.
+- TDD: ViewModel hydration/polling/idempotency/error recovery and Compose
+  visibility/action/accessibility tests for debug versus release configuration
+  where the test harness permits.
 - Gate: Android unit suite, lint, debug assembly, UX review, and device smoke
   against the real Anime Ongaku server plus AMF controller.
 
