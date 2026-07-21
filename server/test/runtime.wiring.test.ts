@@ -10,20 +10,21 @@ describe("server runtime wiring", () => {
     expect(source).toMatch(/new MediaStreamingService\(\{[\s\S]*fetch:\s*animeThemesFetch[\s\S]*\}\)/);
   });
 
-  it("wires the hardcoded AMF client seam while leaving automatic acquisition off", async () => {
+  it("wires durable AMF requests and validated delivery import while leaving automatic discovery off", async () => {
     const source = await readFile(new URL("../src/index.ts", import.meta.url), "utf8");
 
     expect(source).toContain("createAnimeMusicFetcherUpstreamHttp");
     expect(source).toContain("AnimeMusicFetcherClient");
     expect(source).toContain("const amfClient");
     expect(source).not.toMatch(/Lidarr|LIDARR/);
-    expect(source).not.toContain("providerImportRoot");
+    expect(source).toContain("providerImportRoot: config.AMF_LIBRARY_ROOT");
+    expect(source).toContain("createAmfDeliveryImportHandlers");
     expect(source).not.toContain("MusicDiscoveryScheduler");
     expect(source).not.toContain("createMusicDiscoveryHandlers");
     expect(source).not.toContain("createMusicImportHandlers");
     expect(source).not.toContain("listRecoverableAcquisitionIds");
     expect(source).not.toContain("listRecoverableImportIds");
-    expect(source).toMatch(/handlers: \{ \.\.\.fetchHandlers, \.\.\.syncHandlers \}/);
+    expect(source).toMatch(/handlers: \{ \.\.\.fetchHandlers, \.\.\.syncHandlers, \.\.\.musicRequestHandlers, \.\.\.amfDeliveryHandlers \}/);
   });
 
   it("wires listener catalog visibility into client, search, and song streaming services", async () => {

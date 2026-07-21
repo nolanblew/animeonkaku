@@ -152,7 +152,7 @@ export class MediaStore {
 
     const descriptor = { kind: mediaInput.kind, refId: mediaInput.refId, variant: mediaInput.variant };
     const previous = await this.options.repo.find?.(descriptor) ?? null;
-    const cached = await this.findReadyImported(previous, input.songId);
+    const cached = await this.findReadyImported(previous, input.songId, input.expectedByteSize, input.expectedSha256);
     if (cached) return cached;
 
     const tmpRelativePath = `audio/tmp/song-${input.songId}-${randomUUID()}.tmp`;
@@ -172,13 +172,15 @@ export class MediaStore {
         error instanceof Error ? error.message : "Invalid managed media path.",
       );
     }
-    const recovered = await this.recoverOrphanedImported(mediaInput, previous, finalPath, sourcePath);
+    const recovered = await this.recoverOrphanedImported(mediaInput, previous, finalPath, sourcePath,
+      input.expectedByteSize, input.expectedSha256);
     if (recovered) return recovered;
     await this.options.repo.markDownloading(mediaInput);
 
     try {
       const { byteSize, sha256 } = await copyAndHash(sourcePath, tmpPath);
       validateSize(byteSize, null, this.minBytes);
+      validateExpectedImport(byteSize, sha256, input.expectedByteSize, input.expectedSha256);
       // The rename is the publication boundary: readers never observe the
       // partially copied temporary file.
       await rename(tmpPath, finalPath);
@@ -237,6 +239,8 @@ export class MediaStore {
   private async findReadyImported(
     existing: MediaFileRecord | null,
     songId: number,
+    expectedByteSize?: number | null,
+    expectedSha256?: string | null,
   ): Promise<MediaFileRecord | null> {
     if (
       !existing ||
@@ -253,7 +257,10 @@ export class MediaStore {
     const fileStat = await stat(absolutePath).catch(() => null);
     if (!fileStat?.isFile()) return null;
     const currentHash = await hashFile(absolutePath);
-    return currentHash === existing.sha256 ? existing : null;
+    if (currentHash !== existing.sha256) return null;
+    if (expectedByteSize != null && fileStat.size !== expectedByteSize) return null;
+    if (expectedSha256 != null && currentHash !== expectedSha256.toLowerCase()) return null;
+    return existing;
   }
 
   private async removePreviousSongFile(
@@ -295,6 +302,8 @@ export class MediaStore {
     previous: MediaFileRecord | null,
     finalPath: string,
     sourcePath: string,
+    expectedByteSize?: number | null,
+    expectedSha256?: string | null,
   ): Promise<MediaFileRecord | null> {
     if (previous?.state === "READY") return null;
     const saved = await stat(finalPath).catch(() => null);
@@ -305,8 +314,23 @@ export class MediaStore {
       await rm(finalPath, { force: true });
       return null;
     }
+    try {
+      validateExpectedImport(saved.size, sha256, expectedByteSize, expectedSha256);
+    } catch (error) {
+      await rm(finalPath, { force: true });
+      throw error;
+    }
     await this.options.repo.markReady({ ...input, byteSize: saved.size, sha256 });
     return readyRecord(input, saved.size, sha256);
+  }
+}
+
+function validateExpectedImport(byteSize: number, sha256: string, expectedByteSize?: number | null, expectedSha256?: string | null): void {
+  if (expectedByteSize != null && byteSize !== expectedByteSize) {
+    throw new MediaValidationError("Copied provider file size conflicts with its manifest.");
+  }
+  if (expectedSha256 != null && sha256 !== expectedSha256.toLowerCase()) {
+    throw new MediaValidationError("Copied provider file hash conflicts with its manifest.");
   }
 }
 

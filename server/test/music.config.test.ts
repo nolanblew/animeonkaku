@@ -28,4 +28,10 @@ describe("music provider configuration", () => {
     expect(config).not.toHaveProperty("LIDARR_BASE_URL");
     expect(config).not.toHaveProperty("LIDARR_API_KEY");
   });
+
+  it("accepts a separate server-readable AMF library staging root", () => {
+    expect(loadConfig({ ...baseEnvironment, AMF_LIBRARY_ROOT: "F:/anime-fetcher/library" }).AMF_LIBRARY_ROOT)
+      .toBe("F:/anime-fetcher/library");
+    expect(loadConfig(baseEnvironment).AMF_LIBRARY_ROOT).toBeUndefined();
+  });
 });

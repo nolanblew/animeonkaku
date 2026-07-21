@@ -20,6 +20,7 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(8080),
   DATABASE_URL: z.string().min(1),
   MEDIA_ROOT: z.string().min(1),
+  AMF_LIBRARY_ROOT: z.preprocess(blankToUndefined, z.string().min(1).optional()),
   KITSU_CLIENT_ID: z.preprocess(blankToUndefined, z.string().default(PUBLIC_KITSU_CLIENT_ID)),
   KITSU_CLIENT_SECRET: z.preprocess(
     blankToUndefined,

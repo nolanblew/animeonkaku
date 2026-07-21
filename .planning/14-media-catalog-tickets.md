@@ -1302,7 +1302,7 @@ remaining actionable issue after crash-window corrections.
 
 | Field | Value |
 |---|---|
-| Status | ⬜ Pending |
+| Status | ✅ Complete |
 | Area | Server / acquisition completion / filesystem |
 | Difficulty | High |
 | Effort | XL, 6–8 days |
@@ -1334,7 +1334,28 @@ remaining actionable issue after crash-window corrections.
 
 #### Completion and testing notes
 
-Pending.
+Completed on 2026-07-21. Added generated delivery/evidence persistence and a
+normal-priority import job that keeps controller completion separate from local
+listener readiness. Manifests are bound to persisted request-item identities;
+changed, missing, ambiguous, duplicate-claimed, unsupported APE/WavPack, or
+unsafe deliveries remain hidden in durable operator-attention states.
+
+The importer accepts only exact persisted-batch relative paths beneath the
+read-only `AMF_LIBRARY_ROOT`, rejects traversal/junction escape and non-files,
+and verifies declared size/SHA both before and while copying. It never renames
+or deletes staging. Deterministic reservations, content locks, READY media,
+AMF acquisition rows, and transactional Full/Related publication make replay,
+exact-byte reuse, copy-before-publication crashes, and startup recovery
+idempotent. OP/ED publish only to their persisted Full target; OST,
+character-song, drama, and other items publish ordered Related releases.
+
+Focused temp-file/service/media/config tests passed 39/39. A disposable
+isolated PostgreSQL instance passed 3/3 evidence, publication, concurrency,
+reused-audio, and crash/retry integration tests and was removed. The full
+server suite passed 416 tests with 18 environment-gated skips; TypeScript
+`--noEmit` and diff check passed. Independent Sol/Medium review signed off, and
+independent Terra/High QA reproduced PostgreSQL 3/3 and full 416/18 with no
+blocker. Automatic scheduling remains disabled.
 
 ### MC-S12R — Replace operator and deployment surfaces for AMF
 

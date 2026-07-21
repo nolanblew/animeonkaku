@@ -64,6 +64,8 @@ export interface SaveMediaFileInput {
 export interface ImportLocalSongFileInput {
   songId: number;
   sourcePath: string;
+  expectedByteSize?: number | null;
+  expectedSha256?: string | null;
 }
 
 export interface MediaFileRepo {

@@ -1,4 +1,5 @@
 import type { AmfJobCreate } from "../animeMusicFetcher/schemas.js";
+import type { AmfJob } from "../animeMusicFetcher/schemas.js";
 import type { MusicRequestMetadata } from "./builder.js";
 
 export const MUSIC_BATCH_STATES = ["QUEUED", "SEARCHING", "AWAITING_OPERATOR", "DOWNLOADING", "PROCESSING", "COMPLETED", "COMPLETED_WITH_WARNINGS", "FAILED", "CANCELLED"] as const;
@@ -15,6 +16,7 @@ export interface MusicRequestRepository {
   findBatch(id: string): Promise<StoredMusicBatch | null>;
   listRecoverableBatches(): Promise<StoredMusicBatch[]>;
   recordProviderState(batchId: string, input: { state: MusicBatchState; amfJobId?: string; warningCount?: number; lastError?: string | null }, now: Date): Promise<void>;
+  recordProviderEvidence(batchId: string, job: AmfJob, now: Date): Promise<void>;
 }
 
 export type MusicRequestState = MusicBatchState;

@@ -66,15 +66,24 @@ and must not be staged, modified, or deleted.
 - The AMF destination is now
   `anime-ongaku-staging/request-{requestId}/batch-{batchIndex}` so untrusted
   route Kitsu IDs never enter filesystem paths.
-- MC-A00 is complete in the ticket commit containing this handoff update. Its
+- MC-A00 is complete at `780114a feat(android): add debug anime music
+  requests`. Its
   debug-only anime-detail action hydrates/polls Anime Ongaku request resources;
   Android never calls AMF. Only idle or POST-error states submit, while active
   and terminal states are read-only.
 - MC-A00 verification: focused 16/16; full Android unit 383/383; lint, debug
   assembly, release Kotlin compile, and diff check passed. Sol/Medium UX review
   issues were fixed. Device/controller smoke remains MC-Q01R.
-- Resume MC-S08R delivery indexing/import, which is already in progress in the
-  shared server worktree. Do not re-enable automatic scheduling.
+- MC-S08R is complete in the ticket commit containing this handoff update. It
+  persists AMF evidence/deliveries, validates the read-only staging mount,
+  verifies bytes during copy, and atomically publishes ready Full/Related
+  catalog entries with deterministic crash/replay behavior.
+- MC-S08R verification: focused 39/39; isolated PostgreSQL 3/3 with the
+  disposable instance removed; full server 416 passed and 18 environment-gated
+  skipped; TypeScript/diff passed; Sol/Medium review and Terra/High QA clean.
+- Resume MC-S12R operator/deployment surfaces and then MC-Q01R live controller,
+  filesystem, and debug-device acceptance. Do not re-enable automatic
+  scheduling before MC-Q01R passes.
 
 ## MC-S10 completed scope
 

@@ -47,6 +47,7 @@ export type AnimeMusicRequestSource = "DEBUG_USER" | "AUTOMATIC";
 export type AnimeMusicBatchState =
   | "QUEUED" | "SEARCHING" | "AWAITING_OPERATOR" | "DOWNLOADING" | "PROCESSING"
   | "COMPLETED" | "COMPLETED_WITH_WARNINGS" | "FAILED" | "CANCELLED";
+export type AnimeMusicImportState = "PENDING" | "IMPORTING" | "READY" | "ATTENTION";
 
 // ===== identity =====
 
@@ -473,6 +474,8 @@ export const animeMusicRequestBatches = pgTable("anime_music_request_batches", {
   idempotencyKey: text("idempotency_key").notNull().unique(),
   amfJobId: text("amf_job_id").unique(),
   warningCount: integer("warning_count").notNull().default(0),
+  warnings: jsonb("warnings").$type<string[]>().notNull().default([]),
+  manifestEvidence: jsonb("manifest_evidence").notNull().default({}),
   lastError: text("last_error"),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   createdAt: createdAt(),
@@ -489,9 +492,36 @@ export const animeMusicRequestItems = pgTable("anime_music_request_items", {
   kind: text("kind").notNull(),
   number: integer("number"),
   themeId: bigint("theme_id", { mode: "number" }).references(() => themes.id),
+  acquisitionId: bigint("acquisition_id", { mode: "number" }).references(() => musicAcquisitions.id),
+  resultStatus: text("result_status"),
+  resultEvidence: jsonb("result_evidence").notNull().default({}),
+  importState: text("import_state").$type<AnimeMusicImportState>().notNull().default("PENDING"),
+  importError: text("import_error"),
   createdAt: createdAt(),
 }, (t) => [
   unique("anime_music_request_items_batch_index_unique").on(t.batchId, t.itemIndex),
+]);
+
+export const animeMusicRequestDeliveries = pgTable("anime_music_request_deliveries", {
+  id: text("id").primaryKey(),
+  itemId: text("item_id").notNull().references(() => animeMusicRequestItems.id, { onDelete: "cascade" }),
+  fileIndex: integer("file_index").notNull(),
+  relativePath: text("relative_path").notNull(),
+  byteSize: bigint("byte_size", { mode: "number" }),
+  sha256: text("sha256"),
+  verifiedByteSize: bigint("verified_byte_size", { mode: "number" }),
+  verifiedSha256: text("verified_sha256"),
+  metadata: jsonb("metadata").notNull().default({}),
+  active: boolean("active").notNull().default(true),
+  importState: text("import_state").$type<AnimeMusicImportState>().notNull().default("PENDING"),
+  importError: text("import_error"),
+  songId: bigint("song_id", { mode: "number" }).references(() => songs.id),
+  releaseId: bigint("release_id", { mode: "number" }).references(() => musicReleases.id),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [
+  unique("anime_music_request_deliveries_item_file_unique").on(t.itemId, t.fileIndex),
+  index("anime_music_request_deliveries_import_idx").on(t.importState, t.createdAt),
 ]);
 
 export const songPrefs = pgTable("song_prefs", {
