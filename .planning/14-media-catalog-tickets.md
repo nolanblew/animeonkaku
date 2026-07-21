@@ -1243,7 +1243,7 @@ and verified fixes for outbound schema parity and provider-data redaction.
 
 | Field | Value |
 |---|---|
-| Status | ⬜ Pending |
+| Status | ✅ Complete |
 | Area | Server / API / PostgreSQL / jobs |
 | Difficulty | High |
 | Effort | L, 4–5 days |
@@ -1279,7 +1279,24 @@ and verified fixes for outbound schema parity and provider-data redaction.
 
 #### Completion and testing notes
 
-Pending.
+Completed on 2026-07-21. Added generated PostgreSQL request, batch, and
+persisted-item schema; global active-request uniqueness per AnimeThemes anime;
+and exact immutable AMF body/idempotency-key persistence before queue or
+controller effects. The deterministic builder orders numbered OP/ED Full
+targets before OST, character song, drama, and other collections and splits at
+AMF's twelve-item limit. Authenticated POST/resource GET/latest GET routes use
+the wrapped safe summary contract, with 202 + Location and replay semantics.
+
+Normal-priority database jobs perform one AMF submit/poll effect per run,
+reschedule without sleeping or consuming outage attempts, and recover local
+commit/enqueue and remote-accept/persistence crash windows using the same
+persisted body/key. Automatic scheduling remains disabled. Focused unit/route
+tests passed 12/12. A disposable isolated PostgreSQL instance passed 1/1 for
+cross-user concurrent replay, terminal follow-up, and recovery and was removed.
+The full server suite passed 409 tests with 16 environment-gated skips; an
+independent one-worker run confirmed the same 409/16 result. TypeScript
+`--noEmit` and `git diff --check` passed. Independent Sol/Medium review found no
+remaining actionable issue after crash-window corrections.
 
 ### MC-S08R — Index and import validated AMF deliveries
 

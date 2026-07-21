@@ -172,7 +172,11 @@ Recommended mounts:
 
 AMF job destinations should be relative paths beneath its library root:
 
-`anime-ongaku-staging/anime-{kitsuId}/request-{requestId}/batch-{batchIndex}`
+`anime-ongaku-staging/request-{requestId}/batch-{batchIndex}`
+
+The server-generated request UUID is the only request path identity. Raw Kitsu
+IDs are intentionally excluded because route identifiers are external input
+and the request already persists the Kitsu-to-AnimeThemes mapping separately.
 
 Keep `AMF_CONFIG_PATH` on a separate private persistent path mounted only at
 `/config`; it contains SQLite, tracker/source settings, credentials, and

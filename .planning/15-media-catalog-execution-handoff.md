@@ -40,7 +40,8 @@ and must not be staged, modified, or deleted.
 
 ## 2026-07-21 AMF replacement continuation
 
-- MC-S05R is complete in the ticket commit containing this handoff update.
+- MC-S05R is complete at `284b7ad feat(server): replace Lidarr with Anime Music
+  Fetcher`.
 - Anime Music Fetcher 0.2 replaces Lidarr. Its first-iteration API base is
   hardcoded to `http://192.168.68.68:9292/api/v1`; root `/health` and `/ready`
   remain service-origin routes.
@@ -54,9 +55,18 @@ and must not be staged, modified, or deleted.
   environment-gated skipped; TypeScript `--noEmit` and diff check passed; live
   AMF health/readiness were ready; independent Sol/Medium review passed after
   two schema/redaction corrections.
-- Resume with MC-S07R durable whole-anime request persistence, routes,
-  deterministic <=12-item batches, job submission/polling, replay, and real
-  PostgreSQL concurrency/restart tests. Do not re-enable automatic scheduling.
+- MC-S07R is complete in the ticket commit containing this handoff update.
+  It adds durable request/batch/item rows, global active replay, immutable AMF
+  bodies and keys, deterministic <=12-item batches, authenticated wrapped
+  request resources, and attempt-neutral submit/poll/recovery jobs.
+- MC-S07R verification: focused 12/12; isolated PostgreSQL 1/1 with the
+  disposable instance removed; full server 409 passed and 16 environment-gated
+  skipped; TypeScript and diff check passed; final Sol/Medium review clean.
+- The AMF destination is now
+  `anime-ongaku-staging/request-{requestId}/batch-{batchIndex}` so untrusted
+  route Kitsu IDs never enter filesystem paths.
+- Resume MC-A00 (already started in the shared worktree) and MC-S08R delivery
+  indexing/import. Do not re-enable automatic scheduling.
 
 ## MC-S10 completed scope
 

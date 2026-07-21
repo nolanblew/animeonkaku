@@ -25,6 +25,9 @@ import { createJsonStdoutLogger } from "./logging.js";
 import {
   AnimeMusicFetcherClient,
   createAnimeMusicFetcherUpstreamHttp,
+  createMusicRequestHandlers,
+  MusicRequestService,
+  PgMusicRequestRepository,
 } from "./music/index.js";
 import {
   createFetchMediaHandlers,
@@ -47,9 +50,6 @@ const externalLogger = createJsonStdoutLogger();
 
 const amfHttp = createAnimeMusicFetcherUpstreamHttp({ logger: externalLogger });
 const amfClient = new AnimeMusicFetcherClient({ http: amfHttp });
-// MC-S07R consumes this seam from the durable whole-anime request workflow.
-// It intentionally does not implement the old release/monitor ownership API.
-void amfClient;
 
 const { pool, db } = createDb(config.DATABASE_URL);
 
@@ -60,6 +60,9 @@ await mkdir(join(config.MEDIA_ROOT, "images", "anime"), { recursive: true });
 await mkdir(join(config.MEDIA_ROOT, "images", "artists"), { recursive: true });
 
 const jobQueue = new JobQueue(new PgJobRepository(pool));
+const musicRequestRepo = new PgMusicRequestRepository(pool);
+const musicRequestService = new MusicRequestService({ repo: musicRequestRepo, queue: jobQueue });
+const musicRequestHandlers = createMusicRequestHandlers({ repo: musicRequestRepo, queue: jobQueue, client: amfClient });
 const syncRepo = new DrizzleSyncRepository(db);
 
 // Each upstream host shares one politeness budget (bucket) and one breaker
@@ -173,11 +176,12 @@ const fetchHandlers = createFetchMediaHandlers({
   },
 });
 await jobQueue.recoverRunningJobs();
+await musicRequestService.recover();
 const syncHandlers = createSyncJobHandlers(syncPipeline);
 // Background hydration waits until on-demand media traffic has been quiet.
 const mediaActivity = new InteractiveMediaActivity();
 const worker = new JobWorker(jobQueue, {
-  handlers: { ...fetchHandlers, ...syncHandlers },
+  handlers: { ...fetchHandlers, ...syncHandlers, ...musicRequestHandlers },
   maintenanceFetchDelayMs: config.AUDIO_BACKFILL_DELAY_SECONDS * 1000,
   holdMaintenanceWork: () => !mediaActivity.isQuiet(),
 });
@@ -222,6 +226,7 @@ const app = buildApp({
   jobs: jobQueue,
   clientApi,
   legacyLibraryImport: clientApi,
+  musicRequests: musicRequestService,
   mediaApi: new MediaStreamingService({
     repo: new DrizzleMediaApiRepository(db),
     queue: jobQueue,

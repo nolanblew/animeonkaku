@@ -43,6 +43,10 @@ export type MusicAcquisitionState =
   | "READY"
   | "FAILED"
   | "AMBIGUOUS";
+export type AnimeMusicRequestSource = "DEBUG_USER" | "AUTOMATIC";
+export type AnimeMusicBatchState =
+  | "QUEUED" | "SEARCHING" | "AWAITING_OPERATOR" | "DOWNLOADING" | "PROCESSING"
+  | "COMPLETED" | "COMPLETED_WITH_WARNINGS" | "FAILED" | "CANCELLED";
 
 // ===== identity =====
 
@@ -441,6 +445,54 @@ export const playlistEntries = pgTable(
     index("playlist_entries_item_idx").on(t.itemType, t.itemId),
   ],
 );
+
+// Durable Anime Music Fetcher orchestration. Bodies and idempotency keys are
+// committed here before queue/provider effects; API projections never expose them.
+export const animeMusicRequests = pgTable("anime_music_requests", {
+  id: text("id").primaryKey(),
+  requestedByUserId: text("requested_by_user_id").notNull().references(() => users.kitsuUserId),
+  kitsuId: text("kitsu_id").notNull().references(() => kitsuAnime.kitsuId),
+  animethemesAnimeId: bigint("animethemes_anime_id", { mode: "number" }).notNull()
+    .references(() => animethemesAnime.id),
+  source: text("source").$type<AnimeMusicRequestSource>().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [
+  uniqueIndex("anime_music_requests_one_active_anime_unique")
+    .on(t.animethemesAnimeId).where(sql`${t.completedAt} is null`),
+  index("anime_music_requests_anime_latest_idx").on(t.animethemesAnimeId, t.createdAt),
+]);
+
+export const animeMusicRequestBatches = pgTable("anime_music_request_batches", {
+  id: text("id").primaryKey(),
+  requestId: text("request_id").notNull().references(() => animeMusicRequests.id, { onDelete: "cascade" }),
+  batchIndex: integer("batch_index").notNull(),
+  state: text("state").$type<AnimeMusicBatchState>().notNull().default("QUEUED"),
+  amfRequestBody: jsonb("amf_request_body").notNull(),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  amfJobId: text("amf_job_id").unique(),
+  warningCount: integer("warning_count").notNull().default(0),
+  lastError: text("last_error"),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [
+  unique("anime_music_request_batches_request_index_unique").on(t.requestId, t.batchIndex),
+  index("anime_music_request_batches_recovery_idx").on(t.completedAt, t.createdAt),
+]);
+
+export const animeMusicRequestItems = pgTable("anime_music_request_items", {
+  id: text("id").primaryKey(),
+  batchId: text("batch_id").notNull().references(() => animeMusicRequestBatches.id, { onDelete: "cascade" }),
+  itemIndex: integer("item_index").notNull(),
+  kind: text("kind").notNull(),
+  number: integer("number"),
+  themeId: bigint("theme_id", { mode: "number" }).references(() => themes.id),
+  createdAt: createdAt(),
+}, (t) => [
+  unique("anime_music_request_items_batch_index_unique").on(t.batchId, t.itemIndex),
+]);
 
 export const songPrefs = pgTable("song_prefs", {
   userId: text("user_id")

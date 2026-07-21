@@ -15,6 +15,7 @@ import { KitsuAuthError, type UserRecord } from "./auth/types.js";
 import { registerJobAdminRoutes, type JobAdminService } from "./jobs/adminRoutes.js";
 import type { LegacyLibraryImportService } from "./legacyLibraryImport.js";
 import { registerSyncRoutes, type SyncApiService } from "./api/syncRoutes.js";
+import { registerMusicRequestRoutes, type MusicRequestService } from "./music/requests/index.js";
 
 export interface AppDeps {
   authService: AuthService;
@@ -25,6 +26,7 @@ export interface AppDeps {
   syncApi?: SyncApiService;
   proxyApi?: ProxyApiService;
   legacyLibraryImport?: LegacyLibraryImportService;
+  musicRequests?: MusicRequestService;
   onLogin?: (result: LoginResult) => Promise<void>;
   /**
    * Fires after every request that carried a valid session (post-response, so
@@ -110,5 +112,8 @@ function registerApiRoutes(app: FastifyInstance, deps: AppDeps): void {
   }
   if (deps.jobs) {
     registerJobAdminRoutes(app, deps.authService, deps.jobs);
+  }
+  if (deps.musicRequests) {
+    registerMusicRequestRoutes(app, deps.authService, deps.musicRequests);
   }
 }

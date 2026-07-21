@@ -52,6 +52,8 @@ const DEFAULT_TIMEOUTS_MS: Record<JobType, number> = {
   // never waits for a download in-process.
   RECONCILE_MUSIC_ACQUISITION: 2 * 60_000,
   IMPORT_MUSIC_AUDIO: 10 * 60_000,
+  SUBMIT_AMF_MUSIC_BATCH: 2 * 60_000,
+  POLL_AMF_MUSIC_BATCH: 2 * 60_000,
 };
 
 export class JobWorker {
