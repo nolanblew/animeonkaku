@@ -1,5 +1,14 @@
 # PRD — TV Size, Full Size, Video, and Related Music
 
+> **2026-07-21 acquisition change:** Anime Ongaku no longer uses Lidarr. The
+> first acceptance iteration uses the custom Anime Music Fetcher service and a
+> debug-build-only anime-detail **Request music** action. The listener-facing
+> catalog remains ready-or-absent, and later automatic scheduling must invoke
+> the same durable server workflow. Where this PRD says Lidarr or forbids every
+> listener-triggered request, the narrowly scoped debug acceptance flow in
+> [16-anime-fetcher-migration-plan.md](16-anime-fetcher-migration-plan.md)
+> supersedes it.
+
 **Status:** Product requirements resolved; ready for TDR
 
 **Date:** 2026-07-19

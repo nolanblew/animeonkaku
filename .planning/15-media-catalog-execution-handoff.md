@@ -1,6 +1,24 @@
 # Media Catalog execution handoff
 
-Last updated: 2026-07-20
+Last updated: 2026-07-21
+
+## 2026-07-21 acquisition direction change
+
+Lidarr is no longer an active dependency. Read
+`.planning/16-anime-fetcher-migration-plan.md` before editing acquisition,
+discovery, import, operator, or Android anime-detail code. The live Anime Music
+Fetcher 0.2 OpenAPI contract was verified at
+`http://192.168.68.68:9292/openapi.json`; `/health` returned `ok` and `/ready`
+reported its database, Prowlarr, custom source, and qBittorrent ready. The AMF
+README at `E:\Users\Nolan\Documents\AnimeMusicFetcher\README.md` confirms the
+separate `/config`, shared `/downloads`, and output `/library` mount contract.
+
+The replacement sequence is MC-S05R, MC-S07R, MC-A00/MC-S08R, MC-S12R, then
+MC-Q01R. MC-S11 remains the next unaffected original ticket, but it is paused
+until the controller request/import path is established. The new debug Android
+button must call Anime Ongaku, never AMF directly. AMF deliveries go to a
+shared read-only staging mount for Anime Ongaku and are then validated/copied
+into the separate canonical `MEDIA_ROOT`.
 
 ## Branch and completed ticket commits
 
@@ -51,7 +69,7 @@ and must not be staged, modified, or deleted.
 - TypeScript `--noEmit` and `git diff --check` passed.
 - Independent Sol/Medium review found no remaining blocker.
 
-## Next ticket: MC-S11
+## Deferred original next ticket: MC-S11
 
 Read MC-S11 in `.planning/14-media-catalog-tickets.md`, TDR 8.6, and the PRD
 reaction/history requirements before editing. MC-S11 owns mode-specific theme

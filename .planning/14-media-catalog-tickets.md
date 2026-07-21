@@ -1,12 +1,19 @@
 # Implementation Backlog — Media Catalog Initiative
 
-**Status:** Ready for implementation sequencing
+**Status:** In progress; acquisition replacement tranche added 2026-07-21
 
 **Date:** 2026-07-19
 
 **Product requirements:** [12-media-catalog-prd.md](12-media-catalog-prd.md)
 
 **Technical design:** [13-media-catalog-tdr.md](13-media-catalog-tdr.md)
+
+**Active acquisition change:**
+[16-anime-fetcher-migration-plan.md](16-anime-fetcher-migration-plan.md)
+supersedes Lidarr runtime work with the Anime Music Fetcher service and adds
+MC-S05R, MC-S07R, MC-S08R, MC-A00, MC-S12R, and MC-Q01R. Completed Lidarr-era
+tickets remain recorded below as historical commits, but they do not satisfy
+the replacement tranche.
 
 ## 1. How to use this backlog
 
@@ -1176,6 +1183,185 @@ Expected areas:
 
 Do not build a full admin UI or manual match approval in this ticket.
 
+## 6A. 2026-07-21 Anime Music Fetcher replacement tickets
+
+These tickets are the active acquisition path. Their detailed architecture,
+request contract, vfolder layout, and execution order are authoritative in
+[16-anime-fetcher-migration-plan.md](16-anime-fetcher-migration-plan.md).
+
+### MC-S05R — Replace Lidarr with the AMF 0.2 job client
+
+| Field | Value |
+|---|---|
+| Status | ⬜ Pending |
+| Area | Server / Anime Music Fetcher integration |
+| Difficulty | High |
+| Effort | L, 4–5 days |
+| Depends on | MC-S03, MC-S04 |
+| Unlocks | MC-S07R, MC-S08R, MC-S12R |
+
+#### Scope and acceptance
+
+- Remove Lidarr runtime/config/adapter selection and replace it with the
+  first-iteration hardcoded `http://192.168.68.68:9292/api/v1` AMF client.
+- Parse AMF 0.2 health/readiness, submit, poll, retry/cancel, item results, and
+  delivery files with Zod; use `Idempotency-Key` for submission.
+- Retain provider-neutral contracts only where they model AMF truthfully.
+- Treat malformed/unknown responses and transport/HTTP failures as typed,
+  retry-aware failures without leaking full source URLs or paths.
+- Never trust AMF host `absolute_path` as an Anime Ongaku filesystem path.
+
+#### Verification
+
+- RED/GREEN OpenAPI-shaped fixtures for request serialization, replay/409,
+  status transitions, warnings, malformed responses, retryability, and
+  delivery parsing.
+- Full server Vitest, TypeScript `--noEmit`, diff check, and independent light
+  review.
+
+#### Completion and testing notes
+
+Pending.
+
+### MC-S07R — Add durable whole-anime request orchestration
+
+| Field | Value |
+|---|---|
+| Status | ⬜ Pending |
+| Area | Server / API / PostgreSQL / jobs |
+| Difficulty | High |
+| Effort | L, 4–5 days |
+| Depends on | MC-S05R, MC-S06 |
+| Unlocks | MC-A00, MC-S08R |
+
+#### Scope and acceptance
+
+- Add durable anime request and AMF batch persistence plus normal generated
+  migration.
+- Add authenticated `POST /v1/anime/{animeId}/music-request` returning 202.
+- Compose multilingual known numbered OP/ED Full targets plus OST, character
+  song, drama, and other requests; split deterministically into AMF's maximum
+  twelve items per job.
+- Persist request/batches before remote effects, enqueue the existing database
+  worker, and poll without sleeping a worker.
+- Repeated taps and crash/restart windows must reuse the active request and AMF
+  idempotency key rather than duplicate jobs.
+- Keep scheduled automatic submission off for first controller acceptance, but
+  use an internal trigger contract that later accepts `AUTOMATIC` unchanged.
+
+#### Verification
+
+- Unit/route tests for metadata composition, >12 batching, authentication,
+  missing mapping, active replay, and provider errors.
+- Real PostgreSQL concurrency/restart/idempotency integration.
+- Focused and full server tests, typecheck, diff check, and independent review.
+
+#### Completion and testing notes
+
+Pending.
+
+### MC-S08R — Index and import validated AMF deliveries
+
+| Field | Value |
+|---|---|
+| Status | ⬜ Pending |
+| Area | Server / acquisition completion / filesystem |
+| Difficulty | High |
+| Effort | XL, 6–8 days |
+| Depends on | MC-S03, MC-S06, MC-S07R |
+| Unlocks | MC-S12R, MC-Q01R |
+
+#### Scope and acceptance
+
+- Persist AMF per-item results, warnings, and delivery evidence for completed
+  or attention-required batches.
+- Resolve only delivery `relative_path` values beneath the configured read-only
+  AMF `/library` mount; reject traversal, symlink escape, missing files, and
+  conflicting size/hash.
+- Link unambiguous OP/ED deliveries to Full Size targets and index accepted
+  OST/character/drama/other deliveries as Related releases/songs.
+- Reuse MC-S03 atomic original-byte import and publish only after the complete
+  catalog/media transaction is READY.
+- Keep possible, uncovered, awaiting-selection, APE, and WavPack results hidden
+  pending operator action unless explicit playback support is added and tested.
+- Make partial batches, restart, copy/publication crashes, and reprocessing
+  idempotent.
+
+#### Verification
+
+- Real temp-file format/path/hash tests and crash-point tests.
+- Real PostgreSQL publication/retry/duplicate-song integration.
+- Focused and full server suites, typecheck, independent Terra/High QA, and
+  Sol/Medium review.
+
+#### Completion and testing notes
+
+Pending.
+
+### MC-S12R — Replace operator and deployment surfaces for AMF
+
+| Field | Value |
+|---|---|
+| Status | ⬜ Pending |
+| Area | Server / operations / deployment docs |
+| Difficulty | Medium |
+| Effort | M, 2–3 days |
+| Depends on | MC-S05R, MC-S07R, MC-S08R, MC-S09 |
+| Unlocks | MC-Q01R |
+
+#### Scope and acceptance
+
+- Replace Lidarr operator/config documentation with AMF health/readiness,
+  request/batch/job diagnostics, retry/cancel/reprocess, and safe staging
+  cleanup.
+- Document the first-iteration hardcoded API address and deferred config work.
+- Document separate confidential `/config`, shared exact-path `/downloads`,
+  AMF `/library` staging, and Anime Ongaku-only `MEDIA_ROOT` mounts.
+- AMF outage must not fail Anime Ongaku health or existing media playback.
+- Cleanup must never remove canonical media or AMF files not proven to belong
+  to an Anime Ongaku request.
+
+#### Verification
+
+- Admin auth/route, outage, redaction, cleanup, and documentation/config tests.
+- Full server suite, typecheck, diff check, and independent review.
+
+#### Completion and testing notes
+
+Pending.
+
+### MC-A00 — Add the debug-only anime request action
+
+| Field | Value |
+|---|---|
+| Status | ⬜ Pending |
+| Area | Android / anime detail / debug tooling |
+| Difficulty | Medium |
+| Effort | M, 2–3 days |
+| Depends on | Stable MC-S07R API contract |
+| Unlocks | MC-Q01R debug-device acceptance |
+
+#### Scope and acceptance
+
+- Add typed Anime Ongaku request DTO/repository/ViewModel support; Android must
+  never call AMF directly.
+- Show one anime-level **Request music** action only when `BuildConfig.DEBUG`
+  is true.
+- Model idle, submitting, accepted/already-active, and retryable error state;
+  disable concurrent taps and preserve existing anime-detail behavior.
+- Release builds expose no button or navigation/action path.
+
+#### Verification
+
+- ViewModel tests for success, replay, concurrent tap, and error recovery.
+- Compose visibility/action tests where supported, Android unit suite, lint,
+  debug assembly, Sol/Medium UX review, and real-device smoke against the
+  Anime Ongaku server and AMF controller.
+
+#### Completion and testing notes
+
+Pending.
+
 ## 7. Android tickets
 
 ### MC-A01 — Add API DTOs, Room music models, and migration
@@ -1791,7 +1977,44 @@ Expected areas:
 
 Do not mix all Related Music into existing anime theme bulk Play/Shuffle.
 
-## 8. Cross-system ticket
+## 8. Cross-system tickets
+
+### MC-Q01R — Validate the AMF controller and staging flow
+
+| Field | Value |
+|---|---|
+| Status | ⬜ Pending |
+| Area | Server + Android debug build + AMF deployment |
+| Difficulty | High |
+| Effort | L, 4–5 days |
+| Depends on | MC-S08R, MC-S12R, MC-A00 |
+| Unlocks | Automatic-trigger re-enablement and original MC-Q01 |
+
+#### Scope and acceptance
+
+- With automatic scheduling off, request a curated set from debug anime detail
+  pages covering >12-item batching, multilingual titles, exact/missing OP/ED,
+  OST, character songs, drama, ambiguity, and reused audio.
+- Inspect durable Anime Ongaku request/batch rows, AMF jobs/item results,
+  staged files, canonical imports, and ready-only catalog projection.
+- Prove repeated taps, server/AMF restarts, controller outages, and reprocessing
+  do not duplicate remote jobs, catalog rows, or media.
+- Prove release builds do not expose the request action and AMF/Anime Ongaku
+  volume ownership matches the documented vfolder contract.
+- Record any operator-selected or unsupported files; never manually seed ready
+  catalog rows to hide a pipeline defect.
+
+#### Verification
+
+- Server focused/full/typecheck plus isolated PostgreSQL evidence.
+- Android unit/lint/assemble and real-device debug/release visibility checks.
+- Live AMF `/health`, `/ready`, submit/poll/delivery, filesystem, cleanup, and
+  outage evidence.
+- Independent Terra/High QA and Sol/Medium review.
+
+#### Completion and testing notes
+
+Pending.
 
 ### MC-Q01 — Run migration, contract, device, and staged catalog acceptance
 

@@ -1,5 +1,15 @@
 # TDR — Media Catalog, Playback Modes, and Related Music
 
+> **2026-07-21 acquisition change:** The Lidarr adapter/configuration/flow and
+> deployment sections below are retained as historical design context but are
+> no longer the active runtime target. The authoritative replacement is the
+> Anime Music Fetcher 0.2 job API, durable whole-anime debug request flow, and
+> shared staging import contract in
+> [16-anime-fetcher-migration-plan.md](16-anime-fetcher-migration-plan.md).
+> Provider-neutral catalog identities, conservative publication, original-byte
+> import, ready-only listener contracts, and database-backed jobs remain in
+> force.
+
 **Status:** Approved technical direction
 
 **Date:** 2026-07-19
