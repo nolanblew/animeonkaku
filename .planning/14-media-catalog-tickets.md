@@ -1202,10 +1202,11 @@ request contract, vfolder layout, and execution order are authoritative in
 
 #### Scope and acceptance
 
-- Remove Lidarr runtime/config/adapter selection and replace it with the
-  first-iteration hardcoded `http://192.168.68.68:9292/api/v1` AMF client.
-- Parse AMF 0.2 health/readiness, submit, poll, retry/cancel, item results, and
-  delivery files with Zod; use `Idempotency-Key` for submission.
+- Remove Lidarr runtime/config/adapter selection and replace it with a hardcoded
+  AMF service origin and derived `http://192.168.68.68:9292/api/v1` client.
+- Parse AMF 0.2 root-level health/readiness and API-level submit, poll,
+  retry/cancel, item results, and delivery files with Zod; use
+  `Idempotency-Key` for submission.
 - Retain provider-neutral contracts only where they model AMF truthfully.
 - Treat malformed/unknown responses and transport/HTTP failures as typed,
   retry-aware failures without leaking full source URLs or paths.
@@ -1238,9 +1239,11 @@ Pending.
 
 - Add durable anime request and AMF batch persistence plus normal generated
   migration.
-- Add authenticated POST and GET `/v1/anime/:kitsuId/music-request` routes.
-  POST returns 202 for creation or active replay; GET hydrates the latest
-  durable request or an explicit no-request result.
+- Add authenticated POST `/v1/anime/:kitsuId/music-requests`, GET
+  `/v1/music-requests/:requestId`, and GET
+  `/v1/anime/:kitsuId/music-requests/latest` routes. POST returns 202 for
+  creation or active replay; GET hydrates a durable request or explicit
+  no-request result.
 - Compose multilingual known numbered OP/ED Full targets plus OST, character
   song, drama, and other requests; split deterministically into AMF's maximum
   twelve items per job.

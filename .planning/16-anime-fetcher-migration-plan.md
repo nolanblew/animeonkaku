@@ -95,10 +95,12 @@ AMF output remains operator-review work and never becomes listener-ready.
 
 ### 3.2 Server request endpoint
 
-Add authenticated additive endpoints using the existing anime-detail Kitsu ID:
+Add authenticated additive request resources using the existing anime-detail
+Kitsu ID:
 
-- `POST /v1/anime/:kitsuId/music-request`
-- `GET /v1/anime/:kitsuId/music-request`
+- `POST /v1/anime/:kitsuId/music-requests`
+- `GET /v1/music-requests/:requestId`
+- `GET /v1/anime/:kitsuId/music-requests/latest`
 
 The endpoint:
 
@@ -118,8 +120,9 @@ The endpoint:
    and an Anime Ongaku-owned summary. Replays return the existing active
    request rather than resubmitting.
 
-GET returns the latest active request, otherwise the latest terminal request,
-or `200 { request: null }` when none exists. The safe summary contains:
+The resource GET returns one request by ID. The anime-scoped latest GET returns
+the latest active request, otherwise the latest terminal request, or
+`200 { request: null }` when none exists. The safe summary contains:
 
 - request UUID and stable Anime Ongaku state enum;
 - batch count and counts for queued, searching, awaiting-operator,
@@ -198,8 +201,9 @@ own regression coverage.
   requirements.
 - Keep provider-neutral domain contracts only where they still model AMF jobs
   cleanly; revise rather than force Lidarr resource semantics onto AMF.
-- Add the hardcoded first-iteration AMF base URL, Zod DTOs, health/readiness,
-  submit, poll, retry/cancel, and delivery parsing.
+- Add a hardcoded service origin and derived first-iteration AMF API base URL,
+  Zod DTOs, root-level health/readiness, API-level submit, poll, retry/cancel,
+  and delivery parsing. Do not append `/health` or `/ready` beneath `/api/v1`.
 - Map retryability for network, 4xx, 429, 5xx, malformed payload, and unknown
   status cases.
 - Use header idempotency and redact URLs/paths at normal log levels.
