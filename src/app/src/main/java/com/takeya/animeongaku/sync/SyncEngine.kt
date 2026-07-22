@@ -13,6 +13,8 @@ import com.takeya.animeongaku.data.local.PendingPlayEntity
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
+import com.takeya.animeongaku.data.local.SongPreferenceEntity
+import com.takeya.animeongaku.data.local.UserPreferenceEntity
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.remote.OngakuManualAnimeRequest
 import com.takeya.animeongaku.data.remote.OngakuPlayEvent
@@ -20,6 +22,8 @@ import com.takeya.animeongaku.data.remote.OngakuPlaylistDto
 import com.takeya.animeongaku.data.remote.OngakuPlaylistRequest
 import com.takeya.animeongaku.data.remote.OngakuPlaylistItemRequest
 import com.takeya.animeongaku.data.remote.OngakuThemePrefPatch
+import com.takeya.animeongaku.data.remote.OngakuMusicApi
+import com.takeya.animeongaku.data.remote.OngakuSongPrefPatch
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.data.auth.SessionStateManager
 import javax.inject.Inject
@@ -49,7 +53,8 @@ class SyncEngine @Inject constructor(
     private val api: OngakuApi,
     private val settings: ServerSettingsStore,
     private val sessionStateManager: SessionStateManager,
-    moshi: Moshi
+    moshi: Moshi,
+    private val musicApi: OngakuMusicApi? = null
 ) {
     private val mapAdapter = moshi.adapter<Map<String, Any?>>(
         Types.newParameterizedType(Map::class.java, String::class.java, Any::class.java)
@@ -61,11 +66,39 @@ class SyncEngine @Inject constructor(
         disliked: Boolean,
         opTs: Long = System.currentTimeMillis()
     ) {
+        enqueueThemePreference(
+            UserPreferenceEntity(themeId, liked, disliked),
+            opTs
+        )
+    }
+
+    suspend fun enqueueThemePreference(
+        preference: UserPreferenceEntity,
+        opTs: Long = preference.updatedAt.takeIf { it > 0L } ?: System.currentTimeMillis()
+    ) {
         enqueueSuperseding(
             entityType = PendingOpEntity.ENTITY_THEME_PREF,
-            entityKey = themeId.toString(),
+            entityKey = preference.themeId.toString(),
             opType = PendingOpEntity.OP_UPSERT,
-            payload = mapOf("liked" to liked, "disliked" to disliked),
+            payload = mapOf(
+                "liked" to preference.isLiked,
+                "disliked" to preference.isDisliked,
+                "dislikedTvSize" to preference.isDislikedTvSize,
+                "dislikedFullSize" to preference.isDislikedFullSize
+            ),
+            opTs = opTs
+        )
+    }
+
+    suspend fun enqueueSongPreference(
+        preference: SongPreferenceEntity,
+        opTs: Long = preference.updatedAt.takeIf { it > 0L } ?: System.currentTimeMillis()
+    ) {
+        enqueueSuperseding(
+            entityType = PendingOpEntity.ENTITY_SONG_PREF,
+            entityKey = preference.songId.toString(),
+            opType = PendingOpEntity.OP_UPSERT,
+            payload = mapOf("liked" to preference.isLiked, "disliked" to preference.isDisliked),
             opTs = opTs
         )
     }
@@ -216,17 +249,40 @@ class SyncEngine @Inject constructor(
         while (pushedPlays < limit) {
             val plays = store.oldestPendingPlays(limit - pushedPlays)
             if (plays.isEmpty()) break
+            // Typed events must never be sent to the legacy endpoint: SONG is not a
+            // legacy identity, and clientEventId is what makes a retry idempotent.
+            val typedPlays = plays.filter { it.clientEventId != null }
+            val batch = if (typedPlays.isNotEmpty()) typedPlays else plays
             val accepted = try {
-                api.recordPlays(plays.map { OngakuPlayEvent(themeId = it.themeId, playedAt = it.playedAt) })
+                if (typedPlays.isNotEmpty()) {
+                    val music = musicApi ?: error("Typed play API is unavailable")
+                    music.recordActualPlays(typedPlays.map {
+                    com.takeya.animeongaku.data.remote.OngakuActualPlayEvent(
+                        clientEventId = requireNotNull(it.clientEventId),
+                        itemType = it.itemType,
+                        itemId = it.itemId,
+                        actualMode = it.actualMode,
+                        playedAt = it.playedAt
+                    )
+                    })
+                } else {
+                    api.recordPlays(batch.map { OngakuPlayEvent(themeId = it.themeId, playedAt = it.playedAt) })
+                }
             } catch (_: Throwable) {
                 failed = true
                 break
             }
-            val acceptedIds = plays.take(accepted.accepted.coerceAtMost(plays.size)).map { it.id }
+            // MC-S11 accepts idempotent UUID replays without counting a newly inserted
+            // event. A successful typed request therefore acknowledges every UUID posted.
+            val acceptedIds = if (typedPlays.isNotEmpty()) {
+                batch.map { it.id }
+            } else {
+                batch.take(accepted.accepted.coerceAtMost(batch.size)).map { it.id }
+            }
             if (acceptedIds.isEmpty()) break
             store.deletePendingPlays(acceptedIds)
             pushedPlays += acceptedIds.size
-            if (acceptedIds.size < plays.size) break
+            if (acceptedIds.size < batch.size) break
         }
 
         val blockedEntities = mutableSetOf<Pair<String, String>>()
@@ -255,6 +311,7 @@ class SyncEngine @Inject constructor(
         val payload = parsePayload(op.payloadJson)
         when (op.entityType) {
             PendingOpEntity.ENTITY_THEME_PREF -> pushThemePref(op, payload)
+            PendingOpEntity.ENTITY_SONG_PREF -> pushSongPref(op, payload)
             PendingOpEntity.ENTITY_PLAYLIST -> pushPlaylist(op, payload)
             PendingOpEntity.ENTITY_LIBRARY -> pushLibrary(op, payload)
             else -> error("Unknown pending op entity type ${op.entityType}")
@@ -265,6 +322,19 @@ class SyncEngine @Inject constructor(
         api.updateThemePref(
             op.entityKey.toLong(),
             OngakuThemePrefPatch(
+                liked = payload["liked"] as? Boolean,
+                disliked = payload["disliked"] as? Boolean,
+                dislikedTvSize = payload["dislikedTvSize"] as? Boolean,
+                dislikedFullSize = payload["dislikedFullSize"] as? Boolean,
+                opTs = op.opTs
+            )
+        )
+    }
+
+    private suspend fun pushSongPref(op: PendingOpEntity, payload: Map<String, Any?>) {
+        requireNotNull(musicApi) { "Song preference API is unavailable" }.updateSongPref(
+            op.entityKey.toLong(),
+            OngakuSongPrefPatch(
                 liked = payload["liked"] as? Boolean,
                 disliked = payload["disliked"] as? Boolean,
                 opTs = op.opTs

@@ -184,6 +184,21 @@ interface SongPreferenceDao {
     @Query("SELECT * FROM song_preferences WHERE songId IN (:songIds)")
     suspend fun getByIdsIncludingDeleted(songIds: List<Long>): List<SongPreferenceEntity>
 
+    @Query("SELECT * FROM song_preferences WHERE deletedAt IS NULL")
+    suspend fun getAll(): List<SongPreferenceEntity>
+
+    @Query("DELETE FROM song_preferences WHERE songId IN (:songIds)")
+    suspend fun deleteBySongIds(songIds: List<Long>)
+
     @Query("SELECT * FROM song_preferences WHERE songId = :songId AND deletedAt IS NULL LIMIT 1")
     fun observe(songId: Long): Flow<SongPreferenceEntity?>
+
+    @Query("SELECT * FROM song_preferences WHERE deletedAt IS NULL")
+    fun observeAll(): Flow<List<SongPreferenceEntity>>
+
+    @Query("SELECT * FROM song_preferences WHERE songId = :songId AND deletedAt IS NULL LIMIT 1")
+    suspend fun get(songId: Long): SongPreferenceEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(preference: SongPreferenceEntity)
 }

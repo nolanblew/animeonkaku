@@ -29,10 +29,11 @@ interface LibraryPullCache {
 
     suspend fun applyThemePrefs(
         preferences: List<UserPreferenceEntity>,
-        playCounts: List<PlayCountEntity>
+        playCounts: List<PlayCountEntity>,
+        fullSnapshot: Boolean
     )
 
-    suspend fun applySongPrefs(preferences: List<SongPreferenceEntity>)
+    suspend fun applySongPrefs(preferences: List<SongPreferenceEntity>, fullSnapshot: Boolean)
 
     suspend fun replaceMusicCatalog(snapshot: MusicCatalogSnapshot)
 

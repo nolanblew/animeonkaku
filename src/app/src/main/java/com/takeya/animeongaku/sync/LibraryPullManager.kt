@@ -87,7 +87,8 @@ class LibraryPullManager @Inject constructor(
                     playCount = it.playCount,
                     lastPlayedAt = it.lastPlayedAt ?: 0L
                 )
-            }
+            },
+            fullSnapshot = since == null
         )
 
         changes.songPrefs?.let { songPrefs ->
@@ -102,7 +103,8 @@ class LibraryPullManager @Inject constructor(
                         updatedAt = it.updatedAt,
                         deletedAt = it.updatedAt.takeIf { _ -> it.deleted }
                     )
-                }
+                },
+                fullSnapshot = since == null
             )
         }
 

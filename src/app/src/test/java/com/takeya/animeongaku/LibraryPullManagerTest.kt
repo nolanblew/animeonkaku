@@ -261,6 +261,44 @@ class LibraryPullManagerTest {
     }
 
     @Test
+    fun `full pull applies server normalized theme and song reaction snapshots`() = runBlocking {
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+            serverPullCursor = 123L
+        }
+        val api = FakeOngakuApi(
+            libraryResponse = libraryResponse(),
+            prefsResponse = listOf(
+                OngakuThemePrefDto(
+                    themeId = 100L,
+                    liked = false,
+                    disliked = false,
+                    dislikedTvSize = true,
+                    dislikedFullSize = true,
+                    playCount = 2,
+                    lastPlayedAt = 10L,
+                    updatedAt = 20L
+                )
+            ),
+            autoPlaylistResponse = emptyList(),
+            songPrefsResponse = listOf(
+                OngakuSongPrefDto(300L, liked = false, disliked = true, playCount = 4, lastPlayedAt = 11L, updatedAt = 21L)
+            )
+        )
+        val cache = FakeLibraryPullCache(emptyMap())
+        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(), testMoshi(), activeSessionStateManager())
+
+        manager.pullNow(forceFull = true)
+
+        assertEquals(null, api.requestedChangesSince)
+        assertTrue(cache.fullThemeSnapshot)
+        assertTrue(cache.fullSongSnapshot)
+        assertTrue(cache.preferences.single().isDislikedTvSize)
+        assertTrue(cache.preferences.single().isDislikedFullSize)
+        assertTrue(cache.songPreferences.single().isDisliked)
+    }
+
+    @Test
     fun `pull keeps snapshot dynamic playlists client managed`() = runBlocking {
         val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
             serverBaseUrl = "http://192.168.1.5:8080/api"
@@ -494,6 +532,8 @@ private class FakeLibraryPullCache(
     var dynamicSpecs: List<DynamicPlaylistSpecEntity> = emptyList()
     var songPreferences: List<SongPreferenceEntity> = emptyList()
     var musicCatalog: MusicCatalogSnapshot? = null
+    var fullThemeSnapshot: Boolean = false
+    var fullSongSnapshot: Boolean = false
 
     override suspend fun existingThemes(themeIds: List<Long>): Map<Long, ThemeEntity> =
         existing.filterKeys { it in themeIds }
@@ -519,8 +559,9 @@ private class FakeLibraryPullCache(
         this.genreRefs = genreRefs
     }
 
-    override suspend fun applySongPrefs(preferences: List<SongPreferenceEntity>) {
+    override suspend fun applySongPrefs(preferences: List<SongPreferenceEntity>, fullSnapshot: Boolean) {
         songPreferences = preferences
+        fullSongSnapshot = fullSnapshot
     }
 
     override suspend fun replaceMusicCatalog(snapshot: MusicCatalogSnapshot) {
@@ -529,11 +570,13 @@ private class FakeLibraryPullCache(
 
     override suspend fun applyThemePrefs(
         preferences: List<UserPreferenceEntity>,
-        playCounts: List<PlayCountEntity>
+        playCounts: List<PlayCountEntity>,
+        fullSnapshot: Boolean
     ) {
         events += "applyPrefs"
         this.preferences = preferences
         this.playCounts = playCounts
+        fullThemeSnapshot = fullSnapshot
     }
 
     override suspend fun applyAutoPlaylists(

@@ -284,6 +284,19 @@ device acceptance after the Android chain is complete.
   mode-specific Theme dislike semantics, actual-mode play history, and queue
   skip behavior. Keep the implementation pragmatic for the private-app scope;
   do not add anime-wide or video-only dislike.
+- MC-A09 is complete in the ticket commit containing this handoff update. It
+  adds normalized broad/TV/Full Theme snapshots, independent SONG reactions,
+  pending-safe authoritative refresh, UUID-stable typed actual-mode play
+  events, and occurrence-level skip/unskip behavior. Current-item filtering
+  advances forward or stops; it never replays history.
+- MC-A09 verification: focused preferences, pull, playable-queue, and Media3
+  mode/fallback suites passed; production and Android-test Kotlin compiled;
+  Sol/Medium UX/code review, Terra/High QA, and diff check passed. The full
+  suite is intentionally reserved for the final large-section gate, and live
+  interaction verification will use the attached Pixel 7 Pro at MC-Q01.
+- Resume at MC-A10. Generalize downloads around stable MediaKey identity,
+  exact TV/Full/SONG resolution, shared physical files, and independent group
+  membership. Never create Video download entries.
 
 ## Agent model policy
 

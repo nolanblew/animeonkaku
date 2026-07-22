@@ -7,12 +7,18 @@ import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.MusicReleaseEntity
 import com.takeya.animeongaku.data.local.SongEntity
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.UserPreferenceEntity
 import com.takeya.animeongaku.media.NowPlayingManager
+import com.takeya.animeongaku.media.PlaybackMode
 import com.takeya.animeongaku.media.PlaybackPreferences
 import com.takeya.animeongaku.media.PlayableItem
 import com.takeya.animeongaku.media.PlayableKey
 import com.takeya.animeongaku.media.PlayableKind
+import com.takeya.animeongaku.media.QueueEntry
+import com.takeya.animeongaku.media.desiredCurrentIndexAfterFiltering
+import com.takeya.animeongaku.media.isQueueEntryAllowedByPreference
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -207,6 +213,57 @@ class PlayableQueueTest {
                 PlayableKey(PlayableKind.THEME, 2)
             ),
             manager.state.value.nowPlayingItems.map { it.key }
+        )
+    }
+
+    @Test
+    fun `mode filtering honors scoped reactions and explicit unskip for themes and songs`() {
+        val themeEntry = QueueEntry(queueId = 1L, item = PlayableItem.Theme(theme(1)))
+        val preferences = mapOf(1L to UserPreferenceEntity(1L, isDislikedTvSize = true))
+
+        assertFalse(isQueueEntryAllowedByPreference(themeEntry, PlaybackMode.TV_SIZE, preferences, emptySet(), emptySet()))
+        assertTrue(isQueueEntryAllowedByPreference(themeEntry, PlaybackMode.FULL_SIZE, preferences, emptySet(), emptySet()))
+        assertTrue(isQueueEntryAllowedByPreference(themeEntry, PlaybackMode.TV_SIZE, preferences, emptySet(), setOf(1L)))
+
+        val songEntry = QueueEntry(queueId = 2L, item = relatedSong(10))
+        assertFalse(isQueueEntryAllowedByPreference(songEntry, PlaybackMode.RELATED_AUDIO, emptyMap(), setOf(10L), emptySet()))
+        assertTrue(isQueueEntryAllowedByPreference(songEntry, PlaybackMode.RELATED_AUDIO, emptyMap(), setOf(10L), setOf(2L)))
+    }
+
+    @Test
+    fun `scoped disliked current with no pre resolved entry advances to next eligible queue item`() {
+        val entries = listOf(
+            QueueEntry(1L, PlayableItem.Theme(theme(1))),
+            QueueEntry(2L, PlayableItem.Theme(theme(2))),
+            QueueEntry(3L, PlayableItem.Theme(theme(3)))
+        )
+
+        // The middle entry was not filtered until its TV/Full resolution completed.
+        // It is absent from the resolved list, so index zero would move backward.
+        assertEquals(
+            1,
+            desiredCurrentIndexAfterFiltering(
+                originalEntries = entries,
+                currentQueueId = 2L,
+                resolvedQueueIds = listOf(1L, 3L)
+            )
+        )
+    }
+
+    @Test
+    fun `scoped disliked final current has no backward fallback`() {
+        val entries = listOf(
+            QueueEntry(1L, PlayableItem.Theme(theme(1))),
+            QueueEntry(2L, PlayableItem.Theme(theme(2)))
+        )
+
+        assertEquals(
+            null,
+            desiredCurrentIndexAfterFiltering(
+                originalEntries = entries,
+                currentQueueId = 2L,
+                resolvedQueueIds = listOf(1L)
+            )
         )
     }
 

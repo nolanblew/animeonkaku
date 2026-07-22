@@ -1,6 +1,7 @@
 package com.takeya.animeongaku.ui.player
 
 import com.takeya.animeongaku.media.PlaybackMode
+import com.takeya.animeongaku.media.PlayableItem
 import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
 import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
 import com.takeya.animeongaku.ui.common.BrowseVideoWarningDialog
@@ -11,6 +12,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.Arrangement
@@ -104,7 +107,7 @@ import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.theme.Rose500
 import kotlin.math.max
 
-@OptIn(ExperimentalMotionApi::class)
+@OptIn(ExperimentalMotionApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun PlayerScreen(
     progress: Float,
@@ -123,11 +126,13 @@ fun PlayerScreen(
     val modeUiState by viewModel.modeUiState.collectAsStateWithLifecycle()
     val mediaController by viewModel.mediaControllerManager.mediaController.collectAsStateWithLifecycle()
     val currentPreference by viewModel.currentPreference.collectAsStateWithLifecycle()
+    val currentSongPreference by viewModel.currentSongPreference.collectAsStateWithLifecycle()
     val hasRelatedMusic by viewModel.hasRelatedMusic.collectAsStateWithLifecycle()
     val nowPlayingManager = viewModel.nowPlayingManager
     val controllerManager = viewModel.mediaControllerManager
 
     var showUpNext by remember { mutableStateOf(false) }
+    var showModeDislikeOptions by remember { mutableStateOf(false) }
     var showPlayerSheet by remember { mutableStateOf(false) }
     var pendingModeConfirmation by remember {
         mutableStateOf<Pair<Long, ModeSelectionDecision.Confirm>?>(null)
@@ -238,6 +243,7 @@ fun PlayerScreen(
     val currentEntry = npState.currentEntry
     val currentItem = currentEntry?.item
     val currentTheme = currentEntry?.themeOrNull
+    val currentSong = (currentItem as? PlayableItem.RelatedSong)?.song
     val animeEntity = currentItem?.anime ?: currentTheme?.animeId?.let { npState.animeMap[it] }
     val backgroundArtUrl = currentItem?.display?.artworkUrl ?: animeEntity?.backgroundArtworkUrl()
     val title = currentItem?.display?.title ?: "Select a song"
@@ -673,22 +679,79 @@ fun PlayerScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
          ) {
-             IconButton(onClick = { currentTheme?.id?.let { viewModel.toggleDislike(it) } }) {
-                 Icon(
-                     Icons.Rounded.ThumbDown,
-                     "Dislike",
-                     tint = if (currentPreference?.isDisliked == true) Rose500 else Mist200,
-                     modifier = Modifier.size(26.dp)
-                 )
+             if (currentTheme != null) {
+                 Box(
+                     modifier = Modifier
+                         .size(48.dp)
+                         .combinedClickable(
+                             onClick = { viewModel.toggleDislike(currentTheme.id) },
+                             onLongClick = { showModeDislikeOptions = true }
+                         ),
+                     contentAlignment = Alignment.Center
+                 ) {
+                     Icon(
+                         Icons.Rounded.ThumbDown,
+                         if (currentPreference?.isDisliked == true) {
+                             "Remove Dislike. Long press for TV Size or Full Size only."
+                         } else {
+                             "Dislike. Long press for TV Size or Full Size only."
+                         },
+                         tint = if (currentPreference?.isDisliked == true) Rose500 else Mist200,
+                         modifier = Modifier.size(26.dp)
+                     )
+                 }
+                 IconButton(onClick = { showModeDislikeOptions = true }) {
+                     Icon(Icons.Rounded.MoreVert, "Choose TV Size or Full Size dislike", tint = Mist200)
+                 }
+             } else {
+                 IconButton(onClick = { currentSong?.id?.let(viewModel::toggleSongDislike) }) {
+                     Icon(
+                         Icons.Rounded.ThumbDown,
+                         if (currentSongPreference?.isDisliked == true) "Remove Dislike" else "Dislike",
+                         tint = if (currentSongPreference?.isDisliked == true) Rose500 else Mist200,
+                         modifier = Modifier.size(26.dp)
+                     )
+                 }
+                 Spacer(Modifier.size(48.dp))
              }
-             IconButton(onClick = { currentTheme?.id?.let { viewModel.toggleLike(it) } }) {
+             IconButton(onClick = {
+                 currentTheme?.id?.let(viewModel::toggleLike)
+                     ?: currentSong?.id?.let(viewModel::toggleSongLike)
+             }) {
                  Icon(
                      Icons.Rounded.ThumbUp,
-                     "Like",
-                     tint = if (currentPreference?.isLiked == true) Rose500 else Mist200,
+                     if (currentPreference?.isLiked == true || currentSongPreference?.isLiked == true) "Remove Like" else "Like",
+                     tint = if (currentPreference?.isLiked == true || currentSongPreference?.isLiked == true) Rose500 else Mist200,
                      modifier = Modifier.size(26.dp)
                  )
             }
+        }
+
+        if (showModeDislikeOptions && currentTheme != null) {
+            AlertDialog(
+                onDismissRequest = { showModeDislikeOptions = false },
+                title = { Text("Dislike this version") },
+                text = { Text("The main Dislike button hides this theme in every mode.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.toggleModeDislike(currentTheme.id, fullSize = true)
+                        showModeDislikeOptions = false
+                    }) {
+                        Text(if (currentPreference?.isDislikedFullSize == true) "Remove Full Size dislike" else "Dislike Full Size only")
+                    }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(onClick = {
+                            viewModel.toggleModeDislike(currentTheme.id, fullSize = false)
+                            showModeDislikeOptions = false
+                        }) {
+                            Text(if (currentPreference?.isDislikedTvSize == true) "Remove TV Size dislike" else "Dislike TV Size only")
+                        }
+                        TextButton(onClick = { showModeDislikeOptions = false }) { Text("Cancel") }
+                    }
+                }
+            )
         }
 
         Row(
@@ -764,10 +827,16 @@ fun PlayerScreen(
         LandscapeVideoOverlay(
             controller = mediaController,
             isPlaying = pbState.isPlaying,
-            isLiked = currentPreference?.isLiked == true,
-            isDisliked = currentPreference?.isDisliked == true,
-            onToggleLike = { currentTheme?.id?.let(viewModel::toggleLike) },
-            onToggleDislike = { currentTheme?.id?.let(viewModel::toggleDislike) },
+            isLiked = currentPreference?.isLiked == true || currentSongPreference?.isLiked == true,
+            isDisliked = currentPreference?.isDisliked == true || currentSongPreference?.isDisliked == true,
+            onToggleLike = {
+                currentTheme?.id?.let(viewModel::toggleLike)
+                    ?: currentSong?.id?.let(viewModel::toggleSongLike)
+            },
+            onToggleDislike = {
+                currentTheme?.id?.let(viewModel::toggleDislike)
+                    ?: currentSong?.id?.let(viewModel::toggleSongDislike)
+            },
             onPrevious = controllerManager::seekToPrevious,
             onPlayPause = { if (pbState.isPlaying) controllerManager.pause() else controllerManager.play() },
             onNext = controllerManager::seekToNext,

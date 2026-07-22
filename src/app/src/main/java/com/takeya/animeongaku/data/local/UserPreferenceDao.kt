@@ -23,6 +23,9 @@ interface UserPreferenceDao {
     @Query("SELECT * FROM user_preferences WHERE themeId IN (:themeIds)")
     suspend fun getPreferencesByIdsIncludingDeleted(themeIds: List<Long>): List<UserPreferenceEntity>
 
+    @Query("DELETE FROM user_preferences WHERE themeId IN (:themeIds)")
+    suspend fun deleteByThemeIds(themeIds: List<Long>)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdate(preference: UserPreferenceEntity)
 

@@ -77,6 +77,8 @@ data class ActionSheetConfig(
     val showRemoveDownload: Boolean = false,
     val showLike: Boolean = false,
     val isLiked: Boolean = false,
+    val showDislike: Boolean = false,
+    val isDisliked: Boolean = false,
     val showRemoveDislike: Boolean = false,
     val showUnskip: Boolean = false,
     val showRemoveFromQueue: Boolean = false,
@@ -105,6 +107,7 @@ fun ActionSheet(
     onDownload: () -> Unit = {},
     onRemoveDownload: () -> Unit = {},
     onLike: () -> Unit = {},
+    onDislike: () -> Unit = {},
     onRemoveDislike: () -> Unit = {},
     onUnskip: () -> Unit = {},
     onRemoveFromQueue: () -> Unit = {},
@@ -249,6 +252,13 @@ fun ActionSheet(
                     icon = { Icon(Icons.AutoMirrored.Rounded.PlaylistPlay, contentDescription = null, tint = Mist100) },
                     label = "Replace queue",
                     onClick = { dismissThen(onReplaceQueue) }
+                )
+            }
+            if (config.showDislike) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.ThumbDown, contentDescription = null, tint = Mist100) },
+                    label = if (config.isDisliked) "Remove Dislike" else "Dislike",
+                    onClick = { dismissThen(onDislike) }
                 )
             }
             if (config.showPlayVideo) {

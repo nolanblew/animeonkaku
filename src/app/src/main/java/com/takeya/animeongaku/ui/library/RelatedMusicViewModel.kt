@@ -7,16 +7,14 @@ import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.PlaylistWithCount
-import com.takeya.animeongaku.data.local.SongPreferenceDao
 import com.takeya.animeongaku.data.local.SongPreferenceEntity
-import com.takeya.animeongaku.data.remote.OngakuMusicApi
-import com.takeya.animeongaku.data.remote.OngakuSongPrefPatch
 import com.takeya.animeongaku.data.repository.MusicCatalogRepository
 import com.takeya.animeongaku.data.repository.MusicOwner
 import com.takeya.animeongaku.data.repository.RelatedRelease
 import com.takeya.animeongaku.data.repository.RelatedTrack
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.PlaylistWriteItem
+import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.PlayableItem
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -40,8 +38,7 @@ class RelatedMusicViewModel @Inject constructor(
     private val repository: MusicCatalogRepository,
     animeDao: AnimeDao,
     private val playlistDao: PlaylistDao,
-    private val preferenceDao: SongPreferenceDao,
-    private val musicApi: OngakuMusicApi,
+    private val userPreferencesRepository: UserPreferencesRepository,
     private val playlistWriter: ServerPlaylistWriter,
     val nowPlayingManager: NowPlayingManager
 ) : ViewModel() {
@@ -98,18 +95,15 @@ class RelatedMusicViewModel @Inject constructor(
     fun playNext(track: RelatedTrack) = nowPlayingManager.playNextItems(listOf(track.playable()))
     fun addToQueue(track: RelatedTrack) = nowPlayingManager.addPlayableItems(listOf(track.playable()))
 
-    fun observePreference(songId: Long): Flow<SongPreferenceEntity?> = preferenceDao.observe(songId)
+    fun observePreference(songId: Long): Flow<SongPreferenceEntity?> =
+        userPreferencesRepository.observeSongPreference(songId)
 
     fun toggleLike(songId: Long) = viewModelScope.launch {
-        val current = preferenceDao.getByIdsIncludingDeleted(listOf(songId)).firstOrNull()
-        val next = current?.isLiked != true
-        val opTs = System.currentTimeMillis()
-        val optimistic = (current ?: SongPreferenceEntity(songId)).copy(
-            isLiked = next, isDisliked = if (next) false else current?.isDisliked == true,
-            updatedAt = opTs, deletedAt = null
-        )
-        preferenceDao.upsertAll(listOf(optimistic))
-        runCatching { musicApi.updateSongPref(songId, OngakuSongPrefPatch(liked = next, disliked = optimistic.isDisliked, opTs = opTs)) }
+        userPreferencesRepository.toggleSongLike(songId)
+    }
+
+    fun toggleDislike(songId: Long) = viewModelScope.launch {
+        userPreferencesRepository.toggleSongDislike(songId)
     }
 
     fun addToPlaylist(playlistId: Long, songId: Long) = viewModelScope.launch {

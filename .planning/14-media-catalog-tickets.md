@@ -2157,6 +2157,7 @@ carried into MC-Q01.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete (2026-07-22) |
 | Area | Android / user state and player actions |
 | Difficulty | Medium |
 | Effort | L, 4–5 days |
@@ -2206,6 +2207,24 @@ Expected areas:
 #### Handoff notes
 
 Do not add anime-wide dislike or video-only dislike.
+
+#### Completion and testing notes
+
+Implemented full-snapshot broad/TV/Full Theme reactions, independent SONG
+reactions, pending-write-safe authoritative refresh, UUID-stable typed play
+events using the resolved actual mode, and occurrence-aware queue filtering.
+The normal Dislike remains broad; long-press and named overflow actions expose
+TV-only/Full-only state with state-aware accessibility labels. Explicit
+Unskip wins, and filtering the current item advances forward or stops instead
+of replaying history.
+
+Sol/Medium UX and final code review passed after typed acknowledgement,
+current-item direction, terminal-stop, and session-resumption fixes.
+Terra/High QA passed the preferences, library-pull, playable-queue, and Media3
+mode/fallback suites plus Android-test Kotlin compilation and diff check. The
+accessible Compose path was source-audited; its dedicated interaction test and
+the full Android suite are deferred to the final feature gate to avoid a
+redundant large run.
 
 ### MC-A10 — Generalize device downloads, exact playlist resolution, and grouping
 

@@ -68,6 +68,8 @@ fun RelatedMusicScreen(
                 imageUrl = track.release.artworkUrl ?: track.owner.artworkUrl,
                 showLike = true,
                 isLiked = pref?.isLiked == true,
+                showDislike = true,
+                isDisliked = pref?.isDisliked == true,
                 showDownload = false
             ),
             onDismiss = { sheetTrack = null },
@@ -75,7 +77,8 @@ fun RelatedMusicScreen(
             onAddToQueue = { viewModel.addToQueue(track) },
             onReplaceQueue = { viewModel.play(track); onPlay() },
             onSaveToPlaylist = { pickerTrack = track },
-            onLike = { viewModel.toggleLike(track.song.id) }
+            onLike = { viewModel.toggleLike(track.song.id) },
+            onDislike = { viewModel.toggleDislike(track.song.id) }
         )
     }
     pickerTrack?.let { track ->

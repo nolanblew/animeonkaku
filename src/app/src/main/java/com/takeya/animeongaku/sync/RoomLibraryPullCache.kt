@@ -110,8 +110,7 @@ class RoomLibraryPullCache @Inject constructor(
         }
     }
 
-    override suspend fun applySongPrefs(preferences: List<SongPreferenceEntity>) {
-        if (preferences.isEmpty()) return
+    override suspend fun applySongPrefs(preferences: List<SongPreferenceEntity>, fullSnapshot: Boolean) {
         database.withTransaction {
             val localById = songPreferenceDao
                 .getByIdsIncludingDeleted(preferences.map { it.songId })
@@ -121,6 +120,17 @@ class RoomLibraryPullCache @Inject constructor(
                 local == null || incoming.updatedAt >= local.updatedAt
             }
             if (applicable.isNotEmpty()) songPreferenceDao.upsertAll(applicable)
+            if (fullSnapshot) {
+                val protectedSongIds = pendingOpDao
+                    .entityKeys(PendingOpEntity.ENTITY_SONG_PREF, PendingOpEntity.OP_UPSERT)
+                    .mapNotNull(String::toLongOrNull)
+                    .toSet()
+                val serverSongIds = preferences.map { it.songId }.toSet()
+                val staleSongIds = songPreferenceDao.getAll()
+                    .map { it.songId }
+                    .filterNot { it in serverSongIds || it in protectedSongIds }
+                if (staleSongIds.isNotEmpty()) songPreferenceDao.deleteBySongIds(staleSongIds)
+            }
         }
     }
 
@@ -141,7 +151,8 @@ class RoomLibraryPullCache @Inject constructor(
 
     override suspend fun applyThemePrefs(
         preferences: List<UserPreferenceEntity>,
-        playCounts: List<PlayCountEntity>
+        playCounts: List<PlayCountEntity>,
+        fullSnapshot: Boolean
     ) {
         database.withTransaction {
             val localById = if (preferences.isNotEmpty()) {
@@ -157,6 +168,17 @@ class RoomLibraryPullCache @Inject constructor(
             }
             if (plan.playCounts.isNotEmpty()) {
                 playCountDao.upsertAll(plan.playCounts)
+            }
+            if (fullSnapshot) {
+                val protectedThemeIds = pendingOpDao
+                    .entityKeys(PendingOpEntity.ENTITY_THEME_PREF, PendingOpEntity.OP_UPSERT)
+                    .mapNotNull(String::toLongOrNull)
+                    .toSet()
+                val serverThemeIds = preferences.map { it.themeId }.toSet()
+                val staleThemeIds = userPreferenceDao.getAllPreferences()
+                    .map { it.themeId }
+                    .filterNot { it in serverThemeIds || it in protectedThemeIds }
+                if (staleThemeIds.isNotEmpty()) userPreferenceDao.deleteByThemeIds(staleThemeIds)
             }
         }
     }

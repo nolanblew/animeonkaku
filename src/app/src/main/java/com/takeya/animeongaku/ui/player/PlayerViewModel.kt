@@ -10,6 +10,7 @@ import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.local.ThemeModeDao
 import com.takeya.animeongaku.data.local.ThemeModeEntity
+import com.takeya.animeongaku.data.local.SongPreferenceEntity
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.data.repository.MusicCatalogRepository
@@ -18,6 +19,7 @@ import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.NowPlayingState
 import com.takeya.animeongaku.media.PlaybackState
 import com.takeya.animeongaku.media.PlaybackMode
+import com.takeya.animeongaku.media.PlayableItem
 import com.takeya.animeongaku.network.ConnectivityMonitor
 import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
 import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
@@ -123,6 +125,11 @@ class PlayerViewModel @Inject constructor(
         if (themeId != null) userPreferencesRepository.observePreference(themeId) else kotlinx.coroutines.flow.flowOf(null)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    val currentSongPreference: StateFlow<SongPreferenceEntity?> = nowPlayingState.flatMapLatest { state ->
+        val songId = (state.currentItem as? PlayableItem.RelatedSong)?.song?.id
+        if (songId != null) userPreferencesRepository.observeSongPreference(songId) else kotlinx.coroutines.flow.flowOf(null)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     suspend fun isInLibrary(themeId: Long): Boolean = themeDao.existsById(themeId)
 
     fun toggleLike(themeId: Long) {
@@ -131,6 +138,18 @@ class PlayerViewModel @Inject constructor(
 
     fun toggleDislike(themeId: Long) {
         viewModelScope.launch { userPreferencesRepository.toggleDislike(themeId) }
+    }
+
+    fun toggleModeDislike(themeId: Long, fullSize: Boolean) {
+        viewModelScope.launch { userPreferencesRepository.toggleModeDislike(themeId, fullSize) }
+    }
+
+    fun toggleSongLike(songId: Long) {
+        viewModelScope.launch { userPreferencesRepository.toggleSongLike(songId) }
+    }
+
+    fun toggleSongDislike(songId: Long) {
+        viewModelScope.launch { userPreferencesRepository.toggleSongDislike(songId) }
     }
 
     /** UI entry point for the authoritative Theme playback-mode write boundary. */

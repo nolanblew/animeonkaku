@@ -20,7 +20,10 @@ class LibraryPullServerUserStateRefresher @Inject constructor(
     }
 
     override suspend fun refreshAfterPreferenceWrite() {
-        val pullResult = runCatching { libraryPullManager.pullNow(forceFull = false) }
+        // The write response is server-normalized (mutual exclusion and LWW). Pull the
+        // authoritative snapshot so same-millisecond cursor boundaries cannot leave the
+        // optimistic reaction state stale.
+        val pullResult = runCatching { libraryPullManager.pullNow(forceFull = true) }
         if (pullResult.getOrNull()?.applied != true) {
             refreshLocalAfterPreferenceWrite()
         }

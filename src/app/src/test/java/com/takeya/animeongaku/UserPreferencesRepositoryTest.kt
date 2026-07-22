@@ -6,11 +6,13 @@ import com.takeya.animeongaku.data.auth.ServerSession
 import com.takeya.animeongaku.data.auth.ServerTokenStore
 import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.local.PendingOpEntity
+import com.takeya.animeongaku.data.local.PendingPlayEntity
 import com.takeya.animeongaku.data.local.UserPreferenceDao
 import com.takeya.animeongaku.data.local.UserPreferenceEntity
 import com.takeya.animeongaku.data.remote.OngakuAnimeDetailResponse
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.remote.OngakuAudioRequestResponse
+import com.takeya.animeongaku.data.remote.OngakuActualPlayEvent
 import com.takeya.animeongaku.data.remote.OngakuChangesResponse
 import com.takeya.animeongaku.data.remote.OngakuLibraryResponse
 import com.takeya.animeongaku.data.remote.OngakuLoginRequest
@@ -28,7 +30,14 @@ import com.takeya.animeongaku.data.remote.OngakuSyncRequest
 import com.takeya.animeongaku.data.remote.OngakuSyncStatusResponse
 import com.takeya.animeongaku.data.remote.OngakuThemePrefDto
 import com.takeya.animeongaku.data.remote.OngakuThemePrefPatch
+import com.takeya.animeongaku.data.remote.OngakuMusicApi
+import com.takeya.animeongaku.data.remote.OngakuMusicReleaseDto
+import com.takeya.animeongaku.data.remote.OngakuSearchResponse
+import com.takeya.animeongaku.data.remote.OngakuSongPrefDto
+import com.takeya.animeongaku.data.remote.OngakuSongPrefPatch
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
+import com.takeya.animeongaku.data.repository.withBroadThemeDislike
+import com.takeya.animeongaku.data.repository.withModeThemeDislike
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.sync.ServerUserStateRefresher
 import com.takeya.animeongaku.sync.SyncEngine
@@ -65,6 +74,8 @@ class UserPreferencesRepositoryTest {
         val patch = api.updatedThemePref!!
         assertEquals(true, patch.liked)
         assertEquals(false, patch.disliked)
+        assertEquals(false, patch.dislikedTvSize)
+        assertEquals(false, patch.dislikedFullSize)
         assertEquals(saved.updatedAt, patch.opTs)
         assertTrue(store.ops.isEmpty())
         assertEquals(1, refresher.localRefreshCalls)
@@ -109,6 +120,56 @@ class UserPreferencesRepositoryTest {
         assertEquals(0, refresher.remoteRefreshCalls)
         assertEquals(PendingOpEntity.ENTITY_THEME_PREF, store.ops.single().entityType)
         assertEquals(1, store.ops.single().attempts)
+    }
+
+    @Test
+    fun `reaction mutations always emit a complete normalized theme snapshot`() {
+        val base = UserPreferenceEntity(
+            themeId = 100L,
+            isLiked = true,
+            isDisliked = false,
+            isDislikedTvSize = false,
+            isDislikedFullSize = true
+        )
+
+        val broad = base.withBroadThemeDislike(disliked = true, timestamp = 10L)
+        assertEquals(false, broad.isLiked)
+        assertEquals(true, broad.isDisliked)
+        assertEquals(false, broad.isDislikedTvSize)
+        assertEquals(false, broad.isDislikedFullSize)
+
+        val scoped = broad.withModeThemeDislike(fullSize = false, disliked = true, timestamp = 11L)
+        assertEquals(false, scoped.isLiked)
+        assertEquals(false, scoped.isDisliked)
+        assertEquals(true, scoped.isDislikedTvSize)
+        assertEquals(false, scoped.isDislikedFullSize)
+    }
+
+    @Test
+    fun `typed play upload preserves song identity and clears posted UUIDs when accepted is zero`() = runBlocking {
+        val store = PreferenceSyncStore().apply {
+            plays += PendingPlayEntity(id = 1L, themeId = 10L, playedAt = 1L)
+            plays += PendingPlayEntity(id = 2L, themeId = 20L, playedAt = 2L, clientEventId = "c1", itemType = "SONG", itemId = 300L, actualMode = "AUDIO")
+        }
+        val api = RecordingOngakuApi()
+        val musicApi = RecordingOngakuMusicApi()
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+        }
+        val result = SyncEngine(
+            store = store,
+            api = api,
+            settings = settings,
+            sessionStateManager = activeSessionStateManager(),
+            moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build(),
+            musicApi = musicApi
+        ).pushPendingWrites()
+
+        assertFalse(result.failed)
+        assertEquals(listOf(300L), musicApi.uploaded.single().map { it.itemId })
+        assertEquals(listOf("SONG"), musicApi.uploaded.single().map { it.itemType })
+        assertEquals(listOf(10L), api.recordedLegacyPlays.single().map { it.themeId })
+        assertTrue(store.plays.isEmpty())
     }
 
     private fun syncEngine(
@@ -163,6 +224,10 @@ private class FakeUserPreferenceDao : UserPreferenceDao {
 
     override suspend fun getPreferencesByIdsIncludingDeleted(themeIds: List<Long>): List<UserPreferenceEntity> =
         preferences.filterKeys { it in themeIds }.values.toList()
+
+    override suspend fun deleteByThemeIds(themeIds: List<Long>) {
+        themeIds.forEach(preferences::remove)
+    }
 
     override suspend fun insertOrUpdate(preference: UserPreferenceEntity) {
         preferences[preference.themeId] = preference
@@ -224,7 +289,11 @@ private class RecordingOngakuApi(
     override suspend fun addAnime(request: OngakuManualAnimeRequest): OngakuManualAnimeResponse = error("unused")
     override suspend fun removeAnime(kitsuId: String): Response<Unit> = Response.success(Unit)
     override suspend fun themePrefs(): List<OngakuThemePrefDto> = error("unused")
-    override suspend fun recordPlays(plays: List<OngakuPlayEvent>): OngakuPlayAcceptedResponse = error("unused")
+    val recordedLegacyPlays = mutableListOf<List<OngakuPlayEvent>>()
+    override suspend fun recordPlays(plays: List<OngakuPlayEvent>): OngakuPlayAcceptedResponse {
+        recordedLegacyPlays += plays
+        return OngakuPlayAcceptedResponse(accepted = plays.size)
+    }
         override suspend fun playlists(since: Long?): List<OngakuPlaylistDto> = error("unused")
     override suspend fun autoPlaylists(): List<OngakuPlaylistDto> = error("unused")
     override suspend fun createPlaylist(request: OngakuPlaylistRequest): OngakuPlaylistResponse = error("unused")
@@ -238,6 +307,7 @@ private class RecordingOngakuApi(
 
 private class PreferenceSyncStore : SyncEngineStore {
     val ops = mutableListOf<PendingOpEntity>()
+    val plays = mutableListOf<PendingPlayEntity>()
     private var nextId = 1L
 
     override suspend fun insertPendingOp(op: PendingOpEntity): Long {
@@ -263,4 +333,26 @@ private class PreferenceSyncStore : SyncEngineStore {
     }
 
     override suspend fun remapPlaylistId(tempId: Long, serverPlaylist: OngakuPlaylistDto) = Unit
+
+    override suspend fun oldestPendingPlays(limit: Int): List<PendingPlayEntity> = plays.take(limit)
+
+    override suspend fun deletePendingPlays(ids: List<Long>) {
+        plays.removeAll { it.id in ids }
+    }
+}
+
+private class RecordingOngakuMusicApi : OngakuMusicApi {
+    val uploaded = mutableListOf<List<OngakuActualPlayEvent>>()
+
+    override suspend fun recordActualPlays(plays: List<OngakuActualPlayEvent>): OngakuPlayAcceptedResponse {
+        uploaded += plays
+        return OngakuPlayAcceptedResponse(accepted = 0)
+    }
+
+    override suspend fun search(query: String): OngakuSearchResponse = error("unused")
+    override suspend fun animeMusic(kitsuId: String) = error("unused")
+    override suspend fun musicRelease(releaseId: Long): OngakuMusicReleaseDto = error("unused")
+    override suspend fun songPrefs(since: Long?): List<OngakuSongPrefDto> = error("unused")
+    override suspend fun updateSongPref(songId: Long, request: OngakuSongPrefPatch): OngakuSongPrefDto = error("unused")
+    override suspend fun deleteSongPref(songId: Long, opTs: Long?): Response<Unit> = Response.success(Unit)
 }
