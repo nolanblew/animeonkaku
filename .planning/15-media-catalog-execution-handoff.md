@@ -141,24 +141,51 @@ Required vfolder contract for MC-Q01R:
 - TypeScript `--noEmit` and `git diff --check` passed.
 - Independent Sol/Medium review found no remaining blocker.
 
-## Deferred original next ticket: MC-S11
+## MC-S11 completion and Android continuation
 
-Read MC-S11 in `.planning/14-media-catalog-tickets.md`, TDR 8.6, and the PRD
-reaction/history requirements before editing. MC-S11 owns mode-specific theme
-reactions, Related-song prefs, and actual-mode play events. Preserve:
+MC-S11 is complete in the ticket commit containing this handoff update. It
+adds compatible broad/TV/Full theme reactions, independent Related-song prefs
+and deltas, and strict legacy/new actual-mode play events with transactional,
+user-scoped UUID idempotency. Focused routes passed 24/24, isolated PostgreSQL
+passed 3/3, the full server suite passed 444 with 21 environment-gated skips,
+and TypeScript/diff checks, Sol/Medium review, and Terra/High QA passed.
 
-1. Existing theme-pref fields/routes and theme play aggregates remain additive
-   and compatible.
-2. Legacy themeId-only plays map to THEME/TV_SIZE and continue incrementing the
-   existing aggregate exactly once.
-3. New play events use stable clientEventId idempotency and record itemType,
-   itemId, actualMode, and playedAt without double counting retries.
-4. Song prefs are user-scoped LWW deltas with tombstones and join the normal
-   `/v1/changes` response.
-5. Broad like/dislike and TV-only/Full-only dislike clearing semantics must be
-   explicit and regression-tested; Related SONG reactions never mutate every
-   theme for an anime.
-6. Preserve `.codex-remote-attachments/` and commit MC-S11 separately.
+Live acceptance diagnosis for Kitsu anime `48649` / AnimeThemes anime `4496`
+showed that request `7dc3570c-a628-4ed1-97f4-1449f09bc908` imported and indexed
+correctly. Three Full songs (OP1, OP2, ED2) and all 28 tracks of the related
+soundtrack release have READY canonical media with matching bytes and hashes.
+The submit, poll, and import jobs are DONE. The request remains
+`AWAITING_OPERATOR` because ED1, CHARACTER_SONG, DRAMA, and OTHER returned
+not-found results; this attention state must not hide the 31 READY catalog
+items. No importer change, retry, or reprocess is indicated by this evidence.
+
+The Android app cannot display those READY items yet. Its sync DTOs and Room
+model do not consume `musicCatalog` or `mediaModes`, the queue is still
+theme-only, and Anime Detail has no Related Music surface. Resume in this
+order: MC-A01, MC-A02, MC-A03, MC-A04, MC-A05, then MC-A07. Do not add a
+top-level Albums destination: Full Size is a mode in Now Playing, while the OST
+belongs in a nested Related Music section after Themes on Anime Detail.
+
+UX continuation contract:
+
+1. Put the centered `TV Size | Full Size | Video` selector at the top of Now
+   Playing; resolve availability without losing queue-entry identity.
+2. Show anime-owned releases and tracks under Anime Detail `Related Music`,
+   after Themes.
+3. Replace the static `1 batch requested` support text. Active requests say
+   `Finding and preparing music` / `Ready music will appear below
+   automatically.` Attention requests say `Some music is ready` / `Available
+   music is shown below. Some requested items could not be added.` Completed
+   requests say `Music is ready` / `Available music is shown below.`
+4. Request status and catalog visibility are independent: render READY media
+   immediately even while the request needs operator review.
+5. Check AnimeDetailViewModel cache freshness. Its current cache-first path may
+   avoid a server refresh when local anime data already exists.
+
+The strict coding cutoff was reached after MC-S11, so no Android catalog ticket
+was started in this continuation. Preserve `.codex-remote-attachments/`, keep
+one commit per ticket, and perform the planned large-section review/QA and
+device acceptance after the Android chain is complete.
 
 ## Agent model policy
 

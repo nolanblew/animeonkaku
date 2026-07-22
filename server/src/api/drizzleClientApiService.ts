@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   and,
   asc,
@@ -27,7 +28,9 @@ import {
   musicReleases,
   playlistEntries,
   playlists,
+  playEvents,
   releaseTracks,
+  songPrefs,
   songs,
   themeArtists,
   themeFullSongs,
@@ -60,10 +63,13 @@ import type {
   PlaylistItemInput,
   LibraryThemeDto,
   MusicReleaseDto,
+  PlayInput,
   PlaylistDto,
   PlaylistInput,
   ThemePrefDto,
   ThemePrefPatch,
+  SongPrefDto,
+  SongPrefPatch,
 } from "./clientRoutes.js";
 
 export class DrizzleClientApiService implements ClientApiService, LegacyLibraryImportService {
@@ -434,6 +440,8 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
         themeId: themePrefs.themeId,
         liked: themePrefs.liked,
         disliked: themePrefs.disliked,
+        dislikedTvSize: themePrefs.dislikedTvSize,
+        dislikedFullSize: themePrefs.dislikedFullSize,
         playCount: themePrefs.playCount,
         lastPlayedAt: themePrefs.lastPlayedAt,
         updatedAt: themePrefs.updatedAt,
@@ -446,6 +454,8 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       themeId: row.themeId,
       liked: row.liked,
       disliked: row.disliked,
+      dislikedTvSize: row.dislikedTvSize,
+      dislikedFullSize: row.dislikedFullSize,
       playCount: row.playCount,
       lastPlayedAt: dateMillis(row.lastPlayedAt),
       updatedAt: Math.max(dateMillis(row.updatedAt) ?? 0, dateMillis(row.deletedAt) ?? 0),
@@ -459,6 +469,8 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
         themeId: themePrefs.themeId,
         liked: themePrefs.liked,
         disliked: themePrefs.disliked,
+        dislikedTvSize: themePrefs.dislikedTvSize,
+        dislikedFullSize: themePrefs.dislikedFullSize,
         playCount: themePrefs.playCount,
         lastPlayedAt: themePrefs.lastPlayedAt,
         updatedAt: themePrefs.updatedAt,
@@ -473,6 +485,8 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       themeId: row.themeId,
       liked: row.liked,
       disliked: row.disliked,
+      dislikedTvSize: row.dislikedTvSize,
+      dislikedFullSize: row.dislikedFullSize,
       playCount: row.playCount,
       lastPlayedAt: dateMillis(row.lastPlayedAt),
       updatedAt: Math.max(dateMillis(row.updatedAt) ?? 0, dateMillis(row.deletedAt) ?? 0),
@@ -489,6 +503,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       anime: library.anime,
       themes: library.themes,
       prefs,
+      songPrefs: await this.getSongPrefs(userId, since),
       playlists: playlistList,
       musicCatalog: await this.getMusicCatalog(userId),
     };
@@ -499,34 +514,26 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     const opTs = resolveOpTs(patch.opTs ?? null, now.getTime());
     const opDate = new Date(opTs);
 
-    // Last-write-wins on the liked/disliked pair using its dedicated clock, so a stale
-    // toggle that arrives after a newer one is ignored (additive play counts are untouched).
-    const [existing] = await this.db
-      .select({ likedUpdatedAt: themePrefs.likedUpdatedAt })
-      .from(themePrefs)
-      .where(and(eq(themePrefs.userId, userId), eq(themePrefs.themeId, themeId)))
-      .limit(1);
-    const storedLikedTs = existing?.likedUpdatedAt ? existing.likedUpdatedAt.getTime() : null;
-
-    if (shouldApplyWrite(opTs, storedLikedTs)) {
-      const set = normalizedPrefPatch(patch, now);
-      set.likedUpdatedAt = opDate;
-      await this.db
-        .insert(themePrefs)
-        .values({
-          userId,
-          themeId,
-          liked: set.liked ?? false,
-          disliked: set.disliked ?? false,
-          playCount: 0,
-          likedUpdatedAt: opDate,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [themePrefs.userId, themePrefs.themeId],
-          set,
-        });
-    }
+    // The complete reaction state is one LWW register. The conflict predicate keeps
+    // out-of-order concurrent requests from overwriting a newer user action.
+    const set = normalizedPrefPatch(patch, now);
+    set.likedUpdatedAt = opDate;
+    set.deletedAt = null;
+    await this.db.insert(themePrefs).values({
+      userId,
+      themeId,
+      liked: set.liked ?? false,
+      disliked: set.disliked ?? false,
+      dislikedTvSize: set.dislikedTvSize ?? false,
+      dislikedFullSize: set.dislikedFullSize ?? false,
+      playCount: 0,
+      likedUpdatedAt: opDate,
+      updatedAt: now,
+    }).onConflictDoUpdate({
+      target: [themePrefs.userId, themePrefs.themeId],
+      set,
+      setWhere: or(isNull(themePrefs.likedUpdatedAt), lte(themePrefs.likedUpdatedAt, opDate))!,
+    });
 
     const pref = await this.getThemePref(userId, themeId);
     await this.queue.enqueue({
@@ -536,6 +543,86 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       dedupeKey: `AUTO_PLAYLIST_REFRESH:${userId}`,
     });
     return pref!;
+  }
+
+  async getSongPrefs(userId: string, since: number | null = null): Promise<SongPrefDto[]> {
+    const sinceDate = millisToDate(since);
+    const conditions = [eq(songPrefs.userId, userId)];
+    if (sinceDate) conditions.push(or(gt(songPrefs.updatedAt, sinceDate), gt(songPrefs.deletedAt, sinceDate))!);
+    else conditions.push(isNull(songPrefs.deletedAt));
+    const rows = await this.db.select({
+      songId: songPrefs.songId,
+      liked: songPrefs.liked,
+      disliked: songPrefs.disliked,
+      playCount: songPrefs.playCount,
+      lastPlayedAt: songPrefs.lastPlayedAt,
+      updatedAt: songPrefs.updatedAt,
+      deletedAt: songPrefs.deletedAt,
+    }).from(songPrefs).where(and(...conditions)).orderBy(asc(songPrefs.songId));
+    return rows.map(songPrefDto);
+  }
+
+  async updateSongPref(userId: string, songId: number, patch: SongPrefPatch): Promise<SongPrefDto> {
+    if (!(await this.knownReadyRelatedSongIds([songId])).has(songId)) {
+      throw new ApiError(404, "MUSIC_NOT_FOUND", "Ready Related song was not found.");
+    }
+    const now = this.now();
+    const opTs = resolveOpTs(patch.opTs ?? null, now.getTime());
+    const opDate = new Date(opTs);
+    const set = normalizedSongPrefPatch(patch, now);
+    set.likedUpdatedAt = opDate;
+    set.deletedAt = null;
+    await this.db.insert(songPrefs).values({
+      userId,
+      songId,
+      liked: set.liked ?? false,
+      disliked: set.disliked ?? false,
+      playCount: 0,
+      likedUpdatedAt: opDate,
+      updatedAt: now,
+      deletedAt: null,
+    }).onConflictDoUpdate({
+      target: [songPrefs.userId, songPrefs.songId],
+      set,
+      setWhere: or(isNull(songPrefs.likedUpdatedAt), lte(songPrefs.likedUpdatedAt, opDate))!,
+    });
+    return (await this.getSongPref(userId, songId))!;
+  }
+
+  async deleteSongPref(userId: string, songId: number, requestedOpTs: number | null = null): Promise<boolean> {
+    const now = this.now();
+    const opTs = resolveOpTs(requestedOpTs, now.getTime());
+    const opDate = new Date(opTs);
+    const [existing] = await this.db.select({ likedUpdatedAt: songPrefs.likedUpdatedAt })
+      .from(songPrefs).where(and(eq(songPrefs.userId, userId), eq(songPrefs.songId, songId))).limit(1);
+    if (!existing) return false;
+    if (shouldApplyWrite(opTs, existing.likedUpdatedAt?.getTime())) {
+      await this.db.update(songPrefs).set({
+        liked: false,
+        disliked: false,
+        likedUpdatedAt: opDate,
+        updatedAt: now,
+        deletedAt: now,
+      }).where(and(
+        eq(songPrefs.userId, userId),
+        eq(songPrefs.songId, songId),
+        or(isNull(songPrefs.likedUpdatedAt), lte(songPrefs.likedUpdatedAt, opDate)),
+      ));
+    }
+    return true;
+  }
+
+  private async getSongPref(userId: string, songId: number): Promise<SongPrefDto | null> {
+    const [row] = await this.db.select({
+      songId: songPrefs.songId,
+      liked: songPrefs.liked,
+      disliked: songPrefs.disliked,
+      playCount: songPrefs.playCount,
+      lastPlayedAt: songPrefs.lastPlayedAt,
+      updatedAt: songPrefs.updatedAt,
+      deletedAt: songPrefs.deletedAt,
+    }).from(songPrefs).where(and(eq(songPrefs.userId, userId), eq(songPrefs.songId, songId))).limit(1);
+    return row ? songPrefDto(row) : null;
   }
 
   async importLegacyLibrary(
@@ -562,6 +649,8 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
         .set({
           liked: false,
           disliked: false,
+          dislikedTvSize: false,
+          dislikedFullSize: false,
           playCount: 0,
           lastPlayedAt: null,
           likedUpdatedAt: now,
@@ -591,6 +680,8 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
           set: {
             liked: sql`excluded.liked`,
             disliked: sql`excluded.disliked`,
+            dislikedTvSize: false,
+            dislikedFullSize: false,
             playCount: sql`excluded.play_count`,
             lastPlayedAt: sql`excluded.last_played_at`,
             likedUpdatedAt: now,
@@ -619,32 +710,95 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
 
   async recordPlays(
     userId: string,
-    plays: Array<{ themeId: number; playedAt: number }>,
+    plays: PlayInput[],
   ): Promise<{ accepted: number }> {
-    const grouped = groupPlays(plays);
+    if (plays.length === 0) return { accepted: 0 };
     const now = this.now();
-    for (const play of grouped) {
-      await this.db
-        .insert(themePrefs)
-        .values({
-          userId,
-          themeId: play.themeId,
-          liked: false,
-          disliked: false,
-          playCount: play.count,
-          lastPlayedAt: new Date(play.lastPlayedAt),
+    const normalized = dedupePlayInputs(plays.map(normalizePlayInput));
+    return this.db.transaction(async (tx) => {
+      const existing = await tx.select({
+        clientEventId: playEvents.clientEventId,
+        itemType: playEvents.itemType,
+        itemId: playEvents.itemId,
+        actualMode: playEvents.actualMode,
+        playedAt: playEvents.playedAt,
+      }).from(playEvents).where(and(
+        eq(playEvents.userId, userId),
+        inArray(playEvents.clientEventId, normalized.map((play) => play.clientEventId)),
+      ));
+      const existingById = new Map(existing.map((play) => [play.clientEventId, play]));
+      for (const play of normalized) {
+        const stored = existingById.get(play.clientEventId);
+        if (stored && !samePlayEvent(play, stored)) {
+          throw new ApiError(409, "PLAY_EVENT_ID_CONFLICT", "clientEventId was already used for a different play event.");
+        }
+      }
+      const novel = normalized.filter((play) => !existingById.has(play.clientEventId));
+      if (novel.length === 0) return { accepted: 0 };
+      const themeIds = uniqueNumbers(novel.flatMap((play) => play.itemType === "THEME" ? [play.itemId] : []));
+      const songIds = uniqueNumbers(novel.flatMap((play) => play.itemType === "SONG" ? [play.itemId] : []));
+      const [knownThemes, knownSongs] = await Promise.all([
+        this.knownActiveThemeIds(themeIds, tx),
+        this.knownReadyRelatedSongIds(songIds, tx),
+      ]);
+      if (themeIds.some((id) => !knownThemes.has(id)) || songIds.some((id) => !knownSongs.has(id))) {
+        throw new ApiError(404, "MUSIC_NOT_FOUND", "Playable item was not found in the ready catalog.");
+      }
+      const inserted = await tx.insert(playEvents).values(novel.map((play) => ({
+        userId,
+        clientEventId: play.clientEventId,
+        itemType: play.itemType,
+        itemId: play.itemId,
+        actualMode: play.actualMode,
+        playedAt: new Date(play.playedAt),
+        createdAt: now,
+      }))).onConflictDoNothing({ target: [playEvents.userId, playEvents.clientEventId] }).returning({
+        clientEventId: playEvents.clientEventId,
+        itemType: playEvents.itemType,
+        itemId: playEvents.itemId,
+        playedAt: playEvents.playedAt,
+      });
+      if (inserted.length < novel.length) {
+        const storedAfterConflict = await tx.select({
+          clientEventId: playEvents.clientEventId,
+          itemType: playEvents.itemType,
+          itemId: playEvents.itemId,
+          actualMode: playEvents.actualMode,
+          playedAt: playEvents.playedAt,
+        }).from(playEvents).where(and(
+          eq(playEvents.userId, userId),
+          inArray(playEvents.clientEventId, novel.map((play) => play.clientEventId)),
+        ));
+        const storedAfterById = new Map(storedAfterConflict.map((play) => [play.clientEventId, play]));
+        for (const play of novel) {
+          const stored = storedAfterById.get(play.clientEventId);
+          if (stored && !samePlayEvent(play, stored)) {
+            throw new ApiError(409, "PLAY_EVENT_ID_CONFLICT", "clientEventId was concurrently used for a different play event.");
+          }
+        }
+      }
+      for (const play of groupInsertedPlays(inserted.filter((item) => item.itemType === "THEME"))) {
+        await tx.insert(themePrefs).values({
+          userId, themeId: play.itemId, playCount: play.count, lastPlayedAt: play.lastPlayedAt, updatedAt: now,
+        }).onConflictDoUpdate({ target: [themePrefs.userId, themePrefs.themeId], set: {
+          playCount: sql`${themePrefs.playCount} + ${play.count}`,
+          lastPlayedAt: sql`greatest(coalesce(${themePrefs.lastPlayedAt}, to_timestamp(0)), ${play.lastPlayedAt})`,
           updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [themePrefs.userId, themePrefs.themeId],
-          set: {
-            playCount: sql`${themePrefs.playCount} + ${play.count}`,
-            lastPlayedAt: sql`greatest(coalesce(${themePrefs.lastPlayedAt}, to_timestamp(0)), ${new Date(play.lastPlayedAt)})`,
-            updatedAt: now,
-          },
-        });
-    }
-    return { accepted: plays.length };
+          deletedAt: null,
+        }});
+      }
+      for (const play of groupInsertedPlays(inserted.filter((item) => item.itemType === "SONG"))) {
+        await tx.insert(songPrefs).values({
+          userId, songId: play.itemId, playCount: play.count, lastPlayedAt: play.lastPlayedAt, updatedAt: now, deletedAt: null,
+        }).onConflictDoUpdate({ target: [songPrefs.userId, songPrefs.songId], set: {
+          playCount: sql`${songPrefs.playCount} + ${play.count}`,
+          lastPlayedAt: sql`greatest(coalesce(${songPrefs.lastPlayedAt}, to_timestamp(0)), ${play.lastPlayedAt})`,
+          updatedAt: now,
+          deletedAt: null,
+        }});
+      }
+      return { accepted: inserted.length };
+    });
   }
 
   async listPlaylists(
@@ -1692,6 +1846,35 @@ function normalizedPrefPatch(patch: ThemePrefPatch, now: Date): Partial<typeof t
   const set: Partial<typeof themePrefs.$inferInsert> = { updatedAt: now };
   if (patch.liked !== undefined) {
     set.liked = patch.liked;
+    if (patch.liked) {
+      set.disliked = false;
+      set.dislikedTvSize = false;
+      set.dislikedFullSize = false;
+    }
+  }
+  if (patch.disliked !== undefined) {
+    set.disliked = patch.disliked;
+    if (patch.disliked) {
+      set.liked = false;
+      set.dislikedTvSize = false;
+      set.dislikedFullSize = false;
+    }
+  }
+  if (patch.dislikedTvSize !== undefined) {
+    set.dislikedTvSize = patch.dislikedTvSize;
+    if (patch.dislikedTvSize) { set.liked = false; set.disliked = false; }
+  }
+  if (patch.dislikedFullSize !== undefined) {
+    set.dislikedFullSize = patch.dislikedFullSize;
+    if (patch.dislikedFullSize) { set.liked = false; set.disliked = false; }
+  }
+  return set;
+}
+
+function normalizedSongPrefPatch(patch: SongPrefPatch, now: Date): Partial<typeof songPrefs.$inferInsert> {
+  const set: Partial<typeof songPrefs.$inferInsert> = { updatedAt: now };
+  if (patch.liked !== undefined) {
+    set.liked = patch.liked;
     if (patch.liked) set.disliked = false;
   }
   if (patch.disliked !== undefined) {
@@ -1699,6 +1882,21 @@ function normalizedPrefPatch(patch: ThemePrefPatch, now: Date): Partial<typeof t
     if (patch.disliked) set.liked = false;
   }
   return set;
+}
+
+function songPrefDto(row: {
+  songId: number; liked: boolean; disliked: boolean; playCount: number;
+  lastPlayedAt: Date | null; updatedAt: Date; deletedAt: Date | null;
+}): SongPrefDto {
+  return {
+    songId: row.songId,
+    liked: row.liked,
+    disliked: row.disliked,
+    playCount: row.playCount,
+    lastPlayedAt: dateMillis(row.lastPlayedAt),
+    updatedAt: Math.max(dateMillis(row.updatedAt) ?? 0, dateMillis(row.deletedAt) ?? 0),
+    deleted: row.deletedAt !== null,
+  };
 }
 
 function normalizeLegacyImportEntries(payload: LegacyLibraryImportPayload): LegacyLibraryImportPayload["entries"] {
@@ -1720,17 +1918,48 @@ function normalizeLegacyImportEntries(payload: LegacyLibraryImportPayload): Lega
   return [...byThemeId.values()];
 }
 
-function groupPlays(plays: Array<{ themeId: number; playedAt: number }>) {
-  const map = new Map<number, { themeId: number; count: number; lastPlayedAt: number }>();
+function normalizePlayInput(play: PlayInput) {
+  return "themeId" in play
+    ? { clientEventId: `legacy:${randomUUID()}`, itemType: "THEME" as const, itemId: play.themeId, actualMode: "TV_SIZE" as const, playedAt: play.playedAt }
+    : play;
+}
+
+type NormalizedPlayInput = ReturnType<typeof normalizePlayInput>;
+
+function dedupePlayInputs(plays: NormalizedPlayInput[]): NormalizedPlayInput[] {
+  const unique = new Map<string, NormalizedPlayInput>();
   for (const play of plays) {
-    const existing = map.get(play.themeId) ?? {
-      themeId: play.themeId,
+    const previous = unique.get(play.clientEventId);
+    if (previous && !samePlayEvent(play, previous)) {
+      throw new ApiError(409, "PLAY_EVENT_ID_CONFLICT", "clientEventId must identify one stable play event.");
+    }
+    if (!previous) unique.set(play.clientEventId, play);
+  }
+  return [...unique.values()];
+}
+
+function samePlayEvent(
+  incoming: NormalizedPlayInput,
+  stored: { itemType: "THEME" | "SONG"; itemId: number; actualMode: "TV_SIZE" | "FULL_SIZE" | "VIDEO" | "AUDIO"; playedAt: Date } | NormalizedPlayInput,
+): boolean {
+  const storedPlayedAt = stored.playedAt instanceof Date ? stored.playedAt.getTime() : stored.playedAt;
+  return incoming.itemType === stored.itemType
+    && incoming.itemId === stored.itemId
+    && incoming.actualMode === stored.actualMode
+    && incoming.playedAt === storedPlayedAt;
+}
+
+function groupInsertedPlays(plays: Array<{ itemId: number; playedAt: Date }>) {
+  const map = new Map<number, { itemId: number; count: number; lastPlayedAt: Date }>();
+  for (const play of plays) {
+    const existing = map.get(play.itemId) ?? {
+      itemId: play.itemId,
       count: 0,
       lastPlayedAt: play.playedAt,
     };
     existing.count += 1;
-    existing.lastPlayedAt = Math.max(existing.lastPlayedAt, play.playedAt);
-    map.set(play.themeId, existing);
+    if (play.playedAt > existing.lastPlayedAt) existing.lastPlayedAt = play.playedAt;
+    map.set(play.itemId, existing);
   }
   return [...map.values()];
 }

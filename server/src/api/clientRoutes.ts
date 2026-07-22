@@ -100,6 +100,8 @@ export interface ThemePrefDto {
   themeId: number;
   liked: boolean;
   disliked: boolean;
+  dislikedTvSize: boolean;
+  dislikedFullSize: boolean;
   playCount: number;
   lastPlayedAt: number | null;
   updatedAt: number;
@@ -109,6 +111,8 @@ export interface ThemePrefDto {
 export interface ThemePrefPatch {
   liked?: boolean | undefined;
   disliked?: boolean | undefined;
+  dislikedTvSize?: boolean | undefined;
+  dislikedFullSize?: boolean | undefined;
   // Client op-timestamp (epoch ms) of when the user made this change; drives last-write-wins.
   opTs?: number | undefined;
 }
@@ -127,6 +131,27 @@ export interface PlaylistDto {
   dynamicSpecJson: unknown | null;
   dynamicSortJson: unknown | null;
 }
+
+export interface SongPrefDto {
+  songId: number;
+  liked: boolean;
+  disliked: boolean;
+  playCount: number;
+  lastPlayedAt: number | null;
+  updatedAt: number;
+  deleted: boolean;
+}
+
+export interface SongPrefPatch {
+  liked?: boolean | undefined;
+  disliked?: boolean | undefined;
+  opTs?: number | undefined;
+}
+
+export type PlayInput =
+  | { themeId: number; playedAt: number }
+  | { clientEventId: string; itemType: "THEME"; itemId: number; actualMode: "TV_SIZE" | "FULL_SIZE" | "VIDEO"; playedAt: number }
+  | { clientEventId: string; itemType: "SONG"; itemId: number; actualMode: "AUDIO"; playedAt: number };
 
 export type PlaylistPlaybackMode = "TV_SIZE" | "FULL_SIZE";
 export type PlaylistItemInput =
@@ -166,6 +191,7 @@ export interface ChangesResponse {
   anime: LibraryAnimeDto[];
   themes: LibraryThemeDto[];
   prefs: ThemePrefDto[];
+  songPrefs: SongPrefDto[];
   playlists: PlaylistDto[];
   musicCatalog: AnimeMusicDto[];
 }
@@ -190,10 +216,13 @@ export interface ClientApiService {
   removeLibraryAnime(userId: string, kitsuId: string): Promise<boolean>;
   getThemePrefs(userId: string, since?: number | null): Promise<ThemePrefDto[]>;
   updateThemePref(userId: string, themeId: number, patch: ThemePrefPatch): Promise<ThemePrefDto>;
+  getSongPrefs(userId: string, since?: number | null): Promise<SongPrefDto[]>;
+  updateSongPref(userId: string, songId: number, patch: SongPrefPatch): Promise<SongPrefDto>;
+  deleteSongPref(userId: string, songId: number, opTs?: number | null): Promise<boolean>;
   refreshAutoPlaylists(userId: string): Promise<void>;
   recordPlays(
     userId: string,
-    plays: Array<{ themeId: number; playedAt: number }>,
+    plays: PlayInput[],
   ): Promise<{ accepted: number }>;
   listPlaylists(
     userId: string,
@@ -232,20 +261,46 @@ const prefPatchBody = z
   .object({
     liked: z.boolean().optional(),
     disliked: z.boolean().optional(),
+    dislikedTvSize: z.boolean().optional(),
+    dislikedFullSize: z.boolean().optional(),
     opTs: z.number().int().nonnegative().optional(),
   })
-  .refine((value) => value.liked !== undefined || value.disliked !== undefined, {
+  .refine((value) => value.liked !== undefined || value.disliked !== undefined || value.dislikedTvSize !== undefined || value.dislikedFullSize !== undefined, {
     message: "At least one preference field is required",
   });
 
-const playsBody = z
-  .array(
-    z.object({
+const songPrefPatchBody = z.object({
+  liked: z.boolean().optional(),
+  disliked: z.boolean().optional(),
+  opTs: z.number().int().nonnegative().optional(),
+}).refine(
+  (value) => value.liked !== undefined || value.disliked !== undefined,
+  { message: "At least one preference field is required" },
+);
+
+const playInputSchema = z.union([
+  z.object({
       themeId: z.number().int().positive(),
       playedAt: z.number().int().nonnegative(),
-    }),
-  )
-  .max(1000);
+  }).strict(),
+  z.object({
+    clientEventId: z.uuid(),
+    itemType: z.literal("THEME"),
+    itemId: z.number().int().positive(),
+    actualMode: z.enum(["TV_SIZE", "FULL_SIZE", "VIDEO"]),
+    playedAt: z.number().int().nonnegative(),
+  }).strict(),
+  z.object({
+    clientEventId: z.uuid(),
+    itemType: z.literal("SONG"),
+    itemId: z.number().int().positive(),
+    actualMode: z.literal("AUDIO"),
+    playedAt: z.number().int().nonnegative(),
+  }).strict(),
+]);
+const playsBody = z.array(playInputSchema).max(1000);
+
+const songPrefDeleteQuery = z.object({ opTs: z.coerce.number().int().nonnegative().optional() });
 
 const playlistItemSchema = z.discriminatedUnion("itemType", [
   z.object({ entryId: z.number().int().positive().optional(), itemType: z.literal("THEME"), itemId: z.number().int().positive(), modeOverride: z.enum(["TV_SIZE", "FULL_SIZE"]).nullable().optional() }).strict(),
@@ -393,12 +448,42 @@ export function registerClientRoutes(
     },
   );
 
+  app.get(
+    "/v1/prefs/songs",
+    { schema: { querystring: sinceQuery }, preHandler: requireAuth },
+    async (request) => service.getSongPrefs(request.auth!.user.kitsuUserId, request.query.since ?? null),
+  );
+
+  app.put(
+    "/v1/prefs/songs/:id",
+    { schema: { params: idParams, body: songPrefPatchBody }, preHandler: requireAuth },
+    async (request) => {
+      const userId = request.auth!.user.kitsuUserId;
+      const pref = await service.updateSongPref(userId, request.params.id, request.body);
+      await service.refreshAutoPlaylists(userId);
+      return pref;
+    },
+  );
+
+  app.delete(
+    "/v1/prefs/songs/:id",
+    { schema: { params: idParams, querystring: songPrefDeleteQuery }, preHandler: requireAuth },
+    async (request, reply) => {
+      const deleted = await service.deleteSongPref(request.auth!.user.kitsuUserId, request.params.id, request.query.opTs ?? null);
+      if (!deleted) throw new ApiError(404, "MUSIC_NOT_FOUND", "Song preference was not found.");
+      await service.refreshAutoPlaylists(request.auth!.user.kitsuUserId);
+      return reply.code(204).send();
+    },
+  );
+
   app.post(
     "/v1/plays",
     { schema: { body: playsBody }, preHandler: requireAuth },
     async (request) => {
       const userId = request.auth!.user.kitsuUserId;
-      await service.ensureLibraryForThemeIds(userId, uniqueNumbers(request.body.map((play) => play.themeId)));
+      await service.ensureLibraryForThemeIds(userId, uniqueNumbers(request.body.flatMap((play) =>
+        "themeId" in play ? [play.themeId] : play.itemType === "THEME" ? [play.itemId] : [],
+      )));
       const result = await service.recordPlays(userId, request.body);
       await service.refreshAutoPlaylists(userId);
       return result;

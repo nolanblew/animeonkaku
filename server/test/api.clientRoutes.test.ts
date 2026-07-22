@@ -12,6 +12,7 @@ import type {
   PlaylistCreateInput,
   PlaylistInput,
   ThemePrefPatch,
+  PlayInput,
 } from "../src/api/clientRoutes.js";
 import type { SyncApiService } from "../src/api/syncRoutes.js";
 import { FakeAuthRepo } from "./helpers/fakeAuthRepo.js";
@@ -24,7 +25,9 @@ class FakeClientApi implements ClientApiService {
   ensureThemeCalls: Array<{ userId: string; themeIds: number[] }> = [];
   autoRefreshes: string[] = [];
   events: string[] = [];
-  prefs = new Map<number, { liked: boolean; disliked: boolean; playCount: number; lastPlayedAt: number | null }>();
+  prefs = new Map<number, { liked: boolean; disliked: boolean; dislikedTvSize: boolean; dislikedFullSize: boolean; playCount: number; lastPlayedAt: number | null }>();
+  songPrefs = new Map<number, { liked: boolean; disliked: boolean; playCount: number; lastPlayedAt: number | null }>();
+  recordedPlays: PlayInput[] = [];
   playlists = new Map<number, {
     id: number;
     name: string;
@@ -75,7 +78,7 @@ class FakeClientApi implements ClientApiService {
     return { releases: [], tracks };
   }
 
-  private prefDto(themeId: number, pref: { liked: boolean; disliked: boolean; playCount: number; lastPlayedAt: number | null }) {
+  private prefDto(themeId: number, pref: { liked: boolean; disliked: boolean; dislikedTvSize: boolean; dislikedFullSize: boolean; playCount: number; lastPlayedAt: number | null }) {
     return { themeId, ...pref, updatedAt: 1, deleted: false };
   }
 
@@ -183,6 +186,7 @@ class FakeClientApi implements ClientApiService {
       anime: library.anime,
       themes: library.themes,
       prefs: await this.getThemePrefs(userId, since),
+      songPrefs: await this.getSongPrefs(userId, since),
       playlists: await this.listPlaylists(userId, { since }),
       musicCatalog: await this.getMusicCatalog(userId),
     };
@@ -193,13 +197,36 @@ class FakeClientApi implements ClientApiService {
     const current = this.prefs.get(themeId) ?? {
       liked: false,
       disliked: false,
+      dislikedTvSize: false,
+      dislikedFullSize: false,
       playCount: 0,
       lastPlayedAt: null,
     };
     const { opTs: _opTs, ...prefPatch } = patch;
     const updated = { ...current, ...prefPatch };
+    if (patch.liked) Object.assign(updated, { disliked: false, dislikedTvSize: false, dislikedFullSize: false });
+    if (patch.disliked) Object.assign(updated, { liked: false, dislikedTvSize: false, dislikedFullSize: false });
+    if (patch.dislikedTvSize) Object.assign(updated, { liked: false, disliked: false });
+    if (patch.dislikedFullSize) Object.assign(updated, { liked: false, disliked: false });
     this.prefs.set(themeId, updated);
     return this.prefDto(themeId, updated);
+  }
+
+  async getSongPrefs(_userId: string, _since: number | null = null) {
+    return [...this.songPrefs.entries()].map(([songId, pref]) => ({ songId, ...pref, updatedAt: 1, deleted: false }));
+  }
+
+  async updateSongPref(_userId: string, songId: number, patch: { liked?: boolean; disliked?: boolean; opTs?: number }) {
+    const current = this.songPrefs.get(songId) ?? { liked: false, disliked: false, playCount: 0, lastPlayedAt: null };
+    const next = { ...current, liked: patch.liked ?? current.liked, disliked: patch.disliked ?? current.disliked };
+    if (patch.liked) next.disliked = false;
+    if (patch.disliked) next.liked = false;
+    this.songPrefs.set(songId, next);
+    return { songId, ...next, updatedAt: 1, deleted: false };
+  }
+
+  async deleteSongPref(_userId: string, songId: number, _opTs?: number | null) {
+    return this.songPrefs.delete(songId);
   }
 
   async refreshAutoPlaylists(userId: string) {
@@ -226,16 +253,25 @@ class FakeClientApi implements ClientApiService {
     this.playlists.set(playlist.id, playlist);
   }
 
-  async recordPlays(_userId: string, plays: Array<{ themeId: number; playedAt: number }>) {
+  async recordPlays(_userId: string, plays: PlayInput[]) {
     this.events.push("plays");
+    this.recordedPlays.push(...plays);
     for (const play of plays) {
-      const current = this.prefs.get(play.themeId) ?? {
+      const themeId = "themeId" in play ? play.themeId : play.itemType === "THEME" ? play.itemId : null;
+      if (themeId === null) {
+        const current = this.songPrefs.get(play.itemId) ?? { liked: false, disliked: false, playCount: 0, lastPlayedAt: null };
+        this.songPrefs.set(play.itemId, { ...current, playCount: current.playCount + 1, lastPlayedAt: Math.max(current.lastPlayedAt ?? 0, play.playedAt) });
+        continue;
+      }
+      const current = this.prefs.get(themeId) ?? {
         liked: false,
         disliked: false,
+        dislikedTvSize: false,
+        dislikedFullSize: false,
         playCount: 0,
         lastPlayedAt: null,
       };
-      this.prefs.set(play.themeId, {
+      this.prefs.set(themeId, {
         ...current,
         playCount: current.playCount + 1,
         lastPlayedAt: Math.max(current.lastPlayedAt ?? 0, play.playedAt),
@@ -439,8 +475,92 @@ describe("client API routes", () => {
 
     expect(prefs.statusCode).toBe(200);
     expect(prefs.json()).toEqual([
-      { themeId: 100, liked: true, disliked: false, playCount: 3, lastPlayedAt: 20, updatedAt: 1, deleted: false },
+      { themeId: 100, liked: true, disliked: false, dislikedTvSize: false, dislikedFullSize: false, playCount: 3, lastPlayedAt: 20, updatedAt: 1, deleted: false },
     ]);
+  });
+
+  it("round-trips mode-specific theme reactions and Related song prefs", async () => {
+    const token = await bearer();
+    const theme = await app.inject({
+      method: "PUT",
+      url: "/v1/prefs/themes/100",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { dislikedTvSize: true, opTs: 1000 },
+    });
+    expect(theme.statusCode).toBe(200);
+    expect(theme.json()).toMatchObject({
+      themeId: 100,
+      liked: false,
+      disliked: false,
+      dislikedTvSize: true,
+      dislikedFullSize: false,
+    });
+
+    const song = await app.inject({
+      method: "PUT",
+      url: "/v1/prefs/songs/300",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { liked: true, opTs: 1000 },
+    });
+    expect(song.statusCode).toBe(200);
+    expect(song.json()).toMatchObject({ songId: 300, liked: true, disliked: false });
+
+    const changes = await app.inject({
+      method: "GET",
+      url: "/v1/changes",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(changes.json()).toMatchObject({ songPrefs: [{ songId: 300, liked: true }] });
+  });
+
+  it("accepts actual-mode events with stable UUIDs while preserving legacy plays", async () => {
+    const token = await bearer();
+    const eventId = "fd3dc12e-bf70-4f86-87e4-f04efb7ea113";
+    const modern = await app.inject({
+      method: "POST",
+      url: "/v1/plays",
+      headers: { authorization: `Bearer ${token}` },
+      payload: [{ clientEventId: eventId, itemType: "THEME", itemId: 100, actualMode: "FULL_SIZE", playedAt: 20 }],
+    });
+    expect(modern.statusCode).toBe(200);
+    expect(clientApi.ensureThemeCalls.at(-1)).toEqual({ userId: "stub-nolan", themeIds: [100] });
+    expect(clientApi.recordedPlays.at(-1)).toEqual({ clientEventId: eventId, itemType: "THEME", itemId: 100, actualMode: "FULL_SIZE", playedAt: 20 });
+
+    const related = await app.inject({
+      method: "POST",
+      url: "/v1/plays",
+      headers: { authorization: `Bearer ${token}` },
+      payload: [{ clientEventId: "2ec24567-bf06-4d10-8bc2-a307579efc5a", itemType: "SONG", itemId: 300, actualMode: "AUDIO", playedAt: 21 }],
+    });
+    expect(related.statusCode).toBe(200);
+    expect(clientApi.ensureThemeCalls.at(-1)).toEqual({ userId: "stub-nolan", themeIds: [] });
+    expect(clientApi.recordedPlays.at(-1)).toEqual({ clientEventId: "2ec24567-bf06-4d10-8bc2-a307579efc5a", itemType: "SONG", itemId: 300, actualMode: "AUDIO", playedAt: 21 });
+
+    const legacy = await app.inject({
+      method: "POST",
+      url: "/v1/plays",
+      headers: { authorization: `Bearer ${token}` },
+      payload: [{ themeId: 100, playedAt: 22 }],
+    });
+    expect(legacy.statusCode).toBe(200);
+  });
+
+  it("authenticates song prefs and rejects unstable or mismatched play contracts", async () => {
+    expect((await app.inject({ method: "GET", url: "/v1/prefs/songs" })).statusCode).toBe(401);
+    const token = await bearer();
+    for (const payload of [
+      [{ clientEventId: "not-a-uuid", itemType: "THEME", itemId: 100, actualMode: "TV_SIZE", playedAt: 20 }],
+      [{ clientEventId: "fd3dc12e-bf70-4f86-87e4-f04efb7ea113", itemType: "THEME", itemId: 100, actualMode: "AUDIO", playedAt: 20 }],
+      [{ clientEventId: "fd3dc12e-bf70-4f86-87e4-f04efb7ea113", itemType: "SONG", itemId: 300, actualMode: "FULL_SIZE", playedAt: 20 }],
+    ]) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/plays",
+        headers: { authorization: `Bearer ${token}` },
+        payload,
+      });
+      expect(response.statusCode).toBe(400);
+    }
   });
 
   it("refreshes server auto playlists before returning from a theme preference write", async () => {

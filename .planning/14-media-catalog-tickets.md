@@ -1077,6 +1077,7 @@ travels.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete |
 | Area | Server / user state |
 | Difficulty | Medium |
 | Effort | L, 4–5 days |
@@ -1127,6 +1128,27 @@ Expected areas:
 #### Handoff notes
 
 There is no video-only dislike and no anime-wide default dislike.
+
+#### Completion and testing notes
+
+Completed on 2026-07-21. Theme preferences now expose additive broad,
+TV-specific, and Full-specific dislike fields with grouped LWW semantics and
+consistent like/dislike normalization. Ready Related songs have independent
+user-scoped preference routes and tombstone deltas in `/v1/changes`.
+Play-event writes accept either the strict legacy theme shape or the new
+polymorphic shape, persist actual mode, and update compatible aggregates only
+when the user-scoped `clientEventId` insert succeeds. Exact retries return the
+stored result, while payload mismatches return 409, including concurrent
+first-use races. Legacy plays remain THEME/TV_SIZE compatible.
+
+TDD began with the intended route-contract failures. The final focused route
+suite passed 24/24 and the isolated PostgreSQL suite passed 3/3, covering LWW
+interaction semantics, deleted-theme rejection, ready-song validation,
+idempotent retries, mismatched UUIDs, and concurrent event insertion. The full
+server suite passed 444 tests with 21 environment-gated skips; TypeScript
+`--noEmit` and `git diff --check` passed. Independent Sol/Medium review and
+Terra/High QA passed after tightening active-theme validation and the
+concurrent mismatched-payload path.
 
 ### MC-S12 — Add operator diagnostics, cache removal, and Lidarr deployment docs
 
