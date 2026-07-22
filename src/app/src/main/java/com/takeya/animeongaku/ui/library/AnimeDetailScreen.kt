@@ -58,6 +58,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.takeya.animeongaku.BuildConfig
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.ThemeModeEntity
+import com.takeya.animeongaku.data.repository.RelatedRelease
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
@@ -80,11 +82,14 @@ fun AnimeDetailScreen(
     onBack: () -> Unit,
     onPlayTheme: () -> Unit,
     onOpenArtist: (String) -> Unit = {},
+    onOpenRelatedMusic: (Long?) -> Unit = {},
     showLibraryBadges: Boolean = true,
     viewModel: AnimeDetailViewModel = hiltViewModel()
 ) {
     val anime by viewModel.anime.collectAsStateWithLifecycle()
     val themes by viewModel.themes.collectAsStateWithLifecycle()
+    val relatedMusic by viewModel.relatedMusic.collectAsStateWithLifecycle()
+    val musicRefreshError by viewModel.musicRefreshError.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
@@ -323,7 +328,10 @@ fun AnimeDetailScreen(
 
             if (shouldShowMusicRequestAction(BuildConfig.DEBUG, themes.size, isInLibrary)) {
                 item {
-                    val presentation = musicRequestActionPresentation(musicRequestState)
+                    val presentation = musicRequestActionPresentation(
+                        musicRequestState,
+                        hasReadyMusic(relatedMusic.isNotEmpty(), themeModesById)
+                    )
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -457,9 +465,53 @@ fun AnimeDetailScreen(
                 }
             }
 
+            if (relatedMusic.isNotEmpty()) {
+                item {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Related Music", style = MaterialTheme.typography.titleMedium, color = Mist100, modifier = Modifier.weight(1f))
+                        if (shouldShowRelatedMusicSeeAll(relatedMusic.size)) {
+                            Text("See all", color = Rose500, modifier = Modifier.clickable { onOpenRelatedMusic(null) }.padding(8.dp))
+                        }
+                    }
+                }
+                musicRefreshError?.let { message -> item { Text(message, color = Mist200, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 20.dp)) } }
+                itemsIndexed(relatedMusic.take(3), key = { _, release -> release.release.id }) { _, release ->
+                    RelatedReleasePreview(release) { onOpenRelatedMusic(release.release.id) }
+                }
+            }
+
             item {
                 Spacer(modifier = Modifier.height(90.dp))
             }
+        }
+    }
+}
+
+internal fun hasReadyMusic(
+    hasRelatedReleases: Boolean,
+    themeModesById: Map<Long, ThemeModeEntity>
+): Boolean = hasRelatedReleases || themeModesById.values.any { !it.fullSizeUrl.isNullOrBlank() }
+
+internal fun shouldShowRelatedMusicSeeAll(releaseCount: Int): Boolean = releaseCount > 0
+
+@Composable
+private fun RelatedReleasePreview(release: RelatedRelease, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        FallbackAsyncImage(
+            urls = listOfNotNull(release.release.artworkUrl, release.owner.artworkUrl),
+            contentDescription = release.release.title,
+            modifier = Modifier.size(52.dp).clip(RoundedCornerShape(8.dp)),
+            contentScale = ContentScale.Crop
+        )
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(release.release.title, color = Mist100, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(release.release.artistCredit, color = Mist200, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

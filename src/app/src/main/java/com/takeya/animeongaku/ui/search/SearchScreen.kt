@@ -64,6 +64,8 @@ import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.model.OnlineAnimeResult
 import com.takeya.animeongaku.data.model.OnlineArtistResult
+import com.takeya.animeongaku.data.repository.RelatedRelease
+import com.takeya.animeongaku.data.repository.RelatedTrack
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
 import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
@@ -87,6 +89,7 @@ fun SearchScreen(
     onOpenAnime: (String) -> Unit = {},
     onOpenArtist: (String) -> Unit = {},
     onOpenPlaylist: (Long) -> Unit = {},
+    onOpenRelatedMusic: (String, Long?) -> Unit = { _, _ -> },
     viewModel: SearchViewModel = hiltViewModel()
 ) {
     val queryText by viewModel.query.collectAsStateWithLifecycle()
@@ -101,6 +104,8 @@ fun SearchScreen(
     val onlineResults by viewModel.onlineResults.collectAsStateWithLifecycle()
     val onlineAnime by viewModel.onlineAnime.collectAsStateWithLifecycle()
     val onlineArtists by viewModel.onlineArtists.collectAsStateWithLifecycle()
+    val localMusic by viewModel.localMusic.collectAsStateWithLifecycle()
+    val onlineMusic by viewModel.onlineMusic.collectAsStateWithLifecycle()
     val onlineState by viewModel.onlineState.collectAsStateWithLifecycle()
     val onlineError by viewModel.onlineError.collectAsStateWithLifecycle()
     val onlineEnabled by viewModel.onlineEnabled.collectAsStateWithLifecycle()
@@ -109,6 +114,12 @@ fun SearchScreen(
     val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val themeModesById by viewModel.themeModesById.collectAsStateWithLifecycle()
+    val musicReleases = remember(localMusic, onlineMusic) {
+        (onlineMusic.releases + localMusic.releases).distinctBy { it.owner.kitsuId to it.release.id }
+    }
+    val musicTracks = remember(localMusic, onlineMusic) {
+        (onlineMusic.tracks + localMusic.tracks).distinctBy { Triple(it.owner.kitsuId, it.release.id, it.song.id) }
+    }
 
     val animeByThemesId = remember(allAnime) {
         allAnime.mapNotNull { entry -> entry.animeThemesId?.let { id -> id to entry } }.toMap()
@@ -330,6 +341,20 @@ fun SearchScreen(
                     }
                 }
 
+                if (musicReleases.isNotEmpty()) {
+                    item { SectionHeader("Releases") }
+                    items(musicReleases.take(8), key = { "release-${it.owner.kitsuId}-${it.release.id}" }) { release ->
+                        MusicReleaseResultRow(release) { onOpenRelatedMusic(release.owner.kitsuId, release.release.id) }
+                    }
+                }
+
+                if (musicTracks.isNotEmpty()) {
+                    item { SectionHeader("Tracks") }
+                    items(musicTracks.take(12), key = { "track-${it.owner.kitsuId}-${it.release.id}-${it.song.id}" }) { track ->
+                        MusicTrackResultRow(track) { onOpenRelatedMusic(track.owner.kitsuId, track.release.id) }
+                    }
+                }
+
                 // Local Anime
                 if (localAnime.isNotEmpty()) {
                     item {
@@ -519,6 +544,28 @@ private fun SectionHeader(title: String) {
         color = Mist100,
         modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
     )
+}
+
+@Composable
+private fun MusicReleaseResultRow(release: RelatedRelease, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        FallbackAsyncImage(listOfNotNull(release.release.artworkUrl, release.owner.artworkUrl), release.release.title, Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)))
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(release.release.title, color = Mist100, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(listOfNotNull(release.release.artistCredit.takeIf(String::isNotBlank), release.owner.title).joinToString(" · "), color = Mist200, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun MusicTrackResultRow(track: RelatedTrack, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        FallbackAsyncImage(listOfNotNull(track.release.artworkUrl, track.owner.artworkUrl), track.song.title, Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)))
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(track.song.title, color = Mist100, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(listOfNotNull(track.owner.title, track.release.title).joinToString(" · "), color = Mist200, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
 }
 
 @Composable

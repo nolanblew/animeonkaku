@@ -2003,6 +2003,8 @@ interaction remains part of the final consolidated acceptance pass.
 
 ### MC-A07 — Add Related Music browsing, nested navigation, queue actions, and Search
 
+| Status | ✅ Complete |
+
 | Field | Value |
 |---|---|
 | Area | Android / repository and Compose |
@@ -2059,6 +2061,24 @@ Expected areas:
 
 Release artwork may be remote and cached by Coil normally; the no-cache rule is
 for video.
+
+#### Completion notes
+
+- Added the Room/remote catalog repository, owner-safe offline caching,
+  Anime Detail previews, anime-owned release/track navigation, Search release
+  and track sections, and the gated Now Playing Related Music link.
+- Related tracks enter mixed queues as stable `SONG` items and expose Play,
+  Play Next, Add to Queue, Save to Playlist, and Like. Durable mixed playlist
+  synchronization is completed by MC-A08; generalized SONG downloads and their
+  action are completed by MC-A10, so Download remains hidden here rather than
+  presenting a dead control.
+- Ready Related Music or Full Size audio now replaces stale request-batch copy;
+  cached content survives friendly refresh/search failures, and explicit
+  loading, empty, and retry states avoid false empty flashes.
+- Verification: focused catalog/navigation/presentation/queue checks passed
+  47/47. Full Android unit tests passed 470/470 across 75 suites;
+  `compileDebugAndroidTestKotlin`, `assembleDebug`, and diff checks passed.
+  No ADB device was attached; live Room/device navigation remains in MC-Q01.
 
 ### MC-A08 — Add playlist default/override policy and mixed item editing
 

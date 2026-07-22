@@ -256,6 +256,20 @@ device acceptance after the Android chain is complete.
 - Resume at MC-A07. Build anime-owned Related Music browsing and Search without
   a top-level Albums destination; keep READY content independent of request
   attention state and fix the debug request copy recorded above.
+- MC-A07 is complete in the ticket commit containing this handoff update. It
+  adds owner-safe cached/remote catalog access, Anime Detail previews, nested
+  release/track browsing, Search Releases/Tracks, stable SONG queue actions,
+  and the gated Now Playing Related Music destination. Ready Full Size or
+  Related Music now suppresses stale request-batch copy.
+- MC-A07 verification: focused checks 47/47, full unit 470/470 across 75
+  suites, Android-test Kotlin compilation, debug assembly, corrected Sol UX
+  and technical review passed. Terra/High executable QA passed and identified
+  the explicitly carried MC-A08 playlist-sync and MC-A10 download gates. No
+  device was connected.
+- Resume at MC-A08. Make the currently exposed SONG Save to Playlist action
+  durable by generalizing playlist writes/pulls to ordered typed items, then
+  implement default/override policy and mixed-item editing. MC-A10 still owns
+  generalized SONG downloads and the Related Music Download action.
 
 ## Agent model policy
 

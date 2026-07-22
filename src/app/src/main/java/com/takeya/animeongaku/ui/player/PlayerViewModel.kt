@@ -12,6 +12,7 @@ import com.takeya.animeongaku.data.local.ThemeModeDao
 import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
+import com.takeya.animeongaku.data.repository.MusicCatalogRepository
 import com.takeya.animeongaku.media.MediaControllerManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.NowPlayingState
@@ -42,6 +43,7 @@ class PlayerViewModel @Inject constructor(
     private val animeDao: AnimeDao,
     private val serverPlaylistWriter: ServerPlaylistWriter,
     private val userPreferencesRepository: UserPreferencesRepository,
+    musicCatalogRepository: MusicCatalogRepository,
     val connectivityMonitor: ConnectivityMonitor
 ) : ViewModel() {
     private val videoModeSessionTracker = VideoModeSessionTracker()
@@ -56,6 +58,13 @@ class PlayerViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlayerModeUiState())
 
     val isOnline: StateFlow<Boolean> = connectivityMonitor.isOnline
+
+    val hasRelatedMusic: StateFlow<Boolean> = nowPlayingState
+        .map { it.currentEntry?.item?.anime?.kitsuId.orEmpty() }
+        .flatMapLatest { kitsuId ->
+            if (kitsuId.isBlank()) kotlinx.coroutines.flow.flowOf(false)
+            else musicCatalogRepository.observeAnimeReleases(kitsuId).map { it.isNotEmpty() }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     val queuedThemeModesById: StateFlow<Map<Long, ThemeModeEntity>> = nowPlayingState
         .map { state -> state.nowPlayingEntries.mapNotNull { it.themeOrNull?.id }.distinct() }

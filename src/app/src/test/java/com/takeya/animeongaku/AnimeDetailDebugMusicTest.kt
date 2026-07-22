@@ -1,7 +1,10 @@
 package com.takeya.animeongaku
 
+import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.ui.library.MusicRequestUiState
+import com.takeya.animeongaku.ui.library.hasReadyMusic
 import com.takeya.animeongaku.ui.library.musicRequestActionPresentation
+import com.takeya.animeongaku.ui.library.shouldShowRelatedMusicSeeAll
 import com.takeya.animeongaku.ui.library.shouldShowMusicRequestAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -35,6 +38,33 @@ class AnimeDetailDebugMusicTest {
         assertEquals("Needs operator review", presentation.label)
         assertEquals("3 batches requested", presentation.supportingText)
         assertFalse(presentation.enabled)
+    }
+
+    @Test
+    fun `full size theme audio replaces stale request state with ready state`() {
+        val modes = mapOf(
+            10L to ThemeModeEntity(themeId = 10L, tvSizeUrl = "/themes/10", fullSizeUrl = "/songs/20")
+        )
+        val ready = hasReadyMusic(hasRelatedReleases = false, themeModesById = modes)
+        val presentation = musicRequestActionPresentation(MusicRequestUiState.AwaitingOperator(batchCount = 1), ready)
+
+        assertTrue(ready)
+        assertEquals("Some music is ready", presentation.label)
+        assertFalse(presentation.supportingText.orEmpty().contains("batch", ignoreCase = true))
+    }
+
+    @Test
+    fun `ready catalog dominates idle request action`() {
+        val presentation = musicRequestActionPresentation(MusicRequestUiState.Idle, readyMusicAvailable = true)
+
+        assertEquals("Music is ready", presentation.label)
+        assertFalse(presentation.enabled)
+    }
+
+    @Test
+    fun `related music always offers full list entry`() {
+        assertFalse(shouldShowRelatedMusicSeeAll(0))
+        (1..3).forEach { assertTrue(shouldShowRelatedMusicSeeAll(it)) }
     }
 
     @Test

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.rounded.LibraryAdd
 import androidx.compose.material.icons.rounded.Movie
@@ -70,6 +71,7 @@ data class ActionSheetConfig(
     val showAddToLibrary: Boolean = false,
     val showGoToArtist: Boolean = false,
     val showGoToAnime: Boolean = false,
+    val showRelatedMusic: Boolean = false,
     val showDownload: Boolean = false,
     val showDownloading: Boolean = false,
     val showRemoveDownload: Boolean = false,
@@ -99,6 +101,7 @@ fun ActionSheet(
     onAddToLibrary: () -> Unit = {},
     onGoToArtist: () -> Unit = {},
     onGoToAnime: () -> Unit = {},
+    onRelatedMusic: () -> Unit = {},
     onDownload: () -> Unit = {},
     onRemoveDownload: () -> Unit = {},
     onLike: () -> Unit = {},
@@ -283,6 +286,13 @@ fun ActionSheet(
                     icon = { Icon(Icons.Rounded.Movie, contentDescription = null, tint = Mist100) },
                     label = label,
                     onClick = { dismissThen(onGoToAnime) }
+                )
+            }
+            if (config.showRelatedMusic) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.Album, contentDescription = null, tint = Mist100) },
+                    label = "Related Music",
+                    onClick = { dismissThen(onRelatedMusic) }
                 )
             }
             if (config.showDownloading) {

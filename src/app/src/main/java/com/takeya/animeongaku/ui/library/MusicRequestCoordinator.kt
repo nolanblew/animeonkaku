@@ -156,7 +156,8 @@ internal fun shouldShowMusicRequestAction(
     @Suppress("UNUSED_PARAMETER") isInLibrary: Boolean
 ): Boolean = isDebug
 
-internal fun musicRequestActionPresentation(state: MusicRequestUiState): MusicRequestActionPresentation =
+internal fun musicRequestActionPresentation(state: MusicRequestUiState, readyMusicAvailable: Boolean = false): MusicRequestActionPresentation =
+    if (readyMusicAvailable) readyMusicPresentation(state) else
     when (state) {
         MusicRequestUiState.Hydrating -> MusicRequestActionPresentation("Loading request status", statusDescription = "Loading music request status", enabled = false)
         MusicRequestUiState.Idle -> MusicRequestActionPresentation("Request music", statusDescription = "Request all music for this anime", enabled = true)
@@ -172,6 +173,26 @@ internal fun musicRequestActionPresentation(state: MusicRequestUiState): MusicRe
         is MusicRequestUiState.SubmissionError -> MusicRequestActionPresentation("Retry music request", state.message, state.message, enabled = true)
         is MusicRequestUiState.StatusError -> MusicRequestActionPresentation("Retry status", state.message, state.message, enabled = true)
     }
+
+private fun readyMusicPresentation(state: MusicRequestUiState): MusicRequestActionPresentation = when (state) {
+    is MusicRequestUiState.Completed -> MusicRequestActionPresentation(
+        "Music is ready", "Available music is shown below.", "Music is ready", enabled = false
+    )
+    is MusicRequestUiState.AwaitingOperator,
+    is MusicRequestUiState.CompletedWithWarnings,
+    is MusicRequestUiState.TerminalAttention -> MusicRequestActionPresentation(
+        "Some music is ready", "Available music is shown below. Some requested items could not be added.", "Some music is ready", enabled = false
+    )
+    is MusicRequestUiState.Queued,
+    is MusicRequestUiState.Searching,
+    is MusicRequestUiState.Downloading,
+    is MusicRequestUiState.Processing -> MusicRequestActionPresentation(
+        "Finding and preparing music", "Ready music will appear below automatically.", "Finding and preparing music", enabled = false
+    )
+    else -> MusicRequestActionPresentation(
+        "Music is ready", "Available music is shown below.", "Music is ready", enabled = false
+    )
+}
 
 private fun MusicRequestUiState.presentation(label: String, statusDescription: String): MusicRequestActionPresentation {
     val batchCount = when (this) {

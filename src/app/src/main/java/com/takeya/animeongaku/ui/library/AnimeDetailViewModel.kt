@@ -18,6 +18,8 @@ import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.repository.AnimeRepository
 import com.takeya.animeongaku.data.repository.MusicRequestRepository
+import com.takeya.animeongaku.data.repository.MusicCatalogRepository
+import com.takeya.animeongaku.data.repository.RelatedRelease
 import com.takeya.animeongaku.BuildConfig
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
@@ -108,7 +110,8 @@ class AnimeDetailViewModel @Inject constructor(
     private val downloadDao: DownloadDao,
     private val userPreferencesRepository: UserPreferencesRepository,
     connectivityMonitor: ConnectivityMonitor,
-    musicRequestRepository: MusicRequestRepository
+    musicRequestRepository: MusicRequestRepository,
+    private val musicCatalogRepository: MusicCatalogRepository
 ) : ViewModel() {
     val isOnline: StateFlow<Boolean> = connectivityMonitor.isOnline
     private val kitsuId: String = savedStateHandle["kitsuId"] ?: ""
@@ -117,6 +120,7 @@ class AnimeDetailViewModel @Inject constructor(
     private val _onlineThemes = MutableStateFlow<List<ThemeEntity>>(emptyList())
     private val _onlineAnime = MutableStateFlow<AnimeEntity?>(null)
     private val _onlineEntries = MutableStateFlow<List<AnimeThemeEntry>>(emptyList())
+    private val _onlineMusic = MutableStateFlow<List<RelatedRelease>>(emptyList())
 
     // Local DB data (reactive)
     private val localAnime: StateFlow<AnimeEntity?> = animeDao.observeByKitsuId(kitsuId)
@@ -154,6 +158,20 @@ class AnimeDetailViewModel @Inject constructor(
         if (online.isNotEmpty()) online else local
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    private val cachedMusic = anime.flatMapLatest { entity ->
+        musicCatalogRepository.observeAnimeReleases(
+            kitsuId,
+            entity?.title,
+            entity?.coverUrl ?: entity?.thumbnailUrl
+        )
+    }
+    val relatedMusic: StateFlow<List<RelatedRelease>> = combine(cachedMusic, _onlineMusic) { cached, online ->
+        if (online.isNotEmpty()) online else cached
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _musicRefreshError = MutableStateFlow<String?>(null)
+    val musicRefreshError: StateFlow<String?> = _musicRefreshError.asStateFlow()
+
     val themeModesById: StateFlow<Map<Long, ThemeModeEntity>> = themes
         .flatMapLatest { list ->
             val ids = list.map { it.id }
@@ -178,8 +196,17 @@ class AnimeDetailViewModel @Inject constructor(
 
     init {
         fetchFromApiIfNeeded()
+        refreshMusic()
         if (BuildConfig.DEBUG) {
             musicRequestCoordinator.hydrate(kitsuId)
+        }
+    }
+
+    private fun refreshMusic() {
+        viewModelScope.launch {
+            runCatching { musicCatalogRepository.refreshAnime(kitsuId) }
+                .onSuccess { _onlineMusic.value = it }
+                .onFailure { if (relatedMusic.value.isNotEmpty()) _musicRefreshError.value = "Couldn’t refresh. Showing saved music." }
         }
     }
 

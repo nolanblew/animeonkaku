@@ -20,6 +20,8 @@ import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.model.OnlineAnimeResult
 import com.takeya.animeongaku.data.model.OnlineArtistResult
 import com.takeya.animeongaku.data.repository.AnimeRepository
+import com.takeya.animeongaku.data.repository.MusicCatalogRepository
+import com.takeya.animeongaku.data.repository.MusicSearchResults
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
@@ -56,6 +58,7 @@ class SearchViewModel @Inject constructor(
     private val artistDao: ArtistDao,
     private val playlistDao: PlaylistDao,
     private val animeRepository: AnimeRepository,
+    private val musicCatalogRepository: MusicCatalogRepository,
     private val libraryPullManager: LibraryPullManager,
     private val syncEngine: SyncEngine,
     val nowPlayingManager: NowPlayingManager,
@@ -108,6 +111,10 @@ class SearchViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val localMusic: StateFlow<MusicSearchResults> = _query.flatMapLatest { q ->
+        if (q.isBlank()) flowOf(MusicSearchResults()) else musicCatalogRepository.searchCached(q)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MusicSearchResults())
+
     val anime: StateFlow<List<AnimeEntity>> = animeDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -135,6 +142,8 @@ class SearchViewModel @Inject constructor(
 
     private val _onlineArtists = MutableStateFlow<List<OnlineArtistResult>>(emptyList())
     val onlineArtists: StateFlow<List<OnlineArtistResult>> = _onlineArtists.asStateFlow()
+    private val _onlineMusic = MutableStateFlow(MusicSearchResults())
+    val onlineMusic: StateFlow<MusicSearchResults> = _onlineMusic.asStateFlow()
 
     private val _onlineState = MutableStateFlow(OnlineSearchState.Idle)
     val onlineState: StateFlow<OnlineSearchState> = _onlineState.asStateFlow()
@@ -151,6 +160,7 @@ class SearchViewModel @Inject constructor(
         _onlineResults.value = emptyList()
         _onlineAnime.value = emptyList<com.takeya.animeongaku.data.model.OnlineAnimeResult>()
         _onlineArtists.value = emptyList<com.takeya.animeongaku.data.model.OnlineArtistResult>()
+        _onlineMusic.value = MusicSearchResults()
         _onlineError.value = null
         onlineJob?.cancel()
     }
@@ -174,9 +184,10 @@ class SearchViewModel @Inject constructor(
                 _onlineResults.value = searchResult.themes
                 _onlineAnime.value = searchResult.anime
                 _onlineArtists.value = searchResult.artists
+                _onlineMusic.value = musicCatalogRepository.searchRemote(q)
                 _onlineState.value = OnlineSearchState.Done
             } catch (e: Exception) {
-                _onlineError.value = "Search failed: ${e.message}"
+                _onlineError.value = searchFailureMessage(hasCachedSearchResults())
                 _onlineState.value = OnlineSearchState.Error
             }
         }
@@ -210,6 +221,10 @@ class SearchViewModel @Inject constructor(
         val idx = songs.indexOfFirst { it.id == themeId }.coerceAtLeast(0)
         nowPlayingManager.play("Search: ${_query.value}", songs, idx, animeMap = buildAnimeMap())
     }
+
+    private fun hasCachedSearchResults(): Boolean =
+        localSongs.value.isNotEmpty() || localAnime.value.isNotEmpty() || localArtists.value.isNotEmpty() ||
+            localPlaylists.value.isNotEmpty() || localMusic.value.releases.isNotEmpty() || localMusic.value.tracks.isNotEmpty()
 
     private fun localContextLabel(): String = "Search: ${_query.value}"
 
@@ -396,3 +411,6 @@ class SearchViewModel @Inject constructor(
         }
     }
 }
+
+internal fun searchFailureMessage(hasCachedResults: Boolean): String =
+    if (hasCachedResults) "Couldn’t refresh. Showing saved results." else "Couldn’t search right now. Try again."

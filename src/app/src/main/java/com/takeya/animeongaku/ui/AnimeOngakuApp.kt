@@ -62,6 +62,7 @@ import com.takeya.animeongaku.ui.library.AnimeDetailScreen
 import com.takeya.animeongaku.ui.library.ArtistDetailScreen
 import com.takeya.animeongaku.ui.library.LibraryScreen
 import com.takeya.animeongaku.ui.library.PlaylistDetailScreen
+import com.takeya.animeongaku.ui.library.RelatedMusicScreen
 import com.takeya.animeongaku.ui.onboarding.OnboardingScreen
 import com.takeya.animeongaku.ui.onboarding.ReconnectBanner
 import com.takeya.animeongaku.ui.player.PlayerContainer
@@ -89,6 +90,7 @@ private object Routes {
     const val Library = "library"
     const val Playlist = "playlist"
     const val AnimeDetail = "animeDetail"
+    const val RelatedMusic = "relatedMusic"
     const val ArtistDetail = "artistDetail"
     const val Import = "import"
     const val Player = "player"
@@ -101,6 +103,9 @@ private const val ShowLibraryBadgesArg = "showLibraryBadges"
 
 internal fun animeDetailRoute(kitsuId: String, showLibraryBadges: Boolean = true): String =
     "${Routes.AnimeDetail}/$kitsuId?$ShowLibraryBadgesArg=$showLibraryBadges"
+
+internal fun relatedMusicRoute(kitsuId: String, releaseId: Long? = null): String =
+    "${Routes.RelatedMusic}/$kitsuId?releaseId=${releaseId ?: -1L}"
 
 internal fun artistDetailRoute(artistName: String, showLibraryBadges: Boolean = true): String =
     "${Routes.ArtistDetail}/${encodeRouteSegment(artistName)}?$ShowLibraryBadgesArg=$showLibraryBadges"
@@ -301,7 +306,8 @@ fun AnimeOngakuApp(
                         },
                         onOpenPlaylist = { playlistId ->
                             navController.navigate("${Routes.Playlist}/$playlistId")
-                        }
+                        },
+                        onOpenRelatedMusic = { kitsuId, releaseId -> navController.navigate(relatedMusicRoute(kitsuId, releaseId)) }
                     )
                 }
                 composable(
@@ -351,13 +357,29 @@ fun AnimeOngakuApp(
                         navArgument("kitsuId") { type = NavType.StringType },
                         navArgument(ShowLibraryBadgesArg) { type = NavType.BoolType; defaultValue = true }
                     )
-                ) {
-                    val showLibraryBadges = it.arguments?.getBoolean(ShowLibraryBadgesArg) ?: true
+                ) { entry ->
+                    val showLibraryBadges = entry.arguments?.getBoolean(ShowLibraryBadgesArg) ?: true
+                    val kitsuId = entry.arguments?.getString("kitsuId").orEmpty()
                     AnimeDetailScreen(
                         onBack = { navController.popBackStack() },
                         onPlayTheme = { isPlayerExpanded = true },
                         onOpenArtist = { artistName -> navController.navigate(artistDetailRoute(artistName, showLibraryBadges)) },
+                        onOpenRelatedMusic = { releaseId -> navController.navigate(relatedMusicRoute(kitsuId, releaseId)) },
                         showLibraryBadges = showLibraryBadges
+                    )
+                }
+                composable(
+                    route = "${Routes.RelatedMusic}/{kitsuId}?releaseId={releaseId}",
+                    arguments = listOf(
+                        navArgument("kitsuId") { type = NavType.StringType },
+                        navArgument("releaseId") { type = NavType.LongType; defaultValue = -1L }
+                    )
+                ) {
+                    val kitsuId = it.arguments?.getString("kitsuId").orEmpty()
+                    RelatedMusicScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenRelease = { releaseId -> navController.navigate(relatedMusicRoute(kitsuId, releaseId)) },
+                        onPlay = { isPlayerExpanded = true }
                     )
                 }
                 composable(
@@ -510,6 +532,10 @@ fun AnimeOngakuApp(
             onOpenAnime = { kitsuId ->
                 isPlayerExpanded = false
                 navController.navigate(animeDetailRoute(kitsuId))
+            },
+            onOpenRelatedMusic = { kitsuId ->
+                isPlayerExpanded = false
+                navController.navigate(relatedMusicRoute(kitsuId))
             },
             onOpenArtist = { artistName ->
                 isPlayerExpanded = false

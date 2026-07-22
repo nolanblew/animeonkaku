@@ -11,6 +11,9 @@ import retrofit2.http.Query
 
 /** Additive v1 music APIs kept separate so legacy OngakuApi implementations stay binary-safe. */
 interface OngakuMusicApi {
+    @GET("v1/search")
+    suspend fun search(@Query("q") query: String): OngakuSearchResponse
+
     @GET("v1/anime/{kitsuId}/music")
     suspend fun animeMusic(@Path("kitsuId") kitsuId: String): OngakuAnimeMusicDto
 

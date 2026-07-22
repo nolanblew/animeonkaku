@@ -113,6 +113,7 @@ fun PlayerScreen(
     onExpand: () -> Unit = {},
     onCollapse: () -> Unit = {},
     onOpenAnime: (String) -> Unit = {},
+    onOpenRelatedMusic: (String) -> Unit = {},
     onOpenArtist: (String) -> Unit = {},
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
@@ -122,6 +123,7 @@ fun PlayerScreen(
     val modeUiState by viewModel.modeUiState.collectAsStateWithLifecycle()
     val mediaController by viewModel.mediaControllerManager.mediaController.collectAsStateWithLifecycle()
     val currentPreference by viewModel.currentPreference.collectAsStateWithLifecycle()
+    val hasRelatedMusic by viewModel.hasRelatedMusic.collectAsStateWithLifecycle()
     val nowPlayingManager = viewModel.nowPlayingManager
     val controllerManager = viewModel.mediaControllerManager
 
@@ -193,6 +195,7 @@ fun PlayerScreen(
                     showAddToLibrary = theme != null && !songInLibrary,
                     showGoToArtist = !item.display.artist.isNullOrBlank(),
                     showGoToAnime = animeEntity?.kitsuId != null,
+                    showRelatedMusic = animeEntity?.kitsuId != null && hasRelatedMusic,
                     showPlayVideo = theme != null && BrowseVideoActionPolicy.singleTheme(
                         isOnline, queuedThemeModesById[theme.id]
                     ),
@@ -209,6 +212,7 @@ fun PlayerScreen(
                 onSaveToPlaylist = { theme?.let { pickerThemeIds = listOf(it.id) } },
                 onGoToArtist = { item.display.artist?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
                 onGoToAnime = { animeEntity?.kitsuId?.let { onOpenAnime(it) } },
+                onRelatedMusic = { animeEntity?.kitsuId?.let { onOpenRelatedMusic(it) } },
                 onAddToLibrary = { theme?.let { viewModel.saveSongToLibrary(it, animeEntity) } }
             )
         }

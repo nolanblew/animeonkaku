@@ -66,10 +66,93 @@ interface MusicCatalogDao {
         """
     )
     fun observeSongsForRelease(releaseId: Long): Flow<List<SongEntity>>
+
+    @Query("SELECT * FROM music_releases WHERE id = :releaseId LIMIT 1")
+    fun observeRelease(releaseId: Long): Flow<MusicReleaseEntity?>
+
+    @Query(
+        """
+        SELECT s.*, rt.discNumber, rt.trackNumber, rt.displayOrder
+        FROM release_tracks rt
+        JOIN songs s ON s.id = rt.songId
+        WHERE rt.releaseId = :releaseId
+        ORDER BY rt.displayOrder, rt.discNumber, COALESCE(rt.trackNumber, 2147483647), s.id
+        """
+    )
+    fun observeReleaseTrackRows(releaseId: Long): Flow<List<MusicTrackRow>>
+
+    @Query(
+        """
+        SELECT r.*, amr.relationshipType, a.kitsuId AS ownerKitsuId,
+               COALESCE(a.titleEn, a.title, a.titleRomaji, a.titleJa) AS ownerTitle,
+               COALESCE(a.thumbnailUrlLarge, a.thumbnailUrl, a.coverUrlLarge, a.coverUrl) AS ownerArtworkUrl
+        FROM music_releases r
+        JOIN anime_music_releases amr ON amr.releaseId = r.id
+        JOIN anime a ON a.kitsuId = amr.kitsuAnimeId
+        WHERE r.title LIKE '%' || :query || '%' COLLATE NOCASE
+           OR r.artistCredit LIKE '%' || :query || '%' COLLATE NOCASE
+        ORDER BY r.title, a.title
+        LIMIT 30
+        """
+    )
+    fun searchReleases(query: String): Flow<List<MusicReleaseSearchRow>>
+
+    @Query(
+        """
+        SELECT s.*, rt.releaseId, r.title AS releaseTitle, r.artistCredit AS releaseArtistCredit,
+               r.releaseDate AS releaseDate, r.year AS releaseYear, r.artworkUrl AS releaseArtworkUrl,
+               rt.discNumber, rt.trackNumber, rt.displayOrder, amr.relationshipType,
+               a.kitsuId AS ownerKitsuId,
+               COALESCE(a.titleEn, a.title, a.titleRomaji, a.titleJa) AS ownerTitle,
+               COALESCE(a.thumbnailUrlLarge, a.thumbnailUrl, a.coverUrlLarge, a.coverUrl) AS ownerArtworkUrl
+        FROM songs s
+        JOIN release_tracks rt ON rt.songId = s.id
+        JOIN music_releases r ON r.id = rt.releaseId
+        JOIN anime_music_releases amr ON amr.releaseId = r.id
+        JOIN anime a ON a.kitsuId = amr.kitsuAnimeId
+        WHERE s.title LIKE '%' || :query || '%' COLLATE NOCASE
+           OR s.artistCredit LIKE '%' || :query || '%' COLLATE NOCASE
+        ORDER BY s.title, r.title, a.title
+        LIMIT 50
+        """
+    )
+    fun searchTracks(query: String): Flow<List<MusicTrackSearchRow>>
 }
 data class MusicReleaseWithRelationship(
     @Embedded val release: MusicReleaseEntity,
     val relationshipType: String
+)
+
+data class MusicTrackRow(
+    @Embedded val song: SongEntity,
+    val discNumber: Int,
+    val trackNumber: Int?,
+    val displayOrder: Int
+)
+
+data class MusicReleaseSearchRow(
+    @Embedded val release: MusicReleaseEntity,
+    val relationshipType: String,
+    val ownerKitsuId: String,
+    val ownerTitle: String?,
+    val ownerArtworkUrl: String?
+)
+
+data class MusicTrackSearchRow(
+    @Embedded val song: SongEntity,
+    val releaseId: Long,
+    val releaseTitle: String,
+    val releaseArtistCredit: String,
+    val releaseDate: String?,
+    val releaseYear: Int?,
+    val releaseArtworkUrl: String?,
+    val discNumber: Int,
+    val trackNumber: Int?,
+    val displayOrder: Int,
+    val relationshipType: String,
+    val ownerKitsuId: String,
+    val ownerTitle: String?,
+    val ownerArtworkUrl: String?
 )
 
 @Dao

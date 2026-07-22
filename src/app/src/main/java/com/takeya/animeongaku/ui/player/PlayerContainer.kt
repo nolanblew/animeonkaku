@@ -49,6 +49,7 @@ fun PlayerContainer(
     modifier: Modifier = Modifier,
     bottomPadding: Dp = 0.dp,
     onOpenAnime: (String) -> Unit = {},
+    onOpenRelatedMusic: (String) -> Unit = {},
     onOpenArtist: (String) -> Unit = {},
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
@@ -160,6 +161,7 @@ fun PlayerContainer(
                     onCollapse()
                 },
                 onOpenAnime = onOpenAnime,
+                onOpenRelatedMusic = onOpenRelatedMusic,
                 onOpenArtist = onOpenArtist,
                 viewModel = viewModel
             )
