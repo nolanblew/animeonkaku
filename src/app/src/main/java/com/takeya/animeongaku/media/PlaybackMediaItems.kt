@@ -1,6 +1,7 @@
 package com.takeya.animeongaku.media
 
 import android.net.Uri
+import android.os.Bundle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import com.takeya.animeongaku.data.local.AnimeEntity
@@ -13,6 +14,107 @@ internal data class PlaybackMediaItems(
     val items: List<MediaItem>,
     val currentIndex: Int
 )
+
+object PlaybackMediaExtras {
+    const val PLAYABLE_KIND = "anime_ongaku.playable_kind"
+    const val PLAYABLE_ID = "anime_ongaku.playable_id"
+    const val PREFERRED_MODE = "anime_ongaku.preferred_mode"
+    const val ACTUAL_MODE = "anime_ongaku.actual_mode"
+    const val PLAYBACK_SOURCE = "anime_ongaku.playback_source"
+    const val ANIME_TITLE = "anime_ongaku.anime_title"
+}
+
+internal data class PlaybackMediaTag(
+    val playableKey: PlayableKey,
+    val preferredMode: PlaybackMode,
+    val actualMode: PlaybackMode?,
+    val source: PlaybackSource?
+)
+
+internal data class PlaybackMediaDescriptor(
+    val mediaId: String,
+    val uri: String,
+    val title: String,
+    val artist: String?,
+    val albumTitle: String?,
+    val subtitle: String?,
+    val description: String,
+    val artworkUrl: String?,
+    val values: Map<String, Any>,
+    val tag: PlaybackMediaTag
+)
+
+internal fun ResolvedPlaybackItem.toPlaybackMediaDescriptor(
+    activeServerBaseUrl: String? = null
+): PlaybackMediaDescriptor {
+    val actualLabel = actualMode?.displayLabel()
+    val values = buildMap<String, Any> {
+        put(PlaybackMediaExtras.PLAYABLE_KIND, playableKey.kind.name)
+        put(PlaybackMediaExtras.PLAYABLE_ID, playableKey.id)
+        put(PlaybackMediaExtras.PREFERRED_MODE, preferredMode.name)
+        actualMode?.let { put(PlaybackMediaExtras.ACTUAL_MODE, it.name) }
+        source?.let { put(PlaybackMediaExtras.PLAYBACK_SOURCE, it.name) }
+        animeTitle?.let { put(PlaybackMediaExtras.ANIME_TITLE, it) }
+    }
+    return PlaybackMediaDescriptor(
+        mediaId = queueId.toString(),
+        uri = rewriteServerMediaUrl(uri.orEmpty(), activeServerBaseUrl),
+        title = title,
+        artist = artist,
+        albumTitle = albumTitle ?: animeTitle ?: animeOrRelease,
+        subtitle = actualLabel,
+        description = listOfNotNull(animeOrRelease, actualLabel).distinct().joinToString(" · "),
+        artworkUrl = artworkUrl
+            ?.let { rewriteServerMediaUrl(it, activeServerBaseUrl) }
+            ?.takeIf(String::isAbsoluteUri),
+        values = values,
+        tag = PlaybackMediaTag(playableKey, preferredMode, actualMode, source)
+    )
+}
+
+internal fun ResolvedPlaybackItem.toPlaybackMediaItem(
+    artworkData: ByteArray? = null,
+    activeServerBaseUrl: String? = null,
+    includePlatformExtras: Boolean = true
+): MediaItem {
+    val descriptor = toPlaybackMediaDescriptor(activeServerBaseUrl)
+    val extras = if (includePlatformExtras) Bundle().apply {
+        descriptor.values.forEach { (key, value) ->
+            when (value) {
+                is String -> putString(key, value)
+                is Long -> putLong(key, value)
+            }
+        }
+    } else null
+    return MediaItem.Builder()
+        .setMediaId(descriptor.mediaId)
+        .setUri(descriptor.uri)
+        .setTag(descriptor.tag)
+        .setMediaMetadata(
+            MediaMetadata.Builder()
+                .setTitle(descriptor.title)
+                .setArtist(descriptor.artist)
+                .setAlbumTitle(descriptor.albumTitle)
+                .setSubtitle(descriptor.subtitle)
+                .setDescription(descriptor.description)
+                .apply {
+                    if (extras != null) setExtras(extras)
+                    if (descriptor.artworkUrl != null) setArtworkUri(Uri.parse(descriptor.artworkUrl))
+                    if (artworkData != null) {
+                        setArtworkData(artworkData.copyOf(), MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                    }
+                }
+                .build()
+        )
+        .build()
+}
+
+private fun PlaybackMode.displayLabel(): String = when (this) {
+    PlaybackMode.TV_SIZE -> "TV Size"
+    PlaybackMode.FULL_SIZE -> "Full Size"
+    PlaybackMode.VIDEO -> "Video"
+    PlaybackMode.RELATED_AUDIO -> "Related Audio"
+}
 
 internal fun NowPlayingState.toPlaybackMediaItems(
     shouldIncludeInPlayer: (Int, ThemeEntity) -> Boolean = { _, _ -> true },

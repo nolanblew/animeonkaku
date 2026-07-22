@@ -1749,6 +1749,7 @@ deferred to MC-A04/MC-A05.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete |
 | Area | Android / Media3 engine |
 | Difficulty | High |
 | Effort | XL, 6–8 days |
@@ -1803,6 +1804,36 @@ Expected areas:
 
 Do not solve UI rotation here. Prove source routing and identity before
 attaching PlayerView.
+
+#### Completion and testing notes
+
+Completed on 2026-07-21. Media3 now consumes `ResolvedPlaybackItem` through an
+origin-aware source boundary: approved Anime Ongaku audio uses bearer auth and
+SimpleCache, direct remote video is anonymous and uncached, and file/content
+URIs use the local source. Authorization is stripped on every physical network
+request and re-added only while scheme, host, effective port, and configured
+server path remain approved, preventing redirect leakage.
+
+Resolved MediaItems keep `mediaId == queueId` and carry typed playable,
+preferred/actual mode, source, and Related release/anime context metadata.
+Controller and service queue/resumption paths resolve asynchronously through
+the MC-A03 coordinator. Same-ID source changes rebuild current/upcoming items,
+preserve occurrence/index and play intent, and start Full/Video at zero. A
+direct Video error can perform one same-occurrence TV fallback while retaining
+Video intent. Queue-version, intent, and current-media fingerprints reject
+stale fallback results; newest-generation sync ownership prevents competing
+collectors from committing stale queues; fallback attempts are in-flight-only
+and always released for later explicit retries.
+
+TDD began with the intended missing routing/resolution/replacement contracts.
+The corrected focused security/race suite passed 26/26, and the final full
+Android unit suite passed 441/441. `assembleDebug` and `git diff --check`
+passed. Independent Terra/High QA passed 172 focused tests plus debug assembly.
+Sol/Medium re-review passed after same-protocol redirect protection, coalesced
+structure+mode reconciliation, stale fallback validation, competing sync
+generation guards, and fallback retry lifecycle were corrected. Real
+MockWebServer redirects prove foreign-origin and same-origin/outside-base hops
+receive no bearer token. Embedded-video UI remains deferred to MC-A05.
 
 ### MC-A05 — Build the Now Playing selector and embedded video experience
 

@@ -12,7 +12,6 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.takeya.animeongaku.MainActivity
 import com.takeya.animeongaku.R
-import com.takeya.animeongaku.data.server.ServerSettingsStore
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,7 +29,6 @@ class MediaPlaybackService : MediaSessionService() {
     @Inject lateinit var nowPlayingManager: NowPlayingManager
     @Inject lateinit var nowPlayingPersistence: NowPlayingPersistence
     @Inject lateinit var mediaControllerManager: MediaControllerManager
-    @Inject lateinit var serverSettingsStore: ServerSettingsStore
 
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaSession
@@ -70,25 +68,22 @@ class MediaPlaybackService : MediaSessionService() {
                 mediaSession: MediaSession,
                 controller: MediaSession.ControllerInfo
             ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
-                val activeState = nowPlayingManager.state.value
-                if (activeState.nowPlayingEntries.isNotEmpty()) {
-                    val playbackItems = activeState.toPlaybackMediaItems(
-                        activeServerBaseUrl = serverSettingsStore.serverBaseUrl
-                    )
-                    return SettableFuture.create<MediaSession.MediaItemsWithStartPosition>().apply {
-                        set(
-                            MediaSession.MediaItemsWithStartPosition(
-                                playbackItems.items,
-                                playbackItems.currentIndex,
-                                player.currentPosition.takeIf { it > 0 } ?: C.TIME_UNSET
-                            )
-                        )
-                    }
-                }
-
                 val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+                val activeState = nowPlayingManager.state.value
                 scope.launch {
                     try {
+                        if (activeState.nowPlayingEntries.isNotEmpty()) {
+                            val playbackItems = mediaControllerManager.playbackItemsForSessionResumption()
+                            future.set(
+                                MediaSession.MediaItemsWithStartPosition(
+                                    playbackItems.items,
+                                    playbackItems.currentIndex,
+                                    player.currentPosition.takeIf { it > 0 } ?: C.TIME_UNSET
+                                )
+                            )
+                            return@launch
+                        }
+
                         val restored = nowPlayingPersistence.restore()
                         if (restored == null) {
                             future.set(
@@ -102,11 +97,7 @@ class MediaPlaybackService : MediaSessionService() {
                         }
 
                         player.repeatMode = restored.repeatMode
-                        mediaControllerManager.prepareForSessionResumption(restored)
-
-                        val playbackItems = restored.nowPlayingState.toPlaybackMediaItems(
-                            activeServerBaseUrl = serverSettingsStore.serverBaseUrl
-                        )
+                        val playbackItems = mediaControllerManager.prepareForSessionResumption(restored)
                         future.set(
                             MediaSession.MediaItemsWithStartPosition(
                                 playbackItems.items,

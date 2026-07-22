@@ -59,6 +59,8 @@ data class ResolvedPlaybackItem(
     val artist: String?,
     val animeOrRelease: String?,
     val artworkUrl: String?,
+    val albumTitle: String? = null,
+    val animeTitle: String? = null,
     val videoSpoiler: Boolean = false,
     val videoNsfw: Boolean = false
 ) {
@@ -83,6 +85,39 @@ class PlaybackResolver @Inject constructor() {
     ): ResolvedPlaybackItem = when (val item = entry.item) {
         is PlayableItem.Theme -> resolveTheme(entry, item, intent, isOnline, localMedia)
         is PlayableItem.RelatedSong -> resolveRelatedSong(entry, item, isOnline, localMedia)
+    }
+
+    fun resolveVideoFailureFallback(
+        entry: QueueEntry,
+        intent: PlaybackIntent,
+        isOnline: Boolean,
+        localMedia: Map<MediaKey, LocalMediaFile>
+    ): ResolvedPlaybackItem {
+        val preferred = resolve(entry, intent, isOnline, localMedia)
+        if (entry.item !is PlayableItem.Theme || preferred.preferredMode != PlaybackMode.VIDEO) {
+            return preferred
+        }
+        val tvCandidate = resolve(
+            entry,
+            intent.copy(sessionOverride = PlaybackMode.TV_SIZE),
+            isOnline,
+            localMedia
+        )
+        return if (tvCandidate.actualMode == PlaybackMode.TV_SIZE) {
+            tvCandidate.copy(
+                preferredMode = PlaybackMode.VIDEO,
+                retainedIntentReason = RetainedIntentReason.PREFERRED_MODE_UNAVAILABLE
+            )
+        } else {
+            tvCandidate.copy(
+                preferredMode = PlaybackMode.VIDEO,
+                actualMode = null,
+                uri = null,
+                mediaKey = null,
+                source = null,
+                retainedIntentReason = RetainedIntentReason.PREFERRED_MODE_UNAVAILABLE
+            )
+        }
     }
 
     private fun resolveTheme(
@@ -172,6 +207,8 @@ class PlaybackResolver @Inject constructor() {
             artist = item.display.artist,
             animeOrRelease = item.display.animeTitle ?: item.display.album,
             artworkUrl = item.display.artworkUrl,
+            albumTitle = item.display.album,
+            animeTitle = item.display.animeTitle,
             videoSpoiler = descriptor?.videoSpoiler == true,
             videoNsfw = descriptor?.videoNsfw == true
         )
@@ -207,7 +244,9 @@ class PlaybackResolver @Inject constructor() {
             title = item.display.title,
             artist = item.display.artist,
             animeOrRelease = item.display.animeTitle ?: item.display.album,
-            artworkUrl = item.display.artworkUrl
+            artworkUrl = item.display.artworkUrl,
+            albumTitle = item.display.album,
+            animeTitle = item.display.animeTitle
         )
     }
 }
@@ -234,15 +273,42 @@ class PlaybackResolutionCoordinator @Inject constructor(
     private val themeModeDao: ThemeModeDao
 ) {
     suspend fun resolve(entry: QueueEntry, intent: PlaybackIntent): ResolvedPlaybackItem {
+        val snapshot = snapshot(entry)
+        return resolver.resolve(snapshot.entry, intent, snapshot.isOnline, snapshot.localMedia)
+    }
+
+    suspend fun resolveVideoFailureFallback(
+        entry: QueueEntry,
+        intent: PlaybackIntent
+    ): ResolvedPlaybackItem {
+        val snapshot = snapshot(entry)
+        return resolver.resolveVideoFailureFallback(
+            snapshot.entry,
+            intent,
+            snapshot.isOnline,
+            snapshot.localMedia
+        )
+    }
+
+    private suspend fun snapshot(entry: QueueEntry): ResolutionSnapshot {
         val hydratedEntry = entry.withModeDescriptor(themeModeDao)
         val keys = hydratedEntry.possibleMediaKeys()
         val downloads = if (keys.isEmpty()) emptyList() else {
             downloadItemDao.getByMediaKeys(keys.map { it.value })
         }
-        val localMedia = completedLocalMedia(downloads).filterKeys { it in keys }
-        return resolver.resolve(hydratedEntry, intent, connectivityMonitor.isOnline.value, localMedia)
+        return ResolutionSnapshot(
+            entry = hydratedEntry,
+            isOnline = connectivityMonitor.isOnline.value,
+            localMedia = completedLocalMedia(downloads).filterKeys { it in keys }
+        )
     }
 }
+
+private data class ResolutionSnapshot(
+    val entry: QueueEntry,
+    val isOnline: Boolean,
+    val localMedia: Map<MediaKey, LocalMediaFile>
+)
 
 private suspend fun QueueEntry.withModeDescriptor(themeModeDao: ThemeModeDao): QueueEntry {
     val themeItem = item as? PlayableItem.Theme ?: return this

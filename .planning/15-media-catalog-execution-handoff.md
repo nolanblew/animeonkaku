@@ -224,6 +224,17 @@ device acceptance after the Android chain is complete.
   or availability in Media3. Preserve `MediaItem.mediaId == queueId`, route
   server audio with bearer+cache, direct video without either, and local files
   locally.
+- MC-A04 is complete in the ticket commit containing this handoff update.
+  Media3 now consumes resolved typed items, preserves queue occurrence IDs,
+  routes authenticated cached server audio separately from anonymous uncached
+  direct video and local files, rebuilds same-ID mode sources, and performs
+  finite race-safe Video fallback.
+- MC-A04 verification: full unit 441/441, independent focused QA 172/172,
+  debug assembly, corrected Sol/Medium review, redirect-security tests, and
+  diff check passed.
+- Resume at MC-A05 using the approved compact top-centered selector and
+  PlayerView UX contract already recorded above. Do not create a second player;
+  bind the existing controller/service and preserve audio/video exclusivity.
 
 ## Agent model policy
 

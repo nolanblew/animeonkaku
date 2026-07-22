@@ -63,7 +63,8 @@ class MediaControllerManager @Inject constructor(
     private val nowPlayingPersistence: NowPlayingPersistence,
     private val connectivityMonitor: ConnectivityMonitor,
     private val serverSettingsStore: ServerSettingsStore,
-    private val imageLoader: ImageLoader
+    private val imageLoader: ImageLoader,
+    private val playbackResolutionCoordinator: PlaybackResolutionCoordinator
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val artworkDataCache = ArtworkDataCache()
@@ -71,6 +72,10 @@ class MediaControllerManager @Inject constructor(
     private var controller: MediaController? = null
     private var lastSyncedVersion: Long = -1L
     private var lastSyncedMediaIds: List<String> = emptyList()
+    private var lastSyncedDescriptors: List<PlaybackMediaDescriptor> = emptyList()
+    private var resolvedItemsByQueueId: Map<Long, ResolvedPlaybackItem> = emptyMap()
+    private val latestQueueSync = LatestPlaybackQueueSync()
+    private val videoFallbackAttempts = VideoFallbackAttemptRegistry()
     
     // Store restored state that should be applied once controller connects
     private var pendingRestoreState: Pair<RestoredQueueState, Boolean>? = null
@@ -109,7 +114,12 @@ class MediaControllerManager @Inject constructor(
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             controller ?: return
-            _playbackState.value = _playbackState.value.copy(errorMessage = null)
+            val mediaTag = mediaItem?.localConfiguration?.tag as? PlaybackMediaTag
+            _playbackState.value = _playbackState.value.copy(
+                errorMessage = null,
+                preferredMode = mediaTag?.preferredMode,
+                actualMode = mediaTag?.actualMode
+            )
 
             val queueEntryId = mediaItem?.mediaId?.toLongOrNull()
             if (queueEntryId != null) {
@@ -128,34 +138,108 @@ class MediaControllerManager @Inject constructor(
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-            consecutiveErrors++
-            val msg = if (!connectivityMonitor.isOnline.value) {
-                "You're offline. Download songs to listen without internet."
-            } else {
-                "Playback error: ${error.localizedMessage ?: "Unknown error"}"
+            scope.launch { handlePlayerError(error) }
+        }
+    }
+
+    private suspend fun handlePlayerError(error: androidx.media3.common.PlaybackException) {
+        consecutiveErrors++
+        val ctrl = controller ?: return
+        if (tryVideoFallback(ctrl)) return
+
+        val msg = if (!connectivityMonitor.isOnline.value) {
+            "You're offline. Download songs to listen without internet."
+        } else {
+            "Playback error: ${error.localizedMessage ?: "Unknown error"}"
+        }
+        _playbackState.value = _playbackState.value.copy(
+            errorMessage = msg,
+            isBuffering = false
+        )
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) return
+
+        delay(500)
+        try {
+            if (ctrl.hasNextMediaItem()) {
+                ctrl.seekToNextMediaItem()
+                ctrl.prepare()
+                ctrl.play()
+            }
+        } catch (_: Exception) {
+            // Controller may have disconnected while the finite retry was pending.
+        }
+    }
+
+    private suspend fun tryVideoFallback(ctrl: MediaController): Boolean {
+        val queueId = ctrl.currentMediaItem?.mediaId?.toLongOrNull() ?: return false
+        val current = resolvedItemsByQueueId[queueId] ?: return false
+        if (current.actualMode != PlaybackMode.VIDEO) return false
+
+        val state = nowPlayingManager.state.value
+        val entry = state.nowPlayingEntries.firstOrNull { it.queueId == queueId } ?: return false
+        val captured = videoFallbackSnapshot(ctrl, state) ?: return false
+        if (!videoFallbackAttempts.tryStart(queueId)) return true
+
+        return try {
+            val fallback = resolveForCurrentPlaybackSnapshot(
+                captured = captured,
+                currentSnapshot = { videoFallbackSnapshot(ctrl, nowPlayingManager.state.value) }
+            ) {
+                playbackResolutionCoordinator.resolveVideoFailureFallback(
+                    entry,
+                    state.playbackIntent
+                )
+            } ?: return true
+            if (!fallback.isPlayable || fallback.actualMode != PlaybackMode.TV_SIZE) return false
+
+            val index = (0 until ctrl.mediaItemCount).firstOrNull { idx ->
+                ctrl.getMediaItemAt(idx).mediaId == queueId.toString()
+            } ?: return false
+            val wasPlayWhenReady = ctrl.playWhenReady
+            val artwork = entry.item.anime?.let(::cachedArtworkDataForAnime)
+            ctrl.replaceMediaItem(
+                index,
+                fallback.toPlaybackMediaItem(
+                    artworkData = artwork,
+                    activeServerBaseUrl = serverSettingsStore.serverBaseUrl
+                )
+            )
+            ctrl.seekTo(index, 0L)
+            ctrl.playWhenReady = wasPlayWhenReady
+            ctrl.prepare()
+
+            resolvedItemsByQueueId = resolvedItemsByQueueId + (queueId to fallback)
+            lastSyncedDescriptors = lastSyncedDescriptors.map { descriptor ->
+                if (descriptor.mediaId == queueId.toString()) {
+                    fallback.toPlaybackMediaDescriptor(serverSettingsStore.serverBaseUrl)
+                } else descriptor
             }
             _playbackState.value = _playbackState.value.copy(
-                errorMessage = msg,
-                isBuffering = false
+                errorMessage = "Video unavailable · playing TV Size",
+                isBuffering = false,
+                preferredMode = PlaybackMode.VIDEO,
+                actualMode = PlaybackMode.TV_SIZE
             )
-            // Auto-skip to next track on any error (stop after too many consecutive)
-            if (consecutiveErrors < MAX_CONSECUTIVE_ERRORS) {
-                scope.launch {
-                    delay(500)
-                    try {
-                        controller?.let { ctrl ->
-                            if (ctrl.hasNextMediaItem()) {
-                                ctrl.seekToNextMediaItem()
-                                ctrl.prepare()
-                                ctrl.play()
-                            }
-                        }
-                    } catch (e: Exception) {
-                        // Ignore — controller may be disconnected
-                    }
-                }
-            }
+            true
+        } finally {
+            videoFallbackAttempts.finish(queueId)
         }
+    }
+
+    private fun videoFallbackSnapshot(
+        ctrl: MediaController,
+        state: NowPlayingState
+    ): VideoFallbackSnapshot? {
+        val mediaItem = ctrl.currentMediaItem ?: return null
+        return VideoFallbackSnapshot(
+            queueVersion = state.queueVersion,
+            intent = state.playbackIntent,
+            currentMedia = PlaybackMediaFingerprint(
+                mediaId = mediaItem.mediaId,
+                uri = mediaItem.localConfiguration?.uri?.toString(),
+                tag = mediaItem.localConfiguration?.tag as? PlaybackMediaTag
+            )
+        )
     }
 
     private suspend fun recordPlay(themeId: Long) {
@@ -198,7 +282,7 @@ class MediaControllerManager @Inject constructor(
                 // If we had a pending restore, apply it now
                 pendingRestoreState?.let { (state, autoPlay) ->
                     pendingRestoreState = null
-                    restoreFromPersistedState(state, ctrl, autoPlay)
+                    scope.launch { restoreFromPersistedState(state, ctrl, autoPlay) }
                 }
             },
             androidx.core.content.ContextCompat.getMainExecutor(context)
@@ -404,35 +488,48 @@ class MediaControllerManager @Inject constructor(
             // Wait for connect
             pendingRestoreState = Pair(restoredState, autoPlay)
         } else {
-            restoreFromPersistedState(restoredState, ctrl, autoPlay)
+            scope.launch { restoreFromPersistedState(restoredState, ctrl, autoPlay) }
         }
     }
 
-    fun prepareForSessionResumption(restoredState: RestoredQueueState) {
+    internal suspend fun prepareForSessionResumption(restoredState: RestoredQueueState): PlaybackMediaItems {
         val npState = restoredState.nowPlayingState
         nowPlayingManager.restoreState(npState)
-        val playbackItems = npState.toPlaybackMediaItems(
-            activeServerBaseUrl = serverSettingsStore.serverBaseUrl
-        )
+        val desired = buildDesiredItems(nowPlayingManager.state.value)
 
-        lastSyncedMediaIds = playbackItems.items.map { it.mediaId }
+        lastSyncedMediaIds = desired.items.map { it.mediaId }
+        lastSyncedDescriptors = desired.descriptors
+        resolvedItemsByQueueId = desired.resolved.associateBy { it.queueId }
         lastSyncedVersion = npState.queueVersion
+        return PlaybackMediaItems(desired.items, desired.currentIndex)
     }
 
-    private fun restoreFromPersistedState(restoredState: RestoredQueueState, ctrl: MediaController, autoPlay: Boolean = false) {
-        val npState = restoredState.nowPlayingState
-        val (desiredItems, desiredCurrentIndex) = buildDesiredItems(npState)
+    internal suspend fun playbackItemsForSessionResumption(): PlaybackMediaItems {
+        val npState = nowPlayingManager.state.value
+        val desired = buildDesiredItems(npState)
+        lastSyncedMediaIds = desired.items.map { it.mediaId }
+        lastSyncedDescriptors = desired.descriptors
+        resolvedItemsByQueueId = desired.resolved.associateBy { it.queueId }
+        lastSyncedVersion = npState.queueVersion
+        return PlaybackMediaItems(desired.items, desired.currentIndex)
+    }
 
-        ctrl.setMediaItems(desiredItems, desiredCurrentIndex, restoredState.positionMs)
+    private suspend fun restoreFromPersistedState(restoredState: RestoredQueueState, ctrl: MediaController, autoPlay: Boolean = false) {
+        val npState = nowPlayingManager.state.value
+        val desired = buildDesiredItems(npState)
+
+        ctrl.setMediaItems(desired.items, desired.currentIndex, restoredState.positionMs)
         ctrl.repeatMode = restoredState.repeatMode
         ctrl.playWhenReady = autoPlay
         ctrl.prepare()
 
-        lastSyncedMediaIds = desiredItems.map { it.mediaId }
+        lastSyncedMediaIds = desired.items.map { it.mediaId }
+        lastSyncedDescriptors = desired.descriptors
+        resolvedItemsByQueueId = desired.resolved.associateBy { it.queueId }
         lastSyncedVersion = npState.queueVersion
     }
 
-    private fun syncQueueToController(ctrl: MediaController, npState: NowPlayingState) {
+    private suspend fun syncQueueToController(ctrl: MediaController, npState: NowPlayingState) {
         if (lastSyncedVersion == npState.queueVersion) return
         forceSyncQueue(ctrl, npState)
     }
@@ -443,16 +540,32 @@ class MediaControllerManager @Inject constructor(
      * tracks observer (which mutates the filter without bumping [NowPlayingState.queueVersion])
      * still converge.
      */
-    private fun forceSyncQueue(ctrl: MediaController, npState: NowPlayingState) {
-        if (npState.nowPlayingEntries.isEmpty()) {
+    private suspend fun forceSyncQueue(ctrl: MediaController, npState: NowPlayingState) {
+        latestQueueSync.runLatest(
+            resolve = {
+                if (npState.nowPlayingEntries.isEmpty()) null else buildDesiredItems(npState)
+            },
+            commit = { desired -> commitQueueSync(ctrl, npState, desired) }
+        )
+    }
+
+    private fun commitQueueSync(
+        ctrl: MediaController,
+        npState: NowPlayingState,
+        desired: DesiredPlaybackQueue?
+    ) {
+        if (desired == null) {
             ctrl.clearMediaItems()
             ctrl.stop()
             lastSyncedMediaIds = emptyList()
+            lastSyncedDescriptors = emptyList()
+            resolvedItemsByQueueId = emptyMap()
             lastSyncedVersion = npState.queueVersion
             return
         }
 
-        val (desiredItems, desiredCurrentIndex) = buildDesiredItems(npState)
+        val desiredItems = desired.items
+        val desiredCurrentIndex = desired.currentIndex
         val desiredIds = desiredItems.map { it.mediaId }
 
         val controllerCurrentId = ctrl.currentMediaItem?.mediaId
@@ -468,9 +581,19 @@ class MediaControllerManager @Inject constructor(
             // Current track is unchanged — apply a minimal diff that preserves the active media
             // item so shuffle/unshuffle does not force the playing song to reload from 0:00.
             applyDiffOps(ctrl, desiredItems, desiredIds, controllerCurrentId, desiredCurrentIndex)
+            applyModeItemReplacements(
+                ctrl = ctrl,
+                desired = desired,
+                postStructuralDescriptors = descriptorsAfterStructuralDiff(
+                    previousItems = lastSyncedDescriptors,
+                    desiredItems = desired.descriptors
+                )
+            )
         }
 
         lastSyncedMediaIds = desiredIds
+        lastSyncedDescriptors = desired.descriptors
+        resolvedItemsByQueueId = desired.resolved.associateBy { it.queueId }
         lastSyncedVersion = npState.queueVersion
     }
 
@@ -478,13 +601,62 @@ class MediaControllerManager @Inject constructor(
      * Build the list of [MediaItem]s the controller should hold for [npState], honoring the
      * dislike/unskip filter, and the desired current index within that filtered list.
      */
-    private fun buildDesiredItems(npState: NowPlayingState): Pair<List<MediaItem>, Int> {
-        val playbackItems = npState.toPlaybackMediaItems(
-            shouldIncludeInPlayer = { idx, theme -> shouldIncludeInPlayer(idx, theme, npState) },
-            artworkDataForAnime = ::cachedArtworkDataForAnime,
-            activeServerBaseUrl = serverSettingsStore.serverBaseUrl
-        )
-        return playbackItems.items to playbackItems.currentIndex
+    private suspend fun buildDesiredItems(npState: NowPlayingState): DesiredPlaybackQueue = coroutineScope {
+        val includedEntries = npState.nowPlayingEntries.filterIndexed { idx, entry ->
+            val theme = entry.themeOrNull
+            theme == null || shouldIncludeInPlayer(idx, theme, npState)
+        }
+        val resolved = includedEntries.map { entry ->
+            async { playbackResolutionCoordinator.resolve(entry, npState.playbackIntent) }
+        }.awaitAll().filter(ResolvedPlaybackItem::isPlayable)
+        val entriesByQueueId = includedEntries.associateBy { it.queueId }
+        val descriptors = resolved.map { item ->
+            item.toPlaybackMediaDescriptor(serverSettingsStore.serverBaseUrl)
+        }
+        val items = resolved.map { item ->
+            val entry = entriesByQueueId[item.queueId]
+            val anime = entry?.item?.anime
+                ?: entry?.themeOrNull?.animeId?.let(npState.animeMap::get)
+            item.toPlaybackMediaItem(
+                artworkData = anime?.let(::cachedArtworkDataForAnime),
+                activeServerBaseUrl = serverSettingsStore.serverBaseUrl
+            )
+        }
+        val currentQueueId = npState.currentEntry?.queueId
+        val currentIndex = resolved.indexOfFirst { it.queueId == currentQueueId }
+            .takeIf { it >= 0 }
+            ?: 0
+        DesiredPlaybackQueue(items, descriptors, resolved, currentIndex)
+    }
+
+    private fun applyModeItemReplacements(
+        ctrl: MediaController,
+        desired: DesiredPlaybackQueue,
+        postStructuralDescriptors: List<PlaybackMediaDescriptor>
+    ) {
+        val desiredMediaById = desired.items.associateBy { it.mediaId }
+        val adapter = object : PlaybackItemController {
+            override val items = postStructuralDescriptors.toMutableList()
+            override var currentIndex: Int = ctrl.currentMediaItemIndex
+            override var playWhenReady: Boolean
+                get() = ctrl.playWhenReady
+                set(value) {
+                    ctrl.playWhenReady = value
+                }
+
+            override fun replaceMediaItem(index: Int, item: PlaybackMediaDescriptor) {
+                desiredMediaById[item.mediaId]?.let { ctrl.replaceMediaItem(index, it) }
+                items[index] = item
+            }
+
+            override fun seekTo(index: Int, positionMs: Long) {
+                ctrl.seekTo(index, positionMs)
+                currentIndex = index
+            }
+
+            override fun prepare() = ctrl.prepare()
+        }
+        replaceModeChangedPlaybackItems(adapter, desired.descriptors)
     }
 
     private fun cachedArtworkDataForAnime(anime: AnimeEntity): ByteArray? {
@@ -601,5 +773,14 @@ data class PlaybackState(
     val isBuffering: Boolean = false,
     val hasMedia: Boolean = false,
     val errorMessage: String? = null,
-    val repeatMode: Int = Player.REPEAT_MODE_OFF
+    val repeatMode: Int = Player.REPEAT_MODE_OFF,
+    val preferredMode: PlaybackMode? = null,
+    val actualMode: PlaybackMode? = null
+)
+
+private data class DesiredPlaybackQueue(
+    val items: List<MediaItem>,
+    val descriptors: List<PlaybackMediaDescriptor>,
+    val resolved: List<ResolvedPlaybackItem>,
+    val currentIndex: Int
 )

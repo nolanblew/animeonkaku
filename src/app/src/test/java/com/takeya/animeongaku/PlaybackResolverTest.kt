@@ -238,6 +238,22 @@ class PlaybackResolverTest {
     }
 
     @Test
+    fun `video playback failure resolves TV for same queue entry and retains Video preference`() {
+        val entry = themeEntry(modes(tv = true, full = true, video = true))
+        val fallback = resolver.resolveVideoFailureFallback(
+            entry = entry,
+            intent = PlaybackIntent(PlaybackMode.TV_SIZE, PlaybackMode.VIDEO),
+            isOnline = true,
+            localMedia = emptyMap()
+        )
+
+        assertEquals(entry.queueId, fallback.queueId)
+        assertEquals(PlaybackMode.VIDEO, fallback.preferredMode)
+        assertEquals(PlaybackMode.TV_SIZE, fallback.actualMode)
+        assertEquals(PlaybackSource.SERVER_AUDIO, fallback.source)
+    }
+
+    @Test
     fun `available modes reflect connectivity ready metadata and exact downloads`() {
         val entry = themeEntry(modes(tv = true, full = true, video = true))
         val offline = resolver.resolve(
