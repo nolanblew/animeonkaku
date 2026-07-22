@@ -282,6 +282,7 @@ class PlaybackResolverTest {
 
     @Test
     fun `only completed exact download rows become local media`() {
+        val readyFile = kotlin.io.path.createTempFile("ready", ".m4a").toFile().apply { writeText("audio") }
         fun download(key: String, status: String, path: String?) = DownloadItemEntity(
             mediaKey = key,
             itemType = "THEME",
@@ -295,13 +296,14 @@ class PlaybackResolverTest {
         val readyKey = MediaKey.themeTv(1)
         val result = completedLocalMedia(
             listOf(
-                download(readyKey.value, "completed", "/ready.m4a"),
+                download(readyKey.value, "completed", readyFile.absolutePath),
                 download(MediaKey.songAudio(10).value, "downloading", "/partial.flac"),
                 download(MediaKey.songAudio(11).value, "completed", null)
             )
         )
 
-        assertEquals(mapOf(readyKey to LocalMediaFile(readyKey, "/ready.m4a")), result)
+        assertEquals(mapOf(readyKey to LocalMediaFile(readyKey, readyFile.absolutePath)), result)
+        readyFile.delete()
     }
 
     private fun themeEntry(

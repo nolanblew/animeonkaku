@@ -2,7 +2,6 @@ package com.takeya.animeongaku.download
 
 import android.content.Context
 import android.net.Uri
-import android.util.Log
 import android.widget.Toast
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -14,15 +13,24 @@ import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.DownloadGroupEntity
-import com.takeya.animeongaku.data.local.DownloadGroupThemeEntity
-import com.takeya.animeongaku.data.local.DownloadRequestEntity
+import com.takeya.animeongaku.data.local.DownloadGroupItemEntity
+import com.takeya.animeongaku.data.local.DownloadGroupItemRow
+import com.takeya.animeongaku.data.local.DownloadItemDao
+import com.takeya.animeongaku.data.local.DownloadItemEntity
+import com.takeya.animeongaku.data.local.MusicCatalogDao
+import com.takeya.animeongaku.data.local.MusicReleaseEntity
 import com.takeya.animeongaku.data.local.PlaylistDao
-import com.takeya.animeongaku.data.local.PlaylistTrack
+import com.takeya.animeongaku.data.local.SongEntity
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.ThemeModeDao
 import com.takeya.animeongaku.network.ConnectivityMonitor
 import com.takeya.animeongaku.network.NetworkType as AppNetworkType
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
+import java.util.concurrent.TimeUnit
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -34,485 +42,378 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
-import javax.inject.Inject
-import javax.inject.Singleton
 
-/**
- * Themes present in a downloaded playlist that are not yet tracked for download.
- * Pure so the "what changed" decision can be unit-tested independently of Room/WorkManager.
- */
 internal fun newPlaylistDownloadThemeIds(
     playlistThemeIds: List<Long>,
     trackedThemeIds: Set<Long>
 ): List<Long> = playlistThemeIds.distinct().filter { it !in trackedThemeIds }
 
+internal fun shouldDeletePhysicalDownload(remainingGroupCount: Int, forcePhysicalRemoval: Boolean): Boolean =
+    forcePhysicalRemoval || remainingGroupCount == 0
+
+internal fun downloadInitialStatus(wifiOnly: Boolean, networkIsWifi: Boolean): String =
+    if (wifiOnly && !networkIsWifi) DownloadItemEntity.STATUS_WAITING_FOR_WIFI else DownloadItemEntity.STATUS_PENDING
+
+internal fun resumedDownloadStatus(status: String): String =
+    if (status == DownloadItemEntity.STATUS_PAUSED) DownloadItemEntity.STATUS_PENDING else status
+
+@OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
 class DownloadManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val downloadDao: DownloadDao,
+    private val downloadItemDao: DownloadItemDao,
     private val themeDao: ThemeDao,
+    private val themeModeDao: ThemeModeDao,
+    private val musicCatalogDao: MusicCatalogDao,
     private val animeDao: AnimeDao,
     private val playlistDao: PlaylistDao,
     private val downloadPreferences: DownloadPreferences,
     private val connectivityMonitor: ConnectivityMonitor
 ) {
     companion object {
-        private const val TAG = "DownloadManager"
         private const val WORK_TAG_DOWNLOAD = "download"
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val workManager = WorkManager.getInstance(context)
-    private val playlistSyncStarted = AtomicBoolean(false)
+    private val groupIdentityMutex = Mutex()
 
     init {
-        startPlaylistDownloadSync()
-    }
-
-    // --- Automatic playlist download sync ---
-
-    /**
-     * Keep downloaded playlists in sync with their contents: whenever a playlist that
-     * is marked for download gains tracks (manual edits, server pull, or an auto-playlist
-     * refresh such as "Currently Watching"), the new tracks are enqueued automatically.
-     * Downloads still respect the Wi-Fi-only preference via [enqueueDownload]. Idempotent
-     * and safe to call repeatedly; only the first call starts the collector.
-     */
-    @OptIn(ExperimentalCoroutinesApi::class)
-    fun startPlaylistDownloadSync() {
-        if (!playlistSyncStarted.compareAndSet(false, true)) return
         scope.launch {
             downloadDao.observeAllGroups()
                 .map { groups -> groups.filter { it.groupType == DownloadGroupEntity.TYPE_PLAYLIST } }
                 .distinctUntilChanged()
-                .flatMapLatest { playlistGroups ->
-                    if (playlistGroups.isEmpty()) {
-                        flowOf(emptyList<Pair<DownloadGroupEntity, List<PlaylistTrack>>>())
-                    } else {
-                        combine(
-                            playlistGroups.map { group ->
-                                val playlistId = group.groupId.toLongOrNull() ?: -1L
-                                playlistDao.observePlaylistTracks(playlistId)
-                                    .map { tracks -> group to tracks }
-                            }
-                        ) { it.toList() }
-                    }
+                .flatMapLatest { groups ->
+                    if (groups.isEmpty()) flowOf(emptyList()) else combine(groups.map { group ->
+                        playlistDao.observePlaylistEntries(group.groupId.toLongOrNull() ?: -1L).map { group }
+                    }) { it.toList() }
                 }
-                .collect { snapshots ->
-                    for ((group, tracks) in snapshots) {
-                        try {
-                            reconcilePlaylistGroupDownloads(group, tracks)
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to auto-download playlist '${group.label}'", e)
-                        }
-                    }
+                .collect { groups ->
+                    groups.forEach { group -> group.groupId.toLongOrNull()?.let(::downloadPlaylist) }
                 }
         }
     }
 
-    private suspend fun reconcilePlaylistGroupDownloads(
-        group: DownloadGroupEntity,
-        tracks: List<PlaylistTrack>
-    ) {
-        val tracked = downloadDao.getThemeIdsInGroup(group.id).toSet()
-        val newThemeIds = newPlaylistDownloadThemeIds(tracks.map { it.theme.id }, tracked)
-        if (newThemeIds.isEmpty()) return
-
-        val newTracks = tracks.filter { it.theme.id in newThemeIds.toSet() }
-            .distinctBy { it.theme.id }
-
-        // Track the new themes under this group so later refreshes see them as already handled.
-        downloadDao.insertGroupThemes(newTracks.map { DownloadGroupThemeEntity(group.id, it.theme.id) })
-
-        // Pre-insert request rows then kick the single batch worker (it resolves cover art per track).
-        prepareDownloads(newTracks.map { it.theme })
-        triggerBatchWorker()
-        Log.d(TAG, "Auto-queued ${newTracks.size} new track(s) for downloaded playlist '${group.label}'")
+    fun observeAllDownloads(): Flow<List<DownloadItemEntity>> = downloadItemDao.observeAll()
+    fun observeGroupedDownloads(): Flow<List<DownloadGroupItemRow>> = downloadItemDao.observeGroupedItems()
+    fun observeDownloadForTheme(themeId: Long): Flow<DownloadItemEntity?> =
+        downloadItemDao.observe(DownloadItemEntity.tvSizeMediaKey(themeId))
+    fun observeIsThemeDownloaded(themeId: Long): Flow<Boolean> = observeDownloadForTheme(themeId).map {
+        it?.status == DownloadItemEntity.STATUS_COMPLETED && it.filePath?.let(::File)?.isFile == true
     }
-
-    // --- Public observation APIs ---
-
-    fun observeAllDownloads(): Flow<List<DownloadRequestEntity>> =
-        downloadDao.observeAllDownloads()
-
-    fun observeDownloadForTheme(themeId: Long): Flow<DownloadRequestEntity?> =
-        downloadDao.observeDownloadForTheme(themeId)
-
-    fun observeIsThemeDownloaded(themeId: Long): Flow<Boolean> =
-        downloadDao.observeDownloadForTheme(themeId).map {
-            it?.status == DownloadRequestEntity.STATUS_COMPLETED
-        }
-
-    fun observeAllGroups(): Flow<List<DownloadGroupEntity>> =
-        downloadDao.observeAllGroups()
-
-    fun observeTotalDownloadSize(): Flow<Long> =
-        downloadDao.observeTotalDownloadSize()
-
-    fun observeActiveCount(): Flow<Int> =
-        downloadDao.observeActiveCount()
-
-    fun observeCompletedCount(): Flow<Int> =
-        downloadDao.observeCompletedCount()
-
+    fun observeAllGroups(): Flow<List<DownloadGroupEntity>> = downloadDao.observeAllGroups()
+    fun observeTotalDownloadSize(): Flow<Long> = downloadItemDao.observeTotalSize()
+    fun observeActiveCount(): Flow<Int> = downloadItemDao.observeActiveCount()
+    fun observeCompletedCount(): Flow<Int> = downloadItemDao.observeCompletedCount()
     fun observeDownloadedThemes(): Flow<List<ThemeEntity>> =
-        downloadDao.observeDownloadedThemes()
-
-    fun observeAnimeIdsWithDownloads(): Flow<List<Long>> =
-        downloadDao.observeAnimeIdsWithDownloads()
-
-    fun observeArtistNamesWithDownloads(): Flow<List<String>> =
-        downloadDao.observeArtistNamesWithDownloads()
-
-    fun observePlaylistIdsWithDownloads(): Flow<List<Long>> =
-        downloadDao.observePlaylistIdsWithDownloads()
-
+        downloadItemDao.observeCompletedThemeIds().flatMapLatest { ids ->
+            if (ids.isEmpty()) flowOf(emptyList()) else themeDao.observeByIds(ids)
+        }
+    fun observeAnimeIdsWithDownloads(): Flow<List<Long>> = downloadItemDao.observeAnimeIdsWithDownloads()
+    fun observeArtistNamesWithDownloads(): Flow<List<String>> = downloadItemDao.observeArtistNamesWithDownloads()
+    fun observePlaylistIdsWithDownloads(): Flow<List<Long>> = downloadItemDao.observePlaylistIdsWithDownloads()
     fun observeDownloadedThemeIdsForAnime(animeThemesId: Long): Flow<List<Long>> =
-        downloadDao.observeDownloadedThemeIdsForAnime(animeThemesId)
-
+        observeDownloadedThemes().map { themes -> themes.filter { it.animeId == animeThemesId }.map { it.id } }
     fun observeDownloadedThemeIdsForPlaylist(playlistId: Long): Flow<List<Long>> =
-        downloadDao.observeDownloadedThemeIdsForPlaylist(playlistId)
+        downloadItemDao.observeGroupedItems().map { rows ->
+            rows.filter { it.groupType == DownloadGroupEntity.TYPE_PLAYLIST && it.externalGroupId == playlistId.toString() }
+                .mapNotNull { it.item.legacyThemeId }.distinct()
+        }
 
-    // --- Download actions ---
-
+    /** Existing Download buttons retain their TV Size meaning. */
     fun downloadSong(theme: ThemeEntity, anime: AnimeEntity? = null) {
         scope.launch {
-            // Create or find single group
-            var group = downloadDao.findGroup(DownloadGroupEntity.TYPE_SINGLE, theme.id.toString())
-            if (group == null) {
-                val groupId = downloadDao.insertGroup(
-                    DownloadGroupEntity(
-                        groupType = DownloadGroupEntity.TYPE_SINGLE,
-                        groupId = theme.id.toString(),
-                        label = theme.title
-                    )
-                )
-                group = downloadDao.findGroup(DownloadGroupEntity.TYPE_SINGLE, theme.id.toString())
-                if (group != null) {
-                    downloadDao.insertGroupTheme(DownloadGroupThemeEntity(group.id, theme.id))
-                }
-            }
+            val group = ensureGroup(DownloadGroupEntity.TYPE_SINGLE, theme.id.toString(), theme.title)
+            enqueue(listOf(DownloadMediaSpec.themeTv(theme.id, theme.audioUrl)), group)
+        }
+    }
 
-            prepareDownloads(listOf(theme))
-            triggerBatchWorker()
+    fun downloadThemeFullSize(theme: ThemeEntity, anime: AnimeEntity? = null) {
+        scope.launch {
+            val descriptor = themeModeDao.getByThemeIds(listOf(theme.id)).firstOrNull() ?: return@launch
+            val songId = descriptor.fullSizeSongId ?: return@launch
+            val url = musicCatalogDao.getSong(songId)?.audioUrl?.takeIf(String::isNotBlank)
+                ?: return@launch
+            val label = listOfNotNull(anime?.title, theme.title).joinToString(" · ")
+            val group = if (anime?.kitsuId != null) {
+                ensureGroup(DownloadGroupEntity.TYPE_ANIME, anime.kitsuId, anime.title ?: theme.title)
+            } else {
+                ensureGroup(DownloadGroupEntity.TYPE_SINGLE, "theme:${theme.id}:full", "$label · Full Size")
+            }
+            enqueue(listOf(DownloadMediaSpec.song(songId, url)), group)
+        }
+    }
+
+    fun downloadRelatedSong(song: SongEntity, release: MusicReleaseEntity? = null) {
+        scope.launch {
+            val group = if (release == null) {
+                ensureGroup(DownloadGroupEntity.TYPE_SINGLE, "song:${song.id}", song.title)
+            } else {
+                ensureGroup(DownloadGroupEntity.TYPE_ALBUM, release.id.toString(), release.title)
+            }
+            enqueue(listOf(DownloadMediaSpec.song(song.id, song.audioUrl)), group)
+        }
+    }
+
+    fun downloadAlbum(release: MusicReleaseEntity, songs: List<SongEntity>) {
+        scope.launch {
+            val group = ensureGroup(DownloadGroupEntity.TYPE_ALBUM, release.id.toString(), release.title)
+            enqueue(songs.map { DownloadMediaSpec.song(it.id, it.audioUrl) }, group)
         }
     }
 
     fun downloadAnime(kitsuId: String) {
         scope.launch {
-            val anime = animeDao.getByKitsuId(kitsuId)
-            val animeThemesId = anime?.animeThemesId ?: return@launch
-            val themes = themeDao.getByIds(
-                themeDao.getThemeIdsByAnimeIds(listOf(animeThemesId))
+            val anime = animeDao.getByKitsuId(kitsuId) ?: return@launch
+            val animeThemesId = anime.animeThemesId ?: return@launch
+            val themes = themeDao.getByIds(themeDao.getThemeIdsByAnimeIds(listOf(animeThemesId)))
+            val group = ensureGroup(
+                DownloadGroupEntity.TYPE_ANIME,
+                kitsuId,
+                anime.title ?: anime.titleEn ?: "Anime"
             )
-            if (themes.isEmpty()) return@launch
-
-            val label = anime.title ?: anime.titleEn ?: "Anime"
-
-            // Create anime group
-            var group = downloadDao.findGroup(DownloadGroupEntity.TYPE_ANIME, kitsuId)
-            if (group == null) {
-                val groupId = downloadDao.insertGroup(
-                    DownloadGroupEntity(
-                        groupType = DownloadGroupEntity.TYPE_ANIME,
-                        groupId = kitsuId,
-                        label = label
-                    )
-                )
-                group = DownloadGroupEntity(id = groupId, groupType = DownloadGroupEntity.TYPE_ANIME, groupId = kitsuId, label = label)
-            }
-
-            // Add all themes to group
-            val groupThemes = themes.map { DownloadGroupThemeEntity(group.id, it.id) }
-            downloadDao.insertGroupThemes(groupThemes)
-
-            // Pre-insert all download requests so the total count is immediately known,
-            // then kick the single batch worker that drains them.
-            prepareDownloads(themes)
-            triggerBatchWorker()
+            enqueue(themes.map { DownloadMediaSpec.themeTv(it.id, it.audioUrl) }, group)
         }
     }
 
     fun downloadPlaylist(playlistId: Long, visibleThemeIds: List<Long>? = null) {
         scope.launch {
-            val themeIds = visibleThemeIds ?: playlistDao.getThemeIdsInPlaylist(playlistId)
-            if (themeIds.isEmpty()) return@launch
-
-            val themes = themeDao.getByIds(themeIds)
-            if (themes.isEmpty()) return@launch
-
-            val playlistName = playlistDao.getPlaylistById(playlistId)?.name ?: "Playlist"
-
-            // Create playlist group
-            var group = downloadDao.findGroup(DownloadGroupEntity.TYPE_PLAYLIST, playlistId.toString())
-            if (group == null) {
-                val groupId = downloadDao.insertGroup(
-                    DownloadGroupEntity(
-                        groupType = DownloadGroupEntity.TYPE_PLAYLIST,
-                        groupId = playlistId.toString(),
-                        label = playlistName
-                    )
-                )
-                group = DownloadGroupEntity(id = groupId, groupType = DownloadGroupEntity.TYPE_PLAYLIST, groupId = playlistId.toString(), label = playlistName)
+            val playlist = playlistDao.getPlaylistById(playlistId) ?: return@launch
+            val entries = playlistDao.getPlaylistEntries(playlistId).let { all ->
+                if (visibleThemeIds == null) all else all.filter {
+                    it.itemType != "THEME" || it.itemId in visibleThemeIds
+                }
             }
-
-            // Add all themes to group
-            val groupThemes = themes.map { DownloadGroupThemeEntity(group.id, it.id) }
-            downloadDao.insertGroupThemes(groupThemes)
-
-            // Pre-insert all download requests so the total count is immediately known,
-            // then kick the single batch worker that drains them (it resolves cover art per track).
-            prepareDownloads(themes)
-            triggerBatchWorker()
+            val themeIds = entries.filter { it.itemType == "THEME" }.map { it.itemId }.distinct()
+            val songIds = buildSet {
+                addAll(entries.filter { it.itemType == "SONG" }.map { it.itemId })
+                themeModeDao.getByThemeIds(themeIds).mapNotNullTo(this) { it.fullSizeSongId }
+            }
+            val modes = themeModeDao.getByThemeIds(themeIds).associateBy { it.themeId }
+            val songUrls = musicCatalogDao.getSongs(songIds.toList()).associate { it.id to it.audioUrl }
+            val specs = resolvePlaylistDownloadMedia(entries, playlist.defaultMode, modes, songUrls)
+            val group = ensureGroup(DownloadGroupEntity.TYPE_PLAYLIST, playlistId.toString(), playlist.name)
+            replaceGroupMembership(group, specs)
+            prepare(specs)
+            if (specs.isNotEmpty()) triggerBatchWorker()
         }
     }
 
-    // --- Remove actions ---
+    fun removeDownload(themeId: Long) = removeGroupByIdentity(DownloadGroupEntity.TYPE_SINGLE, themeId.toString())
+    fun removeAnimeDownload(kitsuId: String) = removeGroupByIdentity(DownloadGroupEntity.TYPE_ANIME, kitsuId)
+    fun removePlaylistDownload(playlistId: Long) = removeGroupByIdentity(DownloadGroupEntity.TYPE_PLAYLIST, playlistId.toString())
+    fun removeAlbumDownload(releaseId: Long) = removeGroupByIdentity(DownloadGroupEntity.TYPE_ALBUM, releaseId.toString())
+    fun removeGroup(group: DownloadGroupEntity) = removeGroupByIdentity(group.groupType, group.groupId)
 
-    fun removeDownload(themeId: Long) {
+    fun removeGroupItem(groupId: Long, mediaKey: String) {
         scope.launch {
-            // Remove from single groups
-            val singleGroup = downloadDao.findGroup(DownloadGroupEntity.TYPE_SINGLE, themeId.toString())
-            if (singleGroup != null) {
-                downloadDao.deleteGroupThemes(singleGroup.id)
-                downloadDao.deleteGroup(singleGroup.id)
-            }
-
-            cleanupOrphanedTheme(themeId)
+            downloadItemDao.deleteGroupItem(groupId, mediaKey)
+            cleanupIfOrphaned(mediaKey)
+            if (downloadItemDao.getMediaKeysInGroup(groupId).isEmpty()) downloadDao.deleteGroup(groupId)
         }
     }
 
-    fun removeAnimeDownload(kitsuId: String) {
-        scope.launch {
-            val group = downloadDao.findGroup(DownloadGroupEntity.TYPE_ANIME, kitsuId)
-                ?: return@launch
-
-            val themeIds = downloadDao.getThemeIdsInGroup(group.id)
-            downloadDao.deleteGroupThemes(group.id)
-            downloadDao.deleteGroup(group.id)
-
-            for (id in themeIds) {
-                cleanupOrphanedTheme(id)
-            }
-        }
-    }
-
-    fun removePlaylistDownload(playlistId: Long) {
-        scope.launch {
-            val group = downloadDao.findGroup(DownloadGroupEntity.TYPE_PLAYLIST, playlistId.toString())
-                ?: return@launch
-
-            val themeIds = downloadDao.getThemeIdsInGroup(group.id)
-            downloadDao.deleteGroupThemes(group.id)
-            downloadDao.deleteGroup(group.id)
-
-            for (id in themeIds) {
-                cleanupOrphanedTheme(id)
-            }
-        }
+    /** Explicit physical removal ignores group references and removes every membership. */
+    fun removePhysicalDownload(mediaKey: String) {
+        scope.launch { deletePhysical(mediaKey, force = true) }
     }
 
     fun removeAllDownloads() {
         scope.launch {
-            // Cancel all work
-            workManager.cancelAllWorkByTag(WORK_TAG_DOWNLOAD)
-
-            // Get all downloads to delete files
-            val downloads = downloadDao.getDownloadsByStatuses(listOf(
-                DownloadRequestEntity.STATUS_COMPLETED,
-                DownloadRequestEntity.STATUS_DOWNLOADING,
-                DownloadRequestEntity.STATUS_RETRYING,
-                DownloadRequestEntity.STATUS_PENDING,
-                DownloadRequestEntity.STATUS_PAUSED,
-                DownloadRequestEntity.STATUS_FAILED,
-                DownloadRequestEntity.STATUS_WAITING_FOR_WIFI
-            ))
-
-            for (dl in downloads) {
-                deleteFiles(dl)
-                resetThemeEntity(dl.themeId)
-            }
-
-            downloadDao.deleteAllGroupThemes()
+            awaitDownloadCancellation()
+            val items = downloadItemDao.getAll()
+            items.forEach { deleteFiles(it) }
+            canonicalDownloadRoots().forEach { it.takeIf(File::exists)?.deleteRecursively() }
+            downloadItemDao.deleteAllGroupItems()
             downloadDao.deleteAllGroups()
-            downloadDao.deleteAllDownloads()
-
-            Log.d(TAG, "All downloads removed")
+            downloadItemDao.deleteAll()
+            items.filter { it.itemType == DownloadMediaSpec.TYPE_THEME }.map { it.itemId }.distinct().forEach { resetLegacyTv(it) }
         }
     }
-
-    // --- Pause / Resume / Cancel ---
 
     fun pauseAllDownloads() {
         scope.launch {
             workManager.cancelAllWorkByTag(WORK_TAG_DOWNLOAD)
-            downloadDao.pauseAllActive()
-            Log.d(TAG, "All downloads paused")
+            downloadItemDao.pauseAllActive()
         }
     }
 
     fun resumeAllDownloads() {
         scope.launch {
-            val paused = downloadDao.getDownloadsByStatuses(
-                listOf(DownloadRequestEntity.STATUS_PAUSED)
-            )
-            for (dl in paused) {
-                downloadDao.updateStatus(dl.themeId, DownloadRequestEntity.STATUS_PENDING)
-            }
+            val paused = downloadItemDao.getByStatuses(listOf(DownloadItemEntity.STATUS_PAUSED))
+            paused.forEach { downloadItemDao.updateStatus(it.mediaKey, resumedDownloadStatus(it.status)) }
             if (paused.isNotEmpty()) triggerBatchWorker()
-            Log.d(TAG, "Resumed ${paused.size} downloads")
         }
     }
 
     fun cancelAllDownloads() {
         scope.launch {
-            workManager.cancelAllWorkByTag(WORK_TAG_DOWNLOAD)
-
-            val active = downloadDao.getDownloadsByStatuses(listOf(
-                DownloadRequestEntity.STATUS_PENDING,
-                DownloadRequestEntity.STATUS_DOWNLOADING,
-                DownloadRequestEntity.STATUS_RETRYING,
-                DownloadRequestEntity.STATUS_PAUSED,
-                DownloadRequestEntity.STATUS_WAITING_FOR_WIFI
+            awaitDownloadCancellation()
+            val active = downloadItemDao.getByStatuses(listOf(
+                DownloadItemEntity.STATUS_PENDING, DownloadItemEntity.STATUS_DOWNLOADING,
+                DownloadItemEntity.STATUS_RETRYING, DownloadItemEntity.STATUS_PAUSED,
+                DownloadItemEntity.STATUS_WAITING_FOR_WIFI
             ))
-
-            for (dl in active) {
-                deleteFiles(dl)
-                resetThemeEntity(dl.themeId)
-            }
-
-            // Remove non-completed downloads and their group memberships
-            for (dl in active) {
-                val groupIds = downloadDao.getGroupIdsForTheme(dl.themeId)
-                for (gId in groupIds) {
-                    downloadDao.deleteGroupTheme(gId, dl.themeId)
-                    // If group is now empty, remove it
-                    val remaining = downloadDao.getThemeIdsInGroup(gId)
-                    if (remaining.isEmpty()) {
-                        downloadDao.deleteGroup(gId)
-                    }
-                }
-                downloadDao.deleteDownload(dl.themeId)
-            }
-
-            Log.d(TAG, "Cancelled ${active.size} downloads")
+            active.forEach { deletePhysical(it.mediaKey, force = true) }
         }
     }
-
-    // --- Retry ---
 
     fun retryFailedDownloads() {
         scope.launch {
-            val failed = downloadDao.getPendingAndFailedDownloads()
-            if (failed.isEmpty()) return@launch
-
-            Log.d(TAG, "Retrying ${failed.size} failed/pending downloads")
-            for (dl in failed) {
-                downloadDao.updateStatus(dl.themeId, DownloadRequestEntity.STATUS_PENDING)
-            }
-            triggerBatchWorker()
+            val retry = downloadItemDao.getByStatuses(listOf(
+                DownloadItemEntity.STATUS_FAILED, DownloadItemEntity.STATUS_RETRYING,
+                DownloadItemEntity.STATUS_WAITING_FOR_WIFI
+            ))
+            retry.forEach { downloadItemDao.updateStatus(it.mediaKey, initialStatus()) }
+            if (retry.isNotEmpty()) triggerBatchWorker()
         }
     }
 
-    // --- Helpers ---
+    private suspend fun enqueue(specs: List<DownloadMediaSpec>, group: DownloadGroupEntity) {
+        downloadItemDao.insertGroupItems(specs.distinctBy { it.mediaKey }.map { DownloadGroupItemEntity(group.id, it.mediaKey) })
+        prepare(specs)
+        if (specs.isNotEmpty()) triggerBatchWorker()
+    }
 
-    /**
-     * Pre-insert download request rows for all themes so the total count
-     * is immediately known in the UI and notification before work is enqueued.
-     */
-    private suspend fun prepareDownloads(themes: List<ThemeEntity>) {
-        val isWifiOnly = downloadPreferences.wifiOnly
-        val currentNetwork = connectivityMonitor.networkType.value
-        val initialStatus = if (isWifiOnly && currentNetwork != AppNetworkType.WIFI) {
-            DownloadRequestEntity.STATUS_WAITING_FOR_WIFI
-        } else {
-            DownloadRequestEntity.STATUS_PENDING
-        }
+    private suspend fun replaceGroupMembership(group: DownloadGroupEntity, specs: List<DownloadMediaSpec>) {
+        val oldKeys = downloadItemDao.getMediaKeysInGroup(group.id)
+        downloadItemDao.deleteGroupItems(group.id)
+        downloadItemDao.insertGroupItems(specs.map { DownloadGroupItemEntity(group.id, it.mediaKey) })
+        oldKeys.filter { old -> specs.none { it.mediaKey == old } }.forEach { cleanupIfOrphaned(it) }
+    }
 
-        for (theme in themes) {
-            val existing = downloadDao.getDownloadForTheme(theme.id)
-            if (existing?.status == DownloadRequestEntity.STATUS_COMPLETED) continue
-            if (existing?.status == DownloadRequestEntity.STATUS_DOWNLOADING) continue
-            if (existing?.status == DownloadRequestEntity.STATUS_RETRYING) continue
-            downloadDao.insertDownloadIfNotExists(
-                DownloadRequestEntity(themeId = theme.id, status = initialStatus)
-            )
-            if (existing != null) {
-                downloadDao.updateStatus(theme.id, initialStatus)
-            }
+    private suspend fun prepare(specs: List<DownloadMediaSpec>) {
+        val status = initialStatus()
+        specs.distinctBy { it.mediaKey }.forEach { spec ->
+            val existing = downloadItemDao.get(spec.mediaKey)
+            val existingFileReady = existing?.status == DownloadItemEntity.STATUS_COMPLETED &&
+                existing.filePath?.let(::File)?.isFile == true
+            if (existingFileReady || existing?.status in setOf(
+                    DownloadItemEntity.STATUS_PENDING, DownloadItemEntity.STATUS_DOWNLOADING,
+                    DownloadItemEntity.STATUS_RETRYING, DownloadItemEntity.STATUS_PAUSED,
+                    DownloadItemEntity.STATUS_WAITING_FOR_WIFI
+                )) return@forEach
+            val replacement =
+                DownloadItemEntity(
+                    mediaKey = spec.mediaKey,
+                    itemType = spec.itemType,
+                    itemId = spec.itemId,
+                    mode = spec.mode,
+                    status = status,
+                    progress = 0,
+                    filePath = null,
+                    imagePath = existing?.imagePath,
+                    createdAt = existing?.createdAt ?: System.currentTimeMillis(),
+                    updatedAt = System.currentTimeMillis(),
+                    legacyThemeId = spec.legacyThemeId
+                )
+            if (existing == null) downloadItemDao.insertIfAbsent(replacement) else downloadItemDao.upsert(replacement)
         }
     }
 
-    /**
-     * Ensure the single batch [DownloadWorker] is scheduled. One unique foreground worker drains
-     * every pending request, so adding tracks while it runs is picked up by its next DB poll and
-     * does not spin up additional foreground services (which previously raced and crashed the app).
-     * [ExistingWorkPolicy.KEEP] avoids piling up workers; a finished worker is replaced by a fresh
-     * drain pass.
-     */
-    private suspend fun triggerBatchWorker() {
-        val isWifiOnly = downloadPreferences.wifiOnly
-        val currentNetwork = connectivityMonitor.networkType.value
+    private fun initialStatus(): String = downloadInitialStatus(
+        wifiOnly = downloadPreferences.wifiOnly,
+        networkIsWifi = connectivityMonitor.networkType.value == AppNetworkType.WIFI
+    )
 
-        // Surface the Wi-Fi-only deferral once per kick rather than per track.
-        if (isWifiOnly && currentNetwork != AppNetworkType.WIFI) {
-            withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Will download when on Wi-Fi", Toast.LENGTH_SHORT).show()
-            }
+    private suspend fun ensureGroup(type: String, externalId: String, label: String): DownloadGroupEntity =
+        groupIdentityMutex.withLock {
+            downloadDao.findGroup(type, externalId)?.let { return@withLock it }
+            val id = downloadDao.insertGroup(DownloadGroupEntity(groupType = type, groupId = externalId, label = label))
+            downloadDao.findGroup(type, externalId) ?: DownloadGroupEntity(id, type, externalId, label)
         }
 
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(
-                if (isWifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
-            )
-            .build()
+    private fun removeGroupByIdentity(type: String, externalId: String) {
+        scope.launch {
+            val groups = downloadDao.findGroups(type, externalId)
+            if (groups.isEmpty()) return@launch
+            val keys = groups.flatMap { downloadItemDao.getMediaKeysInGroup(it.id) }.distinct()
+            groups.forEach { group ->
+                downloadItemDao.deleteGroupItems(group.id)
+                downloadDao.deleteGroup(group.id)
+            }
+            keys.forEach { cleanupIfOrphaned(it) }
+        }
+    }
 
-        val workRequest = OneTimeWorkRequestBuilder<DownloadWorker>()
-            .setConstraints(constraints)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
-            .addTag(WORK_TAG_DOWNLOAD)
-            .build()
+    private suspend fun cleanupIfOrphaned(mediaKey: String) = deletePhysical(mediaKey, force = false)
 
-        workManager.enqueueUniqueWork(
-            DownloadWorker.UNIQUE_WORK_NAME,
-            ExistingWorkPolicy.KEEP,
-            workRequest
+    private suspend fun deletePhysical(mediaKey: String, force: Boolean) {
+        val remaining = downloadItemDao.countGroupsForMedia(mediaKey)
+        if (!shouldDeletePhysicalDownload(remaining, force)) return
+        val item = downloadItemDao.get(mediaKey) ?: return
+        val wasActive = item.status in setOf(
+            DownloadItemEntity.STATUS_PENDING,
+            DownloadItemEntity.STATUS_DOWNLOADING,
+            DownloadItemEntity.STATUS_RETRYING,
+            DownloadItemEntity.STATUS_WAITING_FOR_WIFI
         )
+        if (wasActive) {
+            awaitDownloadCancellation()
+            downloadItemDao.getByStatuses(listOf(DownloadItemEntity.STATUS_DOWNLOADING))
+                .filterNot { it.mediaKey == mediaKey }
+                .forEach { downloadItemDao.updateStatus(it.mediaKey, DownloadItemEntity.STATUS_PENDING) }
+        }
+        val refreshedItem = downloadItemDao.get(mediaKey) ?: item
+        if (force) downloadItemDao.getGroupIdsForMedia(mediaKey).forEach { downloadItemDao.deleteGroupItem(it, mediaKey) }
+        deleteFiles(refreshedItem)
+        canonicalDownloadItemDirectory(context.filesDir, refreshedItem.itemType, refreshedItem.itemId)
+            ?.takeIf(File::exists)
+            ?.deleteRecursively()
+        if (item.itemType == DownloadMediaSpec.TYPE_THEME) resetLegacyTv(item.itemId)
+        downloadItemDao.delete(mediaKey)
+        if (wasActive && downloadItemDao.getActiveCount() > 0) triggerBatchWorker()
     }
 
-    private suspend fun cleanupOrphanedTheme(themeId: Long) {
-        val remainingGroups = downloadDao.countGroupsForTheme(themeId)
-        if (remainingGroups == 0) {
-            // No groups reference this theme — delete the download. The running batch worker
-            // re-checks the DB before each track and skips rows that have been removed.
-            val dl = downloadDao.getDownloadForTheme(themeId) ?: return
-            deleteFiles(dl)
-            resetThemeEntity(themeId)
-            downloadDao.deleteDownload(themeId)
-            Log.d(TAG, "Cleaned up orphaned download for theme $themeId")
-        }
+    private fun deleteFiles(item: DownloadItemEntity) {
+        item.filePath?.let(::File)?.takeIf(File::exists)?.delete()
+        item.imagePath?.let(::File)?.takeIf(File::exists)?.delete()
     }
 
-    private fun deleteFiles(download: DownloadRequestEntity) {
-        download.filePath?.let { path ->
-            val file = File(path)
-            if (file.exists()) file.delete()
-        }
-        download.imagePath?.let { path ->
-            val file = File(path)
-            if (file.exists()) file.delete()
-        }
+    private suspend fun awaitDownloadCancellation() = withContext(Dispatchers.IO) {
+        workManager.cancelUniqueWork(DownloadWorker.UNIQUE_WORK_NAME).result.get()
+        workManager.cancelAllWorkByTag(WORK_TAG_DOWNLOAD).result.get()
     }
 
-    private suspend fun resetThemeEntity(themeId: Long) {
+    private fun canonicalDownloadRoots(): List<File> = listOf(
+        File(context.filesDir, "downloads/themes"),
+        File(context.filesDir, "downloads/songs"),
+        File(context.filesDir, "downloads/images")
+    )
+
+    private suspend fun resetLegacyTv(themeId: Long) {
         val theme = themeDao.getByIds(listOf(themeId)).firstOrNull() ?: return
-        if (theme.isDownloaded) {
+        if (theme.isDownloaded || theme.localFilePath != null) {
             themeDao.upsertAll(listOf(theme.copy(isDownloaded = false, localFilePath = null)))
         }
     }
 
+    private suspend fun triggerBatchWorker() {
+        if (downloadPreferences.wifiOnly && connectivityMonitor.networkType.value != AppNetworkType.WIFI) {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Will download when on Wi-Fi", Toast.LENGTH_SHORT).show()
+            }
+        }
+        val constraints = Constraints.Builder().setRequiredNetworkType(
+            if (downloadPreferences.wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
+        ).build()
+        val work = OneTimeWorkRequestBuilder<DownloadWorker>()
+            .setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .addTag(WORK_TAG_DOWNLOAD)
+            .build()
+        workManager.enqueueUniqueWork(DownloadWorker.UNIQUE_WORK_NAME, ExistingWorkPolicy.KEEP, work)
+    }
+
+    fun openDownloadsFolder() {
+        val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+            putExtra("android.provider.extra.INITIAL_URI", Uri.fromFile(File(context.filesDir, "downloads")))
+        }
+        context.startActivity(intent)
+    }
 }

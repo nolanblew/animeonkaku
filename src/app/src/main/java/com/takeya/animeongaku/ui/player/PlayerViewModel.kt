@@ -46,7 +46,8 @@ class PlayerViewModel @Inject constructor(
     private val serverPlaylistWriter: ServerPlaylistWriter,
     private val userPreferencesRepository: UserPreferencesRepository,
     musicCatalogRepository: MusicCatalogRepository,
-    val connectivityMonitor: ConnectivityMonitor
+    val connectivityMonitor: ConnectivityMonitor,
+    private val downloadManager: com.takeya.animeongaku.download.DownloadManager
 ) : ViewModel() {
     private val videoModeSessionTracker = VideoModeSessionTracker()
     val nowPlayingState: StateFlow<NowPlayingState> = nowPlayingManager.state
@@ -100,6 +101,11 @@ class PlayerViewModel @Inject constructor(
         .map { it.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
+    val downloadedMediaKeys: StateFlow<Set<com.takeya.animeongaku.media.MediaKey>> =
+        downloadManager.observeAllDownloads().map { downloads ->
+            com.takeya.animeongaku.media.completedLocalMedia(downloads).keys
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
     val playlists: StateFlow<List<PlaylistWithCount>> = playlistDao.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -114,7 +120,19 @@ class PlayerViewModel @Inject constructor(
                 }
             }
         }
+
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    fun downloadCurrent(item: com.takeya.animeongaku.media.PlayableItem, actualMode: com.takeya.animeongaku.media.PlaybackMode?) {
+        when (item) {
+            is com.takeya.animeongaku.media.PlayableItem.RelatedSong -> downloadManager.downloadRelatedSong(item.song, item.release)
+            is com.takeya.animeongaku.media.PlayableItem.Theme -> if (actualMode == com.takeya.animeongaku.media.PlaybackMode.FULL_SIZE) {
+                downloadManager.downloadThemeFullSize(item.theme, item.anime)
+            } else {
+                downloadManager.downloadSong(item.theme, item.anime)
+            }
+        }
+    }
 
     val dislikedThemeIds: StateFlow<Set<Long>> = userPreferencesRepository.observeDislikedThemeIds()
         .map { it.toSet() }

@@ -70,7 +70,7 @@ fun RelatedMusicScreen(
                 isLiked = pref?.isLiked == true,
                 showDislike = true,
                 isDisliked = pref?.isDisliked == true,
-                showDownload = false
+                showDownload = true
             ),
             onDismiss = { sheetTrack = null },
             onPlayNext = { viewModel.playNext(track) },
@@ -78,7 +78,8 @@ fun RelatedMusicScreen(
             onReplaceQueue = { viewModel.play(track); onPlay() },
             onSaveToPlaylist = { pickerTrack = track },
             onLike = { viewModel.toggleLike(track.song.id) },
-            onDislike = { viewModel.toggleDislike(track.song.id) }
+            onDislike = { viewModel.toggleDislike(track.song.id) },
+            onDownload = { viewModel.download(track) }
         )
     }
     pickerTrack?.let { track ->
@@ -101,7 +102,12 @@ fun RelatedMusicScreen(
                 item { Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
             if (selected != null) {
-                item { Button(onClick = { viewModel.playRelease(selected!!); onPlay() }) { Icon(Icons.Rounded.PlayArrow, null); Text("Play") } }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { viewModel.playRelease(selected!!); onPlay() }) { Icon(Icons.Rounded.PlayArrow, null); Text("Play") }
+                        Button(onClick = { viewModel.downloadRelease(selected!!) }) { Text("Download Album") }
+                    }
+                }
                 items(selected!!.tracks, key = { it.song.id }) { track -> TrackRow(track, { viewModel.play(track); onPlay() }, { sheetTrack = track }) }
             } else if (releases.isEmpty()) {
                 item {

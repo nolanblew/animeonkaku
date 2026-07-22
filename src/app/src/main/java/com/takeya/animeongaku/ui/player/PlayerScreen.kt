@@ -145,7 +145,7 @@ fun PlayerScreen(
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
-    val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
+    val downloadedMediaKeys by viewModel.downloadedMediaKeys.collectAsStateWithLifecycle()
     val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
     val queuedThemeModesById by viewModel.queuedThemeModesById.collectAsStateWithLifecycle()
 
@@ -168,7 +168,7 @@ fun PlayerScreen(
             npState = npState,
             nowPlayingManager = nowPlayingManager,
             isOffline = !isOnline,
-            downloadedThemeIds = downloadedThemeIds,
+            downloadedMediaKeys = downloadedMediaKeys,
             dislikedThemeIds = dislikedThemeIds,
             viewModel = viewModel,
             onDismiss = { showUpNext = false }
@@ -201,6 +201,7 @@ fun PlayerScreen(
                     showGoToArtist = !item.display.artist.isNullOrBlank(),
                     showGoToAnime = animeEntity?.kitsuId != null,
                     showRelatedMusic = animeEntity?.kitsuId != null && hasRelatedMusic,
+                    showDownload = item is PlayableItem.RelatedSong || theme != null,
                     showPlayVideo = theme != null && BrowseVideoActionPolicy.singleTheme(
                         isOnline, queuedThemeModesById[theme.id]
                     ),
@@ -218,7 +219,8 @@ fun PlayerScreen(
                 onGoToArtist = { item.display.artist?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
                 onGoToAnime = { animeEntity?.kitsuId?.let { onOpenAnime(it) } },
                 onRelatedMusic = { animeEntity?.kitsuId?.let { onOpenRelatedMusic(it) } },
-                onAddToLibrary = { theme?.let { viewModel.saveSongToLibrary(it, animeEntity) } }
+                onAddToLibrary = { theme?.let { viewModel.saveSongToLibrary(it, animeEntity) } },
+                onDownload = { viewModel.downloadCurrent(item, modeUiState.actualMode) }
             )
         }
     }

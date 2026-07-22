@@ -17,6 +17,7 @@ import com.takeya.animeongaku.data.repository.PlaylistWriteItem
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.PlayableItem
+import com.takeya.animeongaku.download.DownloadManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.Flow
@@ -40,7 +41,8 @@ class RelatedMusicViewModel @Inject constructor(
     private val playlistDao: PlaylistDao,
     private val userPreferencesRepository: UserPreferencesRepository,
     private val playlistWriter: ServerPlaylistWriter,
-    val nowPlayingManager: NowPlayingManager
+    val nowPlayingManager: NowPlayingManager,
+    private val downloadManager: DownloadManager
 ) : ViewModel() {
     val kitsuId: String = savedStateHandle["kitsuId"] ?: ""
     val selectedReleaseId: Long? = savedStateHandle.get<Long>("releaseId")?.takeIf { it > 0 }
@@ -94,6 +96,8 @@ class RelatedMusicViewModel @Inject constructor(
     fun play(track: RelatedTrack) = nowPlayingManager.playItems(track.release.title, listOf(track.playable()))
     fun playNext(track: RelatedTrack) = nowPlayingManager.playNextItems(listOf(track.playable()))
     fun addToQueue(track: RelatedTrack) = nowPlayingManager.addPlayableItems(listOf(track.playable()))
+    fun download(track: RelatedTrack) = downloadManager.downloadRelatedSong(track.song, track.release)
+    fun downloadRelease(release: RelatedRelease) = downloadManager.downloadAlbum(release.release, release.tracks.map { it.song })
 
     fun observePreference(songId: Long): Flow<SongPreferenceEntity?> =
         userPreferencesRepository.observeSongPreference(songId)

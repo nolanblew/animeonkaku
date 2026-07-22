@@ -12,8 +12,13 @@ import javax.inject.Singleton
 @Singleton
 class NowPlayingManager @Inject constructor(
     private val sessionStateManager: com.takeya.animeongaku.data.auth.SessionStateManager,
-    private val playbackPreferences: PlaybackPreferences
+    private val playbackPreferences: PlaybackPreferences,
+    private val offlineMediaAvailability: OfflineMediaAvailability
 ) {
+    internal constructor(
+        sessionStateManager: com.takeya.animeongaku.data.auth.SessionStateManager,
+        playbackPreferences: PlaybackPreferences
+    ) : this(sessionStateManager, playbackPreferences, OfflineMediaAvailability(emptySet()))
 
     private val _state = MutableStateFlow(
         NowPlayingState(
@@ -125,13 +130,19 @@ class NowPlayingManager @Inject constructor(
             "RELATED_AUDIO is resolver-owned and cannot be a Theme session override"
         }
         if (items.isEmpty()) return
+        require(baseModePolicies == null || baseModePolicies.size == items.size) {
+            "One base policy is required per source item"
+        }
 
-        val playableWithSourceIndex = playableItemsWithSourceIndex(items)
+        val admissionIntent = _state.value.playbackIntent.copy(sessionOverride = initialSessionMode)
+        val playableWithSourceIndex = playableItemsWithSourceIndex(
+            items = items,
+            playbackIntent = admissionIntent
+        ) { index -> baseModePolicies?.get(index) ?: baseModePolicy }
         val playable = playableWithSourceIndex.map { it.value }
         if (playable.isEmpty()) return
 
         val playablePolicies = baseModePolicies?.let { policies ->
-            require(policies.size == items.size) { "One base policy is required per source item" }
             playableWithSourceIndex.map { policies[it.index] }
         }
         val originalEntries = playable.mapIndexed { index, item ->
@@ -217,7 +228,9 @@ class NowPlayingManager @Inject constructor(
         require(baseModePolicies == null || baseModePolicies.size == items.size)
 
         val current = _state.value
-        val playable = playableItemsWithSourceIndex(items)
+        val playable = playableItemsWithSourceIndex(items) { index ->
+            baseModePolicies?.get(index) ?: baseModePolicy
+        }
         if (playable.isEmpty()) return
         val insertedEntries = playable.map { indexed ->
             QueueEntry(nextQueueEntryId++, indexed.value, baseModePolicies?.get(indexed.index) ?: baseModePolicy)
@@ -275,7 +288,9 @@ class NowPlayingManager @Inject constructor(
         require(baseModePolicies == null || baseModePolicies.size == items.size)
 
         val current = _state.value
-        val playable = playableItemsWithSourceIndex(items)
+        val playable = playableItemsWithSourceIndex(items) { index ->
+            baseModePolicies?.get(index) ?: baseModePolicy
+        }
         if (playable.isEmpty()) return
         val appendedEntries = playable.map { indexed ->
             QueueEntry(nextQueueEntryId++, indexed.value, baseModePolicies?.get(indexed.index) ?: baseModePolicy)
@@ -309,12 +324,17 @@ class NowPlayingManager @Inject constructor(
     fun addToQueue(theme: ThemeEntity, anime: AnimeEntity? = null): Unit =
         addToQueue(listOf(theme), anime?.let { a -> theme.animeId?.let { mapOf(it to a) } } ?: emptyMap())
 
-    private fun playableItems(items: List<PlayableItem>): List<PlayableItem> =
-        playableItemsWithSourceIndex(items).map { it.value }
-
-    private fun playableItemsWithSourceIndex(items: List<PlayableItem>): List<IndexedValue<PlayableItem>> =
-        items.withIndex().filter { (_, item) ->
-            sessionStateManager.isOnlineEnabled() || !item.localFilePath.isNullOrBlank()
+    private fun playableItemsWithSourceIndex(
+        items: List<PlayableItem>,
+        playbackIntent: PlaybackIntent = _state.value.playbackIntent,
+        policyAt: (Int) -> BaseModePolicy
+    ): List<IndexedValue<PlayableItem>> =
+        items.withIndex().filter { indexed ->
+            val entry = QueueEntry(queueId = 0L, item = indexed.value, baseModePolicy = policyAt(indexed.index))
+            val requiredKey = requiredOfflineMediaKey(entry, playbackIntent)
+            sessionStateManager.isOnlineEnabled() ||
+                isExactOfflineAvailable(entry, offlineMediaAvailability.snapshot(), playbackIntent) ||
+                (requiredKey?.value?.startsWith("THEME:") == true && !indexed.value.localFilePath.isNullOrBlank())
         }
 
     /**

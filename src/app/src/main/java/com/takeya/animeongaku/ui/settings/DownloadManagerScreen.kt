@@ -24,6 +24,8 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Error
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -56,7 +58,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.takeya.animeongaku.data.local.DownloadGroupEntity
-import com.takeya.animeongaku.data.local.DownloadRequestEntity
+import com.takeya.animeongaku.data.local.DownloadGroupItemRow
+import com.takeya.animeongaku.data.local.DownloadItemEntity
 import com.takeya.animeongaku.ui.theme.Ember400
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
@@ -119,10 +122,10 @@ fun DownloadManagerScreen(
             // Active downloads section
             val activeDownloads = state.downloads.filter {
                 it.status in listOf(
-                    DownloadRequestEntity.STATUS_PENDING,
-                    DownloadRequestEntity.STATUS_DOWNLOADING,
-                    DownloadRequestEntity.STATUS_RETRYING,
-                    DownloadRequestEntity.STATUS_WAITING_FOR_WIFI
+                    DownloadItemEntity.STATUS_PENDING,
+                    DownloadItemEntity.STATUS_DOWNLOADING,
+                    DownloadItemEntity.STATUS_RETRYING,
+                    DownloadItemEntity.STATUS_WAITING_FOR_WIFI
                 )
             }
             if (activeDownloads.isNotEmpty()) {
@@ -143,7 +146,7 @@ fun DownloadManagerScreen(
             }
 
             // Failed downloads
-            val failedDownloads = state.downloads.filter { it.status == DownloadRequestEntity.STATUS_FAILED }
+            val failedDownloads = state.downloads.filter { it.status == DownloadItemEntity.STATUS_FAILED }
             if (failedDownloads.isNotEmpty()) {
                 item {
                     Spacer(modifier = Modifier.height(4.dp))
@@ -168,7 +171,7 @@ fun DownloadManagerScreen(
             }
 
             // Paused downloads
-            val pausedDownloads = state.downloads.filter { it.status == DownloadRequestEntity.STATUS_PAUSED }
+            val pausedDownloads = state.downloads.filter { it.status == DownloadItemEntity.STATUS_PAUSED }
             if (pausedDownloads.isNotEmpty()) {
                 item {
                     Spacer(modifier = Modifier.height(4.dp))
@@ -196,6 +199,7 @@ fun DownloadManagerScreen(
             val animeGroups = state.groups.filter { it.groupType == DownloadGroupEntity.TYPE_ANIME }
             val playlistGroups = state.groups.filter { it.groupType == DownloadGroupEntity.TYPE_PLAYLIST }
             val singleGroups = state.groups.filter { it.groupType == DownloadGroupEntity.TYPE_SINGLE }
+            val albumGroups = state.groups.filter { it.groupType == DownloadGroupEntity.TYPE_ALBUM }
 
             if (animeGroups.isNotEmpty()) {
                 item {
@@ -203,14 +207,12 @@ fun DownloadManagerScreen(
                     SectionLabel("Anime")
                 }
                 items(animeGroups, key = { "anime_${it.id}" }) { group ->
-                    val groupDownloads = state.downloads.filter { dl ->
-                        // We show the group as a unit
-                        true
-                    }
                     DownloadGroupRow(
                         group = group,
+                        items = state.groupedItems.filter { it.groupId == group.id },
                         icon = Icons.Rounded.Album,
-                        onRemove = { viewModel.removeGroup(group) }
+                        onRemove = { viewModel.removeGroup(group) },
+                        onRemoveItem = { viewModel.removeGroupItem(group.id, it) }
                     )
                 }
             }
@@ -223,8 +225,10 @@ fun DownloadManagerScreen(
                 items(playlistGroups, key = { "playlist_${it.id}" }) { group ->
                     DownloadGroupRow(
                         group = group,
+                        items = state.groupedItems.filter { it.groupId == group.id },
                         icon = Icons.Rounded.PlaylistPlay,
-                        onRemove = { viewModel.removeGroup(group) }
+                        onRemove = { viewModel.removeGroup(group) },
+                        onRemoveItem = { viewModel.removeGroupItem(group.id, it) }
                     )
                 }
             }
@@ -237,8 +241,23 @@ fun DownloadManagerScreen(
                 items(singleGroups, key = { "single_${it.id}" }) { group ->
                     DownloadGroupRow(
                         group = group,
+                        items = state.groupedItems.filter { it.groupId == group.id },
                         icon = Icons.Rounded.MusicNote,
-                        onRemove = { viewModel.removeGroup(group) }
+                        onRemove = { viewModel.removeGroup(group) },
+                        onRemoveItem = { viewModel.removeGroupItem(group.id, it) }
+                    )
+                }
+            }
+
+            if (albumGroups.isNotEmpty()) {
+                item { SectionLabel("Related Albums") }
+                items(albumGroups, key = { "album_${it.id}" }) { group ->
+                    DownloadGroupRow(
+                        group = group,
+                        items = state.groupedItems.filter { it.groupId == group.id },
+                        icon = Icons.Rounded.Album,
+                        onRemove = { viewModel.removeGroup(group) },
+                        onRemoveItem = { viewModel.removeGroupItem(group.id, it) }
                     )
                 }
             }
@@ -382,7 +401,7 @@ private fun StorageCard(usedBytes: Long, freeBytes: Long, totalBytes: Long) {
 
 @Composable
 private fun ActiveDownloadsCard(
-    activeDownloads: List<DownloadRequestEntity>,
+    activeDownloads: List<DownloadItemEntity>,
     completedCount: Int,
     totalCount: Int,
     onPauseAll: () -> Unit,
@@ -427,7 +446,7 @@ private fun ActiveDownloadsCard(
 
         // Show individual progress for actively downloading items (exclude 100% — those are finishing up)
         val inProgress = activeDownloads.filter {
-            it.status == DownloadRequestEntity.STATUS_DOWNLOADING && it.progress < 100
+            it.status == DownloadItemEntity.STATUS_DOWNLOADING && it.progress < 100
         }
         for (dl in inProgress.take(3)) {
             Spacer(modifier = Modifier.height(8.dp))
@@ -453,7 +472,7 @@ private fun ActiveDownloadsCard(
 
         // Items finishing up (100% downloaded but not yet marked completed)
         val finishingUp = activeDownloads.filter {
-            it.status == DownloadRequestEntity.STATUS_DOWNLOADING && it.progress >= 100
+            it.status == DownloadItemEntity.STATUS_DOWNLOADING && it.progress >= 100
         }
         if (finishingUp.isNotEmpty()) {
             Spacer(modifier = Modifier.height(8.dp))
@@ -465,7 +484,7 @@ private fun ActiveDownloadsCard(
         }
 
         // Pending (waiting to start)
-        val pending = activeDownloads.filter { it.status == DownloadRequestEntity.STATUS_PENDING }
+        val pending = activeDownloads.filter { it.status == DownloadItemEntity.STATUS_PENDING }
         if (pending.isNotEmpty()) {
             Spacer(modifier = Modifier.height(4.dp))
             Text(
@@ -475,7 +494,7 @@ private fun ActiveDownloadsCard(
             )
         }
 
-        val retrying = activeDownloads.filter { it.status == DownloadRequestEntity.STATUS_RETRYING }
+        val retrying = activeDownloads.filter { it.status == DownloadItemEntity.STATUS_RETRYING }
         if (retrying.isNotEmpty()) {
             Spacer(modifier = Modifier.height(4.dp))
             Text(
@@ -485,7 +504,7 @@ private fun ActiveDownloadsCard(
             )
         }
 
-        val waitingForWifi = activeDownloads.filter { it.status == DownloadRequestEntity.STATUS_WAITING_FOR_WIFI }
+        val waitingForWifi = activeDownloads.filter { it.status == DownloadItemEntity.STATUS_WAITING_FOR_WIFI }
         if (waitingForWifi.isNotEmpty()) {
             Spacer(modifier = Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -509,57 +528,53 @@ private fun ActiveDownloadsCard(
 @Composable
 private fun DownloadGroupRow(
     group: DownloadGroupEntity,
+    items: List<DownloadGroupItemRow>,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    onRemoveItem: (String) -> Unit
 ) {
-    Row(
+    var expanded by remember { mutableStateOf(group.groupType != DownloadGroupEntity.TYPE_ALBUM) }
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .background(Ink800)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Ink700),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = Mist200,
-                modifier = Modifier.size(20.dp)
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = Mist200, modifier = Modifier.size(32.dp))
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(group.label, style = MaterialTheme.typography.bodyMedium, color = Mist100, fontWeight = FontWeight.Medium, maxLines = 1)
+                Text("${items.size} item${if (items.size == 1) "" else "s"} · removing this group keeps files used elsewhere", style = MaterialTheme.typography.bodySmall, color = Mist200)
+            }
+            IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(36.dp)) {
+                Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, contentDescription = if (expanded) "Collapse ${group.label}" else "Expand ${group.label}", tint = Mist200)
+            }
+            IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Rounded.Delete, contentDescription = "Remove ${group.label} group", tint = Mist200, modifier = Modifier.size(18.dp))
+            }
         }
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                group.label,
-                style = MaterialTheme.typography.bodyMedium,
-                color = Mist100,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1
-            )
-            Text(
-                when (group.groupType) {
-                    DownloadGroupEntity.TYPE_ANIME -> "Anime"
-                    DownloadGroupEntity.TYPE_PLAYLIST -> "Playlist"
-                    else -> "Song"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = Mist200
-            )
-        }
-        IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
-            Icon(
-                Icons.Rounded.Delete,
-                contentDescription = "Remove",
-                tint = Mist200,
-                modifier = Modifier.size(18.dp)
-            )
+        if (expanded) items.forEach { row ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 44.dp)) {
+                Text(
+                    when (row.item.status) {
+                        DownloadItemEntity.STATUS_DOWNLOADING -> "Downloading ${row.item.progress}%"
+                        DownloadItemEntity.STATUS_WAITING_FOR_WIFI -> "Waiting for Wi-Fi"
+                        DownloadItemEntity.STATUS_RETRYING -> "Retrying"
+                        DownloadItemEntity.STATUS_PAUSED -> "Paused"
+                        DownloadItemEntity.STATUS_FAILED -> "Failed"
+                        DownloadItemEntity.STATUS_COMPLETED -> "Downloaded"
+                        else -> "Queued"
+                    } + " · ${row.displayTitle} · " + if (row.item.itemType == "THEME") "TV Size" else "Full Size / Song",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Mist200
+                )
+                IconButton(onClick = { onRemoveItem(row.item.mediaKey) }) {
+                    Icon(Icons.Rounded.Delete, contentDescription = "Remove ${row.displayTitle} from ${group.label}", tint = Mist200)
+                }
+            }
         }
     }
 }

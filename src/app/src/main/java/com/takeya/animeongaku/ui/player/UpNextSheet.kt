@@ -68,6 +68,8 @@ import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.QueueEntry
 import com.takeya.animeongaku.media.NowPlayingState
+import com.takeya.animeongaku.media.MediaKey
+import com.takeya.animeongaku.media.isExactOfflineAvailable
 import com.takeya.animeongaku.media.PlayableItem
 import com.takeya.animeongaku.ui.common.MarqueeText
 import com.takeya.animeongaku.ui.common.ActionSheet
@@ -96,7 +98,7 @@ fun UpNextSheet(
     npState: NowPlayingState,
     nowPlayingManager: NowPlayingManager,
     isOffline: Boolean = false,
-    downloadedThemeIds: Set<Long> = emptySet(),
+    downloadedMediaKeys: Set<MediaKey> = emptySet(),
     dislikedThemeIds: Set<Long> = emptySet(),
     viewModel: PlayerViewModel,
     onDismiss: () -> Unit
@@ -134,7 +136,7 @@ fun UpNextSheet(
             nowPlayingManager = nowPlayingManager,
             listState = listState,
             isOffline = isOffline,
-            downloadedThemeIds = downloadedThemeIds,
+            downloadedMediaKeys = downloadedMediaKeys,
             dislikedThemeIds = dislikedThemeIds,
             viewModel = viewModel,
             onDismiss = onDismiss,
@@ -158,7 +160,7 @@ private fun UpNextContent(
     nowPlayingManager: NowPlayingManager,
     listState: LazyListState,
     isOffline: Boolean = false,
-    downloadedThemeIds: Set<Long> = emptySet(),
+    downloadedMediaKeys: Set<MediaKey> = emptySet(),
     dislikedThemeIds: Set<Long> = emptySet(),
     viewModel: PlayerViewModel,
     onDismiss: () -> Unit,
@@ -327,10 +329,8 @@ private fun UpNextContent(
                 ) { index, entry ->
                     val theme = entry.themeOrNull
                     val anime = entry.item.anime ?: theme?.animeId?.let { npState.animeMap[it] }
-                    val isUnavailable = isOffline && when (val item = entry.item) {
-                        is PlayableItem.Theme -> item.theme.id !in downloadedThemeIds
-                        is PlayableItem.RelatedSong -> item.localFilePath.isNullOrBlank()
-                    }
+                    val isUnavailable = isOffline &&
+                        !isExactOfflineAvailable(entry, downloadedMediaKeys, npState.playbackIntent)
                     val isDisliked = theme?.id in dislikedThemeIds
                     val key = historyKey(entry.queueId)
                     val isDragging = dragDropState.draggingItemKey == key
@@ -393,10 +393,8 @@ private fun UpNextContent(
                     val theme = entry.themeOrNull
                     val queueIdx = npState.indexOfQueueId(entry.queueId)
                     val anime = entry.item.anime ?: theme?.animeId?.let { npState.animeMap[it] }
-                    val isUnavailable = isOffline && when (val item = entry.item) {
-                        is PlayableItem.Theme -> item.theme.id !in downloadedThemeIds
-                        is PlayableItem.RelatedSong -> item.localFilePath.isNullOrBlank()
-                    }
+                    val isUnavailable = isOffline &&
+                        !isExactOfflineAvailable(entry, downloadedMediaKeys, npState.playbackIntent)
                     val isDisliked = theme?.id in dislikedThemeIds
                     val key = queueKey(entry.queueId)
                     val isDragging = dragDropState.draggingItemKey == key
@@ -437,10 +435,8 @@ private fun UpNextContent(
                     val theme = entry.themeOrNull
                     val queueIdx = npState.indexOfQueueId(entry.queueId)
                     val anime = entry.item.anime ?: theme?.animeId?.let { npState.animeMap[it] }
-                    val isUnavailable = isOffline && when (val item = entry.item) {
-                        is PlayableItem.Theme -> item.theme.id !in downloadedThemeIds
-                        is PlayableItem.RelatedSong -> item.localFilePath.isNullOrBlank()
-                    }
+                    val isUnavailable = isOffline &&
+                        !isExactOfflineAvailable(entry, downloadedMediaKeys, npState.playbackIntent)
                     val isDisliked = theme?.id in dislikedThemeIds
                     val key = queueKey(entry.queueId)
                     val isDragging = dragDropState.draggingItemKey == key

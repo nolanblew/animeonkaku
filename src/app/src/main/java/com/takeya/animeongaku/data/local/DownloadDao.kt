@@ -157,6 +157,9 @@ interface DownloadDao {
     @Query("SELECT * FROM download_group WHERE groupType = :type AND groupId = :groupId LIMIT 1")
     suspend fun findGroup(type: String, groupId: String): DownloadGroupEntity?
 
+    @Query("SELECT * FROM download_group WHERE groupType = :type AND groupId = :groupId ORDER BY id")
+    suspend fun findGroups(type: String, groupId: String): List<DownloadGroupEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertGroup(group: DownloadGroupEntity): Long
 

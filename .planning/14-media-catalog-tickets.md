@@ -2230,6 +2230,7 @@ redundant large run.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete (2026-07-22) |
 | Area | Android / WorkManager and Downloads UI |
 | Difficulty | High |
 | Effort | XL, 6–8 days |
@@ -2286,6 +2287,24 @@ Expected areas:
 
 The download item owns the physical file; groups are presentation/selection
 relationships.
+
+#### Completion and testing notes
+
+Cut downloads over to canonical MediaKey items with one physical file and
+independent anime, album, playlist, or single-item memberships. Full Size
+resolves to SONG audio, exact playlist requirements never substitute TV, and
+legacy TV paths remain compatible. Manager/worker flows now cover Wi-Fi,
+pause/resume/retry/removal, MIME-aware filenames, authenticated artwork,
+temporary-file finalization, cancellation-safe cleanup, and structural Video
+rejection. The Downloads UI exposes expandable titled groups, per-item states,
+and reachable Full/Related/album actions.
+
+Sol/Medium UX and final review passed after exact-offline, duplicate-group,
+and active-removal race fixes. Terra/High QA source-audited the final flow and
+the primary final gate passed 493/493 tests across 77 suites,
+`compileDebugAndroidTestKotlin`, and debug APK assembly (93,252,239 bytes).
+The attached Pixel 7 Pro airplane-mode/migrated-TV acceptance remains in the
+final MC-Q01 device pass.
 
 ### MC-A11 — Integrate OSTs and liked Related Music into Home
 

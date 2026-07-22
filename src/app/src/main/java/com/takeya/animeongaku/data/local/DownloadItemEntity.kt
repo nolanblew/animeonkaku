@@ -24,6 +24,14 @@ data class DownloadItemEntity(
     val legacyThemeId: Long? = null
 ) {
     companion object {
+        const val STATUS_PENDING = "pending"
+        const val STATUS_DOWNLOADING = "downloading"
+        const val STATUS_RETRYING = "retrying"
+        const val STATUS_COMPLETED = "completed"
+        const val STATUS_FAILED = "failed"
+        const val STATUS_PAUSED = "paused"
+        const val STATUS_WAITING_FOR_WIFI = "waiting_for_wifi"
+
         fun tvSizeMediaKey(themeId: Long): String = "THEME:$themeId:TV_SIZE"
         /** Full Size resolves to the same canonical song bytes as Related Music. */
         fun fullSizeMediaKey(themeId: Long, songId: Long): String = songMediaKey(songId)

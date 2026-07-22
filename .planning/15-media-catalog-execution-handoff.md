@@ -297,6 +297,19 @@ device acceptance after the Android chain is complete.
 - Resume at MC-A10. Generalize downloads around stable MediaKey identity,
   exact TV/Full/SONG resolution, shared physical files, and independent group
   membership. Never create Video download entries.
+- MC-A10 is complete in the ticket commit containing this handoff update. It
+  makes canonical MediaKey items authoritative, preserves legacy TV paths,
+  resolves Full to SONG audio, deduplicates physical files across independent
+  anime/album/playlist memberships, and adds exact grouped download UI plus
+  reachable Full/Related/album actions. Worker cancellation/removal cannot
+  finalize orphan files, and Video is rejected at download boundaries.
+- MC-A10 verification: final 493/493 unit tests across 77 suites,
+  Android-test Kotlin compilation, debug APK assembly, Sol/Medium UX and code
+  review, Terra/High QA audit, and diff check passed. The attached Pixel 7 Pro
+  will cover migrated-TV and airplane-mode behavior during MC-Q01.
+- Resume at MC-A11. Add the default-on local `Show OSTs on Home` setting,
+  include ready OST songs when enabled and non-OST Related songs only when
+  liked, and reuse the existing Home/Quick Picks layout.
 
 ## Agent model policy
 

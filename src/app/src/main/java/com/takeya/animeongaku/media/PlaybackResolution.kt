@@ -321,6 +321,7 @@ internal fun completedLocalMedia(downloads: List<DownloadItemEntity>): Map<Media
     downloads.mapNotNull { download ->
         val path = download.filePath?.takeIf(String::isNotBlank) ?: return@mapNotNull null
         if (!download.status.equals("completed", ignoreCase = true)) return@mapNotNull null
+        if (!path.contains("://") && !java.io.File(path).isFile) return@mapNotNull null
         val key = MediaKey(download.mediaKey)
         key to LocalMediaFile(key, path)
     }.toMap()
