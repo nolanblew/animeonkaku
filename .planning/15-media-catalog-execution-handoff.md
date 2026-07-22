@@ -187,6 +187,24 @@ was started in this continuation. Preserve `.codex-remote-attachments/`, keep
 one commit per ticket, and perform the planned large-section review/QA and
 device acceptance after the Android chain is complete.
 
+## 2026-07-21 Android catalog continuation
+
+- MC-S11 is committed at `0459549 feat(server): add mode-specific music user
+  state`.
+- MC-A01 is complete in the ticket commit containing this handoff update. It
+  adds backward-compatible catalog/mode/user-state API contracts, Room v23
+  typed music and exact-media storage, stable typed playlist storage, and
+  transactional READY catalog sync without deleting independent downloads or
+  preferences.
+- MC-A01 verification: focused 23/23, full Android unit 388/388,
+  `compileDebugAndroidTestKotlin`, `lintDebug`, `assembleDebug`, and diff check
+  passed. Sol/Medium review and Terra/High QA passed.
+- No ADB device was attached. The compiled v22→v23 migration and Room
+  cache-preservation instrumentation must execute during the final device QA.
+- Resume at MC-A02. Preserve queue occurrence identity and all existing
+  single/multi/duplicate insertion invariants; do not implement mode switching
+  until MC-A03.
+
 ## Agent model policy
 
 - Use `gpt-5.6-luna` for Luna-mapped work when available.

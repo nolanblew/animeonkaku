@@ -1494,6 +1494,7 @@ announcements were corrected. Real-device controller smoke remains MC-Q01R.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete |
 | Area | Android / Retrofit / Room / sync |
 | Difficulty | High |
 | Effort | XL, 6–8 days |
@@ -1545,6 +1546,33 @@ Expected areas:
 
 Do not expose UI yet. Independent download entities must not be deleted when a
 music snapshot changes.
+
+#### Completion and testing notes
+
+Completed on 2026-07-21. Added backward-compatible mode, music-catalog,
+playlist-item, song-preference, search/detail, and typed play-event contracts;
+a dedicated authenticated music API; and Room v23 entities/DAOs for songs,
+releases, anime ownership, release tracks, theme modes, song preferences,
+typed playlist entries, and exact media-key downloads. The v22→v23 migration
+preserves legacy theme-only data, gives playlist entries stable identities,
+and backfills only completed TV downloads. Full Size uses the canonical
+`SONG:{songId}:AUDIO` key so later download grouping can deduplicate files.
+
+Library pull now maps media modes, song-pref tombstones, polymorphic playlist
+items, and READY music snapshots, rebasing server-owned URLs while preserving
+external video URLs. Catalog junction replacement is transactional and leaves
+independent preferences and downloads untouched. Old responses with none of
+the additive fields retain their prior behavior.
+
+TDD began with the intended missing-contract compilation failures. Final
+focused tests passed 23/23 and the full Android unit suite passed 388/388.
+`compileDebugAndroidTestKotlin`, `lintDebug`, `assembleDebug`, and
+`git diff --check` passed; schema `23.json` was generated. The compiled
+v22→v23 migration and Room cache-preservation instrumentation could not run
+because no ADB device was attached and remains required in final device QA.
+Independent Sol/Medium review passed after completed-download filtering,
+canonical Full media keys, and stable legacy entry identities were corrected.
+Independent Terra/High QA passed with no remaining code blocker.
 
 ### MC-A02 — Generalize the queue from ThemeEntity to PlayableItem
 

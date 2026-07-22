@@ -69,7 +69,9 @@ data class OngakuChangesResponse(
     val anime: List<OngakuAnimeDto>,
     val themes: List<OngakuThemeDto>,
     val prefs: List<OngakuThemePrefDto>,
-    val playlists: List<OngakuPlaylistDto>
+    val playlists: List<OngakuPlaylistDto>,
+    val songPrefs: List<OngakuSongPrefDto>? = null,
+    val musicCatalog: List<OngakuAnimeMusicDto>? = null
 )
 
 data class OngakuAnimeDetailResponse(
@@ -80,7 +82,26 @@ data class OngakuAnimeDetailResponse(
 data class OngakuSearchResponse(
     val query: String,
     val animeThemes: AnimeThemesSearchResponse = AnimeThemesSearchResponse(),
-    val kitsu: Any? = null
+    val kitsu: Any? = null,
+    val music: OngakuMusicSearchDto = OngakuMusicSearchDto()
+)
+
+data class OngakuMusicSearchDto(
+    val releases: List<OngakuMusicReleaseSearchResultDto> = emptyList(),
+    val tracks: List<OngakuMusicTrackSearchResultDto> = emptyList()
+)
+
+data class OngakuMusicReleaseSearchResultDto(
+    val anime: List<OngakuMusicAnimeSummaryDto> = emptyList(),
+    val release: OngakuMusicReleaseDto
+)
+
+data class OngakuMusicTrackSearchResultDto(
+    val anime: OngakuMusicAnimeSummaryDto,
+    val relationshipType: String? = null,
+    val releaseId: Long,
+    val releaseTitle: String,
+    val track: OngakuMusicTrackDto
 )
 
 data class AnimeThemesSingleArtistResponse(
@@ -145,8 +166,37 @@ data class OngakuThemeDto(
     val audioState: String,
     val durationSeconds: Int?,
     val fileSize: Long?,
+    val mediaModes: OngakuThemeMediaModesDto? = null,
     val updatedAt: Long,
     val deleted: Boolean
+)
+
+data class OngakuThemeMediaModesDto(
+    val tvSize: OngakuTvSizeModeDto,
+    val fullSize: OngakuFullSizeModeDto? = null,
+    val video: OngakuVideoModeDto? = null
+)
+
+data class OngakuTvSizeModeDto(
+    val url: String,
+    val durationSeconds: Int? = null,
+    val fileSize: Long? = null
+)
+
+data class OngakuFullSizeModeDto(
+    val songId: Long,
+    val url: String,
+    val durationSeconds: Int? = null,
+    val fileSize: Long? = null,
+    val sourceReleaseId: Long? = null
+)
+
+data class OngakuVideoModeDto(
+    val url: String,
+    val mimeType: String? = null,
+    val spoiler: Boolean = false,
+    val nsfw: Boolean = false,
+    val entryVersion: Int? = null
 )
 
 data class OngakuThemeArtistDto(
@@ -159,6 +209,8 @@ data class OngakuThemePrefDto(
     val themeId: Long,
     val liked: Boolean,
     val disliked: Boolean,
+    val dislikedTvSize: Boolean = false,
+    val dislikedFullSize: Boolean = false,
     val playCount: Int,
     val lastPlayedAt: Long?,
     val updatedAt: Long = 0L,
@@ -168,12 +220,22 @@ data class OngakuThemePrefDto(
 data class OngakuThemePrefPatch(
     val liked: Boolean? = null,
     val disliked: Boolean? = null,
+    val dislikedTvSize: Boolean? = null,
+    val dislikedFullSize: Boolean? = null,
     // Client op-timestamp (epoch ms) of when the user toggled; drives server last-write-wins.
     val opTs: Long? = null
 )
 
 data class OngakuPlayEvent(
     val themeId: Long,
+    val playedAt: Long
+)
+
+data class OngakuActualPlayEvent(
+    val clientEventId: String,
+    val itemType: String,
+    val itemId: Long,
+    val actualMode: String,
     val playedAt: Long
 )
 
@@ -184,7 +246,9 @@ data class OngakuPlayAcceptedResponse(
 data class OngakuPlaylistDto(
     val id: Long,
     val name: String,
-    val entries: List<Long>,
+    val entries: List<Long> = emptyList(),
+    val defaultMode: String = "TV_SIZE",
+    val items: List<OngakuPlaylistItemDto> = emptyList(),
     val isAuto: Boolean,
     val updatedAt: Long,
     val dynamicSpecJson: Any?,
@@ -194,13 +258,29 @@ data class OngakuPlaylistDto(
     val dynamicSortJson: Any? = null
 )
 
+data class OngakuPlaylistItemDto(
+    val entryId: Long,
+    val itemType: String,
+    val itemId: Long,
+    val modeOverride: String? = null
+)
+
 data class OngakuPlaylistRequest(
     val name: String? = null,
     val entries: List<Long>? = null,
+    val defaultMode: String? = null,
+    val items: List<OngakuPlaylistItemRequest>? = null,
     val dynamicSpecJson: Any? = null,
     val dynamicSortJson: Any? = null,
     val autoUpdate: Boolean? = null,
     val opTs: Long? = null
+)
+
+data class OngakuPlaylistItemRequest(
+    val entryId: Long? = null,
+    val itemType: String,
+    val itemId: Long,
+    val modeOverride: String? = null
 )
 
 data class OngakuPlaylistResponse(
@@ -244,4 +324,57 @@ data class OngakuAudioRequestResponse(
     val themeId: Long,
     val audioState: String,
     val jobId: Long
+)
+
+data class OngakuSongPrefDto(
+    val songId: Long,
+    val liked: Boolean,
+    val disliked: Boolean,
+    val playCount: Int,
+    val lastPlayedAt: Long?,
+    val updatedAt: Long = 0L,
+    val deleted: Boolean = false
+)
+
+data class OngakuSongPrefPatch(
+    val liked: Boolean? = null,
+    val disliked: Boolean? = null,
+    val opTs: Long? = null
+)
+
+data class OngakuMusicAnimeSummaryDto(
+    val kitsuId: String,
+    val title: String? = null,
+    val titleEn: String? = null,
+    val posterUrl: String? = null,
+    val relationshipType: String? = null
+)
+
+data class OngakuAnimeMusicDto(
+    val anime: OngakuMusicAnimeSummaryDto,
+    val releases: List<OngakuMusicReleaseDto> = emptyList()
+)
+
+data class OngakuMusicReleaseDto(
+    val id: Long,
+    val title: String,
+    val artistCredit: String,
+    val relationshipType: String,
+    val releaseDate: String? = null,
+    val year: Int? = null,
+    val artworkUrl: String? = null,
+    val tracks: List<OngakuMusicTrackDto> = emptyList(),
+    val anime: List<OngakuMusicAnimeSummaryDto> = emptyList()
+)
+
+data class OngakuMusicTrackDto(
+    val id: Long,
+    val title: String,
+    val artistCredit: String,
+    val durationSeconds: Int? = null,
+    val audioUrl: String,
+    val fileSize: Long? = null,
+    val discNumber: Int = 1,
+    val trackNumber: Int? = null,
+    val displayOrder: Int = 0
 )

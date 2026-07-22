@@ -12,5 +12,9 @@ data class PendingPlayEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val themeId: Long,
     val playedAt: Long,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val clientEventId: String? = null,
+    val itemType: String = "THEME",
+    val itemId: Long = themeId,
+    val actualMode: String = "TV_SIZE"
 )

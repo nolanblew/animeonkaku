@@ -10,6 +10,7 @@ data class PlaylistEntity(
     val createdAt: Long,
     val isAuto: Boolean = false,
     val gradientSeed: Int = 0,
+    val defaultMode: String = "TV_SIZE",
     val updatedAt: Long = createdAt,
     val deletedAt: Long? = null
 )

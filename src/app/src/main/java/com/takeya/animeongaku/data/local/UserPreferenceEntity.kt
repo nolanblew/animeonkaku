@@ -9,6 +9,8 @@ data class UserPreferenceEntity(
     val themeId: Long,
     val isLiked: Boolean = false,
     val isDisliked: Boolean = false,
+    val isDislikedTvSize: Boolean = false,
+    val isDislikedFullSize: Boolean = false,
     val updatedAt: Long = 0L,
     val deletedAt: Long? = null
 )

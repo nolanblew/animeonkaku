@@ -1,0 +1,42 @@
+package com.takeya.animeongaku.data.local
+
+import androidx.room.Entity
+import androidx.room.Index
+
+@Entity(
+    tableName = "download_items",
+    indices = [Index(value = ["itemType", "itemId", "mode"], unique = true)]
+)
+data class DownloadItemEntity(
+    @androidx.room.PrimaryKey val mediaKey: String,
+    val itemType: String,
+    val itemId: Long,
+    val mode: String,
+    val status: String,
+    val progress: Int = 0,
+    val filePath: String? = null,
+    val imagePath: String? = null,
+    val fileSize: Long = 0,
+    val errorMessage: String? = null,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val workManagerId: String? = null,
+    val legacyThemeId: Long? = null
+) {
+    companion object {
+        fun tvSizeMediaKey(themeId: Long): String = "THEME:$themeId:TV_SIZE"
+        /** Full Size resolves to the same canonical song bytes as Related Music. */
+        fun fullSizeMediaKey(themeId: Long, songId: Long): String = songMediaKey(songId)
+        fun songMediaKey(songId: Long): String = "SONG:$songId:AUDIO"
+    }
+}
+
+@Entity(
+    tableName = "download_group_items",
+    primaryKeys = ["groupId", "mediaKey"],
+    indices = [Index("mediaKey")]
+)
+data class DownloadGroupItemEntity(
+    val groupId: Long,
+    val mediaKey: String
+)

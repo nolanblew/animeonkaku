@@ -22,6 +22,11 @@ import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.local.UserPreferenceDao
 import com.takeya.animeongaku.data.local.UserPreferenceEntity
+import com.takeya.animeongaku.data.local.ThemeModeEntity
+import com.takeya.animeongaku.data.local.ThemeModeDao
+import com.takeya.animeongaku.data.local.MusicCatalogDao
+import com.takeya.animeongaku.data.local.SongPreferenceDao
+import com.takeya.animeongaku.data.local.SongPreferenceEntity
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -36,7 +41,10 @@ class RoomLibraryPullCache @Inject constructor(
     private val playCountDao: PlayCountDao,
     private val pendingOpDao: PendingOpDao,
     private val playlistDao: PlaylistDao,
-    private val dynamicPlaylistSpecDao: DynamicPlaylistSpecDao
+    private val dynamicPlaylistSpecDao: DynamicPlaylistSpecDao,
+    private val themeModeDao: ThemeModeDao,
+    private val musicCatalogDao: MusicCatalogDao,
+    private val songPreferenceDao: SongPreferenceDao
 ) : LibraryPullCache {
     override suspend fun existingThemes(themeIds: List<Long>): Map<Long, ThemeEntity> {
         if (themeIds.isEmpty()) return emptyMap()
@@ -48,6 +56,7 @@ class RoomLibraryPullCache @Inject constructor(
         deletedThemeIds: List<Long>,
         anime: List<AnimeEntity>,
         themes: List<ThemeEntity>,
+        themeModes: List<ThemeModeEntity>,
         artistRefs: List<ThemeArtistCrossRef>,
         genres: List<GenreEntity>,
         genreRefs: List<AnimeGenreCrossRef>
@@ -83,6 +92,9 @@ class RoomLibraryPullCache @Inject constructor(
                 if (artistRefs.isNotEmpty()) {
                     artistDao.upsertCrossRefs(artistRefs)
                 }
+                if (themeModes.isNotEmpty()) {
+                    themeModeDao.upsertAll(themeModes)
+                }
             }
 
             val changedAnimeIds = genreRefs.map { it.kitsuId }.distinct()
@@ -95,6 +107,35 @@ class RoomLibraryPullCache @Inject constructor(
             if (genreRefs.isNotEmpty()) {
                 genreDao.upsertCrossRefs(genreRefs)
             }
+        }
+    }
+
+    override suspend fun applySongPrefs(preferences: List<SongPreferenceEntity>) {
+        if (preferences.isEmpty()) return
+        database.withTransaction {
+            val localById = songPreferenceDao
+                .getByIdsIncludingDeleted(preferences.map { it.songId })
+                .associateBy { it.songId }
+            val applicable = preferences.filter { incoming ->
+                val local = localById[incoming.songId]
+                local == null || incoming.updatedAt >= local.updatedAt
+            }
+            if (applicable.isNotEmpty()) songPreferenceDao.upsertAll(applicable)
+        }
+    }
+
+    override suspend fun replaceMusicCatalog(snapshot: MusicCatalogSnapshot) {
+        database.withTransaction {
+            // musicCatalog is a complete ready-only snapshot. Delete only catalog-owned
+            // rows; download_items and preferences are deliberately independent.
+            musicCatalogDao.deleteAnimeReleases()
+            musicCatalogDao.deleteReleaseTracks()
+            musicCatalogDao.deleteReleases()
+            musicCatalogDao.deleteSongs()
+            if (snapshot.songs.isNotEmpty()) musicCatalogDao.upsertSongs(snapshot.songs)
+            if (snapshot.releases.isNotEmpty()) musicCatalogDao.upsertReleases(snapshot.releases)
+            if (snapshot.releaseTracks.isNotEmpty()) musicCatalogDao.upsertReleaseTracks(snapshot.releaseTracks)
+            if (snapshot.animeReleases.isNotEmpty()) musicCatalogDao.upsertAnimeReleases(snapshot.animeReleases)
         }
     }
 

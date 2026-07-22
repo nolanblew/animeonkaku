@@ -11,6 +11,10 @@ import com.takeya.animeongaku.data.local.DynamicPlaylistSpecDao
 import com.takeya.animeongaku.data.local.GenreDao
 import com.takeya.animeongaku.data.local.PendingOpDao
 import com.takeya.animeongaku.data.local.PendingPlayDao
+import com.takeya.animeongaku.data.local.MusicCatalogDao
+import com.takeya.animeongaku.data.local.ThemeModeDao
+import com.takeya.animeongaku.data.local.SongPreferenceDao
+import com.takeya.animeongaku.data.local.DownloadItemDao
 import com.takeya.animeongaku.data.local.PlayCountDao
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.ThemeDao
@@ -56,7 +60,8 @@ object DatabaseModule {
         AppDatabase.MIGRATION_18_19,
         AppDatabase.MIGRATION_19_20,
         AppDatabase.MIGRATION_20_21,
-        AppDatabase.MIGRATION_21_22
+        AppDatabase.MIGRATION_21_22,
+        AppDatabase.MIGRATION_22_23
     ).build()
 
     @Provides
@@ -94,6 +99,18 @@ object DatabaseModule {
 
     @Provides
     fun providePendingOpDao(database: AppDatabase): PendingOpDao = database.pendingOpDao()
+
+    @Provides
+    fun provideMusicCatalogDao(database: AppDatabase): MusicCatalogDao = database.musicCatalogDao()
+
+    @Provides
+    fun provideThemeModeDao(database: AppDatabase): ThemeModeDao = database.themeModeDao()
+
+    @Provides
+    fun provideSongPreferenceDao(database: AppDatabase): SongPreferenceDao = database.songPreferenceDao()
+
+    @Provides
+    fun provideDownloadItemDao(database: AppDatabase): DownloadItemDao = database.downloadItemDao()
 
     @Provides
     @Singleton

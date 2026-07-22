@@ -15,6 +15,7 @@ import com.takeya.animeongaku.data.auth.OngakuAuthRepository
 import com.takeya.animeongaku.data.auth.OngakuAuthRepositoryImpl
 import com.takeya.animeongaku.data.auth.ServerTokenStore
 import com.takeya.animeongaku.data.remote.OngakuApi
+import com.takeya.animeongaku.data.remote.OngakuMusicApi
 import com.takeya.animeongaku.data.remote.MusicRequestApi
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.network.OngakuAuthInterceptor
@@ -149,6 +150,11 @@ object NetworkModule {
     fun provideOngakuApi(@Named("ongaku") retrofit: Retrofit): OngakuApi {
         return retrofit.create(OngakuApi::class.java)
     }
+
+    @Provides
+    @Singleton
+    fun provideOngakuMusicApi(@Named("ongaku") retrofit: Retrofit): OngakuMusicApi =
+        retrofit.create(OngakuMusicApi::class.java)
 
     @Provides
     @Singleton
