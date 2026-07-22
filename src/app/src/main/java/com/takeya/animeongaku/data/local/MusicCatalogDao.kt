@@ -120,6 +120,26 @@ interface MusicCatalogDao {
         """
     )
     fun searchTracks(query: String): Flow<List<MusicTrackSearchRow>>
+
+    @Query(
+        """
+        SELECT s.*, rt.releaseId, r.title AS releaseTitle, r.artistCredit AS releaseArtistCredit,
+               r.releaseDate AS releaseDate, r.year AS releaseYear, r.artworkUrl AS releaseArtworkUrl,
+               rt.discNumber, rt.trackNumber, rt.displayOrder, amr.relationshipType,
+               a.kitsuId AS ownerKitsuId,
+               COALESCE(a.titleEn, a.title, a.titleRomaji, a.titleJa) AS ownerTitle,
+               COALESCE(a.thumbnailUrlLarge, a.thumbnailUrl, a.coverUrlLarge, a.coverUrl) AS ownerArtworkUrl
+        FROM songs s
+        JOIN release_tracks rt ON rt.songId = s.id
+        JOIN music_releases r ON r.id = rt.releaseId
+        JOIN anime_music_releases amr ON amr.releaseId = r.id
+        JOIN anime a ON a.kitsuId = amr.kitsuAnimeId
+        WHERE TRIM(s.audioUrl) <> ''
+          AND (a.libraryUpdatedAt IS NOT NULL OR a.isManuallyAdded = 1)
+        ORDER BY s.id, rt.displayOrder, r.id, a.kitsuId
+        """
+    )
+    fun observeHomeTracks(): Flow<List<MusicTrackSearchRow>>
 }
 data class MusicReleaseWithRelationship(
     @Embedded val release: MusicReleaseEntity,

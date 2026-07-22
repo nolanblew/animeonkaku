@@ -310,6 +310,15 @@ device acceptance after the Android chain is complete.
 - Resume at MC-A11. Add the default-on local `Show OSTs on Home` setting,
   include ready OST songs when enabled and non-OST Related songs only when
   liked, and reuse the existing Home/Quick Picks layout.
+- MC-A11 is complete in the ticket commit containing this handoff update. It
+  adds the default-on local Settings toggle and a mixed typed Quick Picks feed:
+  ready SOUNDTRACK songs follow the toggle, other Related songs require a
+  specific active like, and disliked/tombstoned/unready/Full-size duplicates
+  are excluded. Existing Home layout and theme behavior remain intact.
+- MC-A11 verification: focused 7/7, production and Android-test Kotlin
+  compilation, Sol/Medium UX and code review, Terra/High QA, and diff check
+  passed. Resume at MC-Q01R, then MC-Q01, using the attached Pixel 7 Pro for
+  the final installation and live acceptance pass.
 
 ## Agent model policy
 

@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -66,6 +67,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val wifiOnly by viewModel.wifiOnly.collectAsStateWithLifecycle()
+    val showOstsOnHome by viewModel.showOstsOnHome.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -108,6 +110,17 @@ fun SettingsScreen(
                 title = "Kitsu Sync",
                 subtitle = "Manage your Kitsu connection",
                 onClick = onOpenImport
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            SectionHeader("Home")
+            SettingsToggleRow(
+                icon = Icons.Rounded.Home,
+                title = "Show OSTs on Home",
+                subtitle = "Include soundtrack songs in Quick picks.",
+                checked = showOstsOnHome,
+                onCheckedChange = viewModel::setShowOstsOnHome
             )
 
             Spacer(modifier = Modifier.height(24.dp))

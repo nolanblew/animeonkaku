@@ -37,6 +37,9 @@ class UserPreferencesRepository @Inject constructor(
     fun observeSongPreference(songId: Long): Flow<SongPreferenceEntity?> =
         requireSongPreferenceDao().observe(songId)
 
+    fun observeSongPreferences(): Flow<List<SongPreferenceEntity>> =
+        requireSongPreferenceDao().observeAll()
+
     fun observeDislikedSongIds(): Flow<List<Long>> = requireSongPreferenceDao().observeAll()
         .map { preferences -> preferences.filter { it.isDisliked }.map { it.songId } }
     

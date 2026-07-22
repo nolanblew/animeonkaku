@@ -79,6 +79,9 @@ class MusicCatalogRepository @Inject constructor(
             MusicSearchResults(releases.map(MusicReleaseSearchRow::toDomain), tracks.map(MusicTrackSearchRow::toDomain))
         }
 
+    fun observeHomeTracks(): Flow<List<RelatedTrack>> =
+        dao.observeHomeTracks().map { rows -> rows.map(MusicTrackSearchRow::toDomain) }
+
     suspend fun refreshAnime(kitsuId: String): List<RelatedRelease> {
         val response = api.animeMusic(kitsuId)
         cache(response.releases, listOf(response.anime))

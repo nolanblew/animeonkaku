@@ -21,6 +21,7 @@ class PlaybackPreferencesTest {
         PlaybackPreferences(storage).apply {
             rememberAudioMode(PlaybackMode.FULL_SIZE)
             showOstsOnHome = false
+            assertFalse(showOstsOnHomeFlow.value)
         }
 
         val restarted = PlaybackPreferences(storage)

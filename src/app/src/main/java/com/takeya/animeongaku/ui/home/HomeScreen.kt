@@ -42,6 +42,7 @@ import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
+import com.takeya.animeongaku.media.PlayableItem
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
@@ -83,7 +84,9 @@ fun HomeScreen(
     }
 
     var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }
+    var sheetQuickPick by remember { mutableStateOf<HomeQuickPick?>(null) }
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
+    var pickerSongId by remember { mutableStateOf<Long?>(null) }
     var pendingVideoRequest by remember { mutableStateOf<BrowseVideoStartRequest?>(null) }
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
     val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
@@ -146,6 +149,41 @@ fun HomeScreen(
         )
     }
 
+    sheetQuickPick?.relatedTrack?.let { track ->
+        val item = sheetQuickPick!!.item
+        val preference by remember(track.song.id) {
+            viewModel.observeSongPreference(track.song.id)
+        }.collectAsStateWithLifecycle(initialValue = null)
+        ActionSheet(
+            config = ActionSheetConfig(
+                title = track.song.title,
+                subtitle = listOf(track.song.artistCredit, track.release.title)
+                    .filter(String::isNotBlank)
+                    .joinToString(" · "),
+                imageUrl = track.release.artworkUrl ?: track.owner.artworkUrl,
+                showGoToArtist = track.song.artistCredit.isNotBlank(),
+                showGoToAnime = track.owner.kitsuId.isNotBlank(),
+                showDownload = true,
+                showLike = true,
+                isLiked = preference?.isLiked == true,
+                showDislike = true,
+                isDisliked = preference?.isDisliked == true,
+                artistName = track.song.artistCredit.split(",").firstOrNull()?.trim(),
+                animeName = track.owner.title
+            ),
+            onDismiss = { sheetQuickPick = null },
+            onPlayNext = { viewModel.playNext(item) },
+            onAddToQueue = { viewModel.addToQueue(item) },
+            onReplaceQueue = { viewModel.replaceQueue(item); onPlayTheme() },
+            onSaveToPlaylist = { pickerSongId = track.song.id },
+            onGoToArtist = { track.song.artistCredit.split(",").firstOrNull()?.trim()?.let(onOpenArtist) },
+            onGoToAnime = { onOpenAnime(track.owner.kitsuId) },
+            onDownload = { viewModel.downloadRelated(track) },
+            onLike = { viewModel.toggleSongLike(track.song.id) },
+            onDislike = { viewModel.toggleSongDislike(track.song.id) }
+        )
+    }
+
     pickerThemeIds?.let { ids ->
         PlaylistPickerSheet(
             playlists = playlists,
@@ -167,6 +205,23 @@ fun HomeScreen(
             onCreatePlaylistWithMode = { name, modeOverride ->
                 viewModel.createAndAddToPlaylist(name, ids, modeOverride)
                 pickerThemeIds = null
+            }
+        )
+    }
+
+
+    pickerSongId?.let { songId ->
+        PlaylistPickerSheet(
+            playlists = playlists,
+            coverUrls = playlistCoverUrls,
+            onDismiss = { pickerSongId = null },
+            onSelectPlaylist = { playlistId ->
+                viewModel.addSongToPlaylist(playlistId, songId)
+                pickerSongId = null
+            },
+            onCreatePlaylist = { name ->
+                viewModel.createAndAddSongToPlaylist(name, songId)
+                pickerSongId = null
             }
         )
     }
@@ -198,14 +253,9 @@ fun HomeScreen(
                 SectionHeader(
                     title = "Quick picks", 
                     action = "Play all",
-                    onActionClick = { 
+                    onActionClick = {
                         if (quickPicks.isNotEmpty()) {
-                            viewModel.nowPlayingManager.play(
-                                "Quick Picks", 
-                                quickPicks, 
-                                0, 
-                                animeMap = viewModel.anime.value.associateBy { it.animeThemesId ?: -1 }
-                            )
+                            viewModel.playAllQuickPicks()
                             onPlayTheme()
                         }
                     }
@@ -218,21 +268,30 @@ fun HomeScreen(
                         if (anime.isEmpty()) {
                             "Sync your library to see quick picks."
                         } else {
-                            "No themes mapped yet. Try syncing again later."
+                            "No music is ready yet. Try syncing again later."
                         }
                     )
                 }
             } else {
-                items(quickPicks, key = { "qp-${it.id}" }) { theme ->
-                    val animeEntry = animeByThemesId[theme.animeId]
-                    val imageUrls = remember(animeEntry) { animeEntry?.primaryArtworkUrls() ?: emptyList() }
+                items(quickPicks, key = { "qp-${it.stableKey}" }) { pick ->
+                    val item = pick.item
+                    val animeEntry = item.anime
+                    val imageUrls = remember(item, animeEntry) {
+                        listOfNotNull(item.display.artworkUrl) + animeEntry?.primaryArtworkUrls().orEmpty()
+                    }
                     QuickPickRow(
-                        theme = theme, anime = animeEntry, imageUrls = imageUrls,
+                        item = item,
+                        imageUrls = imageUrls.distinct(),
                         onPlay = {
-                            viewModel.playFromQuickPicks(theme.id)
+                            viewModel.playFromQuickPicks(pick.stableKey)
                             onPlayTheme()
                         },
-                        onMoreOptions = { sheetTheme = theme }
+                        onMoreOptions = {
+                            when (item) {
+                                is PlayableItem.Theme -> sheetTheme = item.theme
+                                is PlayableItem.RelatedSong -> sheetQuickPick = pick
+                            }
+                        }
                     )
                 }
             }
@@ -282,7 +341,8 @@ fun HomeScreen(
                     val animeEntry = animeByThemesId[theme.animeId]
                     val imageUrls = remember(animeEntry) { animeEntry?.primaryArtworkUrls() ?: emptyList() }
                     QuickPickRow(
-                        theme = theme, anime = animeEntry, imageUrls = imageUrls,
+                        item = PlayableItem.Theme(theme, animeEntry, themeModesById[theme.id]),
+                        imageUrls = imageUrls,
                         onPlay = {
                             viewModel.playFromTopSongs(theme.id)
                             onPlayTheme()
@@ -356,8 +416,18 @@ private fun SectionHeader(title: String, action: String, onActionClick: () -> Un
 
 
 @Composable
-private fun QuickPickRow(theme: ThemeEntity, anime: AnimeEntity?, imageUrls: List<String> = emptyList(), onPlay: () -> Unit, onMoreOptions: () -> Unit = {}) {
-    val info = theme.displayInfo(anime)
+private fun QuickPickRow(item: PlayableItem, imageUrls: List<String> = emptyList(), onPlay: () -> Unit, onMoreOptions: () -> Unit = {}) {
+    val (primaryText, secondaryText) = when (item) {
+        is PlayableItem.Theme -> item.theme.displayInfo(item.anime).let { info ->
+            info.primaryText to info.secondaryText
+        }
+        is PlayableItem.RelatedSong -> {
+            item.song.title to listOfNotNull(
+                item.song.artistCredit.takeIf(String::isNotBlank),
+                item.release?.title?.takeIf(String::isNotBlank) ?: item.anime?.title
+            ).joinToString(" · ")
+        }
+    }
     val shape = RoundedCornerShape(14.dp)
     Row(
         modifier = Modifier
@@ -385,14 +455,14 @@ private fun QuickPickRow(theme: ThemeEntity, anime: AnimeEntity?, imageUrls: Lis
         Spacer(modifier = Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = info.primaryText,
+                text = primaryText,
                 color = Mist100,
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = info.secondaryText,
+                text = secondaryText,
                 style = MaterialTheme.typography.labelSmall,
                 color = Mist200
             )

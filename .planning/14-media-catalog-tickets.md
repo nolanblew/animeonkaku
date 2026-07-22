@@ -2310,6 +2310,7 @@ final MC-Q01 device pass.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete (2026-07-22) |
 | Area | Android / Home and Settings |
 | Difficulty | Medium |
 | Effort | M, 2–3 days |
@@ -2356,6 +2357,21 @@ Expected areas:
 #### Handoff notes
 
 Do not mix all Related Music into existing anime theme bulk Play/Shuffle.
+
+#### Completion and testing notes
+
+Added the default-on device-local `Show OSTs on Home` preference and Settings
+switch, plus a library-owned ready-song candidate query and mixed typed Quick
+Picks model. SOUNDTRACK songs follow the toggle, non-OST Related songs require
+an active like, dislikes/tombstones/unready rows are excluded, duplicate songs
+are deterministic, and every Full-size song ID is excluded so Full remains a
+Theme mode. Existing Top Songs and theme behavior remain unchanged while SONG
+rows use normal queue, reaction, playlist, and download actions.
+
+Sol/Medium UX and code review passed. Terra/High QA passed 7/7 focused tests,
+production and Android-test Kotlin compilation, the filtering/default matrix,
+typed queue/action audit, and diff check. The full 493-test Android gate ran
+immediately before this focused Home slice and will run again during MC-Q01.
 
 ## 8. Cross-system tickets
 
