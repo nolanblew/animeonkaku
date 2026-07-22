@@ -4,6 +4,8 @@ import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.download.DownloadMediaSpec
 import com.takeya.animeongaku.download.resolvePlaylistDownloadMedia
+import com.takeya.animeongaku.download.resolveThemeFullSizeDownload
+import com.takeya.animeongaku.download.resolveSongDownloadSource
 import com.takeya.animeongaku.download.safeDownloadFileName
 import com.takeya.animeongaku.download.shouldDeletePhysicalDownload
 import com.takeya.animeongaku.download.audioExtensionForContentType
@@ -18,6 +20,52 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class DownloadMediaResolutionTest {
+    @Test
+    fun `worker song source falls back to Full mapping when canonical row is absent`() {
+        assertEquals(
+            "/v1/media/songs/1/audio",
+            resolveSongDownloadSource(null, "/v1/media/songs/1/audio")
+        )
+    }
+
+    @Test
+    fun `worker song source prefers canonical catalog row`() {
+        assertEquals(
+            "/canonical/song/1",
+            resolveSongDownloadSource("/canonical/song/1", "/mapped/song/1")
+        )
+    }
+
+    @Test
+    fun `full only mapped song falls back to descriptor URL when song row is absent`() {
+        val descriptor = ThemeModeEntity(
+            themeId = 13434,
+            tvSizeUrl = "/v1/media/audio/13434",
+            fullSizeSongId = 1,
+            fullSizeUrl = "/v1/media/songs/1/audio"
+        )
+
+        assertEquals(
+            DownloadMediaSpec.song(1, "/v1/media/songs/1/audio"),
+            resolveThemeFullSizeDownload(descriptor, canonicalSongUrl = null)
+        )
+    }
+
+    @Test
+    fun `canonical song URL wins over mapped descriptor fallback`() {
+        val descriptor = ThemeModeEntity(
+            themeId = 13434,
+            tvSizeUrl = "/v1/media/audio/13434",
+            fullSizeSongId = 1,
+            fullSizeUrl = "/fallback/songs/1"
+        )
+
+        assertEquals(
+            DownloadMediaSpec.song(1, "/canonical/songs/1"),
+            resolveThemeFullSizeDownload(descriptor, canonicalSongUrl = "/canonical/songs/1")
+        )
+    }
+
     @Test
     fun `playlist resolver uses exact entry mode and canonical song key`() {
         val entries = listOf(

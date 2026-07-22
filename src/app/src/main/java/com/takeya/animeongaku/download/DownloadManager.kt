@@ -135,16 +135,16 @@ class DownloadManager @Inject constructor(
     fun downloadThemeFullSize(theme: ThemeEntity, anime: AnimeEntity? = null) {
         scope.launch {
             val descriptor = themeModeDao.getByThemeIds(listOf(theme.id)).firstOrNull() ?: return@launch
-            val songId = descriptor.fullSizeSongId ?: return@launch
-            val url = musicCatalogDao.getSong(songId)?.audioUrl?.takeIf(String::isNotBlank)
-                ?: return@launch
+            val canonicalSongUrl = descriptor.fullSizeSongId
+                ?.let { songId -> musicCatalogDao.getSong(songId)?.audioUrl }
+            val media = resolveThemeFullSizeDownload(descriptor, canonicalSongUrl) ?: return@launch
             val label = listOfNotNull(anime?.title, theme.title).joinToString(" · ")
             val group = if (anime?.kitsuId != null) {
                 ensureGroup(DownloadGroupEntity.TYPE_ANIME, anime.kitsuId, anime.title ?: theme.title)
             } else {
                 ensureGroup(DownloadGroupEntity.TYPE_SINGLE, "theme:${theme.id}:full", "$label · Full Size")
             }
-            enqueue(listOf(DownloadMediaSpec.song(songId, url)), group)
+            enqueue(listOf(media), group)
         }
     }
 

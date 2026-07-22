@@ -8,6 +8,7 @@ import com.takeya.animeongaku.data.repository.RelatedTrack
 import com.takeya.animeongaku.media.PlayableItem
 import com.takeya.animeongaku.ui.home.assembleHomeQuickPicks
 import com.takeya.animeongaku.ui.home.eligibleHomeRelatedTracks
+import com.takeya.animeongaku.ui.home.filterHomeThemes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -84,4 +85,33 @@ class HomeQuickPicksTest {
         assertEquals("SONG:9", picks.single().stableKey)
         assertTrue(picks.single().item is PlayableItem.RelatedSong)
     }
+
+    @Test
+    fun `OP and ED chips hide songs while All remains mixed`() {
+        val op = PlayableItem.Theme(theme(1, "Song A", "OP1"))
+        val ed = PlayableItem.Theme(theme(2, "Song B", "ED2"))
+        val related = track(9, "SOUNDTRACK")
+
+        assertEquals(listOf(1L), filterHomeThemes(listOf(op.theme, ed.theme), "OPs").map { it.id })
+        assertEquals(listOf(2L), filterHomeThemes(listOf(op.theme, ed.theme), "EDs").map { it.id })
+        assertTrue(assembleHomeQuickPicks(listOf(op), listOf(related), emptySet(), selectedChip = "OPs").none {
+            it.item is PlayableItem.RelatedSong
+        })
+        assertTrue(assembleHomeQuickPicks(listOf(op), listOf(related), emptySet(), selectedChip = null).any {
+            it.item is PlayableItem.RelatedSong
+        })
+    }
+
+    private fun theme(id: Long, title: String, type: String) =
+        com.takeya.animeongaku.data.local.ThemeEntity(
+            id = id,
+            animeId = 10,
+            title = title,
+            artistName = null,
+            audioUrl = "/themes/$id",
+            videoUrl = null,
+            isDownloaded = false,
+            localFilePath = null,
+            themeType = type
+        )
 }

@@ -51,6 +51,17 @@ data class DownloadMediaSpec(
     }
 }
 
+internal fun resolveThemeFullSizeDownload(
+    descriptor: ThemeModeEntity?,
+    canonicalSongUrl: String?
+): DownloadMediaSpec? {
+    val songId = descriptor?.fullSizeSongId ?: return null
+    val sourceUrl = canonicalSongUrl?.takeIf(String::isNotBlank)
+        ?: descriptor.fullSizeUrl?.takeIf(String::isNotBlank)
+        ?: return null
+    return DownloadMediaSpec.song(songId, sourceUrl)
+}
+
 /** Resolves persisted playlist policy only; it never applies online playback fallbacks. */
 internal fun resolvePlaylistDownloadMedia(
     entries: List<PlaylistEntryEntity>,
@@ -69,10 +80,10 @@ internal fun resolvePlaylistDownloadMedia(
             when (mode) {
                 "TV_SIZE" -> descriptor?.tvSizeUrl?.takeIf(String::isNotBlank)
                     ?.let { DownloadMediaSpec.themeTv(entry.itemId, it) }
-                "FULL_SIZE" -> descriptor?.fullSizeSongId?.let { songId ->
-                    val url = songUrls[songId]
-                    url?.takeIf(String::isNotBlank)?.let { DownloadMediaSpec.song(songId, it) }
-                }
+                "FULL_SIZE" -> resolveThemeFullSizeDownload(
+                    descriptor,
+                    descriptor?.fullSizeSongId?.let(songUrls::get)
+                )
                 else -> null
             }
         }

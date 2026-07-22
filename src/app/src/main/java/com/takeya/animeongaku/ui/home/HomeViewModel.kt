@@ -74,10 +74,11 @@ internal fun assembleHomeQuickPicks(
     themes: List<PlayableItem.Theme>,
     relatedTracks: List<RelatedTrack>,
     likedThemeIds: Set<Long>,
+    selectedChip: String? = null,
     limit: Int = 6
 ): List<HomeQuickPick> {
     val themePicks = themes.sortedByDescending { it.theme.id in likedThemeIds }.map { HomeQuickPick(it) }
-    val relatedPicks = relatedTracks.map { track ->
+    val relatedPicks = relatedTracks.takeIf { selectedChip == null }.orEmpty().map { track ->
         HomeQuickPick(
             PlayableItem.RelatedSong(
                 song = track.song,
@@ -97,6 +98,13 @@ internal fun assembleHomeQuickPicks(
     }
     return mixed
 }
+
+internal fun filterHomeThemes(themes: List<ThemeEntity>, selectedChip: String?): List<ThemeEntity> =
+    when (selectedChip) {
+        "OPs" -> themes.filter { it.themeType?.trim()?.startsWith("OP", ignoreCase = true) == true }
+        "EDs" -> themes.filter { it.themeType?.trim()?.startsWith("ED", ignoreCase = true) == true }
+        else -> themes
+    }
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -141,11 +149,7 @@ class HomeViewModel @Inject constructor(
     val selectedChip: StateFlow<String?> = _selectedChip.asStateFlow()
 
     val themes: StateFlow<List<ThemeEntity>> = combine(allThemes, _selectedChip) { themes, chip ->
-        when (chip) {
-            "OPs" -> themes.filter { it.title.contains("OP", ignoreCase = true) }
-            "EDs" -> themes.filter { it.title.contains("ED", ignoreCase = true) }
-            else -> themes
-        }
+        filterHomeThemes(themes, chip)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val themeModesById: StateFlow<Map<Long, ThemeModeEntity>> = allThemes
@@ -175,18 +179,23 @@ class HomeViewModel @Inject constructor(
         )
     }
 
+    private val chipAwareRelatedTracks = combine(eligibleRelatedTracks, _selectedChip) { related, chip ->
+        related to chip
+    }
+
     val quickPicks: StateFlow<List<HomeQuickPick>> = combine(
         shuffledThemes,
         userPreferencesRepository.observeLikedThemeIds(),
         anime,
         themeModesById,
-        eligibleRelatedTracks
-    ) { themeList, likedIds, animeList, modes, related ->
+        chipAwareRelatedTracks
+    ) { themeList, likedIds, animeList, modes, relatedAndChip ->
+        val (related, chip) = relatedAndChip
         val animeById = animeList.mapNotNull { owner -> owner.animeThemesId?.let { it to owner } }.toMap()
         val themeItems = themeList.map { theme ->
             PlayableItem.Theme(theme, theme.animeId?.let(animeById::get), modes[theme.id])
         }
-        assembleHomeQuickPicks(themeItems, related, likedIds.toSet())
+        assembleHomeQuickPicks(themeItems, related, likedIds.toSet(), selectedChip = chip)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val topSongs: StateFlow<List<ThemeEntity>> = combine(shuffledThemes, userPreferencesRepository.observeLikedThemeIds()) { list, likedIds ->

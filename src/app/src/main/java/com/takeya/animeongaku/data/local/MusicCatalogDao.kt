@@ -194,6 +194,9 @@ interface ThemeModeDao {
 
     @Query("SELECT * FROM theme_modes WHERE themeId IN (:themeIds)")
     suspend fun getByThemeIds(themeIds: List<Long>): List<ThemeModeEntity>
+
+    @Query("SELECT * FROM theme_modes WHERE fullSizeSongId = :songId ORDER BY themeId LIMIT 1")
+    suspend fun getByFullSizeSongId(songId: Long): ThemeModeEntity?
 }
 
 @Dao

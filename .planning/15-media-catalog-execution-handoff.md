@@ -328,3 +328,23 @@ device acceptance after the Android chain is complete.
 - Sol is allowed only where the original mapping explicitly permits it: UX and
   review at Medium, and medium/high-complexity development at the specified
   Medium/High effort.
+
+## 2026-07-22 initiative completion
+
+- MC-Q01R is committed as `a48ddf6`. It validates the live AMF controller,
+  shared staging/import contract, debug request flow, verified delivery
+  evidence, restart recovery, and AMF outage behavior.
+- MC-Q01 is complete in the ticket commit containing this handoff update. Final
+  acceptance fixed terminal request refresh, Home OP/ED filtering, and Full-only
+  SONG download resolution in both the enqueue and worker paths.
+- The final debug APK is installed on the attached Pixel 7 Pro. Room migrated
+  from 22 to 23 in place; Full and Related playback, direct portrait/landscape
+  Video, Home filtering, successful WorkManager download, and offline Full Size
+  playback were exercised. Device network and orientation settings were restored.
+- Full server tests/typecheck and the final 503/503 Android unit, lint, build,
+  and compile gates passed. Sol/Medium review and Terra/High QA passed. The
+  authoritative details and the one live limitation are recorded in
+  `.planning/17-media-catalog-acceptance-report.md`.
+- No media-catalog initiative ticket remains open. Keep
+  `MUSIC_CATALOG_ENABLED=true` and `MUSIC_DISCOVERY_ENABLED=false` until a later
+  explicit decision enables automatic background acquisition.

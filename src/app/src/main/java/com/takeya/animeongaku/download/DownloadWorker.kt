@@ -91,6 +91,10 @@ private class DownloadNoLongerEligibleException : Exception()
 internal fun isDownloadStillEligible(item: DownloadItemEntity?): Boolean =
     item?.status == DownloadItemEntity.STATUS_DOWNLOADING
 
+internal fun resolveSongDownloadSource(canonicalSongUrl: String?, mappedFullSizeUrl: String?): String? =
+    canonicalSongUrl?.takeIf(String::isNotBlank)
+        ?: mappedFullSizeUrl?.takeIf(String::isNotBlank)
+
 internal fun deleteUncommittedTransfer(file: File?) {
     file?.takeIf(File::exists)?.delete()
 }
@@ -219,7 +223,13 @@ class DownloadWorker @AssistedInject constructor(
                 themeModeDao.getByThemeIds(listOf(item.itemId)).firstOrNull()?.tvSizeUrl
                     ?: themeDao.getByIds(listOf(item.itemId)).firstOrNull()?.audioUrl
             }
-            DownloadMediaSpec.TYPE_SONG -> musicCatalogDao.getSong(item.itemId)?.audioUrl
+            DownloadMediaSpec.TYPE_SONG -> {
+                val canonicalSongUrl = musicCatalogDao.getSong(item.itemId)?.audioUrl
+                val mappedFullSizeUrl = if (canonicalSongUrl.isNullOrBlank()) {
+                    themeModeDao.getByFullSizeSongId(item.itemId)?.fullSizeUrl
+                } else null
+                resolveSongDownloadSource(canonicalSongUrl, mappedFullSizeUrl)
+            }
             else -> null
         }?.takeIf(String::isNotBlank) ?: return null
         return rebaseServerMediaUrl(serverSettingsStore.serverBaseUrl, raw)

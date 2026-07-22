@@ -1,6 +1,6 @@
 # Implementation Backlog — Media Catalog Initiative
 
-**Status:** In progress; acquisition replacement tranche added 2026-07-21
+**Status:** Complete (2026-07-22)
 
 **Date:** 2026-07-19
 
@@ -1839,7 +1839,7 @@ receive no bearer token. Embedded-video UI remains deferred to MC-A05.
 
 | Field | Value |
 |---|---|
-| Status | 🟨 Implementation complete; device QA pending |
+| Status | ✅ Complete (2026-07-22) |
 | Area | Android / Compose / Media3 UI |
 | Difficulty | High |
 | Effort | XL, 6–8 days |
@@ -1919,10 +1919,11 @@ Android unit suite passed 455/455; focused final tests passed 16/16;
 and independent Terra/High static/serial QA passed after collapsed semantics,
 touch targets, accessibility timeout/live-region behavior, D13 resume, session
 metadata, and system-bar restoration were corrected. Instrumented selector and
-landscape-control tests compile but did not execute because no ADB device is
-connected. Required real-device portrait/landscape rotation, PlayerView,
-control, TalkBack, audio/video exclusivity, D13, and system-bar acceptance
-remains open; do not mark this ticket fully complete until that gate passes.
+landscape-control tests compile. Final Pixel 7 Pro acceptance rendered direct
+video in the portrait PlayerView, exercised rotation into the landscape video
+surface and back, exposed the labeled playback controls, and confirmed one
+shared Media3 session with active video playback and no playback exception.
+The device orientation and system-bar settings were restored after the smoke.
 
 ### MC-A06 — Add Play Video browse actions and context startup
 
@@ -2431,10 +2432,11 @@ the terminal request refresh fix. Full evidence is in
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete (2026-07-22) |
 | Area | Server + Android + deployment |
 | Difficulty | High |
 | Effort | XL, 6–8 days |
-| Depends on | MC-S12 and MC-A05 through MC-A11 |
+| Depends on | MC-Q01R, MC-S12R, and MC-A05 through MC-A11 |
 | Unlocks | Production enablement |
 
 #### Context
@@ -2454,7 +2456,8 @@ not enough to enable discovery against a real library.
   - soundtrack and character-song release.
   - ambiguous multilingual candidate.
 - Exercise migration from the current server DB and Android Room schema.
-- Test real Lidarr in a dedicated/test root with discovery scheduler disabled.
+- Test the live AMF controller and shared staging root with automatic discovery
+  disabled.
 - Inspect every accepted/rejected evidence record.
 - Enable catalog exposure before automatic discovery.
 - Run device acceptance checklist from TDR section 14.
@@ -2504,6 +2507,36 @@ the app or delete old downloads before proving the migration/compatibility path.
 
 If a curated match is wrong, fix matcher evidence/thresholds and rerun the set.
 Do not manually seed the catalog to hide a discovery defect.
+
+#### Completion and testing notes
+
+Completed on 2026-07-22 against the deployed AMF controller and Anime Ongaku
+server. Catalog exposure is enabled and automatic discovery remains disabled.
+The live curated request produced 31 hash- and byte-verified READY deliveries
+(three Full Size songs and 28 soundtrack tracks); missing and unsupported
+groups remained operator-visible instead of leaking into the listener catalog.
+AMF outage and Anime Ongaku restart checks preserved database rows, canonical
+files, ready audio, and server health.
+
+The Pixel 7 Pro migrated Room schema 22 to 23 in place without clearing app
+data. Debug request state refreshed into Full Size and Related Music content;
+Home All/OP/ED filtering, soundtrack playback, TV/Full selection, direct Video,
+portrait/landscape rendering, and labeled controls were exercised. Acceptance
+found and fixed a Full-only download gap: SONG records represented only through
+`theme_modes` now resolve both when queued and in the worker. WorkManager then
+wrote `files/downloads/songs/1/original.flac`, and that Full Size track played
+after Wi-Fi and mobile data were disabled and DNS was unavailable.
+
+Final gates passed: full server Vitest and TypeScript typecheck; 503/503 Android
+unit tests across 78 suites, lint, debug assembly, release Kotlin, and
+Android-test Kotlin compilation;
+Sol/Medium review; Terra/High QA; and diff validation. No legacy TV download
+file existed on the attached device before upgrade, so preservation of an
+already-downloaded physical legacy file could not be observed live; the Room
+migration was proven in place and legacy path compatibility remains covered by
+automated tests. Release visibility is protected by both Compose and ViewModel
+`BuildConfig.DEBUG` gates and release compilation; the installed acceptance
+artifact is the final debug APK requested for this private device.
 
 ## 9. Effort summary
 
