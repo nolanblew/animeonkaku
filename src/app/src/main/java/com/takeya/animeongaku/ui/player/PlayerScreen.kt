@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.unit.lerp as dpLerp
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -73,6 +72,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layoutId
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
@@ -271,8 +271,11 @@ fun PlayerScreen(
     val upNextAnimeName = upNextItem?.display?.animeTitle ?: upNextItem?.display?.album ?: "Nothing queued"
     val upNextThemeTag = formatThemeTag(upNextTheme?.themeType)
     val isExpanded = progress > 0.5f
+    val configuration = LocalConfiguration.current
+    val expandedArtworkSize = expandedPlayerArtworkSize(configuration.screenWidthDp.dp)
+    val artHorizontalInset = if (modeUiState.isVideo) 0 else 24
     val fullscreenVideo = isFullscreenVideo(
-        orientation = LocalConfiguration.current.orientation,
+        orientation = configuration.orientation,
         isVideo = modeUiState.isVideo,
         isExpanded = isExpanded
     )
@@ -321,16 +324,16 @@ fun PlayerScreen(
                  end: {
                      bg: { width: 'spread', height: 'spread', start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], bottom: ['parent', 'bottom'] },
                      topBar: { width: 'spread', height: 48, start: ['parent', 'start', 16], end: ['parent', 'end', 16], top: ['parent', 'top', $endTopMargin], alpha: 1 },
-                     modeSelector: { width: 'wrap', height: 'wrap', start: ['parent', 'start'], end: ['parent', 'end'], top: ['topBar', 'bottom', 4], alpha: 1 },
-                     art: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['modeSelector', 'bottom', 6], custom: { corner: 24 } },
-                     titles: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['art', 'bottom', 12] },
+                     modeSelector: { width: 'wrap', height: 'wrap', start: ['parent', 'start'], end: ['parent', 'end'], top: ['art', 'top', 8], alpha: 1 },
+                     art: { width: 'spread', height: ${expandedArtworkSize.value}, start: ['parent', 'start', $artHorizontalInset], end: ['parent', 'end', $artHorizontalInset], top: ['topBar', 'bottom', 6], custom: { corner: 24 } },
+                     titles: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['art', 'bottom', 8] },
                      statusBadge: { width: 'wrap', height: 'wrap', end: ['art', 'end', 8], bottom: ['art', 'bottom', 8], alpha: 0 },
-                     playPause: { width: 72, height: 72, start: ['parent', 'start'], end: ['parent', 'end'], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
+                     playPause: { width: 68, height: 68, start: ['parent', 'start'], end: ['parent', 'end'], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
                      next: { width: 48, height: 48, start: ['playPause', 'end', 12], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
                      miniProgress: { width: 'spread', height: 2, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 0 },
-                     sliderControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 20], end: ['parent', 'end', 20], top: ['titles', 'bottom', 10], alpha: 1 },
-                     playbackControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 12], end: ['parent', 'end', 12], top: ['sliderControls', 'bottom', 8], alpha: 1 },
-                     reactionRow: { width: 'spread', height: 'wrap', start: ['parent', 'start', 72], end: ['parent', 'end', 72], top: ['playbackControls', 'bottom', 8], alpha: 1 },
+                     sliderControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 20], end: ['parent', 'end', 20], top: ['titles', 'bottom', 6], alpha: 1 },
+                     playbackControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 12], end: ['parent', 'end', 12], top: ['sliderControls', 'bottom', 4], alpha: 1 },
+                     reactionRow: { width: 'spread', height: 'wrap', start: ['parent', 'start', 72], end: ['parent', 'end', 72], top: ['playbackControls', 'bottom', 4], bottom: ['upNextRow', 'top', 8], alpha: 1 },
                      upNextRow: { width: 'spread', height: 'wrap', start: ['parent', 'start', 16], end: ['parent', 'end', 16], bottom: ['parent', 'bottom', 24], alpha: 1 }
                  }
              },
@@ -372,7 +375,7 @@ fun PlayerScreen(
         }
 
         Box(
-            modifier = Modifier.layoutId("modeSelector"),
+            modifier = Modifier.layoutId("modeSelector").zIndex(1f),
             contentAlignment = Alignment.Center
         ) {
             PlayerModeSelector(
@@ -394,91 +397,88 @@ fun PlayerScreen(
 
         val cornerProps = motionProperties(id = "art")
         val cornerRadius = cornerProps.value.int("corner") ?: 8
-        BoxWithConstraints(
-            modifier = Modifier.layoutId("art").shadow(if (isExpandedThreshold) 24.dp else 0.dp, RoundedCornerShape(cornerRadius.dp)).clip(RoundedCornerShape(cornerRadius.dp)).then(if (isExpandedThreshold) Modifier.background(Ink800, RoundedCornerShape(cornerRadius.dp)).border(1.dp, Mist200.copy(alpha=0.15f), RoundedCornerShape(cornerRadius.dp)) else Modifier),
+        val artSize = dpLerp(44.dp, expandedArtworkSize, progress.coerceIn(0f, 1f))
+        // Build the pager queue: exclude disliked tracks entirely so the user
+        // never sees them while swiping. This mirrors shouldIncludeInPlayer()
+        // in MediaControllerManager, keeping the pager and media player in sync.
+        val playableQueue = remember(npState.nowPlayingEntries, dislikedThemeIds, npState.unskippedEntryIds, npState.currentIndex) {
+            npState.nowPlayingEntries.mapIndexedNotNull { index, entry ->
+                val isCurrent = index == npState.currentIndex
+                val isUnskipped = entry.queueId in npState.unskippedEntryIds
+                val isNotDisliked = entry.themeOrNull?.id !in dislikedThemeIds
+
+                if (isCurrent || isUnskipped || isNotDisliked) {
+                    index to entry
+                } else {
+                    null
+                }
+            }
+        }
+
+        val currentPageIndex = playableQueue.indexOfFirst { it.first == npState.currentIndex }.coerceAtLeast(0)
+
+        val pagerState = androidx.compose.foundation.pager.rememberPagerState(
+            initialPage = currentPageIndex,
+            pageCount = { playableQueue.size }
+        )
+
+        var lastQueueVersion by remember { androidx.compose.runtime.mutableLongStateOf(npState.queueVersion) }
+
+        LaunchedEffect(currentPageIndex, npState.queueVersion) {
+            if (npState.queueVersion != lastQueueVersion) {
+                pagerState.scrollToPage(currentPageIndex)
+                lastQueueVersion = npState.queueVersion
+            } else if (pagerState.currentPage != currentPageIndex && !pagerState.isScrollInProgress) {
+                pagerState.animateScrollToPage(currentPageIndex)
+            }
+        }
+
+        LaunchedEffect(pagerState.isScrollInProgress) {
+            if (!pagerState.isScrollInProgress) {
+                if (pagerState.currentPage != currentPageIndex) {
+                    val targetItem = playableQueue.getOrNull(pagerState.currentPage)
+                    if (targetItem != null && targetItem.first != npState.currentIndex) {
+                        // Always navigate by exact queue index rather than using
+                        // seekToNext/seekToPrevious, which can rewind the current
+                        // track instead of changing it (ExoPlayer's default behaviour
+                        // when played past a few seconds).
+                        nowPlayingManager.skipTo(targetItem.first)
+                    }
+
+                    // Always force snap exactly to center to fix the 5% peeking issue
+                    if (kotlin.math.abs(pagerState.currentPageOffsetFraction) > 0.001f) {
+                        pagerState.animateScrollToPage(pagerState.currentPage)
+                    }
+                }
+            }
+        }
+
+        Box(
+            modifier = Modifier.layoutId("art"),
             contentAlignment = Alignment.Center
         ) {
-            val artSize = dpLerp(44.dp, maxWidth, progress.coerceIn(0f, 1f))
-            Box(
-                modifier = Modifier.size(artSize),
-                contentAlignment = Alignment.Center
-            ) {
+            androidx.compose.foundation.pager.HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                pageSpacing = if (modeUiState.isVideo) 0.dp else 16.dp,
+                userScrollEnabled = isSlightlyExpanded,
+                flingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(
+                    state = pagerState,
+                    snapPositionalThreshold = 0.8f
+                )
+            ) { page ->
                 if (modeUiState.isVideo) {
-                    if (!fullscreenVideo) {
+                    if (fullscreenVideo) {
+                        Box(Modifier.fillMaxSize().background(Color.Black))
+                    } else if (page == pagerState.currentPage) {
                         PlayerVideoSurface(
                             controller = mediaController,
-                            cropToBounds = true,
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
                         Box(Modifier.fillMaxSize().background(Color.Black))
                     }
                 } else {
-                // Build the pager queue: exclude disliked tracks entirely so the user
-                // never sees them while swiping. This mirrors shouldIncludeInPlayer()
-                // in MediaControllerManager, keeping the pager and media player in sync.
-                val playableQueue = remember(npState.nowPlayingEntries, dislikedThemeIds, npState.unskippedEntryIds, npState.currentIndex) {
-                    npState.nowPlayingEntries.mapIndexedNotNull { index, entry ->
-                        val isCurrent = index == npState.currentIndex
-                        val isUnskipped = entry.queueId in npState.unskippedEntryIds
-                        val isNotDisliked = entry.themeOrNull?.id !in dislikedThemeIds
-
-                        if (isCurrent || isUnskipped || isNotDisliked) {
-                            index to entry
-                        } else {
-                            null
-                        }
-                    }
-                }
-
-                val currentPageIndex = playableQueue.indexOfFirst { it.first == npState.currentIndex }.coerceAtLeast(0)
-
-                val pagerState = androidx.compose.foundation.pager.rememberPagerState(
-                    initialPage = currentPageIndex,
-                    pageCount = { playableQueue.size }
-                )
-
-                var lastQueueVersion by remember { androidx.compose.runtime.mutableLongStateOf(npState.queueVersion) }
-
-                LaunchedEffect(currentPageIndex, npState.queueVersion) {
-                    if (npState.queueVersion != lastQueueVersion) {
-                        pagerState.scrollToPage(currentPageIndex)
-                        lastQueueVersion = npState.queueVersion
-                    } else if (pagerState.currentPage != currentPageIndex && !pagerState.isScrollInProgress) {
-                        pagerState.animateScrollToPage(currentPageIndex)
-                    }
-                }
-
-                LaunchedEffect(pagerState.isScrollInProgress) {
-                    if (!pagerState.isScrollInProgress) {
-                        if (pagerState.currentPage != currentPageIndex) {
-                            val targetItem = playableQueue.getOrNull(pagerState.currentPage)
-                            if (targetItem != null && targetItem.first != npState.currentIndex) {
-                                // Always navigate by exact queue index rather than using
-                                // seekToNext/seekToPrevious, which can rewind the current
-                                // track instead of changing it (ExoPlayer's default behaviour
-                                // when played past a few seconds).
-                                nowPlayingManager.skipTo(targetItem.first)
-                            }
-
-                            // Always force snap exactly to center to fix the 5% peeking issue
-                            if (kotlin.math.abs(pagerState.currentPageOffsetFraction) > 0.001f) {
-                                pagerState.animateScrollToPage(pagerState.currentPage)
-                            }
-                        }
-                    }
-                }
-
-                androidx.compose.foundation.pager.HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier.fillMaxSize(),
-                    pageSpacing = 16.dp,
-                    userScrollEnabled = isSlightlyExpanded,
-                    flingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(
-                        state = pagerState,
-                        snapPositionalThreshold = 0.8f
-                    )
-                ) { page ->
                     val entry = playableQueue.getOrNull(page)?.second
                     val item = entry?.item
                     val theme = entry?.themeOrNull
@@ -488,16 +488,25 @@ fun PlayerScreen(
                         addAll(anime?.primaryArtworkUrls().orEmpty())
                     }.distinct()
                     val pageTitle = item?.display?.title ?: title
-                    if (pageArtUrls.isNotEmpty()) {
-                        FallbackAsyncImage(
-                            urls = pageArtUrls,
-                            contentDescription = pageTitle,
-                            modifier = Modifier.fillMaxSize(),
-                            loadOriginalSize = playerArtworkLoadsOriginalSize(progress),
-                            crossfade = true
-                        )
+                    Box(
+                        modifier = Modifier
+                            .size(artSize)
+                            .shadow(if (isExpandedThreshold) 24.dp else 0.dp, RoundedCornerShape(cornerRadius.dp))
+                            .clip(RoundedCornerShape(cornerRadius.dp))
+                            .background(Ink800, RoundedCornerShape(cornerRadius.dp))
+                            .border(1.dp, Mist200.copy(alpha = 0.15f), RoundedCornerShape(cornerRadius.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (pageArtUrls.isNotEmpty()) {
+                            FallbackAsyncImage(
+                                urls = pageArtUrls,
+                                contentDescription = pageTitle,
+                                modifier = Modifier.fillMaxSize(),
+                                loadOriginalSize = playerArtworkLoadsOriginalSize(progress),
+                                crossfade = true
+                            )
+                        }
                     }
-                }
                 }
             }
         }
@@ -853,6 +862,13 @@ fun PlayerScreen(
  * mini-player decode cannot remain stretched across the full player.
  */
 internal fun playerArtworkLoadsOriginalSize(progress: Float): Boolean = progress > 0.1f
+
+/**
+ * Keeps artwork prominent without letting a wide phone turn it into a tall control-stack blocker.
+ * Narrow phones retain their current square presentation; wider phones cap at a modest 336 dp.
+ */
+internal fun expandedPlayerArtworkSize(screenWidth: androidx.compose.ui.unit.Dp): androidx.compose.ui.unit.Dp =
+    minOf((screenWidth - 48.dp).coerceAtLeast(0.dp), 336.dp)
 
 @Composable
 fun PlayerBackgroundArt(imageUrl: String?) {

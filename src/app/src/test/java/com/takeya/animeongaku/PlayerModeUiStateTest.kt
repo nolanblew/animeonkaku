@@ -7,9 +7,11 @@ import com.takeya.animeongaku.media.RetainedIntentReason
 import com.takeya.animeongaku.ui.player.ModeSelectionDecision
 import com.takeya.animeongaku.ui.player.VideoContentWarning
 import com.takeya.animeongaku.ui.player.derivePlayerModeUiState
+import com.takeya.animeongaku.ui.player.expandedPlayerArtworkSize
 import com.takeya.animeongaku.ui.player.isFullscreenVideo
 import com.takeya.animeongaku.ui.player.videoControlsAutoHideDelayMillis
 import com.takeya.animeongaku.ui.player.VideoModeSessionTracker
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -137,6 +139,12 @@ class PlayerModeUiStateTest {
         assertFalse(isFullscreenVideo(Configuration.ORIENTATION_PORTRAIT, isVideo = true, isExpanded = true))
         assertFalse(isFullscreenVideo(Configuration.ORIENTATION_LANDSCAPE, isVideo = false, isExpanded = true))
         assertFalse(isFullscreenVideo(Configuration.ORIENTATION_LANDSCAPE, isVideo = true, isExpanded = false))
+    }
+
+    @Test
+    fun `expanded artwork caps on wide phones without shrinking a narrow phone`() {
+        assertEquals(312.dp, expandedPlayerArtworkSize(360.dp))
+        assertEquals(336.dp, expandedPlayerArtworkSize(411.dp))
     }
 
     @Test

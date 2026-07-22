@@ -2538,6 +2538,49 @@ automated tests. Release visibility is protected by both Compose and ViewModel
 `BuildConfig.DEBUG` gates and release compilation; the installed acceptance
 artifact is the final debug APK requested for this private device.
 
+### MC-R01 — Refine responsive Now Playing media layout and catalog exposure
+
+| Field | Value |
+|---|---|
+| Status | ✅ Complete (2026-07-22) |
+| Area | Android player UI + LAN deployment |
+| Difficulty | Medium |
+| Depends on | MC-Q01 |
+
+#### Scope
+
+- Keep the expanded Now Playing controls above the Up Next card on standard
+  Pixel-sized screens without making the controls uncomfortably small.
+- Overlay the TV Size, Full Size, and Video selector on the media surface.
+- Render direct video edge-to-edge inside the artwork-height viewport with
+  Media3 FIT behavior, while retaining horizontal pager gestures.
+- Resolve and expose the missing Video mode for *The Apothecary Diaries
+  Season 2* OP1, “Hyakka Ryouran.”
+- Restore the deployed server's typed-play compatibility, catalog/discovery
+  exposure, and proxy-network connection without making the proxy a required
+  dependency of non-LAN Compose usage.
+
+#### Completion and testing notes
+
+Completed on 2026-07-22. The expanded artwork now caps at 336dp on wide phones,
+the mode selector overlays the artwork, and the reaction row has an explicit
+gap above Up Next. Video uses the full viewport width and letterboxes rather
+than cropping. The live server catalog initially lacked the theme's persisted
+video source; a normal in-app full sync discovered both AnimeThemes variants
+and made the 1080p creditless video available. The deployed server was updated
+to the current checkpoint, catalog exposure was enabled while automatic
+discovery remains disabled, and the existing `nginx-proxy` network remains declared only by
+`docker-compose.lan.yml`.
+
+On the attached Pixel 7 Pro, TV Size/Full Size/Video were visible for
+“Hyakka Ryouran”; direct video played full-width with expected letterboxing,
+and a left swipe advanced through the shared pager to the queued next song.
+The Play, reaction, and Up Next controls were fully visible. Full Android
+debug unit tests and debug lint passed; server TypeScript compilation passed
+inside the rebuilt container; LAN and public health endpoints were healthy.
+Independent Terra/High review found and verified the Compose-overlay layout;
+its LAN Compose portability observation was corrected before final deployment.
+
 ## 9. Effort summary
 
 | Workstream | Tickets | Experienced effort |
