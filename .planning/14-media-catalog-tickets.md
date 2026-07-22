@@ -1839,6 +1839,7 @@ receive no bearer token. Embedded-video UI remains deferred to MC-A05.
 
 | Field | Value |
 |---|---|
+| Status | 🟨 Implementation complete; device QA pending |
 | Area | Android / Compose / Media3 UI |
 | Difficulty | High |
 | Effort | XL, 6–8 days |
@@ -1890,6 +1891,38 @@ Expected areas:
 #### Handoff notes
 
 Use the screenshot-inspired interaction, not an oversized full-width tab bar.
+
+#### Completion and testing notes
+
+Implementation completed on 2026-07-21. Added the official Media3 UI artifact
+and bound `PlayerView` to the existing shared `MediaController`, never a second
+player. Expanded Theme playback exposes a compact top-centered `TV Size | Full
+Size | Video` selector; actual mode alone is selected, retained preferred mode
+is announced subtly, unavailable modes are omitted, and Related songs do not
+show the selector. Marked Video selection requires a queue-identity-safe
+spoiler/NSFW confirmation.
+
+Portrait Video replaces the artwork pager. Landscape Video uses the same
+controller in an edge-to-edge surface with accessible previous/play-pause/next
+controls, accessibility-aware auto-hide, transient system bars, and restoration
+of prior system-bar visibility/behavior. Collapsed mode has no hidden selector
+semantics or input; segment targets retain compact visuals with at least 48dp
+interaction bounds; retained-intent changes are a polite live region. D13 exit
+tracking restores the prior audio mode and prior play/pause state only when the
+exact queue occurrence/version remains valid. Mode UI metadata comes from the
+resolver map keyed by queueId rather than non-transportable MediaItem tags.
+
+TDD began with 27 intended missing-contract compilation errors. The final full
+Android unit suite passed 455/455; focused final tests passed 16/16;
+`lintDebug`, `compileDebugAndroidTestKotlin`, `assembleDebug`, and
+`git diff --check` passed. Sol/Medium UX re-review, Sol/Medium technical review,
+and independent Terra/High static/serial QA passed after collapsed semantics,
+touch targets, accessibility timeout/live-region behavior, D13 resume, session
+metadata, and system-bar restoration were corrected. Instrumented selector and
+landscape-control tests compile but did not execute because no ADB device is
+connected. Required real-device portrait/landscape rotation, PlayerView,
+control, TalkBack, audio/video exclusivity, D13, and system-bar acceptance
+remains open; do not mark this ticket fully complete until that gate passes.
 
 ### MC-A06 — Add Play Video browse actions and context startup
 

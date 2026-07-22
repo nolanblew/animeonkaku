@@ -38,12 +38,14 @@ import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material.icons.rounded.ThumbUp
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -64,6 +66,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -111,12 +114,17 @@ fun PlayerScreen(
     val context = LocalContext.current
     val npState by viewModel.nowPlayingState.collectAsStateWithLifecycle()
     val pbState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val modeUiState by viewModel.modeUiState.collectAsStateWithLifecycle()
+    val mediaController by viewModel.mediaControllerManager.mediaController.collectAsStateWithLifecycle()
     val currentPreference by viewModel.currentPreference.collectAsStateWithLifecycle()
     val nowPlayingManager = viewModel.nowPlayingManager
     val controllerManager = viewModel.mediaControllerManager
 
     var showUpNext by remember { mutableStateOf(false) }
     var showPlayerSheet by remember { mutableStateOf(false) }
+    var pendingModeConfirmation by remember {
+        mutableStateOf<Pair<Long, ModeSelectionDecision.Confirm>?>(null)
+    }
 
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
@@ -216,6 +224,33 @@ fun PlayerScreen(
     }.distinct()
     val upNextAnimeName = upNextItem?.display?.animeTitle ?: upNextItem?.display?.album ?: "Nothing queued"
     val upNextThemeTag = formatThemeTag(upNextTheme?.themeType)
+    val isExpanded = progress > 0.5f
+    val fullscreenVideo = isFullscreenVideo(
+        orientation = LocalConfiguration.current.orientation,
+        isVideo = modeUiState.isVideo,
+        isExpanded = isExpanded
+    )
+
+    pendingModeConfirmation?.let { (queueId, confirmation) ->
+        AlertDialog(
+            onDismissRequest = { pendingModeConfirmation = null },
+            title = { Text("Content warning") },
+            text = { Text(confirmation.warning.message) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingModeConfirmation = null
+                        if (npState.currentEntry?.queueId == queueId) {
+                            viewModel.selectThemeMode(confirmation.mode)
+                        }
+                    }
+                ) { Text("Play video") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingModeConfirmation = null }) { Text("Cancel") }
+            }
+        )
+    }
 
     val topInsetDp = WindowInsets.systemBars.asPaddingValues().calculateTopPadding().value.toInt()
     val endTopMargin = max(16, topInsetDp + 16)
@@ -225,6 +260,7 @@ fun PlayerScreen(
                  start: {
                      bg: { width: 'spread', height: 64, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'] },
                      topBar: { width: 'spread', height: 48, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 0 },
+                     modeSelector: { width: 'wrap', height: 'wrap', start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 0 },
                      art: { width: 44, height: 44, start: ['parent', 'start', 12], top: ['parent', 'top', 10], custom: { corner: 8 } },
                      titles: { width: 'spread', height: 'wrap', start: ['art', 'end', 12], end: ['playPause', 'start', 12], top: ['parent', 'top', 12], bottom: ['bg', 'bottom', 12] },
                      statusBadge: { width: 'wrap', height: 'wrap', end: ['art', 'end', 8], bottom: ['art', 'bottom', 8], alpha: 0 },
@@ -239,7 +275,8 @@ fun PlayerScreen(
                  end: {
                      bg: { width: 'spread', height: 'spread', start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], bottom: ['parent', 'bottom'] },
                      topBar: { width: 'spread', height: 48, start: ['parent', 'start', 16], end: ['parent', 'end', 16], top: ['parent', 'top', $endTopMargin], alpha: 1 },
-                     art: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['topBar', 'bottom', 8], custom: { corner: 24 } },
+                     modeSelector: { width: 'wrap', height: 'wrap', start: ['parent', 'start'], end: ['parent', 'end'], top: ['topBar', 'bottom', 4], alpha: 1 },
+                     art: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['modeSelector', 'bottom', 6], custom: { corner: 24 } },
                      titles: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['art', 'bottom', 12] },
                      statusBadge: { width: 'wrap', height: 'wrap', end: ['art', 'end', 8], bottom: ['art', 'bottom', 8], alpha: 0 },
                      playPause: { width: 72, height: 72, start: ['parent', 'start'], end: ['parent', 'end'], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
@@ -288,6 +325,27 @@ fun PlayerScreen(
             }
         }
 
+        Box(
+            modifier = Modifier.layoutId("modeSelector"),
+            contentAlignment = Alignment.Center
+        ) {
+            PlayerModeSelector(
+                state = modeUiState,
+                isExpanded = isExpandedThreshold,
+                onModeSelected = { mode ->
+                    when (val decision = modeUiState.selectionDecision(mode)) {
+                        ModeSelectionDecision.Ignore -> Unit
+                        is ModeSelectionDecision.Apply -> viewModel.selectThemeMode(decision.mode)
+                        is ModeSelectionDecision.Confirm -> {
+                            npState.currentEntry?.queueId?.let { queueId ->
+                                pendingModeConfirmation = queueId to decision
+                            }
+                        }
+                    }
+                }
+            )
+        }
+
         val cornerProps = motionProperties(id = "art")
         val cornerRadius = cornerProps.value.int("corner") ?: 8
         BoxWithConstraints(
@@ -299,6 +357,17 @@ fun PlayerScreen(
                 modifier = Modifier.size(artSize),
                 contentAlignment = Alignment.Center
             ) {
+                if (modeUiState.isVideo) {
+                    if (!fullscreenVideo) {
+                        PlayerVideoSurface(
+                            controller = mediaController,
+                            cropToBounds = true,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Box(Modifier.fillMaxSize().background(Color.Black))
+                    }
+                } else {
                 // Build the pager queue: exclude disliked tracks entirely so the user
                 // never sees them while swiping. This mirrors shouldIncludeInPlayer()
                 // in MediaControllerManager, keeping the pager and media player in sync.
@@ -382,6 +451,7 @@ fun PlayerScreen(
                             crossfade = true
                         )
                     }
+                }
                 }
             }
         }
@@ -650,6 +720,21 @@ fun PlayerScreen(
                 modifier = Modifier.size(20.dp)
             )
         }
+    }
+
+    if (fullscreenVideo) {
+        LandscapeVideoOverlay(
+            controller = mediaController,
+            isPlaying = pbState.isPlaying,
+            isLiked = currentPreference?.isLiked == true,
+            isDisliked = currentPreference?.isDisliked == true,
+            onToggleLike = { currentTheme?.id?.let(viewModel::toggleLike) },
+            onToggleDislike = { currentTheme?.id?.let(viewModel::toggleDislike) },
+            onPrevious = controllerManager::seekToPrevious,
+            onPlayPause = { if (pbState.isPlaying) controllerManager.pause() else controllerManager.play() },
+            onNext = controllerManager::seekToNext,
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }
 

@@ -83,6 +83,9 @@ class MediaControllerManager @Inject constructor(
     private val _playbackState = MutableStateFlow(PlaybackState())
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
 
+    private val _mediaController = MutableStateFlow<MediaController?>(null)
+    val mediaController: StateFlow<MediaController?> = _mediaController.asStateFlow()
+
     private val _controllerReady = MutableStateFlow(false)
 
     private var consecutiveErrors = 0
@@ -114,14 +117,8 @@ class MediaControllerManager @Inject constructor(
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             controller ?: return
-            val mediaTag = mediaItem?.localConfiguration?.tag as? PlaybackMediaTag
-            _playbackState.value = _playbackState.value.copy(
-                errorMessage = null,
-                preferredMode = mediaTag?.preferredMode,
-                actualMode = mediaTag?.actualMode
-            )
-
             val queueEntryId = mediaItem?.mediaId?.toLongOrNull()
+            updatePlaybackModeState(queueEntryId, resolvedItemsByQueueId[queueEntryId])
             if (queueEntryId != null) {
                 val themeId = nowPlayingManager.state.value.nowPlayingEntries
                     .firstOrNull { it.queueId == queueEntryId }
@@ -218,7 +215,11 @@ class MediaControllerManager @Inject constructor(
                 errorMessage = "Video unavailable · playing TV Size",
                 isBuffering = false,
                 preferredMode = PlaybackMode.VIDEO,
-                actualMode = PlaybackMode.TV_SIZE
+                actualMode = PlaybackMode.TV_SIZE,
+                availableModes = fallback.availableModes,
+                retainedIntentReason = fallback.retainedIntentReason,
+                videoSpoiler = fallback.videoSpoiler,
+                videoNsfw = fallback.videoNsfw
             )
             true
         } finally {
@@ -273,6 +274,7 @@ class MediaControllerManager @Inject constructor(
             {
                 val ctrl = future.get()
                 controller = ctrl
+                _mediaController.value = ctrl
                 ctrl.addListener(playerListener)
                 _controllerReady.value = true
 
@@ -518,6 +520,8 @@ class MediaControllerManager @Inject constructor(
         val npState = nowPlayingManager.state.value
         val desired = buildDesiredItems(npState)
 
+        resolvedItemsByQueueId = desired.resolved.associateBy { it.queueId }
+
         ctrl.setMediaItems(desired.items, desired.currentIndex, restoredState.positionMs)
         ctrl.repeatMode = restoredState.repeatMode
         ctrl.playWhenReady = autoPlay
@@ -525,7 +529,6 @@ class MediaControllerManager @Inject constructor(
 
         lastSyncedMediaIds = desired.items.map { it.mediaId }
         lastSyncedDescriptors = desired.descriptors
-        resolvedItemsByQueueId = desired.resolved.associateBy { it.queueId }
         lastSyncedVersion = npState.queueVersion
     }
 
@@ -564,6 +567,11 @@ class MediaControllerManager @Inject constructor(
             return
         }
 
+        // MediaItem tags are intentionally not a UI/state boundary: Media3 does not transport
+        // arbitrary tags through MediaController/MediaSession bundle restoration. Publish the
+        // resolver-owned metadata by stable queue occurrence identity before controller IPC.
+        resolvedItemsByQueueId = desired.resolved.associateBy { it.queueId }
+
         val desiredItems = desired.items
         val desiredCurrentIndex = desired.currentIndex
         val desiredIds = desiredItems.map { it.mediaId }
@@ -593,7 +601,10 @@ class MediaControllerManager @Inject constructor(
 
         lastSyncedMediaIds = desiredIds
         lastSyncedDescriptors = desired.descriptors
-        resolvedItemsByQueueId = desired.resolved.associateBy { it.queueId }
+        updatePlaybackModeState(
+            desired.resolved.getOrNull(desiredCurrentIndex)?.queueId,
+            desired.resolved.getOrNull(desiredCurrentIndex)
+        )
         lastSyncedVersion = npState.queueVersion
     }
 
@@ -725,14 +736,28 @@ class MediaControllerManager @Inject constructor(
 
     private fun updatePlaybackPositionFromController(ctrl: MediaController) {
         val duration = ctrl.duration.takeIf { it > 0 } ?: 1L
+        val mediaItem = ctrl.currentMediaItem
+        val queueId = mediaItem?.mediaId?.toLongOrNull()
+        val resolved = resolvedItemsByQueueId[queueId]
         _playbackState.value = PlaybackState(
             isPlaying = ctrl.isPlaying,
             positionMs = ctrl.currentPosition,
             durationMs = duration,
             bufferedPositionMs = ctrl.bufferedPosition,
             isBuffering = ctrl.playbackState == Player.STATE_BUFFERING,
-            hasMedia = ctrl.mediaItemCount > 0
+            hasMedia = ctrl.mediaItemCount > 0,
+            queueId = queueId,
+            preferredMode = resolved?.preferredMode,
+            actualMode = resolved?.actualMode,
+            availableModes = resolved?.availableModes.orEmpty(),
+            retainedIntentReason = resolved?.retainedIntentReason,
+            videoSpoiler = resolved?.videoSpoiler ?: false,
+            videoNsfw = resolved?.videoNsfw ?: false
         )
+    }
+
+    private fun updatePlaybackModeState(queueId: Long?, resolved: ResolvedPlaybackItem?) {
+        _playbackState.value = _playbackState.value.withResolvedPlayback(queueId, resolved)
     }
 
     // --- Playback controls (delegate to MediaController) ---
@@ -774,8 +799,27 @@ data class PlaybackState(
     val hasMedia: Boolean = false,
     val errorMessage: String? = null,
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
+    val queueId: Long? = null,
     val preferredMode: PlaybackMode? = null,
-    val actualMode: PlaybackMode? = null
+    val actualMode: PlaybackMode? = null,
+    val availableModes: Set<PlaybackMode> = emptySet(),
+    val retainedIntentReason: RetainedIntentReason? = null,
+    val videoSpoiler: Boolean = false,
+    val videoNsfw: Boolean = false
+)
+
+internal fun PlaybackState.withResolvedPlayback(
+    queueId: Long?,
+    resolved: ResolvedPlaybackItem?
+): PlaybackState = copy(
+    errorMessage = null,
+    queueId = queueId,
+    preferredMode = resolved?.preferredMode,
+    actualMode = resolved?.actualMode,
+    availableModes = resolved?.availableModes.orEmpty(),
+    retainedIntentReason = resolved?.retainedIntentReason,
+    videoSpoiler = resolved?.videoSpoiler ?: false,
+    videoNsfw = resolved?.videoNsfw ?: false
 )
 
 private data class DesiredPlaybackQueue(

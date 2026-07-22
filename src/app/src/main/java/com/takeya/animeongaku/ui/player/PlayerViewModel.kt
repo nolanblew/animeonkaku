@@ -14,12 +14,14 @@ import com.takeya.animeongaku.media.MediaControllerManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.NowPlayingState
 import com.takeya.animeongaku.media.PlaybackState
+import com.takeya.animeongaku.media.PlaybackMode
 import com.takeya.animeongaku.network.ConnectivityMonitor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -35,8 +37,16 @@ class PlayerViewModel @Inject constructor(
     private val userPreferencesRepository: UserPreferencesRepository,
     val connectivityMonitor: ConnectivityMonitor
 ) : ViewModel() {
+    private val videoModeSessionTracker = VideoModeSessionTracker()
     val nowPlayingState: StateFlow<NowPlayingState> = nowPlayingManager.state
     val playbackState: StateFlow<PlaybackState> = mediaControllerManager.playbackState
+    val modeUiState: StateFlow<PlayerModeUiState> = combine(nowPlayingState, playbackState) { nowPlaying, playback ->
+        derivePlayerModeUiState(
+            isTheme = nowPlaying.currentEntry?.themeOrNull != null,
+            currentQueueId = nowPlaying.currentEntry?.queueId,
+            playbackState = playback
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlayerModeUiState())
 
     val isOnline: StateFlow<Boolean> = connectivityMonitor.isOnline
 
@@ -77,6 +87,38 @@ class PlayerViewModel @Inject constructor(
 
     fun toggleDislike(themeId: Long) {
         viewModelScope.launch { userPreferencesRepository.toggleDislike(themeId) }
+    }
+
+    /** UI entry point for the authoritative Theme playback-mode write boundary. */
+    fun selectThemeMode(mode: PlaybackMode) {
+        if (mode == PlaybackMode.RELATED_AUDIO) return
+        if (mode == PlaybackMode.VIDEO) {
+            val before = nowPlayingManager.state.value
+            val queueId = before.currentEntry?.queueId ?: return
+            val priorAudioMode = before.playbackIntent.rememberedAudioMode
+            val wasAudioPlaying = mediaControllerManager.playbackState.value.isPlaying
+            nowPlayingManager.selectThemeMode(mode)
+            videoModeSessionTracker.begin(
+                queueId = queueId,
+                videoQueueVersion = nowPlayingManager.state.value.queueVersion,
+                priorAudioMode = priorAudioMode,
+                wasAudioPlaying = wasAudioPlaying
+            )
+            return
+        }
+        videoModeSessionTracker.clear()
+        nowPlayingManager.selectThemeMode(mode)
+    }
+
+    fun exitVideoMode() {
+        val nowPlaying = nowPlayingManager.state.value
+        val exit = videoModeSessionTracker.consumeExit(
+            currentQueueId = nowPlaying.currentEntry?.queueId,
+            currentQueueVersion = nowPlaying.queueVersion,
+            videoRequested = nowPlaying.playbackIntent.sessionOverride == PlaybackMode.VIDEO
+        ) ?: return
+        nowPlayingManager.selectThemeMode(exit.audioMode)
+        if (exit.resumePlayback) mediaControllerManager.play() else mediaControllerManager.pause()
     }
 
     fun saveSongToLibrary(theme: ThemeEntity, animeEntity: AnimeEntity?) {

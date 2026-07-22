@@ -235,6 +235,17 @@ device acceptance after the Android chain is complete.
 - Resume at MC-A05 using the approved compact top-centered selector and
   PlayerView UX contract already recorded above. Do not create a second player;
   bind the existing controller/service and preserve audio/video exclusivity.
+- MC-A05 implementation is complete in the ticket commit containing this
+  handoff update, but its ledger status remains device-QA-pending. It adds the
+  compact actual-mode selector, shared-controller portrait/landscape Video,
+  content warnings, accessibility-safe controls, queueId-safe UI metadata, and
+  guarded D13 prior-audio restoration.
+- MC-A05 verification: full unit 455/455, independent final focused 16/16,
+  lint, Android-test compilation, debug assembly, Sol UX/technical review, and
+  Terra/High static QA passed. No device is connected, so required physical
+  rotation/PlayerView/TalkBack/system-bar/audio-video/D13 acceptance is open.
+- Resume implementation at MC-A06. Carry MC-A05's physical device gate into
+  MC-Q01 rather than claiming the ticket fully complete.
 
 ## Agent model policy
 
