@@ -162,6 +162,10 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch { userPreferencesRepository.toggleModeDislike(themeId, fullSize) }
     }
 
+    fun setOnlyModeDislike(themeId: Long, fullSize: Boolean) {
+        viewModelScope.launch { userPreferencesRepository.setOnlyModeDislike(themeId, fullSize) }
+    }
+
     fun toggleSongLike(songId: Long) {
         viewModelScope.launch { userPreferencesRepository.toggleSongLike(songId) }
     }

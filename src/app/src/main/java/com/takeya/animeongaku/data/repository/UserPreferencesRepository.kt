@@ -8,6 +8,8 @@ import com.takeya.animeongaku.sync.ServerUserStateRefresher
 import com.takeya.animeongaku.sync.SyncEngine
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,6 +20,8 @@ class UserPreferencesRepository @Inject constructor(
     private val serverUserStateRefresher: ServerUserStateRefresher,
     private val songPreferenceDao: SongPreferenceDao? = null
 ) {
+    private val dislikeMutationMutex = Mutex()
+
     fun observePreference(themeId: Long): Flow<UserPreferenceEntity?> {
         return preferenceDao.observePreference(themeId)
     }
@@ -58,13 +62,15 @@ class UserPreferencesRepository @Inject constructor(
     }
 
     suspend fun toggleDislike(themeId: Long) {
-        val current = preferenceDao.getPreference(themeId) ?: UserPreferenceEntity(themeId)
-        val newIsDisliked = !current.isDisliked
-        val opTs = System.currentTimeMillis()
-        val updated = current.withBroadThemeDislike(newIsDisliked, opTs)
-        preferenceDao.insertOrUpdate(updated)
-        syncEngine.enqueueThemePreference(updated, opTs)
-        pushPendingPreferenceWriteAndRefresh()
+        dislikeMutationMutex.withLock {
+            val current = preferenceDao.getPreference(themeId) ?: UserPreferenceEntity(themeId)
+            val newIsDisliked = !current.isDisliked
+            val opTs = System.currentTimeMillis()
+            val updated = current.withBroadThemeDislike(newIsDisliked, opTs)
+            preferenceDao.insertOrUpdate(updated)
+            syncEngine.enqueueThemePreference(updated, opTs)
+            pushPendingPreferenceWriteAndRefresh()
+        }
     }
 
     suspend fun removeDislike(themeId: Long) {
@@ -105,6 +111,25 @@ class UserPreferencesRepository @Inject constructor(
         preferenceDao.insertOrUpdate(updated)
         syncEngine.enqueueThemePreference(updated, opTs)
         pushPendingPreferenceWriteAndRefresh()
+    }
+
+    /** Replaces a broad dislike with exactly one scoped dislike. */
+    suspend fun setOnlyModeDislike(themeId: Long, fullSize: Boolean) {
+        dislikeMutationMutex.withLock {
+            val current = preferenceDao.getPreference(themeId) ?: UserPreferenceEntity(themeId)
+            val opTs = System.currentTimeMillis()
+            val updated = current.copy(
+                isLiked = false,
+                isDisliked = false,
+                isDislikedTvSize = !fullSize,
+                isDislikedFullSize = fullSize,
+                updatedAt = opTs,
+                deletedAt = null
+            )
+            preferenceDao.insertOrUpdate(updated)
+            syncEngine.enqueueThemePreference(updated, opTs)
+            pushPendingPreferenceWriteAndRefresh()
+        }
     }
 
     suspend fun toggleSongLike(songId: Long) {

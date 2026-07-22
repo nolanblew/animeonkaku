@@ -83,7 +83,7 @@ fun PlayerModeSelector(
         Row(
             modifier = Modifier
                 .background(Ink900.copy(alpha = 0.78f), RoundedCornerShape(50))
-                .padding(3.dp)
+                .padding(horizontal = 3.dp)
                 .selectableGroup(),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically

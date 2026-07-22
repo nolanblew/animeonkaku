@@ -2581,6 +2581,40 @@ inside the rebuilt container; LAN and public health endpoints were healthy.
 Independent Terra/High review found and verified the Compose-overlay layout;
 its LAN Compose portability observation was corrected before final deployment.
 
+### MC-R02 — Polish player reactions and related release presentation
+
+| Field | Value |
+|---|---|
+| Status | ✅ Complete (2026-07-22) |
+| Area | Android player UI + Related Music presentation |
+| Difficulty | Medium |
+| Depends on | MC-R01 |
+
+#### Scope
+
+- Make the Now Playing media selector background hug its controls.
+- Replace the reaction-row overflow affordance with a single broad dislike
+  action that can be refined to TV Size-only or Full Size-only.
+- Present Related Music releases with the anime-detail visual hierarchy and
+  fall back to the owning anime artwork when release artwork is unavailable.
+
+#### Completion and testing notes
+
+Completed on 2026-07-22. The selector no longer adds vertical container
+padding. A theme dislike immediately applies to every mode, keeps its scoped
+choice dialog visible even when playback advances, and serializes broad/scoped
+writes so a late broad update cannot overwrite the final choice. The related
+release list, detail hero, and track action sheet now use release artwork,
+owner artwork, then anime artwork in that order.
+
+On the attached Pixel 7 Pro, the compact TV Size/Video selector and the
+two-button reaction row were visible; the dislike dialog persisted after the
+current theme advanced. *The Apothecary Diaries Season 2* soundtrack showed
+the anime-art fallback in both Related Music and the selected release’s hero,
+with album Play, Download album, and tracks controls. Full Android debug unit
+tests, debug lint, and debug assembly passed. Terra/High fallback review found
+and verified the dislike-write serialization before final device acceptance.
+
 ## 9. Effort summary
 
 | Workstream | Tickets | Experienced effort |

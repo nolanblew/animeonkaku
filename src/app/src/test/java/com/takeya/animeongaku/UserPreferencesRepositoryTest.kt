@@ -146,6 +146,44 @@ class UserPreferencesRepositoryTest {
     }
 
     @Test
+    fun `scoped dislike choice replaces broad dislike with one complete preference snapshot`() = runBlocking {
+        val dao = FakeUserPreferenceDao().apply {
+            insertOrUpdate(
+                UserPreferenceEntity(
+                    themeId = 100L,
+                    isLiked = true,
+                    isDisliked = true,
+                    isDislikedTvSize = true,
+                    isDislikedFullSize = true
+                )
+            )
+        }
+        val api = RecordingOngakuApi()
+        val store = PreferenceSyncStore()
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+        }
+        val repository = UserPreferencesRepository(
+            dao,
+            syncEngine(store, api, settings),
+            RecordingServerUserStateRefresher()
+        )
+
+        repository.setOnlyModeDislike(themeId = 100L, fullSize = true)
+
+        val saved = dao.saved.last()
+        assertFalse(saved.isLiked)
+        assertFalse(saved.isDisliked)
+        assertFalse(saved.isDislikedTvSize)
+        assertTrue(saved.isDislikedFullSize)
+        val patch = api.updatedThemePref!!
+        assertEquals(false, patch.liked)
+        assertEquals(false, patch.disliked)
+        assertEquals(false, patch.dislikedTvSize)
+        assertEquals(true, patch.dislikedFullSize)
+    }
+
+    @Test
     fun `typed play upload preserves song identity and clears posted UUIDs when accepted is zero`() = runBlocking {
         val store = PreferenceSyncStore().apply {
             plays += PendingPlayEntity(id = 1L, themeId = 10L, playedAt = 1L)

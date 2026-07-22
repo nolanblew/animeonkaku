@@ -12,7 +12,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -132,7 +131,7 @@ fun PlayerScreen(
     val controllerManager = viewModel.mediaControllerManager
 
     var showUpNext by remember { mutableStateOf(false) }
-    var showModeDislikeOptions by remember { mutableStateOf(false) }
+    var scopedDislikeThemeId by remember { mutableStateOf<Long?>(null) }
     var showPlayerSheet by remember { mutableStateOf(false) }
     var pendingModeConfirmation by remember {
         mutableStateOf<Pair<Long, ModeSelectionDecision.Confirm>?>(null)
@@ -691,28 +690,24 @@ fun PlayerScreen(
             verticalAlignment = Alignment.CenterVertically
          ) {
              if (currentTheme != null) {
-                 Box(
-                     modifier = Modifier
-                         .size(48.dp)
-                         .combinedClickable(
-                             onClick = { viewModel.toggleDislike(currentTheme.id) },
-                             onLongClick = { showModeDislikeOptions = true }
-                         ),
-                     contentAlignment = Alignment.Center
-                 ) {
+                 IconButton(onClick = {
+                     if (currentPreference?.isDisliked == true) {
+                         viewModel.toggleDislike(currentTheme.id)
+                     } else {
+                         scopedDislikeThemeId = currentTheme.id
+                         viewModel.toggleDislike(currentTheme.id)
+                     }
+                 }) {
                      Icon(
                          Icons.Rounded.ThumbDown,
                          if (currentPreference?.isDisliked == true) {
-                             "Remove Dislike. Long press for TV Size or Full Size only."
+                             "Remove dislike"
                          } else {
-                             "Dislike. Long press for TV Size or Full Size only."
+                             "Dislike all versions, or choose one version only"
                          },
                          tint = if (currentPreference?.isDisliked == true) Rose500 else Mist200,
                          modifier = Modifier.size(26.dp)
                      )
-                 }
-                 IconButton(onClick = { showModeDislikeOptions = true }) {
-                     Icon(Icons.Rounded.MoreVert, "Choose TV Size or Full Size dislike", tint = Mist200)
                  }
              } else {
                  IconButton(onClick = { currentSong?.id?.let(viewModel::toggleSongDislike) }) {
@@ -738,28 +733,28 @@ fun PlayerScreen(
             }
         }
 
-        if (showModeDislikeOptions && currentTheme != null) {
+        scopedDislikeThemeId?.let { themeId ->
             AlertDialog(
-                onDismissRequest = { showModeDislikeOptions = false },
-                title = { Text("Dislike this version") },
-                text = { Text("The main Dislike button hides this theme in every mode.") },
+                onDismissRequest = { scopedDislikeThemeId = null },
+                title = { Text("Dislike this theme") },
+                text = { Text("All versions are now hidden. Choose one option to keep the other version visible instead.") },
                 confirmButton = {
                     TextButton(onClick = {
-                        viewModel.toggleModeDislike(currentTheme.id, fullSize = true)
-                        showModeDislikeOptions = false
+                        viewModel.setOnlyModeDislike(themeId, fullSize = true)
+                        scopedDislikeThemeId = null
                     }) {
-                        Text(if (currentPreference?.isDislikedFullSize == true) "Remove Full Size dislike" else "Dislike Full Size only")
+                        Text("Full Size only")
                     }
                 },
                 dismissButton = {
                     Row {
                         TextButton(onClick = {
-                            viewModel.toggleModeDislike(currentTheme.id, fullSize = false)
-                            showModeDislikeOptions = false
+                            viewModel.setOnlyModeDislike(themeId, fullSize = false)
+                            scopedDislikeThemeId = null
                         }) {
-                            Text(if (currentPreference?.isDislikedTvSize == true) "Remove TV Size dislike" else "Dislike TV Size only")
+                            Text("TV Size only")
                         }
-                        TextButton(onClick = { showModeDislikeOptions = false }) { Text("Cancel") }
+                        TextButton(onClick = { scopedDislikeThemeId = null }) { Text("Cancel") }
                     }
                 }
             )
