@@ -87,7 +87,6 @@ import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
 import com.takeya.animeongaku.ui.common.MarqueeText
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
-import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.theme.Ember400
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
@@ -146,31 +145,38 @@ fun PlayerScreen(
     }
 
     if (showPlayerSheet) {
-        val theme = npState.currentTheme
-        if (theme != null) {
-            val animeEntity = theme.animeId?.let { npState.animeMap[it] }
-            val animeImageUrls = animeEntity?.primaryArtworkUrls() ?: emptyList()
-            val info = theme.displayInfo(animeEntity)
+        val currentEntry = npState.currentEntry
+        if (currentEntry != null) {
+            val item = currentEntry.item
+            val theme = currentEntry.themeOrNull
+            val animeEntity = item.anime ?: theme?.animeId?.let { npState.animeMap[it] }
+            val animeImageUrls = buildList {
+                item.display.artworkUrl?.let(::add)
+                addAll(animeEntity?.primaryArtworkUrls().orEmpty())
+            }.distinct()
             var songInLibrary by remember { mutableStateOf(true) }
-            LaunchedEffect(theme.id) {
-                songInLibrary = viewModel.isInLibrary(theme.id)
+            LaunchedEffect(theme?.id) {
+                songInLibrary = theme?.let { viewModel.isInLibrary(it.id) } ?: true
             }
             ActionSheet(
                 config = ActionSheetConfig(
-                    title = info.primaryText, subtitle = info.secondaryText,
+                    title = item.display.title,
+                    subtitle = listOfNotNull(item.display.artist, item.display.animeTitle ?: item.display.album)
+                        .joinToString(" · "),
                     imageUrl = animeImageUrls.firstOrNull(), imageUrls = animeImageUrls,
-                    showPlayNext = false, showAddToQueue = false, showReplaceQueue = false, showSaveToPlaylist = true,
-                    showAddToLibrary = !songInLibrary,
-                    showGoToArtist = !theme.artistName.isNullOrBlank(),
+                    showPlayNext = false, showAddToQueue = false, showReplaceQueue = false,
+                    showSaveToPlaylist = theme != null,
+                    showAddToLibrary = theme != null && !songInLibrary,
+                    showGoToArtist = !item.display.artist.isNullOrBlank(),
                     showGoToAnime = animeEntity?.kitsuId != null,
-                    artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
+                    artistName = item.display.artist?.split(",")?.firstOrNull()?.trim(),
                     animeName = animeEntity?.title
                 ),
                 onDismiss = { showPlayerSheet = false },
-                onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) },
-                onGoToArtist = { theme.artistName?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
+                onSaveToPlaylist = { theme?.let { pickerThemeIds = listOf(it.id) } },
+                onGoToArtist = { item.display.artist?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
                 onGoToAnime = { animeEntity?.kitsuId?.let { onOpenAnime(it) } },
-                onAddToLibrary = { viewModel.saveSongToLibrary(theme, animeEntity) }
+                onAddToLibrary = { theme?.let { viewModel.saveSongToLibrary(it, animeEntity) } }
             )
         }
     }
@@ -183,24 +189,32 @@ fun PlayerScreen(
         )
     }
 
-    val currentTheme = npState.currentTheme
-    val animeEntity = currentTheme?.animeId?.let { npState.animeMap[it] }
-    val backgroundArtUrl = animeEntity?.backgroundArtworkUrl()
-    val trackInfo = currentTheme?.displayInfo(animeEntity)
-    val title = trackInfo?.primaryText ?: "Select a song"
-    val artist = trackInfo?.secondaryText ?: "Choose a track from your library"
-    val expandedTitle = currentTheme?.title ?: "Select a song"
-    val expandedArtist = currentTheme?.artistName ?: animeEntity?.title ?: "Choose a track from your library"
-    val eyebrowAnimeName = animeEntity?.title?.takeIf { it.isNotBlank() }
+    val currentEntry = npState.currentEntry
+    val currentItem = currentEntry?.item
+    val currentTheme = currentEntry?.themeOrNull
+    val animeEntity = currentItem?.anime ?: currentTheme?.animeId?.let { npState.animeMap[it] }
+    val backgroundArtUrl = currentItem?.display?.artworkUrl ?: animeEntity?.backgroundArtworkUrl()
+    val title = currentItem?.display?.title ?: "Select a song"
+    val artist = listOfNotNull(currentItem?.display?.artist, currentItem?.display?.animeTitle ?: currentItem?.display?.album)
+        .filter { it.isNotBlank() }
+        .joinToString(" · ")
+        .ifBlank { "Choose a track from your library" }
+    val expandedTitle = currentItem?.display?.title ?: "Select a song"
+    val expandedArtist = currentItem?.display?.artist ?: animeEntity?.title ?: "Choose a track from your library"
+    val eyebrowAnimeName = currentItem?.display?.animeTitle?.takeIf { it.isNotBlank() }
     val eyebrowThemeTag = formatThemeTag(currentTheme?.themeType)
     val upNextEntry = npState.upcomingEntries.firstOrNull { entry ->
         val queueIdx = npState.indexOfQueueId(entry.queueId)
-        !dislikedThemeIds.contains(entry.theme.id) || npState.unskippedIndices.contains(queueIdx)
+        entry.themeOrNull?.id !in dislikedThemeIds || entry.queueId in npState.unskippedEntryIds
     }
-    val upNextTheme = upNextEntry?.theme
-    val upNextAnime = upNextTheme?.animeId?.let { npState.animeMap[it] }
-    val upNextArtworkUrls = upNextAnime?.primaryArtworkUrls() ?: emptyList()
-    val upNextAnimeName = upNextAnime?.title?.takeIf { it.isNotBlank() } ?: "Nothing queued"
+    val upNextTheme = upNextEntry?.themeOrNull
+    val upNextItem = upNextEntry?.item
+    val upNextAnime = upNextItem?.anime ?: upNextTheme?.animeId?.let { npState.animeMap[it] }
+    val upNextArtworkUrls = buildList {
+        upNextItem?.display?.artworkUrl?.let(::add)
+        addAll(upNextAnime?.primaryArtworkUrls().orEmpty())
+    }.distinct()
+    val upNextAnimeName = upNextItem?.display?.animeTitle ?: upNextItem?.display?.album ?: "Nothing queued"
     val upNextThemeTag = formatThemeTag(upNextTheme?.themeType)
 
     val topInsetDp = WindowInsets.systemBars.asPaddingValues().calculateTopPadding().value.toInt()
@@ -288,14 +302,14 @@ fun PlayerScreen(
                 // Build the pager queue: exclude disliked tracks entirely so the user
                 // never sees them while swiping. This mirrors shouldIncludeInPlayer()
                 // in MediaControllerManager, keeping the pager and media player in sync.
-                val playableQueue = remember(npState.nowPlaying, dislikedThemeIds, npState.unskippedIndices, npState.currentIndex) {
-                    npState.nowPlaying.mapIndexedNotNull { index, theme ->
+                val playableQueue = remember(npState.nowPlayingEntries, dislikedThemeIds, npState.unskippedEntryIds, npState.currentIndex) {
+                    npState.nowPlayingEntries.mapIndexedNotNull { index, entry ->
                         val isCurrent = index == npState.currentIndex
-                        val isUnskipped = npState.unskippedIndices.contains(index)
-                        val isNotDisliked = !dislikedThemeIds.contains(theme.id)
+                        val isUnskipped = entry.queueId in npState.unskippedEntryIds
+                        val isNotDisliked = entry.themeOrNull?.id !in dislikedThemeIds
 
                         if (isCurrent || isUnskipped || isNotDisliked) {
-                            index to theme
+                            index to entry
                         } else {
                             null
                         }
@@ -350,10 +364,15 @@ fun PlayerScreen(
                         snapPositionalThreshold = 0.8f
                     )
                 ) { page ->
-                    val theme = playableQueue.getOrNull(page)?.second
-                    val anime = theme?.animeId?.let { npState.animeMap[it] }
-                    val pageArtUrls = anime?.primaryArtworkUrls() ?: emptyList()
-                    val pageTitle = theme?.displayInfo(anime)?.primaryText ?: title
+                    val entry = playableQueue.getOrNull(page)?.second
+                    val item = entry?.item
+                    val theme = entry?.themeOrNull
+                    val anime = item?.anime ?: theme?.animeId?.let { npState.animeMap[it] }
+                    val pageArtUrls = buildList {
+                        item?.display?.artworkUrl?.let(::add)
+                        addAll(anime?.primaryArtworkUrls().orEmpty())
+                    }.distinct()
+                    val pageTitle = item?.display?.title ?: title
                     if (pageArtUrls.isNotEmpty()) {
                         FallbackAsyncImage(
                             urls = pageArtUrls,

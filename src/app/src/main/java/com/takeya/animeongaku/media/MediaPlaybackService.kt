@@ -71,7 +71,7 @@ class MediaPlaybackService : MediaSessionService() {
                 controller: MediaSession.ControllerInfo
             ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
                 val activeState = nowPlayingManager.state.value
-                if (activeState.nowPlaying.isNotEmpty()) {
+                if (activeState.nowPlayingEntries.isNotEmpty()) {
                     val playbackItems = activeState.toPlaybackMediaItems(
                         activeServerBaseUrl = serverSettingsStore.serverBaseUrl
                     )
@@ -148,7 +148,7 @@ class MediaPlaybackService : MediaSessionService() {
 
     private fun saveStateSynchronously() {
         val state = nowPlayingManager.state.value
-        if (state.nowPlaying.isNotEmpty()) {
+        if (state.nowPlayingEntries.isNotEmpty()) {
             val pos = player.currentPosition
             val rep = player.repeatMode
             // Use runBlocking to ensure it saves before the process is killed

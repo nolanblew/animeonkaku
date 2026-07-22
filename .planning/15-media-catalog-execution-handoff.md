@@ -204,6 +204,15 @@ device acceptance after the Android chain is complete.
 - Resume at MC-A02. Preserve queue occurrence identity and all existing
   single/multi/duplicate insertion invariants; do not implement mode switching
   until MC-A03.
+- MC-A02 is complete in the ticket commit containing this handoff update. It
+  generalizes the queue and persistence to real Theme/RelatedSong items while
+  preserving queueId occurrence identity, legacy restore, mixed display,
+  Media3 metadata, and pre-cache safety. Full unit verification passed 405/405;
+  independent focused QA passed 135/135; final Sol/Medium review passed.
+- Resume at MC-A03. Treat its resolver as the single authority for preferred
+  intent, policy, availability, connectivity, exact local media, actual
+  fallback, and retained-intent reason. Do not spread source-selection rules
+  into UI, downloads, or Media3.
 
 ## Agent model policy
 

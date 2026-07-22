@@ -23,6 +23,10 @@ sealed class QueueOp {
     data class Replace(val position: Int, val mediaId: String) : QueueOp()
 }
 
+/** Queue diff adapter that deliberately compares occurrence identity, never playable identity. */
+fun computeQueueEntryOps(old: List<QueueEntry>, new: List<QueueEntry>): List<QueueOp> =
+    computeQueueOps(old.map { it.queueId.toString() }, new.map { it.queueId.toString() })
+
 /**
  * Computes a minimal sequence of [QueueOp]s that transforms [old] into [new].
  *

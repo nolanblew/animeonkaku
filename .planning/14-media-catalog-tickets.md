@@ -1578,6 +1578,7 @@ Independent Terra/High QA passed with no remaining code blocker.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete |
 | Area | Android / queue and persistence |
 | Difficulty | High |
 | Effort | XL, 6–8 days |
@@ -1629,6 +1630,33 @@ Expected areas:
 
 Do not implement mode switching here. Keep queue identity independent from
 playback source identity.
+
+#### Completion and testing notes
+
+Completed on 2026-07-21. Added typed `PlayableKey` and real Theme/RelatedSong
+`PlayableItem` models plus passive base-mode policy data. `QueueEntry` retains
+`queueId` as the sole occurrence identity while mixed play, Play Next, Add to
+Queue, shuffle/unshuffle, history/rewind, suggestions, unskip, display, Media3
+metadata, and Up Next paths now support Theme and SONG entries. Existing
+Theme-only call sites remain compatibility adapters; no mode resolver or
+switching behavior was introduced.
+
+Queue persistence now writes typed item references and restores real
+Song/Release/Anime context through DAOs without synthetic themes. It also reads
+the complete pre-A02 theme-ID list shape, preserves duplicate occurrences,
+skips deleted catalog items, and remaps the current index to a surviving
+occurrence. Unshuffle and unskip are queue-ID based, so duplicate items cannot
+replace, erase, or inherit state from one another. App startup and pre-cache
+consumers use typed queue entries and safely handle SONG-only/mixed queues.
+
+TDD began with the intended missing typed-queue compilation failures. The
+final full Android unit suite passed 405/405. Independent Terra/High QA passed
+135 tests across nine focused queue, persistence, Media3, pre-cache, and pull
+suites with no failures or skips. Sol/Medium review passed after queue-key
+unshuffle substitution, positional unskip state, remaining Theme-only
+consumers, and true legacy-fixture coverage were corrected. Targeted re-review
+tests and `git diff --check` passed. `.codex-remote-attachments/` remained
+untouched.
 
 ### MC-A03 — Implement mode policy, preference, fallback, and offline resolver
 

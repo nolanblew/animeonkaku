@@ -412,7 +412,7 @@ class NowPlayingManagerTest {
     }
 
     @Test
-    fun `unshuffle from added copy of original song does not duplicate original slot`() {
+    fun `unshuffle from added copy preserves every original queue occurrence`() {
         manager.play("ctx", listOf(theme(1), theme(2), theme(3), theme(4)))
         manager.addToQueue(theme(2))
 
@@ -426,9 +426,9 @@ class NowPlayingManagerTest {
         manager.toggleShuffle()
 
         val state = manager.state.value
-        assertEquals(listOf(2L, 3L, 4L), state.nowPlaying.map { it.id })
+        assertEquals(listOf(2L, 1L, 2L, 3L, 4L), state.nowPlaying.map { it.id })
         assertEquals(copyEntryId, state.currentEntry?.queueId)
-        assertTrue(state.currentEntry?.queueId != originalEntryId)
+        assertEquals(originalEntryId, state.nowPlayingEntries[2].queueId)
     }
 
     // ─── onTrackChangedByThemeId() ────────────────────────────────────────

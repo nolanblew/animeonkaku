@@ -63,15 +63,14 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
-import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.QueueEntry
 import com.takeya.animeongaku.media.NowPlayingState
+import com.takeya.animeongaku.media.PlayableItem
 import com.takeya.animeongaku.ui.common.MarqueeText
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
-import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.common.dragDropItem
 import com.takeya.animeongaku.ui.common.dragHandle
 import com.takeya.animeongaku.ui.common.rememberDragDropState
@@ -258,14 +257,18 @@ private fun UpNextContent(
         var selectedActionEntry by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<QueueEntry?>(null) }
         selectedActionEntry?.let { entry ->
             val npIdx = npState.indexOfQueueId(entry.queueId)
-            val t = entry.theme
-            val anime = npState.animeMap[t.animeId]
-            val animeImageUrls = anime?.primaryArtworkUrls() ?: emptyList()
-            val isDisliked = t.id in dislikedThemeIds
+            val item = entry.item
+            val theme = entry.themeOrNull
+            val anime = item.anime ?: theme?.animeId?.let(npState.animeMap::get)
+            val animeImageUrls = buildList {
+                item.display.artworkUrl?.let(::add)
+                addAll(anime?.primaryArtworkUrls().orEmpty())
+            }.distinct()
+            val isDisliked = theme?.id in dislikedThemeIds
             ActionSheet(
                 config = ActionSheetConfig(
-                    title = t.title,
-                    subtitle = anime?.title ?: "Unknown Anime",
+                    title = item.display.title,
+                    subtitle = item.display.animeTitle ?: item.display.album ?: "Related Music",
                     imageUrl = animeImageUrls.firstOrNull(),
                     imageUrls = animeImageUrls,
                     isSkippedContext = isDisliked,
@@ -279,7 +282,7 @@ private fun UpNextContent(
                 onPlayNext = { if (npIdx >= 0) nowPlayingManager.moveToPlayNext(npIdx) },
                 onRemoveFromQueue = { if (npIdx >= 0) nowPlayingManager.removeFromQueue(npIdx) },
                 onUnskip = { if (npIdx >= 0) nowPlayingManager.unskip(npIdx) },
-                onRemoveDislike = { viewModel.toggleDislike(t.id) }
+                onRemoveDislike = { theme?.let { viewModel.toggleDislike(it.id) } }
             )
         }
 
@@ -303,14 +306,17 @@ private fun UpNextContent(
                     items = history,
                     key = { _, entry -> historyKey(entry.queueId) }
                 ) { index, entry ->
-                    val theme = entry.theme
-                    val anime = theme.animeId?.let { npState.animeMap[it] }
-                    val isUnavailable = isOffline && theme.id !in downloadedThemeIds
-                    val isDisliked = theme.id in dislikedThemeIds
+                    val theme = entry.themeOrNull
+                    val anime = entry.item.anime ?: theme?.animeId?.let { npState.animeMap[it] }
+                    val isUnavailable = isOffline && when (val item = entry.item) {
+                        is PlayableItem.Theme -> item.theme.id !in downloadedThemeIds
+                        is PlayableItem.RelatedSong -> item.localFilePath.isNullOrBlank()
+                    }
+                    val isDisliked = theme?.id in dislikedThemeIds
                     val key = historyKey(entry.queueId)
                     val isDragging = dragDropState.draggingItemKey == key
                     QueueTrackRow(
-                        theme = theme,
+                        item = entry.item,
                         anime = anime,
                         isHistory = true,
                         isCurrent = false,
@@ -333,15 +339,15 @@ private fun UpNextContent(
 
             if (currentEntry != null) {
                 item(key = queueKey(currentEntry.queueId)) {
-                    val currentTheme = currentEntry.theme
                     val key = queueKey(currentEntry.queueId)
-                    val anime = currentTheme.animeId?.let { npState.animeMap[it] }
+                    val currentTheme = currentEntry.themeOrNull
+                    val anime = currentEntry.item.anime ?: currentTheme?.animeId?.let { npState.animeMap[it] }
                     QueueTrackRow(
-                        theme = currentTheme,
+                        item = currentEntry.item,
                         anime = anime,
                         isHistory = false,
                         isCurrent = true,
-                        isDisliked = currentTheme.id in dislikedThemeIds,
+                        isDisliked = currentTheme?.id in dislikedThemeIds,
                         onClick = { },
                         onLongClick = { selectedActionEntry = currentEntry },
                         modifier = Modifier.dragDropItem(dragDropState, key)
@@ -365,15 +371,18 @@ private fun UpNextContent(
                     key = { idx -> queueKey(upcoming[idx].queueId) }
                 ) { idx ->
                     val entry = upcoming[idx]
-                    val theme = entry.theme
+                    val theme = entry.themeOrNull
                     val queueIdx = npState.indexOfQueueId(entry.queueId)
-                    val anime = theme.animeId?.let { npState.animeMap[it] }
-                    val isUnavailable = isOffline && theme.id !in downloadedThemeIds
-                    val isDisliked = theme.id in dislikedThemeIds
+                    val anime = entry.item.anime ?: theme?.animeId?.let { npState.animeMap[it] }
+                    val isUnavailable = isOffline && when (val item = entry.item) {
+                        is PlayableItem.Theme -> item.theme.id !in downloadedThemeIds
+                        is PlayableItem.RelatedSong -> item.localFilePath.isNullOrBlank()
+                    }
+                    val isDisliked = theme?.id in dislikedThemeIds
                     val key = queueKey(entry.queueId)
                     val isDragging = dragDropState.draggingItemKey == key
                     QueueTrackRow(
-                        theme = theme,
+                        item = entry.item,
                         anime = anime,
                         isHistory = false,
                         isCurrent = false,
@@ -406,15 +415,18 @@ private fun UpNextContent(
                 ) { offset ->
                     val idx = firstSuggestedIdx + offset
                     val entry = upcoming[idx]
-                    val theme = entry.theme
+                    val theme = entry.themeOrNull
                     val queueIdx = npState.indexOfQueueId(entry.queueId)
-                    val anime = theme.animeId?.let { npState.animeMap[it] }
-                    val isUnavailable = isOffline && theme.id !in downloadedThemeIds
-                    val isDisliked = theme.id in dislikedThemeIds
+                    val anime = entry.item.anime ?: theme?.animeId?.let { npState.animeMap[it] }
+                    val isUnavailable = isOffline && when (val item = entry.item) {
+                        is PlayableItem.Theme -> item.theme.id !in downloadedThemeIds
+                        is PlayableItem.RelatedSong -> item.localFilePath.isNullOrBlank()
+                    }
+                    val isDisliked = theme?.id in dislikedThemeIds
                     val key = queueKey(entry.queueId)
                     val isDragging = dragDropState.draggingItemKey == key
                     QueueTrackRow(
-                        theme = theme,
+                        item = entry.item,
                         anime = anime,
                         isHistory = false,
                         isCurrent = false,
@@ -440,7 +452,7 @@ private fun UpNextContent(
 
 @Composable
 private fun QueueTrackRow(
-    theme: ThemeEntity,
+    item: PlayableItem,
     anime: AnimeEntity?,
     isHistory: Boolean,
     isCurrent: Boolean,
@@ -452,8 +464,13 @@ private fun QueueTrackRow(
     modifier: Modifier = Modifier,
     dragModifier: Modifier = Modifier
 ) {
-    val info = theme.displayInfo(anime)
-    val imageUrls = remember(anime) { anime?.primaryArtworkUrls() ?: emptyList() }
+    val display = item.display
+    val imageUrls = remember(item, anime) {
+        buildList {
+            display.artworkUrl?.let(::add)
+            addAll(anime?.primaryArtworkUrls().orEmpty())
+        }.distinct()
+    }
     val alpha = when {
         isUnavailable || isDisliked -> 0.3f
         isHistory -> 0.45f
@@ -503,14 +520,17 @@ private fun QueueTrackRow(
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             MarqueeText(
-                text = info.primaryText,
+                text = display.title,
                 style = MaterialTheme.typography.bodyMedium.copy(
                     fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal
                 ),
                 color = if (isCurrent) Rose500 else Mist100
             )
             MarqueeText(
-                text = info.secondaryText,
+                text = listOfNotNull(display.artist, display.animeTitle ?: display.album)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" · ")
+                    .ifBlank { "Related Music" },
                 style = MaterialTheme.typography.bodySmall,
                 color = Mist200
             )

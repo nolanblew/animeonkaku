@@ -50,6 +50,9 @@ interface AnimeDao {
     @Query("SELECT * FROM anime WHERE animeThemesId IN (:animeThemesIds)")
     suspend fun getByAnimeThemesIds(animeThemesIds: List<Long>): List<AnimeEntity>
 
+    @Query("SELECT * FROM anime WHERE kitsuId IN (:kitsuIds)")
+    suspend fun getByKitsuIds(kitsuIds: List<String>): List<AnimeEntity>
+
     @Query("SELECT * FROM anime WHERE watchingStatus = :status")
     fun observeByWatchingStatus(status: String): Flow<List<AnimeEntity>>
 

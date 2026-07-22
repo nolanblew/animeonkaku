@@ -88,7 +88,7 @@ class MediaControllerManager @Inject constructor(
 
     private fun shouldIncludeInPlayer(idx: Int, theme: ThemeEntity, npState: NowPlayingState): Boolean {
         if (idx == npState.currentIndex) return true
-        if (npState.unskippedIndices.contains(idx)) return true
+        if (npState.nowPlayingEntries.getOrNull(idx)?.queueId in npState.unskippedEntryIds) return true
         return !cachedDislikedThemeIds.contains(theme.id)
     }
 
@@ -115,7 +115,7 @@ class MediaControllerManager @Inject constructor(
             if (queueEntryId != null) {
                 val themeId = nowPlayingManager.state.value.nowPlayingEntries
                     .firstOrNull { it.queueId == queueEntryId }
-                    ?.theme
+                    ?.themeOrNull
                     ?.id
 
                 nowPlayingManager.onTrackChangedByQueueId(queueEntryId)
@@ -223,11 +223,11 @@ class MediaControllerManager @Inject constructor(
                         val npState = nowPlayingManager.state.value
                         
                         // We must re-sync the queue around the current item in case upcoming skips changed
-                        if (npState.nowPlaying.isNotEmpty()) {
+                        if (npState.nowPlayingEntries.isNotEmpty()) {
                             forceSyncQueue(ctrl, npState)
                             
                             val currentTheme = npState.currentTheme
-                            val isUnskipped = npState.unskippedIndices.contains(npState.currentIndex)
+                            val isUnskipped = npState.currentEntry?.queueId in npState.unskippedEntryIds
                             
                             // If the currently playing song just became disliked (and not unskipped), auto-skip it
                             if (currentTheme != null && newSet.contains(currentTheme.id) && !oldSet.contains(currentTheme.id) && !isUnskipped) {
@@ -294,7 +294,9 @@ class MediaControllerManager @Inject constructor(
         entry: QueueEntry,
         npState: NowPlayingState
     ) {
-        val anime = entry.theme.animeId?.let { npState.animeMap[it] } ?: return
+        val anime = entry.item.anime
+            ?: entry.themeOrNull?.animeId?.let { npState.animeMap[it] }
+            ?: return
         val bytes = loadArtworkData(anime) ?: return
         replaceMediaItemArtworkData(ctrl, entry.queueId.toString(), bytes)
     }
@@ -374,7 +376,7 @@ class MediaControllerManager @Inject constructor(
                 .debounce(500L)
                 .collectLatest { state ->
                     // Only save if there's actually a queue
-                    if (state.nowPlaying.isNotEmpty()) {
+                    if (state.nowPlayingEntries.isNotEmpty()) {
                         val pos = controller?.currentPosition ?: _playbackState.value.positionMs
                         val rep = controller?.repeatMode ?: Player.REPEAT_MODE_OFF
                         nowPlayingPersistence.save(state, pos, rep)
@@ -442,7 +444,7 @@ class MediaControllerManager @Inject constructor(
      * still converge.
      */
     private fun forceSyncQueue(ctrl: MediaController, npState: NowPlayingState) {
-        if (npState.nowPlaying.isEmpty()) {
+        if (npState.nowPlayingEntries.isEmpty()) {
             ctrl.clearMediaItems()
             ctrl.stop()
             lastSyncedMediaIds = emptyList()

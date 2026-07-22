@@ -23,7 +23,8 @@ internal fun NowPlayingState.toPlaybackMediaItems(
     var playbackCurrentIndex = 0
 
     nowPlayingEntries.forEachIndexed { idx, entry ->
-        if (shouldIncludeInPlayer(idx, entry.theme)) {
+        val theme = entry.themeOrNull
+        if (theme == null || shouldIncludeInPlayer(idx, theme)) {
             if (idx < currentIndex) playbackCurrentIndex++
             items.add(entry.toPlaybackMediaItem(animeMap, artworkDataForAnime, activeServerBaseUrl))
         }
@@ -39,7 +40,51 @@ internal fun QueueEntry.toPlaybackMediaItem(
     animeMap: Map<Long, AnimeEntity>,
     artworkDataForAnime: (AnimeEntity) -> ByteArray? = { null },
     activeServerBaseUrl: String? = null
-): MediaItem = theme.toPlaybackMediaItem(queueId.toString(), animeMap, artworkDataForAnime, activeServerBaseUrl)
+): MediaItem = when (val playable = item) {
+    is PlayableItem.Theme -> playable.theme.toPlaybackMediaItem(
+        queueId.toString(),
+        animeMap,
+        artworkDataForAnime,
+        activeServerBaseUrl
+    )
+    is PlayableItem.RelatedSong -> playable.toPlaybackMediaItem(queueId.toString(), artworkDataForAnime, activeServerBaseUrl)
+}
+
+private fun PlayableItem.RelatedSong.toPlaybackMediaItem(
+    mediaId: String,
+    artworkDataForAnime: (AnimeEntity) -> ByteArray?,
+    activeServerBaseUrl: String?
+): MediaItem {
+    val artworkUrl = display.artworkUrl
+        ?.let { rewriteServerMediaUrl(it, activeServerBaseUrl) }
+        ?.takeIf { it.isAbsoluteUri() }
+    val artworkData = anime?.let(artworkDataForAnime)?.copyOf()
+    val uri = playbackUriString(activeServerBaseUrl)
+    return MediaItem.Builder()
+        .setMediaId(mediaId)
+        .setUri(uri)
+        .setMediaMetadata(
+            MediaMetadata.Builder()
+                .setTitle(display.title)
+                .setArtist(display.artist)
+                .setAlbumTitle(display.album ?: display.animeTitle)
+                .apply {
+                    if (!artworkUrl.isNullOrBlank()) setArtworkUri(Uri.parse(artworkUrl))
+                    if (artworkData != null) {
+                        setArtworkData(artworkData, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                    }
+                }
+                .build()
+        )
+        .build()
+}
+
+internal fun PlayableItem.playbackUriString(activeServerBaseUrl: String? = null): String = when (this) {
+    is PlayableItem.Theme -> theme.playbackUriString(activeServerBaseUrl)
+    is PlayableItem.RelatedSong -> localFilePath?.takeIf { it.isNotBlank() }?.let { path ->
+        if (path.startsWith("/")) "file://$path" else path
+    } ?: rewriteServerMediaUrl(song.audioUrl, activeServerBaseUrl)
+}
 
 internal fun ThemeEntity.toPlaybackMediaItem(
     mediaId: String,
