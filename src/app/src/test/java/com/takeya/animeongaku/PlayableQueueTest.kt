@@ -8,6 +8,7 @@ import com.takeya.animeongaku.data.local.MusicReleaseEntity
 import com.takeya.animeongaku.data.local.SongEntity
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.media.NowPlayingManager
+import com.takeya.animeongaku.media.PlaybackPreferences
 import com.takeya.animeongaku.media.PlayableItem
 import com.takeya.animeongaku.media.PlayableKey
 import com.takeya.animeongaku.media.PlayableKind
@@ -25,7 +26,10 @@ class PlayableQueueTest {
         val tokenStore = ServerTokenStore(FakeSharedPreferences()).apply {
             save(ServerSession("tok", "uid", "n"))
         }
-        manager = NowPlayingManager(SessionStateManager(tokenStore))
+        manager = NowPlayingManager(
+            SessionStateManager(tokenStore),
+            PlaybackPreferences(FakeSharedPreferences())
+        )
     }
 
     @Test

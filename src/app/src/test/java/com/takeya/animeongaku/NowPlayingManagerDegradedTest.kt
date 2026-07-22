@@ -5,6 +5,7 @@ import com.takeya.animeongaku.data.auth.ServerTokenStore
 import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.media.NowPlayingManager
+import com.takeya.animeongaku.media.PlaybackPreferences
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -28,7 +29,7 @@ class NowPlayingManagerDegradedTest {
         }
         val state = SessionStateManager(tokenStore)
         if (!active) state.markUnauthorized()
-        return NowPlayingManager(state)
+        return NowPlayingManager(state, PlaybackPreferences(FakeSharedPreferences()))
     }
 
     @Test

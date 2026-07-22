@@ -213,6 +213,17 @@ device acceptance after the Android chain is complete.
   intent, policy, availability, connectivity, exact local media, actual
   fallback, and retained-intent reason. Do not spread source-selection rules
   into UI, downloads, or Media3.
+- MC-A03 is complete in the ticket commit containing this handoff update. Its
+  pure resolver and coordinator own policy precedence, exact local/online
+  availability, finite fallback, retained intent, and Related Audio behavior.
+  `selectThemeMode` is the authoritative durable/runtime selection boundary;
+  Video is session-only and RELATED_AUDIO is invalid for Theme sessions.
+- MC-A03 verification: full unit 424/424, independent focused QA 137/137,
+  corrected focused review 24/24, and diff check passed.
+- Resume at MC-A04. Consume `ResolvedPlaybackItem`; do not reimplement fallback
+  or availability in Media3. Preserve `MediaItem.mediaId == queueId`, route
+  server audio with bearer+cache, direct video without either, and local files
+  locally.
 
 ## Agent model policy
 

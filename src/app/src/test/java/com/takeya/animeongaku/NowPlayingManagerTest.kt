@@ -6,6 +6,7 @@ import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.media.NowPlayingManager
+import com.takeya.animeongaku.media.PlaybackPreferences
 import com.takeya.animeongaku.media.NowPlayingState
 import com.takeya.animeongaku.media.QueueEntry
 import org.junit.Assert.assertEquals
@@ -46,7 +47,10 @@ class NowPlayingManagerTest {
         val tokenStore = ServerTokenStore(FakeSharedPreferences()).apply {
             save(ServerSession("tok", "uid", "n"))
         }
-        manager = NowPlayingManager(SessionStateManager(tokenStore))
+        manager = NowPlayingManager(
+            SessionStateManager(tokenStore),
+            PlaybackPreferences(FakeSharedPreferences())
+        )
     }
 
     // ─── play() ─────────────────────────────────────────────────────────

@@ -1662,6 +1662,7 @@ untouched.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete |
 | Area | Android / playback domain |
 | Difficulty | High |
 | Effort | L, 4–5 days |
@@ -1713,6 +1714,36 @@ Expected areas:
 
 This resolver is the only place UI, Media3, and downloads should ask which
 source/mode to use.
+
+#### Completion and testing notes
+
+Completed on 2026-07-21. Added the pure single-authority playback resolver,
+typed modes/policies/intents/results, selectable availability, exact MediaKey
+local sources, finite online fallback, exact offline resolution, and retained
+preferred-intent reasons. Policy precedence is session override, entry
+override, playlist default, then remembered TV/Full preference. Related songs
+always resolve as RELATED_AUDIO; Video is never selected automatically and
+remains session-only.
+
+`PlaybackResolutionCoordinator` is the sole impure adapter: it hydrates theme
+mode metadata, loads only possible exact completed/nonblank download rows,
+reads connectivity, and delegates all source/fallback decisions to the pure
+resolver. `NowPlayingManager.selectThemeMode` is the authoritative selection
+write boundary: TV/Full synchronizes durable preferences and runtime intent,
+Video changes only session intent, reconstruction restores remembered audio,
+and queue/context replacement clears session Video. Theme entry points reject
+RELATED_AUDIO. Typed base policies and descriptors persist without serializing
+session overrides. Show OST defaults on.
+
+TDD began with the intended missing resolver/preference compilation failures.
+The final full Android unit suite passed 424/424. Independent Terra/High QA
+passed 137 focused resolver, preference, session, persistence, queue, Media3,
+pre-cache, and download tests. Sol/Medium review passed after consolidating the
+split remembered-mode sources and rejecting RELATED_AUDIO at every Theme
+session boundary; its corrected focused results passed 24/24. Exhaustive
+24-case online and 12-case offline matrices, restart/context behavior, exact
+download filtering, and `git diff --check` passed. Media3 routing and UI remain
+deferred to MC-A04/MC-A05.
 
 ### MC-A04 — Route authenticated audio and uncached video through Media3
 

@@ -11,6 +11,8 @@ import com.takeya.animeongaku.data.local.MusicReleaseEntity
 import com.takeya.animeongaku.data.local.SongEntity
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.ThemeModeDao
+import com.takeya.animeongaku.data.local.ThemeModeEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -29,7 +31,8 @@ data class PersistedQueueEntry(
     val releaseId: Long? = null,
     val animeKitsuId: String? = null,
     val relationshipType: String? = null,
-    val baseMode: String? = null
+    val baseMode: String? = null,
+    val playlistDefaultMode: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -68,7 +71,8 @@ class NowPlayingPersistence @Inject constructor(
     private val moshi: Moshi,
     private val themeDao: ThemeDao,
     private val animeDao: AnimeDao,
-    private val musicCatalogDao: MusicCatalogDao
+    private val musicCatalogDao: MusicCatalogDao,
+    private val themeModeDao: ThemeModeDao
 ) {
     private val file = File(context.filesDir, "now_playing_state.json")
     private val adapter = moshi.adapter(PersistedNowPlayingState::class.java)
@@ -121,6 +125,9 @@ class NowPlayingPersistence @Inject constructor(
             val themes = if (allThemeIds.isEmpty()) emptyMap() else {
                 themeDao.getByIds(allThemeIds.toList()).associateBy { it.id }
             }
+            val themeModes = if (themes.isEmpty()) emptyMap() else {
+                themeModeDao.getByThemeIds(themes.keys.toList()).associateBy { it.themeId }
+            }
             val songs = if (allSongIds.isEmpty()) emptyMap() else {
                 musicCatalogDao.getSongs(allSongIds).associateBy { it.id }
             }
@@ -143,7 +150,8 @@ class NowPlayingPersistence @Inject constructor(
                 songs,
                 releases,
                 animeByKitsuId,
-                animeMap
+                animeMap,
+                themeModes
             ) ?: return@withContext null
 
             Log.d("NowPlayingPersistence", "Restored queue state, size: ${restoredState.nowPlayingEntries.size}")
@@ -198,7 +206,8 @@ private fun QueueEntry.toPersistedEntry(): PersistedQueueEntry = when (val playa
         itemType = PlayableKind.THEME.name,
         itemId = playable.theme.id,
         animeKitsuId = playable.anime?.kitsuId,
-        baseMode = baseModePolicy.requestedMode
+        baseMode = baseModePolicy.requestedMode,
+        playlistDefaultMode = baseModePolicy.playlistDefault?.name
     )
     is PlayableItem.RelatedSong -> PersistedQueueEntry(
         queueId = queueId,
@@ -207,7 +216,8 @@ private fun QueueEntry.toPersistedEntry(): PersistedQueueEntry = when (val playa
         releaseId = playable.release?.id,
         animeKitsuId = playable.anime?.kitsuId,
         relationshipType = playable.relationshipType,
-        baseMode = baseModePolicy.requestedMode
+        baseMode = baseModePolicy.requestedMode,
+        playlistDefaultMode = baseModePolicy.playlistDefault?.name
     )
 }
 
@@ -224,7 +234,8 @@ internal fun restorePersistedQueueState(
     songs: Map<Long, SongEntity>,
     releases: Map<Long, MusicReleaseEntity>,
     animeByKitsuId: Map<String, AnimeEntity>,
-    animeMap: Map<Long, AnimeEntity>
+    animeMap: Map<Long, AnimeEntity>,
+    themeModes: Map<Long, ThemeModeEntity> = emptyMap()
 ): NowPlayingState? {
     var nextFallbackQueueId = persisted.allEntries().maxOfOrNull { it.queueId }
         ?.coerceAtLeast(0L)
@@ -233,7 +244,14 @@ internal fun restorePersistedQueueState(
 
     fun mapPersistedEntry(entry: PersistedQueueEntry): QueueEntry? {
         val queueId = entry.queueId.takeIf { it > 0 } ?: nextFallbackQueueId++
-        val policy = BaseModePolicy(entry.baseMode)
+        val policy = BaseModePolicy(
+            entryPolicy = entry.baseMode?.let { value ->
+                ThemeModePolicy.entries.firstOrNull { it.name == value }
+            } ?: ThemeModePolicy.INHERIT,
+            playlistDefault = entry.playlistDefaultMode?.let { value ->
+                PlaybackMode.entries.firstOrNull { it.name == value }
+            }?.takeIf { it == PlaybackMode.TV_SIZE || it == PlaybackMode.FULL_SIZE }
+        )
         val kind = entry.itemType?.uppercase()?.let { value ->
             PlayableKind.entries.firstOrNull { it.name == value }
         } ?: PlayableKind.THEME
@@ -243,7 +261,8 @@ internal fun restorePersistedQueueState(
                 PlayableItem.Theme(
                     theme = theme,
                     anime = entry.animeKitsuId?.let(animeByKitsuId::get)
-                        ?: theme.animeId?.let(animeMap::get)
+                        ?: theme.animeId?.let(animeMap::get),
+                    modeDescriptor = themeModes[theme.id]
                 )
             }
             PlayableKind.SONG -> songs[itemId]?.let { song ->
@@ -264,7 +283,11 @@ internal fun restorePersistedQueueState(
     fun newLegacyThemeEntry(themeId: Long): QueueEntry? = themes[themeId]?.let { theme ->
         QueueEntry(
             queueId = nextFallbackQueueId++,
-            item = PlayableItem.Theme(theme, theme.animeId?.let(animeMap::get))
+            item = PlayableItem.Theme(
+                theme,
+                theme.animeId?.let(animeMap::get),
+                themeModes[theme.id]
+            )
         )
     }
 

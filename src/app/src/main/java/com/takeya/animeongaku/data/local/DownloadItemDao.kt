@@ -17,6 +17,9 @@ interface DownloadItemDao {
     @Query("SELECT * FROM download_items WHERE mediaKey = :mediaKey LIMIT 1")
     suspend fun get(mediaKey: String): DownloadItemEntity?
 
+    @Query("SELECT * FROM download_items WHERE mediaKey IN (:mediaKeys)")
+    suspend fun getByMediaKeys(mediaKeys: List<String>): List<DownloadItemEntity>
+
     @Query("SELECT * FROM download_items")
     fun observeAll(): Flow<List<DownloadItemEntity>>
 }

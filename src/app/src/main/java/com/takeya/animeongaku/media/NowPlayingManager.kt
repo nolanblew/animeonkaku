@@ -11,15 +11,26 @@ import javax.inject.Singleton
 
 @Singleton
 class NowPlayingManager @Inject constructor(
-    private val sessionStateManager: com.takeya.animeongaku.data.auth.SessionStateManager
+    private val sessionStateManager: com.takeya.animeongaku.data.auth.SessionStateManager,
+    private val playbackPreferences: PlaybackPreferences
 ) {
 
-    private val _state = MutableStateFlow(NowPlayingState())
+    private val _state = MutableStateFlow(
+        NowPlayingState(
+            playbackIntent = PlaybackIntent(
+                rememberedAudioMode = playbackPreferences.rememberedAudioMode
+            )
+        )
+    )
     val state: StateFlow<NowPlayingState> = _state.asStateFlow()
     private var nextQueueEntryId: Long = 1L
 
     fun restoreState(state: NowPlayingState) {
-        val restored = state.withUniqueHistoryEntries()
+        val restored = state.withUniqueHistoryEntries().copy(
+            playbackIntent = PlaybackIntent(
+                rememberedAudioMode = playbackPreferences.rememberedAudioMode
+            )
+        )
         nextQueueEntryId = restored.maxQueueEntryId + 1L
         _state.value = restored.copy(isFullReload = true)
     }
@@ -67,6 +78,38 @@ class NowPlayingManager @Inject constructor(
         )
     }
 
+    /** Single write boundary for a user's manual Theme-mode selection. */
+    fun selectThemeMode(mode: PlaybackMode) {
+        require(mode != PlaybackMode.RELATED_AUDIO) {
+            "RELATED_AUDIO is resolver-owned and cannot be selected for a Theme session"
+        }
+        if (mode == PlaybackMode.TV_SIZE || mode == PlaybackMode.FULL_SIZE) {
+            playbackPreferences.rememberAudioMode(mode)
+        }
+        val current = _state.value
+        val intent = PlaybackIntent(
+            rememberedAudioMode = playbackPreferences.rememberedAudioMode,
+            sessionOverride = mode
+        )
+        if (current.playbackIntent == intent) return
+        _state.value = current.copy(
+            playbackIntent = intent,
+            queueVersion = current.queueVersion + 1,
+            isFullReload = false
+        )
+    }
+
+    fun clearThemeSessionOverride() {
+        val current = _state.value
+        val intent = PlaybackIntent(rememberedAudioMode = playbackPreferences.rememberedAudioMode)
+        if (current.playbackIntent == intent) return
+        _state.value = current.copy(
+            playbackIntent = intent,
+            queueVersion = current.queueVersion + 1,
+            isFullReload = false
+        )
+    }
+
     fun playItems(
         contextLabel: String,
         items: List<PlayableItem>,
@@ -74,8 +117,12 @@ class NowPlayingManager @Inject constructor(
         shuffle: Boolean = false,
         animeMap: Map<Long, AnimeEntity> = emptyMap(),
         suggestedFrom: Int? = null,
-        baseModePolicy: BaseModePolicy = BaseModePolicy.Inherit
+        baseModePolicy: BaseModePolicy = BaseModePolicy.Inherit,
+        initialSessionMode: PlaybackMode? = null
     ) {
+        require(initialSessionMode != PlaybackMode.RELATED_AUDIO) {
+            "RELATED_AUDIO is resolver-owned and cannot be a Theme session override"
+        }
         if (items.isEmpty()) return
 
         val playableWithSourceIndex = playableItemsWithSourceIndex(items)
@@ -133,6 +180,10 @@ class NowPlayingManager @Inject constructor(
             isShuffled = shuffle,
             contextLabel = contextLabel,
             animeMap = animeMap,
+            playbackIntent = PlaybackIntent(
+                rememberedAudioMode = _state.value.playbackIntent.rememberedAudioMode,
+                sessionOverride = initialSessionMode
+            ),
             queueVersion = _state.value.queueVersion + 1,
             isFullReload = true
         )
@@ -629,6 +680,9 @@ class NowPlayingManager @Inject constructor(
         isShuffled = false,
         contextLabel = contextLabel,
         animeMap = animeMap,
+        playbackIntent = PlaybackIntent(
+            rememberedAudioMode = _state.value.playbackIntent.rememberedAudioMode
+        ),
         queueVersion = _state.value.queueVersion + 1,
         isFullReload = true
     )
@@ -669,7 +723,8 @@ data class NowPlayingState(
     val animeMap: Map<Long, AnimeEntity> = emptyMap(),
     val queueVersion: Long = 0,
     val isFullReload: Boolean = true,
-    val unskippedEntryIds: Set<Long> = emptySet()
+    val unskippedEntryIds: Set<Long> = emptySet(),
+    val playbackIntent: PlaybackIntent = PlaybackIntent()
 ) {
     private val entriesById: Map<Long, QueueEntry> by lazy {
         buildMap {

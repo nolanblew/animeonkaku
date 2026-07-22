@@ -11,6 +11,9 @@ import com.takeya.animeongaku.media.NowPlayingState
 import com.takeya.animeongaku.media.QueueEntry
 import com.takeya.animeongaku.media.restorePersistedQueueState
 import com.takeya.animeongaku.media.toPersistedState
+import com.takeya.animeongaku.media.BaseModePolicy
+import com.takeya.animeongaku.media.PlaybackMode
+import com.takeya.animeongaku.media.ThemeModePolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Test
@@ -152,6 +155,27 @@ class NowPlayingPersistenceModelTest {
         assertEquals(listOf(song.id, song.id), restored.nowPlayingItems.map { it.key.id })
         assertEquals(listOf(52L), restored.playNextEntryIds)
         assertEquals(1, restored.currentIndex)
+    }
+
+    @Test
+    fun `typed persistence preserves playlist entry and default policy`() {
+        val policy = BaseModePolicy(ThemeModePolicy.FULL_SIZE, PlaybackMode.TV_SIZE)
+        val entry = QueueEntry(70, PlayableItem.Theme(theme(1)), policy)
+        val persisted = NowPlayingState(
+            originalQueueEntries = listOf(entry),
+            nowPlayingEntries = listOf(entry)
+        ).toPersistedState(0, 0)
+
+        val restored = restorePersistedQueueState(
+            persisted,
+            themes = mapOf(1L to theme(1)),
+            songs = emptyMap(),
+            releases = emptyMap(),
+            animeByKitsuId = emptyMap(),
+            animeMap = emptyMap()
+        )!!
+
+        assertEquals(policy, restored.currentEntry!!.baseModePolicy)
     }
 
     private fun theme(id: Long) = ThemeEntity(

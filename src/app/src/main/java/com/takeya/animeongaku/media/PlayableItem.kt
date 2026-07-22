@@ -5,6 +5,7 @@ import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.MusicReleaseEntity
 import com.takeya.animeongaku.data.local.SongEntity
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.ThemeModeEntity
 
 enum class PlayableKind { THEME, SONG }
 
@@ -17,8 +18,24 @@ data class PlayableKey(
 /** Passive queue policy data. MC-A03 owns interpreting this value. */
 @Immutable
 data class BaseModePolicy(
-    val requestedMode: String? = null
+    val entryPolicy: ThemeModePolicy = ThemeModePolicy.INHERIT,
+    val playlistDefault: PlaybackMode? = null
 ) {
+    init {
+        require(playlistDefault == null || playlistDefault == PlaybackMode.TV_SIZE || playlistDefault == PlaybackMode.FULL_SIZE) {
+            "Playlist default must be TV_SIZE or FULL_SIZE"
+        }
+    }
+
+    constructor(requestedMode: String?) : this(
+        entryPolicy = requestedMode?.let { value ->
+            ThemeModePolicy.entries.firstOrNull { it.name == value }
+        } ?: ThemeModePolicy.INHERIT
+    )
+
+    val requestedMode: String?
+        get() = entryPolicy.takeUnless { it == ThemeModePolicy.INHERIT }?.name
+
     companion object {
         val Inherit = BaseModePolicy()
     }
@@ -43,7 +60,8 @@ sealed interface PlayableItem {
     @Immutable
     data class Theme(
         val theme: ThemeEntity,
-        override val anime: AnimeEntity? = null
+        override val anime: AnimeEntity? = null,
+        val modeDescriptor: ThemeModeEntity? = null
     ) : PlayableItem {
         override val key = PlayableKey(PlayableKind.THEME, theme.id)
         override val display = PlayableDisplayMetadata(
