@@ -8,6 +8,8 @@ import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.ThemeModeDao
+import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.media.MediaControllerManager
@@ -16,6 +18,8 @@ import com.takeya.animeongaku.media.NowPlayingState
 import com.takeya.animeongaku.media.PlaybackState
 import com.takeya.animeongaku.media.PlaybackMode
 import com.takeya.animeongaku.network.ConnectivityMonitor
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
@@ -25,13 +29,16 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     val nowPlayingManager: NowPlayingManager,
     val mediaControllerManager: MediaControllerManager,
     private val playlistDao: PlaylistDao,
     private val themeDao: ThemeDao,
+    private val themeModeDao: ThemeModeDao,
     private val animeDao: AnimeDao,
     private val serverPlaylistWriter: ServerPlaylistWriter,
     private val userPreferencesRepository: UserPreferencesRepository,
@@ -49,6 +56,34 @@ class PlayerViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlayerModeUiState())
 
     val isOnline: StateFlow<Boolean> = connectivityMonitor.isOnline
+
+    val queuedThemeModesById: StateFlow<Map<Long, ThemeModeEntity>> = nowPlayingState
+        .map { state -> state.nowPlayingEntries.mapNotNull { it.themeOrNull?.id }.distinct() }
+        .flatMapLatest { ids ->
+            if (ids.isEmpty()) kotlinx.coroutines.flow.flowOf(emptyList()) else themeModeDao.observeByThemeIds(ids)
+        }
+        .map { modes -> modes.associateBy { it.themeId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    fun requestQueuedThemeVideo(queueId: Long): BrowseVideoStartRequest? {
+        val state = nowPlayingState.value
+        val entry = state.nowPlayingEntries.firstOrNull { it.queueId == queueId } ?: return null
+        val theme = entry.themeOrNull ?: return null
+        val animeMap = entry.item.anime?.let { anime -> theme.animeId?.let { mapOf(it to anime) } }
+            ?: theme.animeId?.let { id -> state.animeMap[id]?.let { mapOf(id to it) } }.orEmpty()
+        return BrowseVideoActionPolicy.request(isOnline.value, "Theme", listOf(theme), queuedThemeModesById.value, animeMap)
+    }
+
+    fun startQueuedThemeVideo(queueId: Long, request: BrowseVideoStartRequest): Boolean {
+        val state = nowPlayingState.value
+        val entry = state.nowPlayingEntries.firstOrNull { it.queueId == queueId } ?: return false
+        val theme = entry.themeOrNull ?: return false
+        val animeMap = entry.item.anime?.let { anime -> theme.animeId?.let { mapOf(it to anime) } }
+            ?: theme.animeId?.let { id -> state.animeMap[id]?.let { mapOf(id to it) } }.orEmpty()
+        return request.startIfStillValid(
+            nowPlayingManager, isOnline.value, listOf(theme), queuedThemeModesById.value, "Theme", animeMap
+        )
+    }
 
     val downloadedThemeIds: StateFlow<Set<Long>> = themeDao.observeDownloadedThemeIds()
         .map { it.toSet() }

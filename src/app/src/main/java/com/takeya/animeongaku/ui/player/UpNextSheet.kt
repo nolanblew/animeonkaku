@@ -42,6 +42,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.drop
 import androidx.compose.ui.Alignment
@@ -71,6 +72,9 @@ import com.takeya.animeongaku.media.PlayableItem
 import com.takeya.animeongaku.ui.common.MarqueeText
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
+import com.takeya.animeongaku.ui.common.BrowseVideoWarningDialog
 import com.takeya.animeongaku.ui.common.dragDropItem
 import com.takeya.animeongaku.ui.common.dragHandle
 import com.takeya.animeongaku.ui.common.rememberDragDropState
@@ -163,6 +167,15 @@ private fun UpNextContent(
     val history = npState.historyEntries
     val currentEntry = npState.currentEntry
     val upcoming = npState.upcomingEntries
+    val queuedModes by viewModel.queuedThemeModesById.collectAsStateWithLifecycle()
+    var pendingVideo by remember { mutableStateOf<Pair<Long, BrowseVideoStartRequest>?>(null) }
+
+    pendingVideo?.let { (queueId, request) ->
+        BrowseVideoWarningDialog(request, { pendingVideo = null }) {
+            pendingVideo = null
+            if (viewModel.startQueuedThemeVideo(queueId, request)) onDismiss()
+        }
+    }
 
     val dragDropState = rememberDragDropState(listState) { fromKey, toKey ->
         val fromQueueId = queueIdFromKey(fromKey)
@@ -276,13 +289,19 @@ private fun UpNextContent(
                     showAddToQueue = false, showReplaceQueue = false, showSaveToPlaylist = false,
                     showRemoveFromQueue = npIdx >= 0 && npIdx != npState.currentIndex,
                     showRemoveDislike = isDisliked,
-                    showUnskip = isDisliked
+                    showUnskip = isDisliked,
+                    showPlayVideo = theme != null && BrowseVideoActionPolicy.singleTheme(!isOffline, queuedModes[theme.id])
                 ),
                 onDismiss = { selectedActionEntry = null },
                 onPlayNext = { if (npIdx >= 0) nowPlayingManager.moveToPlayNext(npIdx) },
                 onRemoveFromQueue = { if (npIdx >= 0) nowPlayingManager.removeFromQueue(npIdx) },
                 onUnskip = { if (npIdx >= 0) nowPlayingManager.unskip(npIdx) },
-                onRemoveDislike = { theme?.let { viewModel.toggleDislike(it.id) } }
+                onRemoveDislike = { theme?.let { viewModel.toggleDislike(it.id) } },
+                onPlayVideo = {
+                    val request = viewModel.requestQueuedThemeVideo(entry.queueId) ?: return@ActionSheet
+                    if (request.warning != null) pendingVideo = entry.queueId to request
+                    else if (viewModel.startQueuedThemeVideo(entry.queueId, request)) onDismiss()
+                }
             )
         }
 

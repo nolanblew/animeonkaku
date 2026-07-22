@@ -22,6 +22,7 @@ import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.rounded.LibraryAdd
 import androidx.compose.material.icons.rounded.Movie
@@ -64,6 +65,7 @@ data class ActionSheetConfig(
     val showPlayNext: Boolean = true,
     val showAddToQueue: Boolean = true,
     val showReplaceQueue: Boolean = true,
+    val showPlayVideo: Boolean = false,
     val showSaveToPlaylist: Boolean = true,
     val showAddToLibrary: Boolean = false,
     val showGoToArtist: Boolean = false,
@@ -92,6 +94,7 @@ fun ActionSheet(
     onPlayNext: () -> Unit = {},
     onAddToQueue: () -> Unit = {},
     onReplaceQueue: () -> Unit = {},
+    onPlayVideo: () -> Unit = {},
     onSaveToPlaylist: () -> Unit = {},
     onAddToLibrary: () -> Unit = {},
     onGoToArtist: () -> Unit = {},
@@ -243,6 +246,13 @@ fun ActionSheet(
                     icon = { Icon(Icons.AutoMirrored.Rounded.PlaylistPlay, contentDescription = null, tint = Mist100) },
                     label = "Replace queue",
                     onClick = { dismissThen(onReplaceQueue) }
+                )
+            }
+            if (config.showPlayVideo) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Mist100) },
+                    label = "Play Video",
+                    onClick = { dismissThen(onPlayVideo) }
                 )
             }
             if (config.showRemoveFromQueue) {

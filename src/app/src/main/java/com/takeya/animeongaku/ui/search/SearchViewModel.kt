@@ -14,6 +14,8 @@ import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.local.ThemeArtistCrossRef
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.ThemeModeDao
+import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.model.OnlineAnimeResult
 import com.takeya.animeongaku.data.model.OnlineArtistResult
@@ -22,6 +24,9 @@ import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
+import com.takeya.animeongaku.network.ConnectivityMonitor
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
 import com.takeya.animeongaku.sync.LibraryPullManager
 import com.takeya.animeongaku.sync.SyncEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -46,6 +51,7 @@ enum class OnlineSearchState { Idle, Loading, Done, Error }
 @HiltViewModel
 class SearchViewModel @Inject constructor(
     private val themeDao: ThemeDao,
+    private val themeModeDao: ThemeModeDao,
     private val animeDao: AnimeDao,
     private val artistDao: ArtistDao,
     private val playlistDao: PlaylistDao,
@@ -57,8 +63,11 @@ class SearchViewModel @Inject constructor(
     private val downloadDao: DownloadDao,
     private val serverPlaylistWriter: ServerPlaylistWriter,
     private val userPreferencesRepository: UserPreferencesRepository,
-    private val sessionStateManager: SessionStateManager
+    private val sessionStateManager: SessionStateManager,
+    connectivityMonitor: ConnectivityMonitor
 ) : ViewModel() {
+
+    val isOnline: StateFlow<Boolean> = connectivityMonitor.isOnline
 
     val onlineEnabled: StateFlow<Boolean> = sessionStateManager.state
         .map { it is SessionState.Active }
@@ -72,6 +81,14 @@ class SearchViewModel @Inject constructor(
             if (q.isBlank()) flowOf(emptyList()) else themeDao.searchThemes(q)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val themeModesById: StateFlow<Map<Long, ThemeModeEntity>> = localSongs
+        .flatMapLatest { list ->
+            val ids = list.map { it.id }
+            if (ids.isEmpty()) flowOf(emptyList()) else themeModeDao.observeByThemeIds(ids)
+        }
+        .map { modes -> modes.associateBy { it.themeId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     val localAnime: StateFlow<List<AnimeEntity>> = _query
         .flatMapLatest { q ->
@@ -193,6 +210,35 @@ class SearchViewModel @Inject constructor(
         val idx = songs.indexOfFirst { it.id == themeId }.coerceAtLeast(0)
         nowPlayingManager.play("Search: ${_query.value}", songs, idx, animeMap = buildAnimeMap())
     }
+
+    private fun localContextLabel(): String = "Search: ${_query.value}"
+
+    fun requestPlayVideo(themeId: Long): BrowseVideoStartRequest? {
+        val theme = localSongs.value.firstOrNull { it.id == themeId } ?: return null
+        return BrowseVideoActionPolicy.request(
+            isOnline.value,
+            localContextLabel(),
+            listOf(theme),
+            themeModesById.value,
+            singleAnimeMap(theme)
+        )
+    }
+
+    fun startPlayVideo(request: BrowseVideoStartRequest): Boolean {
+        val themeId = request.themes.singleOrNull()?.id ?: return false
+        val currentTheme = localSongs.value.firstOrNull { it.id == themeId } ?: return false
+        return request.startIfStillValid(
+            nowPlayingManager,
+            isOnline.value,
+            listOf(currentTheme),
+            themeModesById.value,
+            localContextLabel(),
+            singleAnimeMap(currentTheme)
+        )
+    }
+
+    private fun singleAnimeMap(theme: ThemeEntity): Map<Long, AnimeEntity> =
+        theme.animeId?.let { id -> buildAnimeMap()[id]?.let { mapOf(id to it) } } ?: emptyMap()
 
     private fun entryToThemeEntity(entry: AnimeThemeEntry): ThemeEntity {
         val themeId = entry.themeId.toLongOrNull() ?: abs(entry.themeId.hashCode()).toLong()

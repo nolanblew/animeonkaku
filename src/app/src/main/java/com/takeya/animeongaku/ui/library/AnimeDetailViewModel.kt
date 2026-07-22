@@ -13,6 +13,8 @@ import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeArtistCrossRef
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.ThemeModeDao
+import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.repository.AnimeRepository
 import com.takeya.animeongaku.data.repository.MusicRequestRepository
@@ -21,6 +23,9 @@ import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
+import com.takeya.animeongaku.network.ConnectivityMonitor
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
 import kotlinx.coroutines.launch
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -94,6 +99,7 @@ class AnimeDetailViewModel @Inject constructor(
     private val animeDao: AnimeDao,
     private val artistDao: ArtistDao,
     private val themeDao: ThemeDao,
+    private val themeModeDao: ThemeModeDao,
     private val playlistDao: PlaylistDao,
     private val animeRepository: AnimeRepository,
     private val serverPlaylistWriter: ServerPlaylistWriter,
@@ -101,8 +107,10 @@ class AnimeDetailViewModel @Inject constructor(
     val downloadManager: DownloadManager,
     private val downloadDao: DownloadDao,
     private val userPreferencesRepository: UserPreferencesRepository,
+    connectivityMonitor: ConnectivityMonitor,
     musicRequestRepository: MusicRequestRepository
 ) : ViewModel() {
+    val isOnline: StateFlow<Boolean> = connectivityMonitor.isOnline
     private val kitsuId: String = savedStateHandle["kitsuId"] ?: ""
 
     // In-memory online data (NOT saved to DB until explicit "Add to Library")
@@ -145,6 +153,14 @@ class AnimeDetailViewModel @Inject constructor(
     val themes: StateFlow<List<ThemeEntity>> = combine(_onlineThemes, localThemes) { online, local ->
         if (online.isNotEmpty()) online else local
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val themeModesById: StateFlow<Map<Long, ThemeModeEntity>> = themes
+        .flatMapLatest { list ->
+            val ids = list.map { it.id }
+            if (ids.isEmpty()) flowOf(emptyList()) else themeModeDao.observeByThemeIds(ids)
+        }
+        .map { modes -> modes.associateBy { it.themeId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -311,6 +327,24 @@ class AnimeDetailViewModel @Inject constructor(
     fun playAll() {
         val list = themes.value
         if (list.isNotEmpty()) nowPlayingManager.play(contextLabel(), list, 0, animeMap = buildAnimeMap())
+    }
+
+    fun requestPlayVideoTheme(themeId: Long): BrowseVideoStartRequest? {
+        val theme = themes.value.firstOrNull { it.id == themeId } ?: return null
+        return BrowseVideoActionPolicy.request(isOnline.value, contextLabel(), listOf(theme), themeModesById.value, buildAnimeMap())
+    }
+
+    fun requestPlayVideoAll(): BrowseVideoStartRequest? =
+        BrowseVideoActionPolicy.request(isOnline.value, contextLabel(), themes.value, themeModesById.value, buildAnimeMap())
+
+    fun startPlayVideo(request: BrowseVideoStartRequest): Boolean {
+        val currentThemes = if (request.themes.size == 1) {
+            themes.value.filter { it.id == request.themes.single().id }
+        } else themes.value
+        return request.startIfStillValid(
+            nowPlayingManager, isOnline.value, currentThemes, themeModesById.value,
+            contextLabel(), buildAnimeMap()
+        )
     }
 
     fun shuffleAll() {

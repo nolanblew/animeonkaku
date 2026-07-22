@@ -84,6 +84,9 @@ interface ThemeModeDao {
     fun observe(themeId: Long): Flow<ThemeModeEntity?>
 
     @Query("SELECT * FROM theme_modes WHERE themeId IN (:themeIds)")
+    fun observeByThemeIds(themeIds: List<Long>): Flow<List<ThemeModeEntity>>
+
+    @Query("SELECT * FROM theme_modes WHERE themeId IN (:themeIds)")
     suspend fun getByThemeIds(themeIds: List<Long>): List<ThemeModeEntity>
 }
 

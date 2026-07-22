@@ -1,5 +1,10 @@
 package com.takeya.animeongaku.ui.player
 
+import com.takeya.animeongaku.media.PlaybackMode
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
+import com.takeya.animeongaku.ui.common.BrowseVideoWarningDialog
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -125,6 +130,9 @@ fun PlayerScreen(
     var pendingModeConfirmation by remember {
         mutableStateOf<Pair<Long, ModeSelectionDecision.Confirm>?>(null)
     }
+    var pendingBrowseVideo by remember {
+        mutableStateOf<Pair<Long, BrowseVideoStartRequest>?>(null)
+    }
 
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
@@ -132,6 +140,14 @@ fun PlayerScreen(
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
     val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
+    val queuedThemeModesById by viewModel.queuedThemeModesById.collectAsStateWithLifecycle()
+
+    pendingBrowseVideo?.let { (queueId, request) ->
+        BrowseVideoWarningDialog(request, { pendingBrowseVideo = null }) {
+            pendingBrowseVideo = null
+            if (viewModel.startQueuedThemeVideo(queueId, request)) onExpand()
+        }
+    }
 
     LaunchedEffect(swipeUpTrigger) {
         if (swipeUpTrigger) {
@@ -177,10 +193,19 @@ fun PlayerScreen(
                     showAddToLibrary = theme != null && !songInLibrary,
                     showGoToArtist = !item.display.artist.isNullOrBlank(),
                     showGoToAnime = animeEntity?.kitsuId != null,
+                    showPlayVideo = theme != null && BrowseVideoActionPolicy.singleTheme(
+                        isOnline, queuedThemeModesById[theme.id]
+                    ),
                     artistName = item.display.artist?.split(",")?.firstOrNull()?.trim(),
                     animeName = animeEntity?.title
                 ),
                 onDismiss = { showPlayerSheet = false },
+                onPlayVideo = {
+                    val queueId = npState.currentEntry?.queueId ?: return@ActionSheet
+                    val request = viewModel.requestQueuedThemeVideo(queueId) ?: return@ActionSheet
+                    if (request.warning != null) pendingBrowseVideo = queueId to request
+                    else if (viewModel.startQueuedThemeVideo(queueId, request)) onExpand()
+                },
                 onSaveToPlaylist = { theme?.let { pickerThemeIds = listOf(it.id) } },
                 onGoToArtist = { item.display.artist?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
                 onGoToAnime = { animeEntity?.kitsuId?.let { onOpenAnime(it) } },

@@ -58,6 +58,9 @@ import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
+import com.takeya.animeongaku.ui.common.BrowseVideoWarningDialog
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
 import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.theme.Ember400
@@ -89,6 +92,8 @@ fun ArtistDetailScreen(
     val libraryThemeIds by viewModel.libraryThemeIds.collectAsStateWithLifecycle()
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
     val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+    val themeModesById by viewModel.themeModesById.collectAsStateWithLifecycle()
     val artistName = viewModel.artistName
     val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
 
@@ -100,6 +105,20 @@ fun ArtistDetailScreen(
     var showArtistSheet by remember { mutableStateOf(false) }
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
     var showAllSongs by remember { mutableStateOf(false) }
+    var pendingVideoRequest by remember { mutableStateOf<BrowseVideoStartRequest?>(null) }
+
+    fun handleVideoRequest(request: BrowseVideoStartRequest?) {
+        if (request == null) return
+        if (request.warning != null) pendingVideoRequest = request
+        else if (viewModel.startPlayVideo(request)) onPlayTheme()
+    }
+
+    pendingVideoRequest?.let { request ->
+        BrowseVideoWarningDialog(request, { pendingVideoRequest = null }) {
+            pendingVideoRequest = null
+            if (viewModel.startPlayVideo(request)) onPlayTheme()
+        }
+    }
 
     sheetTheme?.let { theme ->
         val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
@@ -125,12 +144,17 @@ fun ArtistDetailScreen(
                 showRemoveDownload = isDownloaded,
                 showLike = true,
                 isLiked = preference?.isLiked == true,
-                showRemoveDislike = preference?.isDisliked == true
+                showRemoveDislike = preference?.isDisliked == true,
+                showPlayVideo = BrowseVideoActionPolicy.singleTheme(
+                    isOnline,
+                    themeModesById[theme.id]
+                )
             ),
             onDismiss = { sheetTheme = null },
             onPlayNext = { viewModel.nowPlayingManager.playNext(theme, sheetAnime) },
             onAddToQueue = { viewModel.nowPlayingManager.addToQueue(theme, sheetAnime) },
             onReplaceQueue = { viewModel.nowPlayingManager.play("Now Playing", listOf(theme), 0, animeMap = sheetAnime?.let { a -> theme.animeId?.let { mapOf(it to a) } } ?: emptyMap()) },
+            onPlayVideo = { handleVideoRequest(viewModel.requestPlayVideo(theme.id)) },
             onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) },
             onGoToAnime = { sheetAnime?.kitsuId?.let { onOpenAnime(it) } },
             onAddToLibrary = { viewModel.saveSongToLibrary(theme.id) },

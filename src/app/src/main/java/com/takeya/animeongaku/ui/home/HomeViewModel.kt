@@ -8,10 +8,15 @@ import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.ThemeModeDao
+import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
+import com.takeya.animeongaku.network.ConnectivityMonitor
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,22 +25,28 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.takeya.animeongaku.data.local.DownloadDao
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     animeDao: AnimeDao,
     themeDao: ThemeDao,
+    private val themeModeDao: ThemeModeDao,
     private val playlistDao: PlaylistDao,
     val nowPlayingManager: NowPlayingManager,
     val downloadManager: DownloadManager,
     private val downloadDao: DownloadDao,
     private val serverPlaylistWriter: ServerPlaylistWriter,
-    private val userPreferencesRepository: UserPreferencesRepository
+    private val userPreferencesRepository: UserPreferencesRepository,
+    connectivityMonitor: ConnectivityMonitor
 ) : ViewModel() {
+    val isOnline: StateFlow<Boolean> = connectivityMonitor.isOnline
     private val allThemes: StateFlow<List<ThemeEntity>> = themeDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -68,6 +79,14 @@ class HomeViewModel @Inject constructor(
             else -> themes
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val themeModesById: StateFlow<Map<Long, ThemeModeEntity>> = allThemes
+        .flatMapLatest { list ->
+            val ids = list.map { it.id }
+            if (ids.isEmpty()) flowOf(emptyList()) else themeModeDao.observeByThemeIds(ids)
+        }
+        .map { modes -> modes.associateBy { it.themeId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     // Shuffle once per themes emission so the order is stable across liked/download state changes
     private val shuffledThemes: StateFlow<List<ThemeEntity>> = themes
@@ -105,6 +124,33 @@ class HomeViewModel @Inject constructor(
         val idx = songs.indexOfFirst { it.id == themeId }.coerceAtLeast(0)
         nowPlayingManager.play("Top Songs", songs, idx, animeMap = buildAnimeMap())
     }
+
+    fun requestPlayVideo(themeId: Long): BrowseVideoStartRequest? {
+        val theme = allThemes.value.firstOrNull { it.id == themeId } ?: return null
+        return BrowseVideoActionPolicy.request(
+            isOnline.value,
+            "Now Playing",
+            listOf(theme),
+            themeModesById.value,
+            singleAnimeMap(theme)
+        )
+    }
+
+    fun startPlayVideo(request: BrowseVideoStartRequest): Boolean {
+        val themeId = request.themes.singleOrNull()?.id ?: return false
+        val currentTheme = allThemes.value.firstOrNull { it.id == themeId } ?: return false
+        return request.startIfStillValid(
+            nowPlayingManager,
+            isOnline.value,
+            listOf(currentTheme),
+            themeModesById.value,
+            "Now Playing",
+            singleAnimeMap(currentTheme)
+        )
+    }
+
+    private fun singleAnimeMap(theme: ThemeEntity): Map<Long, AnimeEntity> =
+        theme.animeId?.let { id -> buildAnimeMap()[id]?.let { mapOf(id to it) } } ?: emptyMap()
 
     fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {
         viewModelScope.launch {

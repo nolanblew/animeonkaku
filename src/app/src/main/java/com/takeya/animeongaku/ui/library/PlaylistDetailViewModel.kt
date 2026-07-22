@@ -20,29 +20,37 @@ import com.takeya.animeongaku.data.local.PlaylistTrack
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.ThemeModeDao
+import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.data.repository.DynamicPlaylistRepository
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.network.ConnectivityMonitor
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
 import com.takeya.animeongaku.sync.PendingWriteStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class PlaylistDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val playlistDao: PlaylistDao,
     private val themeDao: ThemeDao,
+    private val themeModeDao: ThemeModeDao,
     animeDao: AnimeDao,
     genreDao: GenreDao,
     playCountDao: PlayCountDao,
@@ -200,6 +208,14 @@ class PlaylistDetailViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val themeModesById: StateFlow<Map<Long, ThemeModeEntity>> = tracks
+        .map { list -> list.map { it.theme.id } }
+        .flatMapLatest { ids ->
+            if (ids.isEmpty()) flowOf(emptyList()) else themeModeDao.observeByThemeIds(ids)
+        }
+        .map { modes -> modes.associateBy { it.themeId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     val coverUrls: StateFlow<List<List<String>>> = playlistDao.observePlaylistCoverUrls(playlistId)
         .map { slots ->
             slots.map { slot ->
@@ -286,6 +302,24 @@ class PlaylistDetailViewModel @Inject constructor(
     fun playAll() {
         val list = tracks.value.map { it.theme }
         if (list.isNotEmpty()) nowPlayingManager.play(contextLabel(), list, 0, animeMap = buildAnimeMap())
+    }
+
+    fun requestPlayVideoTheme(themeId: Long): BrowseVideoStartRequest? {
+        val theme = tracks.value.firstOrNull { it.theme.id == themeId }?.theme ?: return null
+        return BrowseVideoActionPolicy.request(isOnline.value, contextLabel(), listOf(theme), themeModesById.value, buildAnimeMap())
+    }
+
+    fun requestPlayVideoAll(): BrowseVideoStartRequest? = BrowseVideoActionPolicy.request(
+        isOnline.value, contextLabel(), tracks.value.map { it.theme }, themeModesById.value, buildAnimeMap()
+    )
+
+    fun startPlayVideo(request: BrowseVideoStartRequest): Boolean {
+        val all = tracks.value.map { it.theme }
+        val currentThemes = if (request.themes.size == 1) all.filter { it.id == request.themes.single().id } else all
+        return request.startIfStillValid(
+            nowPlayingManager, isOnline.value, currentThemes, themeModesById.value,
+            contextLabel(), buildAnimeMap()
+        )
     }
 
     fun shuffleAll() {

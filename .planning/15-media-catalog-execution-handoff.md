@@ -246,6 +246,16 @@ device acceptance after the Android chain is complete.
   rotation/PlayerView/TalkBack/system-bar/audio-video/D13 acceptance is open.
 - Resume implementation at MC-A06. Carry MC-A05's physical device gate into
   MC-Q01 rather than claiming the ticket fully complete.
+- MC-A06 is complete in the ticket commit containing this handoff update. All
+  catalog-capable Theme overflow surfaces plus anime/playlist contexts expose
+  warning-safe conditional Play Video, revalidate at start, replace the queue
+  with temporary Video intent, and rely on normal per-entry fallback/retry.
+- MC-A06 verification: full unit 460/460, independent focused QA 33/33,
+  Android-test compilation, final Kotlin compile, diff check, and corrected
+  Sol/Medium review passed.
+- Resume at MC-A07. Build anime-owned Related Music browsing and Search without
+  a top-level Albums destination; keep READY content independent of request
+  attention state and fix the debug request copy recorded above.
 
 ## Agent model policy
 

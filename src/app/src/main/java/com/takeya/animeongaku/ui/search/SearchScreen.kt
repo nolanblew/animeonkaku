@@ -66,6 +66,9 @@ import com.takeya.animeongaku.data.model.OnlineAnimeResult
 import com.takeya.animeongaku.data.model.OnlineArtistResult
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
+import com.takeya.animeongaku.ui.common.BrowseVideoWarningDialog
 import com.takeya.animeongaku.ui.common.PlaylistCoverArt
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
 import com.takeya.animeongaku.ui.common.displayInfo
@@ -104,6 +107,8 @@ fun SearchScreen(
     val allAnime by viewModel.anime.collectAsStateWithLifecycle()
     val allPlaylists by viewModel.playlists.collectAsStateWithLifecycle()
     val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+    val themeModesById by viewModel.themeModesById.collectAsStateWithLifecycle()
 
     val animeByThemesId = remember(allAnime) {
         allAnime.mapNotNull { entry -> entry.animeThemesId?.let { id -> id to entry } }.toMap()
@@ -112,8 +117,22 @@ fun SearchScreen(
     var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }
     var sheetOnlineEntry by remember { mutableStateOf<AnimeThemeEntry?>(null) }
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
+    var pendingVideoRequest by remember { mutableStateOf<BrowseVideoStartRequest?>(null) }
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
     val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
+
+    fun handleVideoRequest(request: BrowseVideoStartRequest?) {
+        if (request == null) return
+        if (request.warning != null) pendingVideoRequest = request
+        else if (viewModel.startPlayVideo(request)) onPlayTheme()
+    }
+
+    pendingVideoRequest?.let { request ->
+        BrowseVideoWarningDialog(request, { pendingVideoRequest = null }) {
+            pendingVideoRequest = null
+            if (viewModel.startPlayVideo(request)) onPlayTheme()
+        }
+    }
 
     // Song ActionSheet (local)
     sheetTheme?.let { theme ->
@@ -139,6 +158,10 @@ fun SearchScreen(
                 showLike = true,
                 isLiked = preference?.isLiked == true,
                 showRemoveDislike = preference?.isDisliked == true,
+                showPlayVideo = BrowseVideoActionPolicy.singleTheme(
+                    isOnline,
+                    themeModesById[theme.id]
+                ),
                 artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
                 animeName = sheetAnime?.title
             ),
@@ -151,6 +174,7 @@ fun SearchScreen(
                     animeMap = sheetAnime?.let { a -> theme.animeId?.let { mapOf(it to a) } } ?: emptyMap()
                 )
             },
+            onPlayVideo = { handleVideoRequest(viewModel.requestPlayVideo(theme.id)) },
             onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) },
             onGoToArtist = { theme.artistName?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
             onGoToAnime = { sheetAnime?.kitsuId?.let { onOpenAnime(it) } },

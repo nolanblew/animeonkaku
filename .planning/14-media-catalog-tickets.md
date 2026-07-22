@@ -1928,6 +1928,7 @@ remains open; do not mark this ticket fully complete until that gate passes.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete |
 | Area | Android / action sheets and queue startup |
 | Difficulty | Medium |
 | Effort | M, 2–3 days |
@@ -1972,6 +1973,33 @@ Expected areas:
 #### Handoff notes
 
 The action starts playback. It must not open a browser.
+
+#### Completion and testing notes
+
+Completed on 2026-07-21. Added a shared browse-Video availability/request path
+and conditional `Play Video` action without adding a Full Size or browser
+action. Online Theme actions are available on Home, Artist Detail, Library,
+local Search results, Anime Detail, Playlist Detail, Now Playing, and Up Next;
+raw remote search results hide safely without an authoritative mode descriptor.
+Anime and playlist context actions require at least one usable Video.
+
+Every action snapshots only relevant mode descriptors, aggregates spoiler/NSFW
+consent across the queued context, and revalidates current connectivity,
+themes/order/duplicates, modes, context, and anime ownership before mutation.
+UI expansion/dismissal occurs only after a successful start. The authoritative
+startup replaces the queue with fresh occurrence IDs, uses temporary Video
+intent, retains no-video entries for normal TV fallback, and retries Video on
+later eligible entries. Player and Up Next use the same warning-safe validated
+single-theme replacement path; Related songs and artist-wide contexts do not
+expose the action.
+
+TDD began with 11 intended missing-policy/start compilation errors. The final
+full Android unit suite passed 460/460; independent focused QA passed 33/33;
+`compileDebugAndroidTestKotlin`, final Kotlin compilation, and
+`git diff --check` passed. Sol/Medium review passed after warning consent,
+all Theme overflow surfaces, mutation-boundary revalidation, and PlayerScreen's
+single-theme route were corrected. Compose action-sheet tests compile; device
+interaction remains part of the final consolidated acceptance pass.
 
 ### MC-A07 — Add Related Music browsing, nested navigation, queue actions, and Search
 

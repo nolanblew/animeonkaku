@@ -61,6 +61,9 @@ import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
+import com.takeya.animeongaku.ui.common.BrowseVideoWarningDialog
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
 import com.takeya.animeongaku.ui.common.displayInfo
@@ -91,6 +94,8 @@ fun AnimeDetailScreen(
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
     val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
     val musicRequestState by viewModel.musicRequestState.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+    val themeModesById by viewModel.themeModesById.collectAsStateWithLifecycle()
     val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
     val coverUrls = remember(anime) { anime?.primaryArtworkUrls() ?: emptyList() }
     val coverUrl = coverUrls.firstOrNull()
@@ -98,6 +103,20 @@ fun AnimeDetailScreen(
     var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }
     var showAnimeSheet by remember { mutableStateOf(false) }
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
+    var pendingVideoRequest by remember { mutableStateOf<BrowseVideoStartRequest?>(null) }
+
+    fun handleVideoRequest(request: BrowseVideoStartRequest?) {
+        if (request == null) return
+        if (request.warning != null) pendingVideoRequest = request
+        else if (viewModel.startPlayVideo(request)) onPlayTheme()
+    }
+
+    pendingVideoRequest?.let { request ->
+        BrowseVideoWarningDialog(request, { pendingVideoRequest = null }) {
+            pendingVideoRequest = null
+            if (viewModel.startPlayVideo(request)) onPlayTheme()
+        }
+    }
 
     sheetTheme?.let { theme ->
         val info = theme.displayInfo(anime)
@@ -121,7 +140,8 @@ fun AnimeDetailScreen(
                 showRemoveDownload = isDownloaded,
                 showLike = true,
                 isLiked = preference?.isLiked == true,
-                showRemoveDislike = preference?.isDisliked == true
+                showRemoveDislike = preference?.isDisliked == true,
+                showPlayVideo = BrowseVideoActionPolicy.singleTheme(isOnline, themeModesById[theme.id])
             ),
             onDismiss = { sheetTheme = null },
             onPlayNext = { viewModel.nowPlayingManager.playNext(theme, anime) },
@@ -130,6 +150,7 @@ fun AnimeDetailScreen(
                 val a = anime
                 viewModel.nowPlayingManager.play("Now Playing", listOf(theme), 0, animeMap = a?.let { e -> theme.animeId?.let { mapOf(it to e) } } ?: emptyMap())
             },
+            onPlayVideo = { handleVideoRequest(viewModel.requestPlayVideoTheme(theme.id)) },
             onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) },
             onGoToArtist = { theme.artistName?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
             onAddToLibrary = { viewModel.saveSongToLibrary(theme.id) },
@@ -152,12 +173,17 @@ fun AnimeDetailScreen(
                 showAddToLibrary = !isInLibrary,
                 showDownload = !allDownloaded && !anyDownloading && themes.isNotEmpty(),
                 showDownloading = anyDownloading && !allDownloaded,
-                showRemoveDownload = allDownloaded
+                showRemoveDownload = allDownloaded,
+                showPlayVideo = BrowseVideoActionPolicy.context(
+                    isOnline,
+                    themes.mapNotNull { themeModesById[it.id] }
+                )
             ),
             onDismiss = { showAnimeSheet = false },
             onPlayNext = { viewModel.nowPlayingManager.playNext(themes, anime?.let { a -> a.animeThemesId?.let { mapOf(it to a) } } ?: emptyMap()) },
             onAddToQueue = { viewModel.nowPlayingManager.addToQueue(themes, anime?.let { a -> a.animeThemesId?.let { mapOf(it to a) } } ?: emptyMap()) },
             onReplaceQueue = { viewModel.playAll(); onPlayTheme() },
+            onPlayVideo = { handleVideoRequest(viewModel.requestPlayVideoAll()) },
             onSaveToPlaylist = { pickerThemeIds = themes.map { it.id } },
             onAddToLibrary = { viewModel.saveAllToLibrary() },
             onDownload = { viewModel.downloadAnime() },
