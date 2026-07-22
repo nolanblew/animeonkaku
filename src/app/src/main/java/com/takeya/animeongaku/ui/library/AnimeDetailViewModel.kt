@@ -28,6 +28,7 @@ import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.network.ConnectivityMonitor
 import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
 import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
+import com.takeya.animeongaku.sync.LibraryPuller
 import kotlinx.coroutines.launch
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -42,6 +43,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 private val themeTypeSequenceRegex = Regex("(\\d+)$")
 
@@ -111,7 +114,8 @@ class AnimeDetailViewModel @Inject constructor(
     private val userPreferencesRepository: UserPreferencesRepository,
     connectivityMonitor: ConnectivityMonitor,
     musicRequestRepository: MusicRequestRepository,
-    private val musicCatalogRepository: MusicCatalogRepository
+    private val musicCatalogRepository: MusicCatalogRepository,
+    private val libraryPuller: LibraryPuller
 ) : ViewModel() {
     val isOnline: StateFlow<Boolean> = connectivityMonitor.isOnline
     private val kitsuId: String = savedStateHandle["kitsuId"] ?: ""
@@ -187,10 +191,12 @@ class AnimeDetailViewModel @Inject constructor(
     val fetchError: StateFlow<String?> = _fetchError.asStateFlow()
 
     private var hasFetched = false
+    private val catalogRefreshMutex = Mutex()
 
     private val musicRequestCoordinator = MusicRequestCoordinator(
         repository = musicRequestRepository,
-        scope = viewModelScope
+        scope = viewModelScope,
+        onCatalogRefreshNeeded = { refreshAvailableCatalog(includeLibraryChanges = true) }
     )
     val musicRequestState: StateFlow<MusicRequestUiState> = musicRequestCoordinator.state
 
@@ -203,11 +209,38 @@ class AnimeDetailViewModel @Inject constructor(
     }
 
     private fun refreshMusic() {
+        refreshAvailableCatalog(includeLibraryChanges = false)
+    }
+
+    private fun refreshAvailableCatalog(includeLibraryChanges: Boolean) {
         viewModelScope.launch {
-            runCatching { musicCatalogRepository.refreshAnime(kitsuId) }
-                .onSuccess { _onlineMusic.value = it }
-                .onFailure { if (relatedMusic.value.isNotEmpty()) _musicRefreshError.value = "Couldn’t refresh. Showing saved music." }
+            catalogRefreshMutex.withLock {
+                if (includeLibraryChanges) {
+                    runCatching { libraryPuller.pullNow(forceFull = false) }
+                    refreshOnlineThemeCatalog()
+                }
+                runCatching { musicCatalogRepository.refreshAnime(kitsuId) }
+                    .onSuccess {
+                        _onlineMusic.value = it
+                        _musicRefreshError.value = null
+                    }
+                    .onFailure {
+                        if (relatedMusic.value.isNotEmpty()) {
+                            _musicRefreshError.value = "Couldn’t refresh. Showing saved music."
+                        }
+                    }
+            }
         }
+    }
+
+    private suspend fun refreshOnlineThemeCatalog() {
+        runCatching { animeRepository.fetchAnimeByKitsuId(kitsuId) }
+            .onSuccess { syncResult ->
+                if (syncResult.themes.isNotEmpty()) {
+                    _onlineEntries.value = syncResult.themes
+                    _onlineThemes.value = sortThemes(syncResult.themes.map(::entryToThemeEntity))
+                }
+            }
     }
 
     fun requestMusic() {

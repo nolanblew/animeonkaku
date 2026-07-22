@@ -70,6 +70,48 @@ class MusicRequestCoordinatorTest {
     }
 
     @Test
+    fun `new ready batches and terminal status refresh available catalog`() = runTest {
+        val searching = request(
+            state = MusicRequestState.SEARCHING,
+            pollAfterSeconds = 1,
+            counts = MusicRequestBatchCounts(searching = 2)
+        )
+        val partiallyReady = request(
+            state = MusicRequestState.PROCESSING,
+            pollAfterSeconds = 1,
+            counts = MusicRequestBatchCounts(processing = 1, completed = 1)
+        )
+        val completed = request(
+            state = MusicRequestState.COMPLETED,
+            counts = MusicRequestBatchCounts(completed = 2)
+        )
+        val repository = FakeMusicRequestRepository(
+            latest = searching,
+            polls = ArrayDeque(listOf(partiallyReady, completed))
+        )
+        var catalogRefreshes = 0
+        val coordinator = MusicRequestCoordinator(
+            repository,
+            this,
+            defaultPollDelayMillis = 1_000,
+            onCatalogRefreshNeeded = { catalogRefreshes++ }
+        )
+
+        coordinator.hydrate("123")
+        runCurrent()
+        assertEquals(0, catalogRefreshes)
+
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertEquals(1, catalogRefreshes)
+
+        advanceTimeBy(1_000)
+        advanceUntilIdle()
+        assertEquals(2, catalogRefreshes)
+        assertTrue(repository.createCalls.isEmpty())
+    }
+
+    @Test
     fun `active polling refuses a new POST request`() = runTest {
         val queued = request(state = MusicRequestState.QUEUED, pollAfterSeconds = 10)
         val repository = FakeMusicRequestRepository(latest = queued, created = queued)
@@ -164,13 +206,14 @@ class MusicRequestCoordinatorTest {
 
     private fun request(
         state: MusicRequestState,
-        pollAfterSeconds: Int? = null
+        pollAfterSeconds: Int? = null,
+        counts: MusicRequestBatchCounts = MusicRequestBatchCounts()
     ) = MusicRequest(
         id = "request-1",
         kitsuId = "123",
         state = state,
         batchCount = 3,
-        counts = MusicRequestBatchCounts(),
+        counts = counts,
         requiresOperatorAction = state == MusicRequestState.AWAITING_OPERATOR,
         lastUpdatedAt = "2026-07-21T20:00:00.000Z",
         pollAfterSeconds = pollAfterSeconds

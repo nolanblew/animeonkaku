@@ -31,7 +31,8 @@ sealed interface MusicRequestUiState {
 class MusicRequestCoordinator(
     private val repository: MusicRequestRepository,
     private val scope: CoroutineScope,
-    private val defaultPollDelayMillis: Long = 5_000
+    private val defaultPollDelayMillis: Long = 5_000,
+    private val onCatalogRefreshNeeded: () -> Unit = {}
 ) {
     private val _state = MutableStateFlow<MusicRequestUiState>(MusicRequestUiState.Idle)
     val state: StateFlow<MusicRequestUiState> = _state.asStateFlow()
@@ -105,9 +106,15 @@ class MusicRequestCoordinator(
 
     private suspend fun observe(initial: MusicRequest) {
         var current = initial
+        var readyBatchCount = 0
         while (true) {
             statusRetry = null
             _state.value = current.toUiState()
+            val currentReadyBatchCount = current.counts.completed + current.counts.completedWithWarnings
+            if (currentReadyBatchCount > readyBatchCount || current.state.isTerminal) {
+                onCatalogRefreshNeeded()
+            }
+            readyBatchCount = maxOf(readyBatchCount, currentReadyBatchCount)
             if (current.state.isTerminal) return
             delay(current.pollAfterSeconds?.times(1_000L) ?: defaultPollDelayMillis)
             try {

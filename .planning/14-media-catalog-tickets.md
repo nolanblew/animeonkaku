@@ -2379,7 +2379,7 @@ immediately before this focused Home slice and will run again during MC-Q01.
 
 | Field | Value |
 |---|---|
-| Status | ⬜ Pending |
+| Status | ✅ Complete |
 | Area | Server + Android debug build + AMF deployment |
 | Difficulty | High |
 | Effort | L, 4–5 days |
@@ -2410,7 +2410,22 @@ immediately before this focused Home slice and will run again during MC-Q01.
 
 #### Completion and testing notes
 
-Pending.
+Completed 2026-07-22. The deployed AMF and Anime Ongaku containers are healthy,
+the shared AMF library is read-only in Anime Ongaku, and canonical media remains
+on a separate Anime Ongaku-owned mount. Live request
+`7dc3570c-a628-4ed1-97f4-1449f09bc908` produced 31 byte/hash-verified READY
+deliveries: three Full Size theme songs plus all 28 tracks of a soundtrack.
+Missing ED1/character/drama/other results correctly keep the request in
+`AWAITING_OPERATOR` without hiding ready media.
+
+An AMF outage and both service restarts left Anime Ongaku healthy and preserved
+the exact request/batch/delivery/song/media counts. The debug action was proven
+on the Pixel 7 Pro; release compilation and tests prove the double
+`BuildConfig.DEBUG` gate. Server full verification passed 444 tests with 21
+environment-gated skips plus TypeScript typecheck. Android request-refresh
+tests passed 9/9. Independent Sol/Medium review and Terra/High QA passed after
+the terminal request refresh fix. Full evidence is in
+`.planning/17-media-catalog-acceptance-report.md`.
 
 ### MC-Q01 — Run migration, contract, device, and staged catalog acceptance
 
