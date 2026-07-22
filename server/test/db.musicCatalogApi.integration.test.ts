@@ -61,6 +61,27 @@ describe.skipIf(!adminDatabaseUrl)("ready-only listener music catalog (PostgreSQ
       expect((await service.getLibrary("user-1", null)).themes[0]?.mediaModes).toMatchObject({ fullSize: null, video: null });
     });
   });
+
+  it("orders release tracks by their album track number when delivery order was scrambled", async () => {
+    await withDatabase(async (pool) => {
+      await seedCatalog(pool);
+      await pool.query(`
+        INSERT INTO songs (id,title,normalized_title,artist_credit,normalized_artist) VALUES
+          (104,'Track Five','track five','Ready Artist','ready artist'),
+          (105,'Track Seventeen','track seventeen','Ready Artist','ready artist');
+        INSERT INTO release_tracks (release_id,song_id,disc_number,track_number,display_order) VALUES
+          (200,104,1,5,99),(200,105,1,17,2);
+        INSERT INTO media_files (kind,ref_id,variant,origin_url,state,file_path,byte_size,content_type,source_file_name) VALUES
+          ('AUDIO','song:104','ORIGINAL','provider-import:five.flac','READY','audio/songs/104/original.flac',1234,'audio/flac','five.flac'),
+          ('AUDIO','song:105','ORIGINAL','provider-import:seventeen.flac','READY','audio/songs/105/original.flac',1234,'audio/flac','seventeen.flac');
+      `);
+      const service = new DrizzleClientApiService(drizzle(pool), queue, undefined, undefined, true);
+
+      const release = await service.getMusicRelease("user-1", 200);
+
+      expect(release?.tracks.map((track) => track.trackNumber)).toEqual([1, 5, 17]);
+    });
+  });
 });
 
 async function seedCatalog(pool: Pool): Promise<void> {

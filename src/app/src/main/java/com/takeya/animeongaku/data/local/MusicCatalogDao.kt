@@ -65,7 +65,7 @@ interface MusicCatalogDao {
         FROM release_tracks rt
         JOIN songs s ON s.id = rt.songId
         WHERE rt.releaseId = :releaseId
-        ORDER BY rt.displayOrder, rt.discNumber, COALESCE(rt.trackNumber, 2147483647), s.id
+        ORDER BY rt.discNumber, COALESCE(rt.trackNumber, 2147483647), rt.displayOrder, s.id
         """
     )
     fun observeSongsForRelease(releaseId: Long): Flow<List<SongEntity>>
@@ -79,7 +79,7 @@ interface MusicCatalogDao {
         FROM release_tracks rt
         JOIN songs s ON s.id = rt.songId
         WHERE rt.releaseId = :releaseId
-        ORDER BY rt.displayOrder, rt.discNumber, COALESCE(rt.trackNumber, 2147483647), s.id
+        ORDER BY rt.discNumber, COALESCE(rt.trackNumber, 2147483647), rt.displayOrder, s.id
         """
     )
     fun observeReleaseTrackRows(releaseId: Long): Flow<List<MusicTrackRow>>

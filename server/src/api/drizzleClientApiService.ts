@@ -1695,7 +1695,13 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
         eq(musicAcquisitions.releaseId, musicReleases.id),
       ))
       .where(and(...conditions))
-      .orderBy(asc(musicReleases.id), asc(releaseTracks.discNumber), asc(releaseTracks.displayOrder), asc(songs.id));
+      .orderBy(
+        asc(musicReleases.id),
+        asc(releaseTracks.discNumber),
+        asc(sql`COALESCE(${releaseTracks.trackNumber}, 2147483647)`),
+        asc(releaseTracks.displayOrder),
+        asc(songs.id)
+      );
   }
 }
 

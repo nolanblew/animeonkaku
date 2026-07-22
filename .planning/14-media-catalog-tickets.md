@@ -2615,6 +2615,34 @@ with album Play, Download album, and tracks controls. Full Android debug unit
 tests, debug lint, and debug assembly passed. Terra/High fallback review found
 and verified the dislike-write serialization before final device acceptance.
 
+### MC-R03 — Restore album track ordering
+
+| Field | Value |
+|---|---|
+| Status | ✅ Complete (2026-07-22) |
+| Area | AMF delivery catalog + Android cache |
+| Difficulty | Low |
+| Depends on | MC-R02 |
+
+#### Scope
+
+- Order Related Music albums by disc and album track number rather than the
+  order in which AMF delivers processed audio files.
+- Repair already-imported release rows without replacing any audio or catalog
+  records.
+
+#### Completion and testing notes
+
+Completed on 2026-07-22. AMF delivery now assigns catalog ordering from disc
+and track metadata, using its file index only for unnumbered tracks. Migration
+0013 safely reindexes saved release rows by disc, track number, and prior
+fallback order; Android’s Room query follows that same disc-first ordering.
+
+Server tests passed (445 passed, 21 environment-gated skipped) and TypeScript
+typecheck passed. Android debug unit tests and debug assembly passed. The
+deployed migration and Pixel device refresh confirmed *The Apothecary Diaries
+Season 2* soundtrack displays in album-track order.
+
 ## 9. Effort summary
 
 | Workstream | Tickets | Experienced effort |

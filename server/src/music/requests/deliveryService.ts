@@ -193,10 +193,13 @@ export class PgAmfDeliveryRepository implements AmfDeliveryRepository {
         [row.item_id, deliveryId, verified.sha256]);
       if (sameItemContent.rows[0]) throw new AmfDeliveryValidationError("One request item delivered the same audio bytes more than once.");
       const releaseId = Number(releaseRow.id);
+      const discNumber = numberMetadata(metadata.disc) ?? 1;
+      const trackNumber = numberMetadata(metadata.track);
+      const displayOrder = releaseTrackDisplayOrder(discNumber, trackNumber, row.file_index);
       await client.query(`INSERT INTO release_tracks (release_id,song_id,disc_number,track_number,display_order)
         VALUES ($1,$2,$3,$4,$5) ON CONFLICT (release_id,display_order) DO NOTHING`,
-        [releaseId, songId, numberMetadata(metadata.disc) ?? 1, numberMetadata(metadata.track), row.file_index]);
-      const trackIdentity = await client.query<{ song_id: string | number }>("SELECT song_id FROM release_tracks WHERE release_id=$1 AND display_order=$2", [releaseId, row.file_index]);
+        [releaseId, songId, discNumber, trackNumber, displayOrder]);
+      const trackIdentity = await client.query<{ song_id: string | number }>("SELECT song_id FROM release_tracks WHERE release_id=$1 AND display_order=$2", [releaseId, displayOrder]);
       if (Number(trackIdentity.rows[0]?.song_id) !== songId) {
         throw new AmfDeliveryValidationError("Deterministic AMF release track identity conflicts with persisted catalog metadata.");
       }
@@ -298,4 +301,9 @@ export class PgAmfDeliveryRepository implements AmfDeliveryRepository {
 
 function textMetadata(value: unknown): string | null { return typeof value === "string" && value.trim() ? value.trim() : null; }
 function numberMetadata(value: unknown): number | null { const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN; return Number.isInteger(parsed) && parsed > 0 ? parsed : null; }
+
+/** A provider delivery index reflects completion order, not album order. */
+export function releaseTrackDisplayOrder(discNumber: number, trackNumber: number | null, fileIndex: number): number {
+  return trackNumber === null ? 1_000_000 + fileIndex : (discNumber - 1) * 10_000 + trackNumber;
+}
 function relationshipType(kind: string): string { return kind === "OST" ? "SOUNDTRACK" : kind === "CHARACTER_SONG" ? "CHARACTER" : "OTHER"; }

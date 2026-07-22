@@ -4,12 +4,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { validateAmfDeliveryFile } from "../src/music/requests/deliveryImporter.js";
-import { AmfDeliveryImportService, createAmfDeliveryImportHandlers, type AmfDeliveryRepository } from "../src/music/requests/deliveryService.js";
+import { AmfDeliveryImportService, createAmfDeliveryImportHandlers, releaseTrackDisplayOrder, type AmfDeliveryRepository } from "../src/music/requests/deliveryService.js";
 import type { MediaStore } from "../src/media/mediaStore.js";
 import type { JobQueue } from "../src/jobs/jobQueue.js";
 import { vi } from "vitest";
 
 describe("AMF delivery staging validation", () => {
+  it("orders release tracks by disc and track metadata instead of AMF delivery arrival", () => {
+    expect(releaseTrackDisplayOrder(1, 17, 3)).toBe(17);
+    expect(releaseTrackDisplayOrder(2, 1, 2)).toBe(10_001);
+    expect(releaseTrackDisplayOrder(1, null, 3)).toBe(1_000_003);
+  });
+
   it("accepts an exact supported original and rejects size/hash/traversal conflicts", async () => {
     const root = await mkdtemp(join(tmpdir(), "ongaku-amf-library-"));
     const relativePath = "anime-ongaku-staging/request-a/batch-0/song.flac";
