@@ -69,6 +69,42 @@ Errors use the envelope `{ "error": { "code": "...", "message": "..." } }`. Full
 
 ## Operational notes
 
+### Anime Music Fetcher operator and mounts
+
+This first controller iteration intentionally uses the hardcoded API address
+`http://192.168.68.68:9292/api/v1`; making it configurable is deferred. AMF is
+an optional acquisition dependency: an AMF outage is reported only by the
+authenticated, on-demand `GET /v1/admin/music/diagnostics` route. It does not
+change `/healthz`, server startup, catalog reads, or playback of existing media.
+
+These private-LAN operator endpoints use the existing bearer-session check;
+there is currently no separate administrator role. Do not expose them publicly.
+`GET /v1/admin/music/requests` returns safe Anime Ongaku request/batch states.
+Persisted batch IDs can be targeted with `retry`, `cancel`, or `reprocess`
+under `/v1/admin/music/batches/{batchId}/...`; actions are
+state-gated and enter the durable Anime Ongaku queue. Responses omit AMF job
+IDs, paths, URLs, keys, and raw errors.
+
+Use four strict ownership boundaries:
+
+- AMF-only private `/config` contains its database, work files, and credentials.
+- AMF and qBittorrent share one host downloads directory read-write at the
+  same container path `/downloads` in both containers.
+- AMF owns `/library` read-write. Anime Ongaku mounts that exact host directory
+  read-only at `/mnt/amf-library` and sets `AMF_LIBRARY_ROOT=/mnt/amf-library`.
+- Anime Ongaku alone owns `MEDIA_ROOT=/data/media` read-write. Never mount it
+  into AMF or qBittorrent.
+
+Set `AMF_LIBRARY_HOST_PATH` to the host directory mounted as AMF `/library`.
+The default LAN example is `/data/anime-fetcher/library`. Automatic discovery
+remains disabled during controller acceptance. The staging-cleanup diagnostic
+is deliberately dry-run only: it reports eligibility only after every active
+delivery has a verified canonical copy. Anime Ongaku performs no staging
+deletion. After reviewing the dry-run result and independently verifying the
+current canonical file bytes, remove the exact request staging files manually
+on the host. A future AMF cleanup API may replace this manual step; AMF 0.2 job
+deletion does not remove delivered `/library` files.
+
 ### Reset Android sessions intentionally
 
 Tether sessions are effectively non-expiring. Normal rebuilds, redeploys, and

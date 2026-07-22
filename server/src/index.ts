@@ -31,6 +31,9 @@ import {
   AmfDeliveryImportService,
   createAmfDeliveryImportHandlers,
   PgAmfDeliveryRepository,
+  PgMusicOperatorRepository,
+  MusicOperatorService,
+  createMusicOperatorHandlers,
 } from "./music/index.js";
 import {
   createFetchMediaHandlers,
@@ -175,6 +178,10 @@ const mediaStore = new MediaStore({
 const amfDeliveryService = new AmfDeliveryImportService({ repo: amfDeliveryRepo, mediaStore,
   ...(config.AMF_LIBRARY_ROOT ? { libraryRoot: config.AMF_LIBRARY_ROOT } : {}) });
 const amfDeliveryHandlers = createAmfDeliveryImportHandlers(amfDeliveryService, jobQueue);
+const musicOperatorRepo = new PgMusicOperatorRepository(pool);
+const musicOperatorHandlers = createMusicOperatorHandlers({ repo: musicRequestRepo, queue: jobQueue, client: amfClient });
+const musicOperatorService = new MusicOperatorService({ repo: musicOperatorRepo, queue: jobQueue, client: amfClient,
+  stagingMountConfigured: Boolean(config.AMF_LIBRARY_ROOT), automaticDiscoveryEnabled: config.MUSIC_DISCOVERY_ENABLED });
 const fetchHandlers = createFetchMediaHandlers({
   mediaStore,
   catalog: new DrizzleMediaCatalogLookup(db),
@@ -193,7 +200,7 @@ const syncHandlers = createSyncJobHandlers(syncPipeline);
 // Background hydration waits until on-demand media traffic has been quiet.
 const mediaActivity = new InteractiveMediaActivity();
 const worker = new JobWorker(jobQueue, {
-  handlers: { ...fetchHandlers, ...syncHandlers, ...musicRequestHandlers, ...amfDeliveryHandlers },
+  handlers: { ...fetchHandlers, ...syncHandlers, ...musicRequestHandlers, ...amfDeliveryHandlers, ...musicOperatorHandlers },
   maintenanceFetchDelayMs: config.AUDIO_BACKFILL_DELAY_SECONDS * 1000,
   holdMaintenanceWork: () => !mediaActivity.isQuiet(),
 });
@@ -239,6 +246,7 @@ const app = buildApp({
   clientApi,
   legacyLibraryImport: clientApi,
   musicRequests: musicRequestService,
+  musicOperator: musicOperatorService,
   mediaApi: new MediaStreamingService({
     repo: new DrizzleMediaApiRepository(db),
     queue: jobQueue,

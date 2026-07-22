@@ -86,7 +86,7 @@ describe("anime music request orchestration", () => {
     const handlers = createMusicRequestHandlers({ repo, queue, client });
     await handlers.SUBMIT_AMF_MUSIC_BATCH({ batchId: batch.id }, {} as never);
     expect(client.submitJob).toHaveBeenCalledWith(batch.body, batch.idempotencyKey);
-    expect(repo.recordProviderState).toHaveBeenCalledWith(batch.id, expect.objectContaining({ state: "SEARCHING", amfJobId: "amf-1" }), expect.any(Date));
+    expect(repo.recordProviderState).toHaveBeenCalledWith(batch.id, expect.objectContaining({ state: "SEARCHING", amfJobId: "amf-1", providerStatus: "searching" }), expect.any(Date));
     expect(queue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ type: "POLL_AMF_MUSIC_BATCH", priority: 20 }));
   });
 
@@ -97,6 +97,7 @@ describe("anime music request orchestration", () => {
     const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn() } as unknown as JobQueue, client });
     const error = await handlers.POLL_AMF_MUSIC_BATCH({ batchId: batch.id }, {} as never).catch((value) => value);
     expect(client.getJob).toHaveBeenCalledTimes(1);
+    expect(repo.recordProviderState).toHaveBeenCalledWith(batch.id, expect.objectContaining({ state: "DOWNLOADING", providerStatus: "downloading" }), expect.any(Date));
     expect(error).toBeInstanceOf(RetryableJobError);
     expect((error as RetryableJobError).options).toEqual({ incrementAttempts: false, retryAfterMs: AMF_POLL_INTERVAL_MS });
   });

@@ -1361,7 +1361,7 @@ blocker. Automatic scheduling remains disabled.
 
 | Field | Value |
 |---|---|
-| Status | ⬜ Pending |
+| Status | ✅ Complete |
 | Area | Server / operations / deployment docs |
 | Difficulty | Medium |
 | Effort | M, 2–3 days |
@@ -1387,7 +1387,32 @@ blocker. Automatic scheduling remains disabled.
 
 #### Completion and testing notes
 
-Pending.
+Completed on 2026-07-21. Added authenticated private-LAN operator diagnostics
+and safe request/batch projections, plus durable persisted-batch retry, cancel,
+and reprocess actions. Exact validated AMF provider status is persisted on every
+successful provider response, gates both API enqueue and worker execution, and
+prevents stale or semantically invalid actions. Responses omit AMF job IDs,
+paths, URLs, keys, and raw errors; AMF health/readiness calls are bounded and do
+not affect server health, startup, catalog reads, or existing playback.
+
+Deployment documentation and both Compose variants now enforce separate AMF
+private `/config`, shared exact-path read-write `/downloads`, AMF-owned
+read-write `/library` mounted read-only into Anime Ongaku as
+`AMF_LIBRARY_ROOT`, and Anime Ongaku-only read-write `MEDIA_ROOT`. Cleanup is
+dry-run eligibility only: every active delivery must match a READY canonical
+original media row by song, byte size, and SHA. Anime Ongaku never deletes
+staging files; current bytes must be independently verified before an operator
+manually removes exact request files on the host.
+
+TDD evidence: initial RED had 6 intended failures. After two review correction
+cycles, the full server suite passed 441 tests with 18 environment-gated skips;
+the isolated PostgreSQL provider-status transition suite passed 2/2; TypeScript
+`--noEmit`, Docker Compose validation, and diff check passed. Independent
+Sol/Medium review passed 90 focused tests with 2 gated skips. Final Terra/High
+QA passed the focused provider-status lifecycle, authorization/redaction,
+outage timeout, exact action-state matrix, canonical cleanup proof, aggregation,
+mount, and documentation checks. Live controller/filesystem/device acceptance
+remains MC-Q01R.
 
 ### MC-A00 — Add the debug-only anime request action
 

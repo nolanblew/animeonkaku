@@ -76,12 +76,14 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
     const result = await this.pool.query("SELECT * FROM anime_music_request_batches WHERE completed_at IS NULL ORDER BY created_at,batch_index");
     return result.rows.map(mapBatch);
   }
-  async recordProviderState(batchId: string, input: { state: MusicBatchState; amfJobId?: string; warningCount?: number; lastError?: string | null }, now: Date): Promise<void> {
+  async recordProviderState(batchId: string, input: { state: MusicBatchState; amfJobId?: string; warningCount?: number; lastError?: string | null; providerStatus?: AmfJob["status"] }, now: Date): Promise<void> {
     const terminal = TERMINAL.has(input.state);
     await this.pool.query(`UPDATE anime_music_request_batches SET state=$2,
       amf_job_id=COALESCE($3,amf_job_id), warning_count=COALESCE($4,warning_count), last_error=$5,
-      completed_at=CASE WHEN $6 THEN COALESCE(completed_at,$7) ELSE NULL END, updated_at=$7 WHERE id=$1`,
-      [batchId, input.state, input.amfJobId ?? null, input.warningCount ?? null, input.lastError ?? null, terminal, now]);
+      completed_at=CASE WHEN $6 THEN COALESCE(completed_at,$7) ELSE NULL END,
+      manifest_evidence=CASE WHEN $8::text IS NULL THEN manifest_evidence ELSE jsonb_set(manifest_evidence,'{status}',to_jsonb($8::text),true) END,
+      updated_at=$7 WHERE id=$1`,
+      [batchId, input.state, input.amfJobId ?? null, input.warningCount ?? null, input.lastError ?? null, terminal, now, input.providerStatus ?? null]);
     await this.pool.query(`UPDATE anime_music_requests r SET updated_at=$2,
       completed_at=CASE WHEN NOT EXISTS (SELECT 1 FROM anime_music_request_batches b WHERE b.request_id=r.id AND b.completed_at IS NULL)
         THEN COALESCE(r.completed_at,$2) ELSE NULL END
@@ -185,5 +187,6 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
 }
 
 function mapBatch(row: any): StoredMusicBatch {
-  return { id: row.id, requestId: row.request_id, index: row.batch_index, state: row.state, body: amfJobCreateSchema.parse(row.amf_request_body), idempotencyKey: row.idempotency_key, amfJobId: row.amf_job_id, warningCount: row.warning_count };
+  return { id: row.id, requestId: row.request_id, index: row.batch_index, state: row.state, body: amfJobCreateSchema.parse(row.amf_request_body), idempotencyKey: row.idempotency_key, amfJobId: row.amf_job_id, warningCount: row.warning_count,
+    providerStatus: row.manifest_evidence?.status ?? null };
 }

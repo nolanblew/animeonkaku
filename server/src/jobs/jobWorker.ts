@@ -55,6 +55,7 @@ const DEFAULT_TIMEOUTS_MS: Record<JobType, number> = {
   SUBMIT_AMF_MUSIC_BATCH: 2 * 60_000,
   POLL_AMF_MUSIC_BATCH: 2 * 60_000,
   IMPORT_AMF_MUSIC_BATCH: 10 * 60_000,
+  OPERATE_AMF_MUSIC_BATCH: 2 * 60_000,
 };
 
 export class JobWorker {

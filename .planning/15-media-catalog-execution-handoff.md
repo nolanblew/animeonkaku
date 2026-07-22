@@ -74,16 +74,41 @@ and must not be staged, modified, or deleted.
 - MC-A00 verification: focused 16/16; full Android unit 383/383; lint, debug
   assembly, release Kotlin compile, and diff check passed. Sol/Medium UX review
   issues were fixed. Device/controller smoke remains MC-Q01R.
-- MC-S08R is complete in the ticket commit containing this handoff update. It
+- MC-S08R is complete at `f73aa86 feat(server): import Anime Music Fetcher
+  deliveries`. It
   persists AMF evidence/deliveries, validates the read-only staging mount,
   verifies bytes during copy, and atomically publishes ready Full/Related
   catalog entries with deterministic crash/replay behavior.
 - MC-S08R verification: focused 39/39; isolated PostgreSQL 3/3 with the
   disposable instance removed; full server 416 passed and 18 environment-gated
   skipped; TypeScript/diff passed; Sol/Medium review and Terra/High QA clean.
-- Resume MC-S12R operator/deployment surfaces and then MC-Q01R live controller,
-  filesystem, and debug-device acceptance. Do not re-enable automatic
-  scheduling before MC-Q01R passes.
+- MC-S12R is complete in the ticket commit containing this handoff update. It
+  adds authenticated, redacted operator diagnostics and persisted-batch
+  retry/cancel/reprocess operations with exact AMF-status gates at enqueue and
+  execution time. AMF diagnostics are bounded and isolated from Anime Ongaku
+  health/startup/playback.
+- MC-S12R documents and configures AMF `/library` as read-only to Anime Ongaku,
+  keeps `MEDIA_ROOT` Anime Ongaku-only, and provides canonical-record-backed
+  staging-cleanup eligibility without deleting files. Under AMF 0.2, cleanup
+  remains an independently verified manual exact-file host operation.
+- MC-S12R verification: full server 441 passed and 18 environment-gated
+  skipped; isolated PostgreSQL 2/2; TypeScript, Compose validation, and diff
+  check passed; final Sol/Medium review and Terra/High QA passed.
+- Resume MC-Q01R only after the vfolder mounts below are available. Do not
+  submit a live AMF job or re-enable automatic scheduling before that
+  acceptance environment is ready.
+
+Required vfolder contract for MC-Q01R:
+
+1. `anime-fetcher/downloads/` mounted read-write at the identical `/downloads`
+   path in AMF and qBittorrent.
+2. `anime-fetcher/library/` mounted read-write as AMF `/library` and read-only
+   as Anime Ongaku `/mnt/amf-library` with
+   `AMF_LIBRARY_ROOT=/mnt/amf-library`.
+3. `anime-ongaku/media/` mounted read-write only as Anime Ongaku `MEDIA_ROOT`;
+   never expose it to AMF or qBittorrent.
+4. Keep AMF `/config` on a separate private persistent path outside the shared
+   media vfolder.
 
 ## MC-S10 completed scope
 

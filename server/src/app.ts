@@ -16,6 +16,7 @@ import { registerJobAdminRoutes, type JobAdminService } from "./jobs/adminRoutes
 import type { LegacyLibraryImportService } from "./legacyLibraryImport.js";
 import { registerSyncRoutes, type SyncApiService } from "./api/syncRoutes.js";
 import { registerMusicRequestRoutes, type MusicRequestService } from "./music/requests/index.js";
+import { registerMusicOperatorRoutes, type MusicOperatorApiService } from "./music/operator/index.js";
 
 export interface AppDeps {
   authService: AuthService;
@@ -27,6 +28,7 @@ export interface AppDeps {
   proxyApi?: ProxyApiService;
   legacyLibraryImport?: LegacyLibraryImportService;
   musicRequests?: MusicRequestService;
+  musicOperator?: MusicOperatorApiService;
   onLogin?: (result: LoginResult) => Promise<void>;
   /**
    * Fires after every request that carried a valid session (post-response, so
@@ -116,4 +118,5 @@ function registerApiRoutes(app: FastifyInstance, deps: AppDeps): void {
   if (deps.musicRequests) {
     registerMusicRequestRoutes(app, deps.authService, deps.musicRequests);
   }
+  if (deps.musicOperator) registerMusicOperatorRoutes(app, deps.authService, deps.musicOperator);
 }

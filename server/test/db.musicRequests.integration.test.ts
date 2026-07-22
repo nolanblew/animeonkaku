@@ -28,7 +28,11 @@ describe.skipIf(!adminDatabaseUrl)("anime music requests (PostgreSQL)", () => {
       expect(recoverable).toHaveLength(1);
       expect(recoverable[0]).toMatchObject({ requestId: first.request.id, amfJobId: null });
 
-      await repo.recordProviderState(recoverable[0]!.id, { state: "COMPLETED", amfJobId: "amf-finished" }, new Date());
+      await repo.recordProviderState(recoverable[0]!.id, { state: "AWAITING_OPERATOR", amfJobId: "amf-finished", providerStatus: "awaiting_selection" }, new Date());
+      await repo.recordProviderState(recoverable[0]!.id, { state: "PROCESSING", providerStatus: "processing" }, new Date());
+      expect(await repo.findBatch(recoverable[0]!.id)).toMatchObject({ providerStatus: "processing", state: "PROCESSING" });
+
+      await repo.recordProviderState(recoverable[0]!.id, { state: "COMPLETED", amfJobId: "amf-finished", providerStatus: "completed" }, new Date());
       const next = await repo.createOrReplay(newRequest("request-c", "batch-c", "item-c", "u2", "k2"));
       expect(next).toMatchObject({ created: true, request: { id: "request-c" } });
       expect((await pool.query("SELECT id FROM anime_music_requests ORDER BY created_at")).rows).toHaveLength(2);

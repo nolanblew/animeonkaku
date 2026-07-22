@@ -47,8 +47,8 @@ async function requireBatch(repo: MusicRequestRepository, payload: Record<string
   if (!batch) throw new Error("Music request batch does not exist");
   return batch;
 }
-function providerUpdate(job: AmfJob): { state: MusicBatchState; amfJobId: string; warningCount: number; lastError: null } {
-  return { state: mapStatus(job.status), amfJobId: job.id, warningCount: job.warnings.length, lastError: null };
+function providerUpdate(job: AmfJob): { state: MusicBatchState; amfJobId: string; warningCount: number; lastError: null; providerStatus: AmfJobStatus } {
+  return { state: mapStatus(job.status), amfJobId: job.id, warningCount: job.warnings.length, lastError: null, providerStatus: job.status };
 }
 function mapStatus(status: AmfJobStatus): MusicBatchState {
   switch (status) {

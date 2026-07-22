@@ -8,12 +8,14 @@ services:
     environment:
       DATABASE_URL: postgres://ongaku:${DB_PASSWORD:-ongaku-dev}@db:5432/ongaku
       MEDIA_ROOT: /data/media
+      AMF_LIBRARY_ROOT: /mnt/amf-library
       KITSU_CLIENT_ID: ${KITSU_CLIENT_ID:-}
       KITSU_CLIENT_SECRET: ${KITSU_CLIENT_SECRET:-}
       KITSU_AUTH_MODE: ${KITSU_AUTH_MODE:-stub}
       SYNC_INTERVAL_MINUTES: "10080"
       AUDIO_BACKFILL_DELAY_SECONDS: "8"
     volumes:
+      - ${AMF_LIBRARY_HOST_PATH:-./.amf-library}:/mnt/amf-library:ro
       - media:/data/media
     depends_on:
       db:

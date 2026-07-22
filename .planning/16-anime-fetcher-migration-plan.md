@@ -1,6 +1,6 @@
 # Anime Fetcher migration and debug-request execution plan
 
-**Status:** Approved direction; implementation pending
+**Status:** Replacement implementation complete through MC-S12R; live MC-Q01R acceptance pending
 
 **Date:** 2026-07-21
 

@@ -67,6 +67,10 @@ export class AnimeMusicFetcherClient {
     return this.requestJson("job cancellation", `${this.jobUrl(jobId)}/cancel`, { method: "POST" }, amfJobSchema);
   }
 
+  async reprocessJob(jobId: string): Promise<AmfJob> {
+    return this.requestJson("job reprocessing", `${this.jobUrl(jobId)}/reprocess`, { method: "POST" }, amfJobSchema);
+  }
+
   private jobUrl(jobId: string): string {
     if (jobId.length === 0) throw amfInvalidRequest("job identity");
     return `${AMF_API_BASE_URL}/jobs/${encodeURIComponent(jobId)}`;

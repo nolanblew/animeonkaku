@@ -210,10 +210,11 @@ describe("AnimeMusicFetcherClient job lifecycle", () => {
     expect(statuses).toEqual(["queued", "searching", "awaiting_selection", "completed"]);
   });
 
-  it("polls, retries, and cancels with encoded job identities", async () => {
+  it("polls, retries, cancels, and reprocesses with encoded job identities", async () => {
     const { fetch, requests } = routedFetch([
       { match: "/retry", response: { status: 202, body: JSON.stringify(jobFixture("queued")) } },
       { match: "/cancel", response: { status: 200, body: JSON.stringify(jobFixture("cancelled")) } },
+      { match: "/reprocess", response: { status: 202, body: JSON.stringify(jobFixture("processing")) } },
       { match: "/jobs/", response: { status: 200, body: JSON.stringify(jobFixture("processing")) } },
     ]);
     const client = new AnimeMusicFetcherClient({
@@ -223,10 +224,12 @@ describe("AnimeMusicFetcherClient job lifecycle", () => {
     await expect(client.getJob("job/id with spaces")).resolves.toMatchObject({ status: "processing" });
     await expect(client.retryJob("job/id with spaces")).resolves.toMatchObject({ status: "queued" });
     await expect(client.cancelJob("job/id with spaces")).resolves.toMatchObject({ status: "cancelled" });
+    await expect(client.reprocessJob("job/id with spaces")).resolves.toMatchObject({ status: "processing" });
     expect(requests.map((entry) => new URL(entry.url).pathname)).toEqual([
       "/api/v1/jobs/job%2Fid%20with%20spaces",
       "/api/v1/jobs/job%2Fid%20with%20spaces/retry",
       "/api/v1/jobs/job%2Fid%20with%20spaces/cancel",
+      "/api/v1/jobs/job%2Fid%20with%20spaces/reprocess",
     ]);
   });
 
