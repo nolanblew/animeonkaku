@@ -268,9 +268,9 @@ class LibraryViewModel @Inject constructor(
         )
     }
 
-    fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {
+    fun addToPlaylist(playlistId: Long, themeIds: List<Long>, modeOverride: String? = null) {
         runPlaylistAction("Couldn't save to playlist. Try again when your connection is stable.") {
-            serverPlaylistWriter.addEntries(playlistId, themeIds)
+            serverPlaylistWriter.addThemeEntries(playlistId, themeIds, modeOverride)
         }
     }
 
@@ -310,9 +310,9 @@ class LibraryViewModel @Inject constructor(
         downloadManager.removeDownload(themeId)
     }
 
-    fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
+    fun createAndAddToPlaylist(name: String, themeIds: List<Long>, modeOverride: String? = null) {
         runPlaylistAction("Couldn't create playlist. Try again when your connection is stable.") {
-            serverPlaylistWriter.createPlaylist(name, themeIds)
+            serverPlaylistWriter.createPlaylistWithThemes(name, themeIds, modeOverride)
         }
     }
 

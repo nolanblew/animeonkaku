@@ -2084,6 +2084,7 @@ for video.
 
 | Field | Value |
 |---|---|
+| Status | ✅ Complete (2026-07-21) |
 | Area | Android / playlists |
 | Difficulty | High |
 | Effort | XL, 6–8 days |
@@ -2135,6 +2136,22 @@ Expected areas:
 
 Do not silently rewrite every entry when playlist default changes. Null
 overrides inherit dynamically.
+
+#### Completion and testing notes
+
+Implemented durable typed THEME/SONG playlist writes and pulls, playlist
+TV/Full defaults, per-theme Inherit/TV/Full overrides, entry-ID-safe mixed
+editing/reordering, dynamic-playlist edit guards, and resolver-driven mixed
+playback. Temporary local entry IDs are omitted from server requests, and
+legacy duplicate themes receive deterministic occurrence identities so they
+survive Room replacement and remapping.
+
+Independent Sol/Medium UX and code review passed after making override and
+reorder controls reachable and restoring whole-playlist queue actions.
+Terra/High QA passed: focused 124/124, full 476/476 across 76 suites,
+production and Android-test Kotlin compilation, debug assembly, and diff
+check. No ADB device was connected, so physical playlist interaction smoke is
+carried into MC-Q01.
 
 ### MC-A09 — Implement song reactions, mode-specific dislike, and actual-mode history
 

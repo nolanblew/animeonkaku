@@ -131,14 +131,15 @@ class LibraryPullManager @Inject constructor(
                         )
                     }
                 } else {
+                    val occurrences = mutableMapOf<Long, Int>()
                     playlist.entries.mapIndexed { index, themeId ->
+                        val occurrence = occurrences.getOrDefault(themeId, 0)
+                        occurrences[themeId] = occurrence + 1
                         PlaylistEntryEntity(
                             playlistId = playlist.id,
                             themeId = themeId,
                             orderIndex = index,
-                            // Legacy entries are unique theme IDs. Deriving identity from the
-                            // theme preserves it across reorder and matches MIGRATION_22_23.
-                            entryId = themeId
+                            entryId = legacyPlaylistEntryId(themeId, occurrence)
                         )
                     }
                 }

@@ -192,6 +192,15 @@ fun ArtistDetailScreen(
             onCreatePlaylist = { name ->
                 viewModel.createAndAddToPlaylist(name, ids)
                 pickerThemeIds = null
+            },
+            showThemeModeChoice = true,
+            onSelectPlaylistWithMode = { playlistId, modeOverride ->
+                viewModel.addToPlaylist(playlistId, ids, modeOverride)
+                pickerThemeIds = null
+            },
+            onCreatePlaylistWithMode = { name, modeOverride ->
+                viewModel.createAndAddToPlaylist(name, ids, modeOverride)
+                pickerThemeIds = null
             }
         )
     }

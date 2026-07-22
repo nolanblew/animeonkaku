@@ -39,6 +39,9 @@ interface MusicCatalogDao {
     @Query("SELECT * FROM songs WHERE id IN (:songIds)")
     suspend fun getSongs(songIds: List<Long>): List<SongEntity>
 
+    @Query("SELECT * FROM songs WHERE id IN (:songIds)")
+    fun observeSongs(songIds: List<Long>): Flow<List<SongEntity>>
+
     @Query("SELECT * FROM music_releases WHERE id = :releaseId LIMIT 1")
     suspend fun getRelease(releaseId: Long): MusicReleaseEntity?
 

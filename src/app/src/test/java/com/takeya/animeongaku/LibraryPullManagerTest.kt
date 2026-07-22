@@ -59,6 +59,7 @@ import com.takeya.animeongaku.sync.LibraryPullCache
 import com.takeya.animeongaku.sync.LibraryPullManager
 import com.takeya.animeongaku.sync.LibraryPullSideEffects
 import com.takeya.animeongaku.sync.MusicCatalogSnapshot
+import com.takeya.animeongaku.sync.legacyPlaylistEntryId
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -111,7 +112,7 @@ class LibraryPullManagerTest {
                 OngakuPlaylistDto(
                     id = 88L,
                     name = "Manual Mix",
-                    entries = listOf(100L),
+                    entries = listOf(100L, 100L, 101L),
                     isAuto = false,
                     updatedAt = 1760000000001,
                     dynamicSpecJson = null
@@ -209,10 +210,17 @@ class LibraryPullManagerTest {
         assertEquals(false, cache.pruneMissingAutoPlaylists)
         assertEquals(listOf("Server Auto", "Manual Mix", "Smart Mix"), cache.autoPlaylists.map { it.name })
         assertEquals(listOf(true, false, true), cache.autoPlaylists.map { it.isAuto })
-        assertEquals(listOf("THEME", "SONG", "THEME", "THEME"), cache.autoEntries.map { it.itemType })
+        assertEquals(listOf("THEME", "SONG", "THEME", "THEME", "THEME", "THEME"), cache.autoEntries.map { it.itemType })
         assertEquals(listOf(880L, 881L), cache.autoEntries.filter { it.playlistId == 77L }.map { it.entryId })
         assertEquals("FULL_SIZE", cache.autoPlaylists.single { it.id == 77L }.defaultMode)
-        assertEquals(100L, cache.autoEntries.single { it.playlistId == 88L }.entryId)
+        assertEquals(
+            listOf(
+                legacyPlaylistEntryId(100L, 0),
+                legacyPlaylistEntryId(100L, 1),
+                legacyPlaylistEntryId(101L, 0)
+            ),
+            cache.autoEntries.filter { it.playlistId == 88L }.map { it.entryId }
+        )
         assertEquals(listOf(300L, 301L), cache.songPreferences.map { it.songId })
         assertEquals(11L, cache.songPreferences.single { it.songId == 301L }.deletedAt)
         assertEquals("http://192.168.1.5:8080/api/v1/media/songs/300/audio", cache.musicCatalog!!.songs.single().audioUrl)

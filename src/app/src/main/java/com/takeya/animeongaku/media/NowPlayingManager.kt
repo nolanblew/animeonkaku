@@ -118,7 +118,8 @@ class NowPlayingManager @Inject constructor(
         animeMap: Map<Long, AnimeEntity> = emptyMap(),
         suggestedFrom: Int? = null,
         baseModePolicy: BaseModePolicy = BaseModePolicy.Inherit,
-        initialSessionMode: PlaybackMode? = null
+        initialSessionMode: PlaybackMode? = null,
+        baseModePolicies: List<BaseModePolicy>? = null
     ) {
         require(initialSessionMode != PlaybackMode.RELATED_AUDIO) {
             "RELATED_AUDIO is resolver-owned and cannot be a Theme session override"
@@ -129,7 +130,13 @@ class NowPlayingManager @Inject constructor(
         val playable = playableWithSourceIndex.map { it.value }
         if (playable.isEmpty()) return
 
-        val originalEntries = createQueueEntries(playable, baseModePolicy)
+        val playablePolicies = baseModePolicies?.let { policies ->
+            require(policies.size == items.size) { "One base policy is required per source item" }
+            playableWithSourceIndex.map { policies[it.index] }
+        }
+        val originalEntries = playable.mapIndexed { index, item ->
+            QueueEntry(nextQueueEntryId++, item, playablePolicies?.get(index) ?: baseModePolicy)
+        }
         val sourceIndexes = playableWithSourceIndex.map { it.index }
         val requestedPlayableStart = sourceIndexes.indexOf(startIndex).takeIf { it >= 0 }
             ?: sourceIndexes.indexOfFirst { it > startIndex }.takeIf { it >= 0 }
@@ -203,14 +210,18 @@ class NowPlayingManager @Inject constructor(
     fun playNextItems(
         items: List<PlayableItem>,
         animeMap: Map<Long, AnimeEntity> = emptyMap(),
-        baseModePolicy: BaseModePolicy = BaseModePolicy.Inherit
+        baseModePolicy: BaseModePolicy = BaseModePolicy.Inherit,
+        baseModePolicies: List<BaseModePolicy>? = null
     ) {
         if (items.isEmpty()) return
+        require(baseModePolicies == null || baseModePolicies.size == items.size)
 
         val current = _state.value
-        val playable = playableItems(items)
+        val playable = playableItemsWithSourceIndex(items)
         if (playable.isEmpty()) return
-        val insertedEntries = createQueueEntries(playable, baseModePolicy)
+        val insertedEntries = playable.map { indexed ->
+            QueueEntry(nextQueueEntryId++, indexed.value, baseModePolicies?.get(indexed.index) ?: baseModePolicy)
+        }
         if (current.nowPlayingEntries.isEmpty()) {
             _state.value = createStandaloneQueueState(
                 contextLabel = current.contextLabel.ifBlank { "Queue" },
@@ -257,14 +268,18 @@ class NowPlayingManager @Inject constructor(
     fun addPlayableItems(
         items: List<PlayableItem>,
         animeMap: Map<Long, AnimeEntity> = emptyMap(),
-        baseModePolicy: BaseModePolicy = BaseModePolicy.Inherit
+        baseModePolicy: BaseModePolicy = BaseModePolicy.Inherit,
+        baseModePolicies: List<BaseModePolicy>? = null
     ) {
         if (items.isEmpty()) return
+        require(baseModePolicies == null || baseModePolicies.size == items.size)
 
         val current = _state.value
-        val playable = playableItems(items)
+        val playable = playableItemsWithSourceIndex(items)
         if (playable.isEmpty()) return
-        val appendedEntries = createQueueEntries(playable, baseModePolicy)
+        val appendedEntries = playable.map { indexed ->
+            QueueEntry(nextQueueEntryId++, indexed.value, baseModePolicies?.get(indexed.index) ?: baseModePolicy)
+        }
         if (current.nowPlayingEntries.isEmpty()) {
             _state.value = createStandaloneQueueState(
                 contextLabel = current.contextLabel.ifBlank { "Queue" },

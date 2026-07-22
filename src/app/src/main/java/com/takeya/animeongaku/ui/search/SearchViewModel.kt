@@ -363,9 +363,9 @@ class SearchViewModel @Inject constructor(
         }
     }
 
-    fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {
+    fun addToPlaylist(playlistId: Long, themeIds: List<Long>, modeOverride: String? = null) {
         viewModelScope.launch {
-            serverPlaylistWriter.addEntries(playlistId, themeIds)
+            serverPlaylistWriter.addThemeEntries(playlistId, themeIds, modeOverride)
         }
     }
 
@@ -405,12 +405,9 @@ class SearchViewModel @Inject constructor(
         downloadManager.removeDownload(themeId)
     }
 
-    fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
+    fun createAndAddToPlaylist(name: String, themeIds: List<Long>, modeOverride: String? = null) {
         viewModelScope.launch {
-            serverPlaylistWriter.createPlaylist(name, themeIds)
+            serverPlaylistWriter.createPlaylistWithThemes(name, themeIds, modeOverride)
         }
     }
 }
-
-internal fun searchFailureMessage(hasCachedResults: Boolean): String =
-    if (hasCachedResults) "Couldn’t refresh. Showing saved results." else "Couldn’t search right now. Try again."

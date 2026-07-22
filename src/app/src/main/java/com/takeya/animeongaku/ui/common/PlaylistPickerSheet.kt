@@ -17,6 +17,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,11 +51,15 @@ fun PlaylistPickerSheet(
     coverUrls: Map<Long, List<List<String>>> = emptyMap(),
     onDismiss: () -> Unit,
     onSelectPlaylist: (playlistId: Long) -> Unit,
-    onCreatePlaylist: (name: String) -> Unit
+    onCreatePlaylist: (name: String) -> Unit,
+    showThemeModeChoice: Boolean = false,
+    onSelectPlaylistWithMode: ((playlistId: Long, modeOverride: String?) -> Unit)? = null,
+    onCreatePlaylistWithMode: ((name: String, modeOverride: String?) -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showNewField by remember { mutableStateOf(false) }
     var newName by remember { mutableStateOf("") }
+    var modeOverride by remember { mutableStateOf<String?>(null) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -89,6 +94,40 @@ fun PlaylistPickerSheet(
             HorizontalDivider(color = Mist200.copy(alpha = 0.1f), modifier = Modifier.padding(horizontal = 16.dp))
             Spacer(modifier = Modifier.height(4.dp))
 
+            if (showThemeModeChoice) {
+                Text(
+                    text = "Version for themes",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Mist200,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        null to "Use playlist default",
+                        "TV_SIZE" to "TV Size",
+                        "FULL_SIZE" to "Full Size"
+                    ).forEach { (value, label) ->
+                        FilterChip(
+                            selected = modeOverride == value,
+                            onClick = { modeOverride = value },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+                Text(
+                    text = "You can change this later for each theme.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Mist200,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+
             // New playlist row
             if (showNewField) {
                 Row(
@@ -118,7 +157,8 @@ fun PlaylistPickerSheet(
                         onClick = {
                             val trimmed = newName.trim()
                             if (trimmed.isNotBlank()) {
-                                onCreatePlaylist(trimmed)
+                                onCreatePlaylistWithMode?.invoke(trimmed, modeOverride)
+                                    ?: onCreatePlaylist(trimmed)
                             }
                         }
                     ) {
@@ -170,7 +210,10 @@ fun PlaylistPickerSheet(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { onSelectPlaylist(playlist.playlist.id) }
+                                    .clickable {
+                                        onSelectPlaylistWithMode?.invoke(playlist.playlist.id, modeOverride)
+                                            ?: onSelectPlaylist(playlist.playlist.id)
+                                    }
                                 .padding(horizontal = 20.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)

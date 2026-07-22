@@ -270,6 +270,20 @@ device acceptance after the Android chain is complete.
   durable by generalizing playlist writes/pulls to ordered typed items, then
   implement default/override policy and mixed-item editing. MC-A10 still owns
   generalized SONG downloads and the Related Music Download action.
+- MC-A08 is complete in the ticket commit containing this handoff update. It
+  adds durable ordered THEME/SONG playlist sync, TV/Full defaults, reachable
+  per-theme Inherit/TV/Full overrides, entry-ID-safe mixed editing and
+  reordering, resolver-driven playback, and dynamic-playlist edit guards.
+  Outbound requests omit temporary IDs, while legacy duplicate themes retain
+  deterministic occurrence identities through pull/remap.
+- MC-A08 verification: focused 124/124, full unit 476/476 across 76 suites,
+  production and Android-test Kotlin compilation, debug assembly, Sol/Medium
+  UX and technical review, Terra/High QA, and diff check passed. No device was
+  connected; physical playlist interaction smoke remains in MC-Q01.
+- Resume at MC-A09. Implement independent SONG reactions, broad and
+  mode-specific Theme dislike semantics, actual-mode play history, and queue
+  skip behavior. Keep the implementation pragmatic for the private-app scope;
+  do not add anime-wide or video-only dislike.
 
 ## Agent model policy
 

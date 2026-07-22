@@ -222,7 +222,16 @@ fun PlayerScreen(
         PlaylistPickerSheet(
             playlists = playlists, coverUrls = playlistCoverUrls, onDismiss = { pickerThemeIds = null },
             onSelectPlaylist = { playlistId -> viewModel.addToPlaylist(playlistId, ids); pickerThemeIds = null },
-            onCreatePlaylist = { name -> viewModel.createAndAddToPlaylist(name, ids); pickerThemeIds = null }
+            onCreatePlaylist = { name -> viewModel.createAndAddToPlaylist(name, ids); pickerThemeIds = null },
+            showThemeModeChoice = true,
+            onSelectPlaylistWithMode = { playlistId, modeOverride ->
+                viewModel.addToPlaylist(playlistId, ids, modeOverride)
+                pickerThemeIds = null
+            },
+            onCreatePlaylistWithMode = { name, modeOverride ->
+                viewModel.createAndAddToPlaylist(name, ids, modeOverride)
+                pickerThemeIds = null
+            }
         )
     }
 

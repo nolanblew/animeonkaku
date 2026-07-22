@@ -18,6 +18,7 @@ import com.takeya.animeongaku.data.remote.OngakuManualAnimeRequest
 import com.takeya.animeongaku.data.remote.OngakuPlayEvent
 import com.takeya.animeongaku.data.remote.OngakuPlaylistDto
 import com.takeya.animeongaku.data.remote.OngakuPlaylistRequest
+import com.takeya.animeongaku.data.remote.OngakuPlaylistItemRequest
 import com.takeya.animeongaku.data.remote.OngakuThemePrefPatch
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.data.auth.SessionStateManager
@@ -76,13 +77,20 @@ class SyncEngine @Inject constructor(
         dynamicSpecJson: Any? = null,
         dynamicSortJson: Any? = null,
         autoUpdate: Boolean? = null,
+        defaultMode: String? = null,
+        items: List<OngakuPlaylistItemRequest>? = null,
         opTs: Long = System.currentTimeMillis()
     ) {
         enqueueSuperseding(
             entityType = PendingOpEntity.ENTITY_PLAYLIST,
             entityKey = playlistId.toString(),
             opType = PendingOpEntity.OP_CREATE,
-            payload = playlistPayload(name, entries, dynamicSpecJson, dynamicSortJson, autoUpdate),
+            payload = playlistPayload(name, entries, dynamicSpecJson, dynamicSortJson, autoUpdate).toMutableMap().apply {
+                if (defaultMode != null) put("defaultMode", defaultMode)
+                if (items != null) put("items", items.map { mapOf(
+                    "entryId" to it.entryId, "itemType" to it.itemType, "itemId" to it.itemId, "modeOverride" to it.modeOverride
+                ) })
+            },
             opTs = opTs,
             supersede = false
         )
@@ -112,6 +120,34 @@ class SyncEngine @Inject constructor(
             entityKey = playlistId.toString(),
             opType = PendingOpEntity.OP_REORDER,
             payload = mapOf("entries" to entries),
+            opTs = opTs
+        )
+    }
+
+    suspend fun enqueuePlaylistItems(
+        playlistId: Long,
+        defaultMode: String,
+        items: List<OngakuPlaylistItemRequest>,
+        opTs: Long = System.currentTimeMillis()
+    ) {
+        enqueueSuperseding(
+            entityType = PendingOpEntity.ENTITY_PLAYLIST,
+            entityKey = playlistId.toString(),
+            opType = PendingOpEntity.OP_REORDER,
+            payload = mapOf(
+                "defaultMode" to defaultMode,
+                // Keep the legacy THEME-only projection for older servers/clients while the
+                // typed list remains authoritative for mixed playlists and entry policy.
+                "entries" to items.filter { it.itemType == PlaylistEntryEntity.ITEM_TYPE_THEME }.map { it.itemId },
+                "items" to items.map { item ->
+                    mapOf(
+                        "entryId" to item.entryId,
+                        "itemType" to item.itemType,
+                        "itemId" to item.itemId,
+                        "modeOverride" to item.modeOverride
+                    )
+                }
+            ),
             opTs = opTs
         )
     }
@@ -323,10 +359,22 @@ class SyncEngine @Inject constructor(
         val serverOwnsEntries = dynamicSpec != null && autoUpdate != false
         return OngakuPlaylistRequest(
             name = this["name"] as? String,
+            defaultMode = this["defaultMode"] as? String,
             entries = if (serverOwnsEntries) {
                 null
             } else {
                 (this["entries"] as? List<*>)?.mapNotNull { (it as? Number)?.toLong() }
+            },
+            items = if (serverOwnsEntries) null else (this["items"] as? List<*>)?.mapNotNull { raw ->
+                val item = raw as? Map<*, *> ?: return@mapNotNull null
+                val itemType = item["itemType"] as? String ?: return@mapNotNull null
+                if (itemType != PlaylistEntryEntity.ITEM_TYPE_THEME && itemType != PlaylistEntryEntity.ITEM_TYPE_SONG) return@mapNotNull null
+                OngakuPlaylistItemRequest(
+                    entryId = (item["entryId"] as? Number)?.toLong(),
+                    itemType = itemType,
+                    itemId = (item["itemId"] as? Number)?.toLong() ?: return@mapNotNull null,
+                    modeOverride = (item["modeOverride"] as? String)?.takeIf { itemType == PlaylistEntryEntity.ITEM_TYPE_THEME }
+                )
             },
             dynamicSpecJson = dynamicSpec,
             dynamicSortJson = this["dynamicSortJson"],
@@ -376,11 +424,8 @@ class RoomSyncEngineStore @Inject constructor(
         database.withTransaction {
             val local = playlistDao.getPlaylistByIdIncludingDeleted(tempId)
             val localSpec = dynamicPlaylistSpecDao.getById(tempId)
-            val entries = if (localSpec != null || serverPlaylist.dynamicSpecJson != null) {
-                serverPlaylist.entries
-            } else {
-                serverPlaylist.entries.ifEmpty { playlistDao.getThemeIdsInPlaylist(tempId) }
-            }
+            val serverItems = serverPlaylist.items
+            val localItems = playlistDao.getPlaylistEntries(tempId)
             val locallyDeletedAt = local?.deletedAt
             playlistDao.insertPlaylist(
                 PlaylistEntity(
@@ -389,19 +434,35 @@ class RoomSyncEngineStore @Inject constructor(
                     createdAt = local?.createdAt ?: serverPlaylist.updatedAt,
                     isAuto = serverPlaylist.isAuto || serverPlaylist.dynamicSpecJson != null,
                     gradientSeed = local?.gradientSeed ?: 0,
+                    defaultMode = serverPlaylist.defaultMode,
                     updatedAt = local?.updatedAt?.takeIf { locallyDeletedAt != null } ?: serverPlaylist.updatedAt,
                     deletedAt = locallyDeletedAt
                 )
             )
             playlistDao.deletePlaylistEntries(serverPlaylist.id)
-            if (locallyDeletedAt == null && entries.isNotEmpty()) {
+            if (locallyDeletedAt == null && (serverItems.isNotEmpty() || serverPlaylist.entries.isNotEmpty() || localItems.isNotEmpty())) {
                 playlistDao.insertEntries(
-                    entries.mapIndexed { index, themeId ->
-                        PlaylistEntryEntity(
+                    when {
+                        serverItems.isNotEmpty() -> serverItems.mapIndexed { index, item -> PlaylistEntryEntity(
                             playlistId = serverPlaylist.id,
-                            themeId = themeId,
-                            orderIndex = index
-                        )
+                            themeId = item.itemId.takeIf { item.itemType == PlaylistEntryEntity.ITEM_TYPE_THEME },
+                            orderIndex = index, entryId = item.entryId, itemType = item.itemType,
+                            itemId = item.itemId, modeOverride = item.modeOverride
+                        ) }
+                        serverPlaylist.entries.isNotEmpty() -> {
+                            val occurrences = mutableMapOf<Long, Int>()
+                            serverPlaylist.entries.mapIndexed { index, themeId ->
+                                val occurrence = occurrences.getOrDefault(themeId, 0)
+                                occurrences[themeId] = occurrence + 1
+                                PlaylistEntryEntity(
+                                    playlistId = serverPlaylist.id,
+                                    themeId = themeId,
+                                    orderIndex = index,
+                                    entryId = legacyPlaylistEntryId(themeId, occurrence)
+                                )
+                            }
+                        }
+                        else -> localItems.map { it.copy(playlistId = serverPlaylist.id) }
                     }
                 )
             }

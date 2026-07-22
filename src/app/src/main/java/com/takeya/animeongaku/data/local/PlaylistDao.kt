@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.Flow
 interface PlaylistDao {
     @Query(
         """
-        SELECT p.*, COUNT(t.id) AS trackCount
+        SELECT p.*, COUNT(pe.entryId) AS trackCount
         FROM playlists p
         LEFT JOIN playlist_entries pe ON p.id = pe.playlistId
         LEFT JOIN themes t ON pe.itemType = 'THEME' AND t.id = pe.itemId
@@ -39,6 +39,12 @@ interface PlaylistDao {
     )
     fun observePlaylistTracks(playlistId: Long): Flow<List<PlaylistTrack>>
 
+    @Query("SELECT * FROM playlist_entries WHERE playlistId = :playlistId ORDER BY orderIndex ASC")
+    fun observePlaylistEntries(playlistId: Long): Flow<List<PlaylistEntryEntity>>
+
+    @Query("SELECT * FROM playlist_entries WHERE playlistId = :playlistId ORDER BY orderIndex ASC")
+    suspend fun getPlaylistEntries(playlistId: Long): List<PlaylistEntryEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPlaylist(playlist: PlaylistEntity): Long
 
@@ -47,6 +53,15 @@ interface PlaylistDao {
 
     @Query("DELETE FROM playlist_entries WHERE playlistId = :playlistId AND itemType = 'THEME' AND itemId = :themeId")
     suspend fun deleteEntry(playlistId: Long, themeId: Long)
+
+    @Query("DELETE FROM playlist_entries WHERE playlistId = :playlistId AND entryId = :entryId")
+    suspend fun deleteEntryById(playlistId: Long, entryId: Long)
+
+    @Query("UPDATE playlist_entries SET modeOverride = :modeOverride WHERE playlistId = :playlistId AND entryId = :entryId")
+    suspend fun updateEntryMode(playlistId: Long, entryId: Long, modeOverride: String?)
+
+    @Query("UPDATE playlists SET defaultMode = :defaultMode, updatedAt = :updatedAt WHERE id = :playlistId")
+    suspend fun updateDefaultMode(playlistId: Long, defaultMode: String, updatedAt: Long)
 
     @Query("SELECT COUNT(*) FROM playlist_entries WHERE playlistId = :playlistId")
     suspend fun countEntries(playlistId: Long): Int
@@ -140,7 +155,7 @@ interface PlaylistDao {
     fun observeAllPlaylistCoverUrls(): Flow<List<PlaylistCoverRow>>
 
     @Query("""
-        SELECT p.*, COUNT(t.id) AS trackCount
+        SELECT p.*, COUNT(pe.entryId) AS trackCount
         FROM playlists p
         LEFT JOIN playlist_entries pe ON p.id = pe.playlistId
         LEFT JOIN themes t ON pe.itemType = 'THEME' AND t.id = pe.itemId

@@ -152,9 +152,9 @@ class HomeViewModel @Inject constructor(
     private fun singleAnimeMap(theme: ThemeEntity): Map<Long, AnimeEntity> =
         theme.animeId?.let { id -> buildAnimeMap()[id]?.let { mapOf(id to it) } } ?: emptyMap()
 
-    fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {
+    fun addToPlaylist(playlistId: Long, themeIds: List<Long>, modeOverride: String? = null) {
         viewModelScope.launch {
-            serverPlaylistWriter.addEntries(playlistId, themeIds)
+            serverPlaylistWriter.addThemeEntries(playlistId, themeIds, modeOverride)
         }
     }
 
@@ -194,9 +194,9 @@ class HomeViewModel @Inject constructor(
         downloadManager.removeDownload(themeId)
     }
 
-    fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
+    fun createAndAddToPlaylist(name: String, themeIds: List<Long>, modeOverride: String? = null) {
         viewModelScope.launch {
-            serverPlaylistWriter.createPlaylist(name, themeIds)
+            serverPlaylistWriter.createPlaylistWithThemes(name, themeIds, modeOverride)
         }
     }
 }

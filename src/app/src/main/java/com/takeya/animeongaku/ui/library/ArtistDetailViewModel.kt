@@ -270,9 +270,9 @@ class ArtistDetailViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
-    fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {
+    fun addToPlaylist(playlistId: Long, themeIds: List<Long>, modeOverride: String? = null) {
         viewModelScope.launch {
-            serverPlaylistWriter.addEntries(playlistId, themeIds)
+            serverPlaylistWriter.addThemeEntries(playlistId, themeIds, modeOverride)
         }
     }
 
@@ -312,9 +312,9 @@ class ArtistDetailViewModel @Inject constructor(
         downloadManager.removeDownload(themeId)
     }
 
-    fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
+    fun createAndAddToPlaylist(name: String, themeIds: List<Long>, modeOverride: String? = null) {
         viewModelScope.launch {
-            serverPlaylistWriter.createPlaylist(name, themeIds)
+            serverPlaylistWriter.createPlaylistWithThemes(name, themeIds, modeOverride)
         }
     }
 }

@@ -16,6 +16,7 @@ import com.takeya.animeongaku.data.repository.MusicOwner
 import com.takeya.animeongaku.data.repository.RelatedRelease
 import com.takeya.animeongaku.data.repository.RelatedTrack
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
+import com.takeya.animeongaku.data.repository.PlaylistWriteItem
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.PlayableItem
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -112,21 +113,17 @@ class RelatedMusicViewModel @Inject constructor(
     }
 
     fun addToPlaylist(playlistId: Long, songId: Long) = viewModelScope.launch {
-        val order = playlistDao.countEntries(playlistId)
-        playlistDao.insertEntries(listOf(PlaylistEntryEntity(
-            playlistId = playlistId,
-            themeId = null,
-            orderIndex = order,
-            entryId = -System.currentTimeMillis(),
+        playlistWriter.addItems(playlistId, listOf(PlaylistWriteItem(
             itemType = PlaylistEntryEntity.ITEM_TYPE_SONG,
             itemId = songId
         )))
-        playlistDao.touchPlaylist(playlistId, System.currentTimeMillis())
     }
 
     fun createPlaylist(name: String, songId: Long) = viewModelScope.launch {
-        val playlistId = playlistWriter.createPlaylist(name)
-        addToPlaylist(playlistId, songId)
+        playlistWriter.createPlaylistWithItems(name, listOf(PlaylistWriteItem(
+            itemType = PlaylistEntryEntity.ITEM_TYPE_SONG,
+            itemId = songId
+        )))
     }
 }
 
