@@ -131,6 +131,29 @@ describe("anime music request orchestration", () => {
     }));
   });
 
+  it("persists and imports completed files while the provider job is still processing", async () => {
+    const batch = { ...storedBatch("PROCESSING"), amfJobId: "amf-1" };
+    const repo = fakeRepo(batch);
+    const queue = { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue;
+    const partial = {
+      ...amfJob("processing"),
+      item_results: [{ requested_item_index: 0, label: "OST", kind: "OST" as const, number: null,
+        status: "delivered" as const, candidate_indexes: [], selected_release_indexes: [0], matched_releases: ["Album"],
+        delivered_files: [`${batch.body.destination}/disc/01.flac`], file_count: 1 }],
+      deliveries: [{ requested_item_index: 0, label: "OST", kind: "OST" as const, number: null, files: [{
+        file_index: 0, relative_path: `${batch.body.destination}/disc/01.flac`, size: 123, sha256: "a".repeat(64), metadata: {},
+      }] }],
+    };
+    const handlers = createMusicRequestHandlers({ repo, queue,
+      client: { submitJob: vi.fn(), getJob: vi.fn().mockResolvedValue(partial) } });
+
+    const error = await handlers.POLL_AMF_MUSIC_BATCH({ batchId: batch.id }, {} as never).catch((value) => value);
+
+    expect(repo.recordProviderEvidence).toHaveBeenCalledWith(batch.id, partial, expect.any(Date));
+    expect(queue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ type: "IMPORT_AMF_MUSIC_BATCH" }));
+    expect(error).toBeInstanceOf(RetryableJobError);
+  });
+
   it("replays a persisted provider identity without submitting a second request", async () => {
     const batch = { ...storedBatch("SEARCHING"), amfJobId: "amf-1" };
     const repo = fakeRepo(batch);

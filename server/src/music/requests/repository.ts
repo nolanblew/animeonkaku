@@ -172,7 +172,8 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
       for (const [index, item] of itemByIndex) {
         const result = resultByIndex.get(index);
         if (result && (result.kind !== item.kind || (result.number ?? null) !== item.number)) identityConflict = true;
-        const importState = result?.status === "delivered" ? "PENDING" : "ATTENTION";
+        const evidenceIsFinal = ["completed", "completed_with_warnings", "failed", "cancelled", "awaiting_selection", "awaiting_file_selection", "download_stalled"].includes(job.status);
+        const importState = result?.status === "delivered" ? "PENDING" : evidenceIsFinal ? "ATTENTION" : "PENDING";
         await client.query(`UPDATE anime_music_request_items SET result_status=$2,result_evidence=$3::jsonb,
           import_state=CASE WHEN import_state IN ('READY','ATTENTION') THEN import_state ELSE $4 END,
           import_error=CASE WHEN import_state IN ('READY','ATTENTION') THEN import_error WHEN $4='ATTENTION' THEN 'AMF item is not an unambiguous delivered result' ELSE NULL END

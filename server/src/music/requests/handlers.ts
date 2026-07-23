@@ -22,10 +22,10 @@ export function createMusicRequestHandlers(deps: { repo: MusicRequestRepository;
       try {
         providerJob = await deps.client.submitJob(batch.body, batch.idempotencyKey);
       } catch (error) { await handleProviderError(deps.repo, batch.id, error, now()); return; }
-      if (shouldPersistEvidence(providerJob.status)) await deps.repo.recordProviderEvidence(batch.id, providerJob, now());
+      if (shouldPersistEvidence(providerJob)) await deps.repo.recordProviderEvidence(batch.id, providerJob, now());
       await deps.repo.recordProviderState(batch.id, providerUpdate(providerJob), now());
-      if (isImportable(providerJob.status)) await importBatch(batch.id);
-      else if (!isTerminal(providerJob.status)) await poll(batch.id);
+      if (hasImportableEvidence(providerJob)) await importBatch(batch.id);
+      if (!isTerminal(providerJob.status)) await poll(batch.id);
     },
     async POLL_AMF_MUSIC_BATCH(payload) {
       const batch = await requireBatch(deps.repo, payload);
@@ -33,9 +33,10 @@ export function createMusicRequestHandlers(deps: { repo: MusicRequestRepository;
       let providerJob: AmfJob;
       try { providerJob = await deps.client.getJob(batch.amfJobId); }
       catch (error) { await handleProviderError(deps.repo, batch.id, error, now()); return; }
-      if (shouldPersistEvidence(providerJob.status)) await deps.repo.recordProviderEvidence(batch.id, providerJob, now());
+      if (shouldPersistEvidence(providerJob)) await deps.repo.recordProviderEvidence(batch.id, providerJob, now());
       await deps.repo.recordProviderState(batch.id, providerUpdate(providerJob), now());
-      if (isImportable(providerJob.status)) { await importBatch(batch.id); return; }
+      if (hasImportableEvidence(providerJob)) await importBatch(batch.id);
+      if (isImportable(providerJob.status)) return;
       if (!isTerminal(providerJob.status)) throw new RetryableJobError("AMF batch is still active", { incrementAttempts: false, retryAfterMs: AMF_POLL_INTERVAL_MS });
     },
   };
@@ -65,9 +66,11 @@ function mapStatus(status: AmfJobStatus): MusicBatchState {
 }
 function isTerminal(status: AmfJobStatus) { return ["completed", "completed_with_warnings", "failed", "cancelled"].includes(status); }
 function isImportable(status: AmfJobStatus) { return status === "completed" || status === "completed_with_warnings"; }
-function shouldPersistEvidence(status: AmfJobStatus) {
-  return isTerminal(status) || status === "awaiting_selection" || status === "awaiting_file_selection" || status === "download_stalled";
+function shouldPersistEvidence(job: AmfJob) {
+  return job.item_results.length > 0 || job.deliveries.length > 0 || isTerminal(job.status)
+    || job.status === "awaiting_selection" || job.status === "awaiting_file_selection" || job.status === "download_stalled";
 }
+function hasImportableEvidence(job: AmfJob) { return job.deliveries.some((delivery) => delivery.files.length > 0); }
 async function handleProviderError(repo: MusicRequestRepository, batchId: string, error: unknown, now: Date): Promise<never | void> {
   if (error instanceof AnimeMusicFetcherError && error.retryable) {
     throw new RetryableJobError(error.message, { incrementAttempts: false, retryAfterMs: AMF_POLL_INTERVAL_MS });

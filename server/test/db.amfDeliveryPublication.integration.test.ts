@@ -71,6 +71,12 @@ describe.skipIf(!adminDatabaseUrl)("AMF delivery publication (PostgreSQL + files
         VALUES ('item-ost:5','item-ost',5,$1,4096,$2,$3::jsonb)`,
         [ostPath2, secondSha, JSON.stringify({ title: "Second OST Song", artist: "Guest Singer", albumartist: "Soundtrack Cast", album: "OST" })]);
       expect((await pool.query("SELECT count(*)::int count FROM anime_music_releases WHERE animethemes_anime_id=42")).rows[0].count).toBe(0);
+      const firstOst = await repo.reserveCatalog("item-ost:3", { byteSize: bytes.length, sha256: sha });
+      await mediaStore.importLocalSongFile({ songId: firstOst.songId, sourcePath: join(libraryRoot, ...ostPath.split("/")),
+        expectedByteSize: bytes.length, expectedSha256: sha });
+      await repo.publishDelivery("item-ost:3");
+      expect((await pool.query("SELECT count(*)::int count FROM anime_music_releases WHERE animethemes_anime_id=42")).rows[0].count).toBe(1);
+      expect((await pool.query("SELECT import_state FROM anime_music_request_items WHERE id='item-ost'")).rows[0].import_state).toBe("IMPORTING");
       expect(await service.importBatch("batch-related")).toBe("COMPLETED");
       const related = await pool.query<any>(`SELECT d.song_id,d.release_id,d.import_state,a.state acquisition_state
         FROM anime_music_request_deliveries d JOIN anime_music_request_items i ON i.id=d.item_id

@@ -79,7 +79,14 @@ class MusicRequestCoordinatorTest {
         val partiallyReady = request(
             state = MusicRequestState.PROCESSING,
             pollAfterSeconds = 1,
-            counts = MusicRequestBatchCounts(processing = 1, completed = 1)
+            counts = MusicRequestBatchCounts(processing = 1, completed = 1),
+            lastUpdatedAt = "2026-07-21T20:00:01.000Z"
+        )
+        val moreFilesReadyInSameBatch = request(
+            state = MusicRequestState.PROCESSING,
+            pollAfterSeconds = 1,
+            counts = MusicRequestBatchCounts(processing = 1, completed = 1),
+            lastUpdatedAt = "2026-07-21T20:00:02.000Z"
         )
         val completed = request(
             state = MusicRequestState.COMPLETED,
@@ -87,7 +94,7 @@ class MusicRequestCoordinatorTest {
         )
         val repository = FakeMusicRequestRepository(
             latest = searching,
-            polls = ArrayDeque(listOf(partiallyReady, completed))
+            polls = ArrayDeque(listOf(partiallyReady, moreFilesReadyInSameBatch, completed))
         )
         var catalogRefreshes = 0
         val coordinator = MusicRequestCoordinator(
@@ -106,8 +113,12 @@ class MusicRequestCoordinatorTest {
         assertEquals(1, catalogRefreshes)
 
         advanceTimeBy(1_000)
-        advanceUntilIdle()
+        runCurrent()
         assertEquals(2, catalogRefreshes)
+
+        advanceTimeBy(1_000)
+        advanceUntilIdle()
+        assertEquals(3, catalogRefreshes)
         assertTrue(repository.createCalls.isEmpty())
     }
 
@@ -207,7 +218,8 @@ class MusicRequestCoordinatorTest {
     private fun request(
         state: MusicRequestState,
         pollAfterSeconds: Int? = null,
-        counts: MusicRequestBatchCounts = MusicRequestBatchCounts()
+        counts: MusicRequestBatchCounts = MusicRequestBatchCounts(),
+        lastUpdatedAt: String = "2026-07-21T20:00:00.000Z"
     ) = MusicRequest(
         id = "request-1",
         kitsuId = "123",
@@ -215,7 +227,7 @@ class MusicRequestCoordinatorTest {
         batchCount = 3,
         counts = counts,
         requiresOperatorAction = state == MusicRequestState.AWAITING_OPERATOR,
-        lastUpdatedAt = "2026-07-21T20:00:00.000Z",
+        lastUpdatedAt = lastUpdatedAt,
         pollAfterSeconds = pollAfterSeconds
     )
 }

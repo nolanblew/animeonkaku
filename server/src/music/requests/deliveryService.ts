@@ -38,13 +38,8 @@ export class AmfDeliveryImportService {
       return this.deps.repo.finishBatch(batchId, (this.deps.now ?? (() => new Date()))());
     }
     for (const item of batch.items) {
-      if (item.importState === "READY" || item.importState === "ATTENTION") continue;
+      if (item.importState === "READY") continue;
       if (item.resultStatus !== "delivered" || item.deliveries.length === 0) {
-        await this.deps.repo.markAttention(null, item.id, "AMF item does not have an unambiguous delivery.");
-        continue;
-      }
-      if ((item.kind === "OP" || item.kind === "ED") && item.deliveries.length !== 1) {
-        await this.deps.repo.markAttention(null, item.id, "Full Size theme delivery must contain exactly one file.");
         continue;
       }
       for (const delivery of item.deliveries) {
@@ -245,19 +240,19 @@ export class PgAmfDeliveryRepository implements AmfDeliveryRepository {
       const media = await client.query(`SELECT 1 FROM media_files WHERE kind='AUDIO' AND ref_id=$1 AND variant='ORIGINAL' AND state='READY'`, [`song:${row.song_id}`]);
       if (!media.rows[0]) throw new Error("AMF delivery media is not READY");
       await client.query("UPDATE anime_music_request_deliveries SET import_state='READY',import_error=NULL,updated_at=now() WHERE id=$1", [deliveryId]);
+      if ((row.kind === "OP" || row.kind === "ED") && row.theme_id !== null) {
+        await client.query(`INSERT INTO theme_full_songs (theme_id,song_id,source_release_id,confidence,evidence)
+          VALUES ($1,$2,$3,1,$4::jsonb) ON CONFLICT (theme_id) DO UPDATE SET song_id=EXCLUDED.song_id,source_release_id=EXCLUDED.source_release_id,
+          confidence=EXCLUDED.confidence,evidence=EXCLUDED.evidence,updated_at=now()`,
+          [row.theme_id, row.song_id, row.release_id, JSON.stringify({ source: "AMF", deliveryId })]);
+      } else {
+        await client.query(`INSERT INTO anime_music_releases (animethemes_anime_id,release_id,relationship_type,confidence,evidence)
+          VALUES ($1,$2,$3,1,$4::jsonb) ON CONFLICT (animethemes_anime_id,release_id) DO UPDATE SET
+          relationship_type=EXCLUDED.relationship_type,confidence=EXCLUDED.confidence,evidence=EXCLUDED.evidence,updated_at=now()`,
+          [row.animethemes_anime_id, row.release_id, relationshipType(row.kind), JSON.stringify({ source: "AMF", itemId: row.item_id })]);
+      }
       const unfinished = await client.query(`SELECT 1 FROM anime_music_request_deliveries WHERE item_id=$1 AND active=true AND import_state<>'READY' LIMIT 1`, [row.item_id]);
       if (!unfinished.rows[0]) {
-        if ((row.kind === "OP" || row.kind === "ED") && row.theme_id !== null) {
-          await client.query(`INSERT INTO theme_full_songs (theme_id,song_id,source_release_id,confidence,evidence)
-            VALUES ($1,$2,$3,1,$4::jsonb) ON CONFLICT (theme_id) DO UPDATE SET song_id=EXCLUDED.song_id,source_release_id=EXCLUDED.source_release_id,
-            confidence=EXCLUDED.confidence,evidence=EXCLUDED.evidence,updated_at=now()`,
-            [row.theme_id, row.song_id, row.release_id, JSON.stringify({ source: "AMF", deliveryId })]);
-        } else {
-          await client.query(`INSERT INTO anime_music_releases (animethemes_anime_id,release_id,relationship_type,confidence,evidence)
-            VALUES ($1,$2,$3,1,$4::jsonb) ON CONFLICT (animethemes_anime_id,release_id) DO UPDATE SET
-            relationship_type=EXCLUDED.relationship_type,confidence=EXCLUDED.confidence,evidence=EXCLUDED.evidence,updated_at=now()`,
-            [row.animethemes_anime_id, row.release_id, relationshipType(row.kind), JSON.stringify({ source: "AMF", itemId: row.item_id })]);
-        }
         await client.query("UPDATE anime_music_request_items SET import_state='READY',import_error=NULL WHERE id=$1", [row.item_id]);
         await client.query("UPDATE music_acquisitions SET state='READY',completed_at=now(),error_message=NULL,updated_at=now() WHERE id=$1", [row.acquisition_id]);
       }

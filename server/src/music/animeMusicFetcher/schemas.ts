@@ -113,7 +113,7 @@ export const amfItemMatchResultSchema = z.object({
   label: z.string(),
   kind: amfMusicKindSchema,
   number: z.number().int().nullable().optional(),
-  status: z.enum(["pending", "found", "possible", "not_found", "delivered"]),
+  status: z.enum(["pending", "found", "possible", "not_found", "delivered", "delegated"]),
   candidate_indexes: z.array(z.number().int()).default([]),
   selected_release_indexes: z.array(z.number().int()).default([]),
   matched_releases: z.array(z.string().transform(redactAmfText)).default([]),

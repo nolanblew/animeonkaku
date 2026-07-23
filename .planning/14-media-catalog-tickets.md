@@ -2734,6 +2734,37 @@ songs & albums** and play them through the catalog queue. Focused identity
 tests and debug assembly passed; the debug APK was installed on the attached
 device.
 
+### MC-R07 — Publish partial AMF completions incrementally
+
+| Field | Value |
+|---|---|
+| Status | ✅ Complete (2026-07-22) |
+| Area | AMF orchestration, catalog publication, and Android delta refresh |
+
+AMF aggregate jobs can now return `delegated` item results without making the
+whole response malformed. The server persists and imports delivered files
+while a provider job is still active, publishes each ready Full Size song or
+Related Music release immediately, and leaves only unresolved items awaiting
+operator work. Multiple valid Full Size copies no longer prevent the theme
+from receiving playable full-song media.
+
+Anime detail request polling now triggers the normal cursor-based library pull
+when a processing/attention request revision changes. This makes newly
+published theme modes and album tracks appear without a force-full sync while
+avoiding redundant pulls between unchanged status responses.
+
+The deployed recovery sweep re-read the retained Akebi and Angel Next Door AMF
+jobs rather than resubmitting them. Akebi now has a READY 34,028,327-byte
+**Baton** Full Size song plus a five-track ready related release; Angel Next
+Door has two READY Full Size songs and a 43-track ready soundtrack. Remaining
+delegated or conflicting Akebi items stay explicitly awaiting operator action.
+The live server is healthy.
+
+Server Vitest passed (450 passed, 22 environment-gated skipped), TypeScript
+typecheck passed, and the live AMF payloads parsed into 9 and 45 delivery files.
+Android debug unit tests and debug assembly passed. Device playback was not run
+because no ADB device was connected for this ticket.
+
 ## 9. Effort summary
 
 | Workstream | Tickets | Experienced effort |

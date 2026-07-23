@@ -178,6 +178,20 @@ describe("AnimeMusicFetcherClient request contract", () => {
 });
 
 describe("AnimeMusicFetcherClient job lifecycle", () => {
+  it("accepts delegated item results returned by aggregate follow-up jobs", async () => {
+    const fixture = jobFixture("completed_with_warnings");
+    fixture.item_results[0] = {
+      ...fixture.item_results[0],
+      status: "delegated",
+      follow_up_job_id: "follow-up-1",
+    } as typeof fixture.item_results[number];
+    const { client } = clientFor([{ status: 200, body: JSON.stringify(fixture) }]);
+
+    await expect(client.getJob("amf-job-1")).resolves.toMatchObject({
+      item_results: [expect.objectContaining({ status: "delegated" })],
+    });
+  });
+
   it.each([
     "queued",
     "searching",

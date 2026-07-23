@@ -107,12 +107,16 @@ class MusicRequestCoordinator(
     private suspend fun observe(initial: MusicRequest) {
         var current = initial
         var readyBatchCount = 0
+        var catalogRefreshVersion: String? = null
         while (true) {
             statusRetry = null
             _state.value = current.toUiState()
             val currentReadyBatchCount = current.counts.completed + current.counts.completedWithWarnings
-            if (currentReadyBatchCount > readyBatchCount || current.state.isTerminal) {
+            if (currentReadyBatchCount > readyBatchCount ||
+                (current.state.mayPublishCatalog && current.lastUpdatedAt != catalogRefreshVersion)
+            ) {
                 onCatalogRefreshNeeded()
+                catalogRefreshVersion = current.lastUpdatedAt
             }
             readyBatchCount = maxOf(readyBatchCount, currentReadyBatchCount)
             if (current.state.isTerminal) return
@@ -136,6 +140,9 @@ class MusicRequestCoordinator(
         data class Current(val request: MusicRequest) : StatusRetry
     }
 }
+
+private val MusicRequestState.mayPublishCatalog: Boolean
+    get() = this == MusicRequestState.PROCESSING || this == MusicRequestState.AWAITING_OPERATOR || isTerminal
 
 private fun MusicRequest.toUiState(): MusicRequestUiState = when (state) {
     MusicRequestState.QUEUED -> MusicRequestUiState.Queued(batchCount)
