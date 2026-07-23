@@ -1660,7 +1660,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     if (animeThemesIds) conditions.push(inArray(animeMusicReleases.animethemesAnimeId, animeThemesIds));
     if (releaseId !== undefined) conditions.push(eq(musicReleases.id, releaseId));
     return this.db
-      .selectDistinct({
+      .select({
         animeThemesId: animeMusicReleases.animethemesAnimeId,
         kitsuId: kitsuAnime.kitsuId,
         animeTitle: kitsuAnime.title,

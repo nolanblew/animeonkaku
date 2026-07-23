@@ -2678,6 +2678,11 @@ of dropping deliveries. The attached Pixel 7 Pro installed the new debug APK
 and opened successfully after the Room migration. Full server Vitest passed
 (446 passed, 22 environment-gated skipped) and TypeScript typecheck passed;
 the focused Android localization persistence test and debug assembly passed.
+Follow-up device verification corrected an unrelated SQL projection issue in
+the changes feed: the ready-catalog query used `SELECT DISTINCT` with an album
+order expression PostgreSQL rejects. With that removed, `/v1/changes` succeeds
+and the Pixel refreshed the existing Apothecary Diaries songs to English-first
+titles without clearing its database.
 
 ## 9. Effort summary
 
