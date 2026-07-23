@@ -8,7 +8,7 @@ import type { JobQueue } from "../../jobs/jobQueue.js";
 
 export interface DeliveryRecord {
   id: string; fileIndex: number; relativePath: string; byteSize: number | null; sha256: string | null;
-  metadata: Record<string, string | number>; importState: "PENDING" | "IMPORTING" | "READY" | "ATTENTION";
+  metadata: Record<string, unknown>; importState: "PENDING" | "IMPORTING" | "READY" | "ATTENTION";
 }
 export interface DeliveryItemRecord {
   id: string; index: number; kind: string; number: number | null; themeId: number | null;
@@ -156,28 +156,32 @@ export class PgAmfDeliveryRepository implements AmfDeliveryRepository {
         && (row.theme_id === null || Number(row.theme_anime_id) !== Number(row.animethemes_anime_id))) {
         throw new AmfDeliveryValidationError("Full Size target theme does not belong to the requested anime.");
       }
-      const metadata = row.metadata ?? {};
+      const metadata: Record<string, unknown> = row.metadata ?? {};
+      const localized = localizedMetadata(metadata);
       const requestItem = row.amf_request_body?.items?.[row.item_index] ?? {};
       const requestTitles = requestItem.song_titles ?? {};
       const animeTitles = row.amf_request_body?.titles ?? {};
-      const animeTitle = textMetadata(animeTitles.english) ?? textMetadata(animeTitles.romaji) ?? textMetadata(animeTitles.japanese) ?? "Anime";
-      const title = textMetadata(metadata.title) ?? textMetadata(requestTitles.english) ?? textMetadata(requestTitles.romaji)
+      const animeTitle = preferredTitle(localized.animeTitles) ?? textMetadata(animeTitles.english) ?? textMetadata(animeTitles.romaji) ?? textMetadata(animeTitles.japanese) ?? "Anime";
+      const title = preferredTitle(localized.songTitles) ?? textMetadata(metadata.title) ?? textMetadata(requestTitles.english) ?? textMetadata(requestTitles.romaji)
         ?? textMetadata(requestTitles.japanese) ?? textMetadata(row.theme_title) ?? `${animeTitle} ${row.kind}`;
       const requestedArtist = Array.isArray(requestItem.artists) ? requestItem.artists.find((value: unknown) => textMetadata(value)) : null;
-      const songArtist = textMetadata(metadata.artist) ?? textMetadata(metadata.albumartist) ?? textMetadata(requestedArtist) ?? animeTitle;
-      const releaseArtist = textMetadata(metadata.albumartist) ?? textMetadata(requestedArtist) ?? animeTitle;
-      const album = textMetadata(metadata.album) ?? `${animeTitle} ${row.kind === "OST" ? "Original Soundtrack" : row.kind.replaceAll("_", " ")}`;
+      const songArtist = preferredArtists(localized.artists) ?? textMetadata(metadata.artist) ?? textMetadata(metadata.albumartist) ?? textMetadata(requestedArtist) ?? animeTitle;
+      const releaseArtist = preferredArtists(localized.artists) ?? textMetadata(metadata.albumartist) ?? textMetadata(requestedArtist) ?? animeTitle;
+      const album = preferredTitle(localized.albumTitles) ?? textMetadata(metadata.album) ?? `${animeTitle} ${row.kind === "OST" ? "Original Soundtrack" : row.kind.replaceAll("_", " ")}`;
       const releaseType = row.kind === "OP" || row.kind === "ED" ? "THEME" : row.kind === "OST" ? "SOUNDTRACK" : row.kind === "CHARACTER_SONG" ? "CHARACTER" : "OTHER";
       await client.query(`INSERT INTO music_releases
-        (provider,provider_release_id,title,normalized_title,artist_credit,release_type)
-        VALUES ('AMF',$1,$2,$3,$4,$5) ON CONFLICT (provider,provider_release_id) DO UPDATE SET updated_at=now(),deleted_at=NULL RETURNING id`,
-        [`item:${row.item_id}`, album, normalizeMusicText(album), releaseArtist, releaseType]);
+        (provider,provider_release_id,title,title_english,title_romaji,title_japanese,normalized_title,artist_credit,artist_names,release_type)
+        VALUES ('AMF',$1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9) ON CONFLICT (provider,provider_release_id) DO UPDATE SET
+          title=EXCLUDED.title,title_english=COALESCE(EXCLUDED.title_english,music_releases.title_english),
+          title_romaji=COALESCE(EXCLUDED.title_romaji,music_releases.title_romaji),title_japanese=COALESCE(EXCLUDED.title_japanese,music_releases.title_japanese),
+          normalized_title=EXCLUDED.normalized_title,artist_credit=EXCLUDED.artist_credit,
+          artist_names=CASE WHEN EXCLUDED.artist_names <> '[]'::jsonb THEN EXCLUDED.artist_names ELSE music_releases.artist_names END,
+          release_type=EXCLUDED.release_type,updated_at=now(),deleted_at=NULL RETURNING id`,
+        [`item:${row.item_id}`, album, localized.albumTitles.english, localized.albumTitles.romaji, localized.albumTitles.japanese,
+          normalizeMusicText(album), releaseArtist, JSON.stringify(localized.artists), releaseType]);
       const release = await client.query<{ id: string | number; normalized_title: string; artist_credit: string; release_type: string }>(
         "SELECT id,normalized_title,artist_credit,release_type FROM music_releases WHERE provider='AMF' AND provider_release_id=$1 FOR UPDATE", [`item:${row.item_id}`]);
       const releaseRow = release.rows[0]!;
-      if (releaseRow.normalized_title !== normalizeMusicText(album) || releaseRow.artist_credit !== releaseArtist || releaseRow.release_type !== releaseType) {
-        throw new AmfDeliveryValidationError("Deterministic AMF release identity conflicts with persisted catalog metadata.");
-      }
       let songId: number;
       const shared = await client.query<{ song_id: string | number }>(`SELECT d.song_id FROM anime_music_request_deliveries d
         JOIN media_files m ON m.kind='AUDIO' AND m.ref_id=('song:' || d.song_id::text) AND m.variant='ORIGINAL' AND m.state='READY'
@@ -185,10 +189,17 @@ export class PgAmfDeliveryRepository implements AmfDeliveryRepository {
       if (shared.rows[0]) songId = Number(shared.rows[0].song_id);
       else {
         const song = await client.query<{ id: string | number }>(`INSERT INTO songs
-          (title,normalized_title,artist_credit,normalized_artist) VALUES ($1,$2,$3,$4) RETURNING id`,
-          [title, normalizeMusicText(title), songArtist, normalizeMusicText(songArtist)]);
+          (title,title_english,title_romaji,title_japanese,normalized_title,artist_credit,artist_names,normalized_artist)
+          VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8) RETURNING id`,
+          [title, localized.songTitles.english, localized.songTitles.romaji, localized.songTitles.japanese,
+            normalizeMusicText(title), songArtist, JSON.stringify(localized.artists), normalizeMusicText(songArtist)]);
         songId = Number(song.rows[0]!.id);
       }
+      await client.query(`UPDATE songs SET title=$2,title_english=COALESCE($3,title_english),title_romaji=COALESCE($4,title_romaji),
+        title_japanese=COALESCE($5,title_japanese),normalized_title=$6,artist_credit=$7,
+        artist_names=CASE WHEN $8::jsonb <> '[]'::jsonb THEN $8::jsonb ELSE artist_names END,normalized_artist=$9,updated_at=now()
+        WHERE id=$1`, [songId, title, localized.songTitles.english, localized.songTitles.romaji, localized.songTitles.japanese,
+        normalizeMusicText(title), songArtist, JSON.stringify(localized.artists), normalizeMusicText(songArtist)]);
       const sameItemContent = await client.query(`SELECT 1 FROM anime_music_request_deliveries WHERE item_id=$1 AND id<>$2 AND verified_sha256=$3 LIMIT 1`,
         [row.item_id, deliveryId, verified.sha256]);
       if (sameItemContent.rows[0]) throw new AmfDeliveryValidationError("One request item delivered the same audio bytes more than once.");
@@ -301,6 +312,45 @@ export class PgAmfDeliveryRepository implements AmfDeliveryRepository {
 
 function textMetadata(value: unknown): string | null { return typeof value === "string" && value.trim() ? value.trim() : null; }
 function numberMetadata(value: unknown): number | null { const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN; return Number.isInteger(parsed) && parsed > 0 ? parsed : null; }
+
+type LocalizedTitles = { english: string | null; romaji: string | null; japanese: string | null };
+
+function localizedMetadata(metadata: Record<string, unknown>): {
+  animeTitles: LocalizedTitles;
+  albumTitles: LocalizedTitles;
+  songTitles: LocalizedTitles;
+  artists: LocalizedTitles[];
+} {
+  const localized = objectMetadata(metadata.localized);
+  return {
+    animeTitles: localizedTitles(localized.animeTitles),
+    albumTitles: localizedTitles(localized.albumTitles),
+    songTitles: localizedTitles(localized.songTitles),
+    artists: Array.isArray(localized.artists) ? localized.artists.map(localizedTitles).filter(hasLocalizedTitle) : [],
+  };
+}
+
+function objectMetadata(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function localizedTitles(value: unknown): LocalizedTitles {
+  const object = objectMetadata(value);
+  return { english: textMetadata(object.english), romaji: textMetadata(object.romaji), japanese: textMetadata(object.japanese) };
+}
+
+function hasLocalizedTitle(value: LocalizedTitles): boolean {
+  return value.english !== null || value.romaji !== null || value.japanese !== null;
+}
+
+function preferredTitle(value: LocalizedTitles): string | null {
+  return value.english ?? value.romaji ?? value.japanese;
+}
+
+function preferredArtists(artists: LocalizedTitles[]): string | null {
+  const values = artists.map(preferredTitle).filter((value): value is string => value !== null);
+  return values.length > 0 ? values.join(", ") : null;
+}
 
 /** A provider delivery index reflects completion order, not album order. */
 export function releaseTrackDisplayOrder(discNumber: number, trackNumber: number | null, fileIndex: number): number {

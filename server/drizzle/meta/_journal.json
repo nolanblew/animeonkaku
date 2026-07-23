@@ -99,6 +99,13 @@
       "when": 1784682000000,
       "tag": "0013_release_track_album_order",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1784768400000,
+      "tag": "0014_amf_localized_catalog_metadata",
+      "breakpoints": true
     }
   ]
 }

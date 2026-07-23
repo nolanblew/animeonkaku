@@ -10,7 +10,11 @@ export type AudioState = "READY" | "PENDING" | "FAILED" | "MISSING";
 export interface MusicTrackDto {
   id: number;
   title: string;
+  titleEnglish: string | null;
+  titleRomaji: string | null;
+  titleJapanese: string | null;
   artistCredit: string;
+  artistNames: Array<{ english?: string | null; romaji?: string | null; japanese?: string | null }>;
   durationSeconds: number | null;
   audioUrl: string;
   fileSize: number | null;
@@ -22,7 +26,11 @@ export interface MusicTrackDto {
 export interface MusicReleaseDto {
   id: number;
   title: string;
+  titleEnglish: string | null;
+  titleRomaji: string | null;
+  titleJapanese: string | null;
   artistCredit: string;
+  artistNames: Array<{ english?: string | null; romaji?: string | null; japanese?: string | null }>;
   relationshipType: string;
   releaseDate: string | null;
   year: number | null;

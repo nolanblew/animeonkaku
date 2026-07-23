@@ -31,6 +31,15 @@ export const amfSelectionModeSchema = z.enum(["automatic", "review"]);
 
 const nullableTitleSchema = z.string().min(1).max(300).nullable().optional();
 
+// AMF 0.2 returns these three keys even when a particular localization is not
+// known. Keep the shape intact so an import can retain every value for a later
+// language preference instead of baking a file tag into the catalog forever.
+export const amfResponseTitlesSchema = z.object({
+  english: nullableTitleSchema,
+  japanese: nullableTitleSchema,
+  romaji: nullableTitleSchema,
+}).strict();
+
 export const amfAnimeTitlesSchema = z.object({
   english: nullableTitleSchema,
   japanese: nullableTitleSchema,
@@ -56,7 +65,9 @@ export const amfArtifactRequestSchema = z.object({
   version: amfMusicVersionSchema.optional(),
   release_preference: amfReleasePreferenceSchema.optional(),
   song_titles: amfSongTitlesSchema.nullable().optional(),
+  album_titles: amfSongTitlesSchema.nullable().optional(),
   artists: z.array(z.string()).max(20).optional(),
+  artist_names: z.array(amfResponseTitlesSchema).max(20).optional(),
   search_terms: z.array(z.string()).max(10).optional(),
 }).strict();
 
@@ -145,6 +156,31 @@ const amfSafeMetadataSchema = z.record(z.string(), z.unknown()).transform((metad
   return safe;
 });
 
+const amfMediaSongSchema = z.object({
+  file_index: z.number().int().nonnegative(),
+  requested_item_indexes: z.array(z.number().int()).default([]),
+  labels: z.array(z.string()).default([]),
+  titles: amfResponseTitlesSchema,
+  artists: z.array(amfResponseTitlesSchema).default([]),
+  relative_path: z.string().min(1).refine(isSafeAmfRelativePath, "unsafe relative delivery path"),
+  absolute_path: z.string().min(1),
+  media_url: z.string().min(1).refine(isSafeAmfApiReference, "unsafe media URL"),
+  download_url: z.string().min(1).refine(isSafeAmfApiReference, "unsafe download URL"),
+  size: z.number().int().nonnegative().nullable().optional(),
+  sha256: z.string().min(1).nullable().optional(),
+  metadata: amfSafeMetadataSchema.default({}),
+}).strict();
+
+const amfJobMediaSchema = z.object({
+  anime: z.object({
+    titles: amfResponseTitlesSchema,
+    albums: z.array(z.object({
+      titles: amfResponseTitlesSchema,
+      songs: z.array(amfMediaSongSchema).default([]),
+    }).strict()).default([]),
+  }).strict(),
+}).strict();
+
 export function redactAmfText(value: string): string {
   return value
     .replace(/(?:https?|magnet):\S+/gi, "[redacted]")
@@ -217,7 +253,8 @@ const amfRawJobSchema = z.object({
   selected_releases: nullableUnknownObjectArray,
   downloads: nullableUnknownObjectArray,
   last_progress: z.number().nullable(),
-  output_manifest: nullableUnknownObjectArray,
+  output_manifest: nullableUnknownObjectArray.optional().default(null),
+  media: amfJobMediaSchema.nullable().optional(),
   source_files: z.array(amfSourceFileSchema).default([]),
   deliveries: z.array(amfJobDeliverySchema).default([]),
   item_results: z.array(amfItemMatchResultSchema).default([]),
@@ -235,7 +272,7 @@ export const amfJobSchema = amfRawJobSchema.transform((value) => ({
   destination: value.destination,
   last_progress: value.last_progress,
   source_files: value.source_files,
-  deliveries: value.deliveries,
+  deliveries: value.media ? mergeMediaDeliveries(value.media, value.item_results, value.deliveries) : value.deliveries,
   item_results: value.item_results,
   warnings: value.warnings,
   error_stage: value.error_stage == null ? null : redactAmfText(value.error_stage),
@@ -244,6 +281,76 @@ export const amfJobSchema = amfRawJobSchema.transform((value) => ({
   updated_at: value.updated_at,
   completed_at: value.completed_at,
 }));
+
+function mediaDeliveries(
+  media: z.infer<typeof amfJobMediaSchema>,
+  itemResults: z.infer<typeof amfItemMatchResultSchema>[],
+) {
+  const items = new Map(itemResults.map((item) => [item.requested_item_index, item]));
+  const deliveries = new Map<number, {
+    requested_item_index: number;
+    label: string;
+    kind: z.infer<typeof amfMusicKindSchema>;
+    number: number | null;
+    files: Array<{
+      file_index: number;
+      relative_path: string;
+      size: number | null;
+      sha256: string | null;
+      metadata: Record<string, unknown>;
+    }>;
+  }>();
+  for (const album of media.anime.albums) {
+    for (const song of album.songs) {
+      for (const itemIndex of song.requested_item_indexes) {
+        const item = items.get(itemIndex);
+        if (!item) continue;
+        let delivery = deliveries.get(itemIndex);
+        if (!delivery) {
+          delivery = { requested_item_index: itemIndex, label: redactAmfText(item.label), kind: item.kind,
+            number: item.number ?? null, files: [] };
+          deliveries.set(itemIndex, delivery);
+        }
+        delivery.files.push({
+          file_index: song.file_index,
+          relative_path: song.relative_path,
+          size: song.size ?? null,
+          sha256: song.sha256 ?? null,
+          metadata: {
+            ...song.metadata,
+            localized: {
+              animeTitles: media.anime.titles,
+              albumTitles: album.titles,
+              songTitles: song.titles,
+              artists: song.artists,
+            },
+          },
+        });
+      }
+    }
+  }
+  return [...deliveries.values()];
+}
+
+function mergeMediaDeliveries(
+  media: z.infer<typeof amfJobMediaSchema>,
+  itemResults: z.infer<typeof amfItemMatchResultSchema>[],
+  legacyDeliveries: z.output<typeof amfJobDeliverySchema>[],
+) {
+  const associated = mediaDeliveries(media, itemResults);
+  if (associated.length > 0) return associated;
+  const localizedByFile = new Map<string, Record<string, unknown>>();
+  for (const album of media.anime.albums) for (const song of album.songs) {
+    localizedByFile.set(`${song.file_index}:${song.relative_path}`, {
+      ...song.metadata,
+      localized: { animeTitles: media.anime.titles, albumTitles: album.titles, songTitles: song.titles, artists: song.artists },
+    });
+  }
+  return legacyDeliveries.map((delivery) => ({ ...delivery, files: delivery.files.map((file) => ({
+    ...file,
+    metadata: localizedByFile.get(`${file.file_index}:${file.relative_path}`) ?? file.metadata,
+  })) }));
+}
 
 export type AmfJobStatus = z.infer<typeof amfJobStatusSchema>;
 export type AmfJobCreate = z.input<typeof amfJobCreateSchema>;

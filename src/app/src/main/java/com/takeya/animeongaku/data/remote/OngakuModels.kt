@@ -358,7 +358,11 @@ data class OngakuAnimeMusicDto(
 data class OngakuMusicReleaseDto(
     val id: Long,
     val title: String,
+    val titleEnglish: String? = null,
+    val titleRomaji: String? = null,
+    val titleJapanese: String? = null,
     val artistCredit: String,
+    val artistNames: List<OngakuLocalizedNameDto> = emptyList(),
     val relationshipType: String,
     val releaseDate: String? = null,
     val year: Int? = null,
@@ -370,11 +374,21 @@ data class OngakuMusicReleaseDto(
 data class OngakuMusicTrackDto(
     val id: Long,
     val title: String,
+    val titleEnglish: String? = null,
+    val titleRomaji: String? = null,
+    val titleJapanese: String? = null,
     val artistCredit: String,
+    val artistNames: List<OngakuLocalizedNameDto> = emptyList(),
     val durationSeconds: Int? = null,
     val audioUrl: String,
     val fileSize: Long? = null,
     val discNumber: Int = 1,
     val trackNumber: Int? = null,
     val displayOrder: Int = 0
+)
+
+data class OngakuLocalizedNameDto(
+    val english: String? = null,
+    val romaji: String? = null,
+    val japanese: String? = null
 )

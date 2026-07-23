@@ -15,6 +15,7 @@ import com.takeya.animeongaku.data.remote.OngakuMusicAnimeSummaryDto
 import com.takeya.animeongaku.data.remote.OngakuMusicApi
 import com.takeya.animeongaku.data.remote.OngakuMusicReleaseDto
 import com.takeya.animeongaku.data.remote.OngakuMusicTrackDto
+import com.takeya.animeongaku.data.remote.OngakuLocalizedNameDto
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -133,8 +134,14 @@ class MusicCatalogRepository @Inject constructor(
 
 private fun MusicReleaseWithRelationship.toDomain(owner: MusicOwner) = RelatedRelease(release, relationshipType, owner)
 private fun OngakuMusicAnimeSummaryDto.toOwner() = MusicOwner(kitsuId, titleEn ?: title, posterUrl)
-private fun OngakuMusicReleaseDto.toEntity() = MusicReleaseEntity(id, title, artistCredit, releaseDate, year, artworkUrl)
-private fun OngakuMusicTrackDto.toEntity() = SongEntity(id, title, artistCredit, durationSeconds, audioUrl, fileSize)
+internal fun OngakuMusicReleaseDto.toEntity() = MusicReleaseEntity(id, title, artistCredit, releaseDate, year, artworkUrl,
+    titleEnglish, titleRomaji, titleJapanese, localizedArtistJson(artistNames))
+internal fun OngakuMusicTrackDto.toEntity() = SongEntity(id, title, artistCredit, durationSeconds, audioUrl, fileSize,
+    titleEnglish, titleRomaji, titleJapanese, localizedArtistJson(artistNames))
+private fun localizedArtistJson(artists: List<OngakuLocalizedNameDto>): String = artists.joinToString(prefix = "[", postfix = "]") { artist ->
+    "{\"english\":${jsonString(artist.english)},\"romaji\":${jsonString(artist.romaji)},\"japanese\":${jsonString(artist.japanese)}}"
+}
+private fun jsonString(value: String?): String = value?.let { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}" } ?: "null"
 private fun OngakuMusicTrackDto.toTrackEntity(releaseId: Long) = ReleaseTrackEntity(releaseId, id, discNumber, trackNumber, displayOrder)
 private fun OngakuMusicReleaseDto.toDomain(owner: MusicOwner, relationship: String = relationshipType): RelatedRelease {
     val entity = toEntity()

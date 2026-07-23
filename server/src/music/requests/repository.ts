@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 import { amfJobCreateSchema } from "../animeMusicFetcher/schemas.js";
 import type { AmfJob } from "../animeMusicFetcher/schemas.js";
+import { normalizeMusicText } from "../matching/normalize.js";
 import type { MusicRequestRepository, NewMusicRequest, StoredMusicBatch, StoredMusicRequest, MusicBatchState } from "./types.js";
 
 const TERMINAL = new Set<MusicBatchState>(["COMPLETED", "COMPLETED_WITH_WARNINGS", "FAILED", "CANCELLED"]);
@@ -76,6 +77,63 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
     const result = await this.pool.query("SELECT * FROM anime_music_request_batches WHERE completed_at IS NULL ORDER BY created_at,batch_index");
     return result.rows.map(mapBatch);
   }
+
+  async listLocalizedCatalogBackfillTargets(): Promise<Array<{ batchId: string; amfJobId: string }>> {
+    const result = await this.pool.query<{ batch_id: string; amf_job_id: string }>(`SELECT DISTINCT b.id batch_id,b.amf_job_id
+      FROM anime_music_request_batches b
+      JOIN anime_music_request_items i ON i.batch_id=b.id
+      JOIN anime_music_request_deliveries d ON d.item_id=i.id
+      WHERE b.amf_job_id IS NOT NULL AND (d.song_id IS NOT NULL OR d.release_id IS NOT NULL)
+        AND d.metadata->'localized' IS NULL
+      ORDER BY b.id`);
+    return result.rows.map((row) => ({ batchId: row.batch_id, amfJobId: row.amf_job_id }));
+  }
+
+  /** Applies only values AMF returned for an already matched delivery. */
+  async backfillLocalizedCatalog(): Promise<number> {
+    const result = await this.pool.query<{ song_id: string | number | null; release_id: string | number | null; kitsu_id: string; metadata: unknown }>(`
+      SELECT d.song_id,d.release_id,r.kitsu_id,d.metadata
+      FROM anime_music_request_deliveries d
+      JOIN anime_music_request_items i ON i.id=d.item_id
+      JOIN anime_music_request_batches b ON b.id=i.batch_id
+      JOIN anime_music_requests r ON r.id=b.request_id
+      WHERE d.active=true AND d.metadata->'localized' IS NOT NULL`);
+    const songs = new Map<number, LocalizedCatalogValues>();
+    const releases = new Map<number, LocalizedCatalogValues>();
+    const anime = new Map<string, LocalizedTitles>();
+    for (const row of result.rows) {
+      const values = localizedCatalogValues(row.metadata);
+      if (row.song_id !== null && values.songTitle) songs.set(Number(row.song_id), values);
+      if (row.release_id !== null && values.albumTitle) releases.set(Number(row.release_id), values);
+      if (values.animeTitle) anime.set(row.kitsu_id, values.animeTitle);
+    }
+    let changed = 0;
+    for (const [id, value] of songs) {
+      const title = preferred(value.songTitle!);
+      if (!title) continue;
+      await this.pool.query(`UPDATE songs SET title=$2,title_english=COALESCE($3,title_english),title_romaji=COALESCE($4,title_romaji),
+        title_japanese=COALESCE($5,title_japanese),normalized_title=$6,artist_credit=COALESCE($7,artist_credit),
+        artist_names=CASE WHEN $8::jsonb <> '[]'::jsonb THEN $8::jsonb ELSE artist_names END,normalized_artist=CASE WHEN $7 IS NULL THEN normalized_artist ELSE lower($7) END,updated_at=now() WHERE id=$1`,
+      [id, title, value.songTitle!.english, value.songTitle!.romaji, value.songTitle!.japanese, normalizeMusicText(title),
+        preferredArtists(value.artists), JSON.stringify(value.artists)]);
+      changed += 1;
+    }
+    for (const [id, value] of releases) {
+      const title = preferred(value.albumTitle!);
+      if (!title) continue;
+      await this.pool.query(`UPDATE music_releases SET title=$2,title_english=COALESCE($3,title_english),title_romaji=COALESCE($4,title_romaji),
+        title_japanese=COALESCE($5,title_japanese),normalized_title=$6,artist_credit=COALESCE($7,artist_credit),
+        artist_names=CASE WHEN $8::jsonb <> '[]'::jsonb THEN $8::jsonb ELSE artist_names END,updated_at=now() WHERE id=$1`,
+      [id, title, value.albumTitle!.english, value.albumTitle!.romaji, value.albumTitle!.japanese, normalizeMusicText(title),
+        preferredArtists(value.artists), JSON.stringify(value.artists)]);
+      changed += 1;
+    }
+    for (const [kitsuId, titles] of anime) {
+      await this.pool.query(`UPDATE kitsu_anime SET title_en=COALESCE(title_en,$2),title_romaji=COALESCE(title_romaji,$3),
+        title_ja=COALESCE(title_ja,$4),updated_at=now() WHERE kitsu_id=$1`, [kitsuId, titles.english, titles.romaji, titles.japanese]);
+    }
+    return changed;
+  }
   async recordProviderState(batchId: string, input: { state: MusicBatchState; amfJobId?: string; warningCount?: number; lastError?: string | null; providerStatus?: AmfJob["status"] }, now: Date): Promise<void> {
     const terminal = TERMINAL.has(input.state);
     await this.pool.query(`UPDATE anime_music_request_batches SET state=$2,
@@ -125,7 +183,7 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
           await client.query(`INSERT INTO anime_music_request_deliveries
             (id,item_id,file_index,relative_path,byte_size,sha256,metadata)
             VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
-            ON CONFLICT (item_id,file_index) DO NOTHING`,
+            ON CONFLICT (item_id,file_index) DO UPDATE SET metadata=EXCLUDED.metadata,updated_at=now()`,
             [deliveryId, itemId, file.file_index, file.relative_path, file.size, file.sha256?.toLowerCase() ?? null, JSON.stringify(file.metadata)]);
           const existing = await client.query<{ relative_path: string; byte_size: string | number | null; sha256: string | null }>(
             "SELECT relative_path,byte_size,sha256 FROM anime_music_request_deliveries WHERE item_id=$1 AND file_index=$2", [itemId, file.file_index]);
@@ -189,4 +247,26 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
 function mapBatch(row: any): StoredMusicBatch {
   return { id: row.id, requestId: row.request_id, index: row.batch_index, state: row.state, body: amfJobCreateSchema.parse(row.amf_request_body), idempotencyKey: row.idempotency_key, amfJobId: row.amf_job_id, warningCount: row.warning_count,
     providerStatus: row.manifest_evidence?.status ?? null };
+}
+
+type LocalizedTitles = { english: string | null; romaji: string | null; japanese: string | null };
+type LocalizedCatalogValues = { animeTitle: LocalizedTitles | null; albumTitle: LocalizedTitles | null; songTitle: LocalizedTitles | null; artists: LocalizedTitles[] };
+
+function localizedCatalogValues(value: unknown): LocalizedCatalogValues {
+  const metadata = objectValue(value);
+  const localized = objectValue(metadata.localized);
+  return { animeTitle: titleValue(localized.animeTitles), albumTitle: titleValue(localized.albumTitles), songTitle: titleValue(localized.songTitles),
+    artists: Array.isArray(localized.artists) ? localized.artists.map(titleValue).filter((artist): artist is LocalizedTitles => artist !== null) : [] };
+}
+function objectValue(value: unknown): Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
+function titleValue(value: unknown): LocalizedTitles | null {
+  const item = objectValue(value);
+  const titles = { english: textValue(item.english), romaji: textValue(item.romaji), japanese: textValue(item.japanese) };
+  return titles.english ?? titles.romaji ?? titles.japanese ? titles : null;
+}
+function textValue(value: unknown): string | null { return typeof value === "string" && value.trim() ? value.trim() : null; }
+function preferred(titles: LocalizedTitles): string | null { return titles.english ?? titles.romaji ?? titles.japanese; }
+function preferredArtists(artists: LocalizedTitles[]): string | null {
+  const values = artists.map(preferred).filter((value): value is string => value !== null);
+  return values.length > 0 ? values.join(", ") : null;
 }

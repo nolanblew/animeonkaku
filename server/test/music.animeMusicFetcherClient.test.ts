@@ -310,6 +310,76 @@ describe("AnimeMusicFetcherClient job lifecycle", () => {
     expect(JSON.stringify(job.deliveries)).not.toContain("/library/");
   });
 
+  it("projects AMF 0.2 localized media into safe delivery metadata with English display first", async () => {
+    const fixture = {
+      ...jobFixture("completed"),
+      output_manifest: undefined,
+      deliveries: undefined,
+      media: {
+        anime: {
+          titles: { english: "The Apothecary Diaries", romaji: "Kusuriya no Hitorigoto", japanese: "薬屋のひとりごと" },
+          albums: [{
+            titles: { english: "Season 2 Original Soundtrack", romaji: "Kusuriya no Hitorigoto 2 OST", japanese: "薬屋のひとりごと 第2期 OST" },
+            songs: [{
+              file_index: 7,
+              requested_item_indexes: [0],
+              labels: ["OP1"],
+              titles: { english: "Hyakka Ryouran", romaji: "Hyakka Ryouran", japanese: "百花繚乱" },
+              artists: [{ english: "Lilas Ikuta", romaji: "Ikuta Lilas", japanese: "幾田りら" }],
+              relative_path: "anime-ongaku-staging/request/07.flac",
+              absolute_path: "/library/anime-ongaku-staging/request/07.flac",
+              media_url: "/api/v1/jobs/amf-job-1/files/7",
+              download_url: "/api/v1/jobs/amf-job-1/files/7?download=true",
+              size: 1234,
+              sha256: "b".repeat(64),
+              metadata: { track: 1, source_url: "https://private.invalid/source" },
+            }],
+          }],
+        },
+      },
+      item_results: [{
+        requested_item_index: 0,
+        label: "OP1",
+        kind: "OP",
+        number: 1,
+        status: "delivered",
+        candidate_indexes: [], selected_release_indexes: [], matched_releases: [], delivered_files: [], file_count: 1,
+      }],
+    };
+    const { client } = clientFor([{ status: 200, body: JSON.stringify(fixture) }]);
+
+    const job = await client.getJob("amf-job-1");
+
+    expect(job.deliveries).toHaveLength(1);
+    expect(job.deliveries[0]?.files[0]?.metadata).toEqual({
+      track: 1,
+      localized: {
+        animeTitles: { english: "The Apothecary Diaries", romaji: "Kusuriya no Hitorigoto", japanese: "薬屋のひとりごと" },
+        albumTitles: { english: "Season 2 Original Soundtrack", romaji: "Kusuriya no Hitorigoto 2 OST", japanese: "薬屋のひとりごと 第2期 OST" },
+        songTitles: { english: "Hyakka Ryouran", romaji: "Hyakka Ryouran", japanese: "百花繚乱" },
+        artists: [{ english: "Lilas Ikuta", romaji: "Ikuta Lilas", japanese: "幾田りら" }],
+      },
+    });
+    expect(JSON.stringify(job)).not.toContain("private.invalid");
+    expect(JSON.stringify(job)).not.toContain("/library/");
+  });
+
+  it("keeps legacy item association when valid AMF media omits requested item indexes", async () => {
+    const file = {
+      file_index: 2, relative_path: "anime-ongaku-staging/request/02.flac", absolute_path: "/library/anime-ongaku-staging/request/02.flac",
+      media_url: "/api/v1/jobs/amf-job-1/files/2", download_url: "/api/v1/jobs/amf-job-1/files/2?download=true",
+    };
+    const fixture = { ...jobFixture("completed"), deliveries: [{ requested_item_index: 0, label: "OP1", kind: "OP", number: 1, files: [file] }],
+      media: { anime: { titles: { english: "English Anime", romaji: null, japanese: null }, albums: [{
+        titles: { english: "English Album", romaji: null, japanese: null }, songs: [{ ...file,
+          titles: { english: "English Song", romaji: null, japanese: null }, artists: [], labels: [], metadata: {} }],
+      }] } } };
+    const { client } = clientFor([{ status: 200, body: JSON.stringify(fixture) }]);
+    const job = await client.getJob("amf-job-1");
+    expect(job.deliveries[0]?.requested_item_index).toBe(0);
+    expect(job.deliveries[0]?.files[0]?.metadata).toMatchObject({ localized: { songTitles: { english: "English Song" } } });
+  });
+
   it("defaults response collections and nullable warnings without inventing delivery evidence", async () => {
     const fixture = jobFixture();
     const { source_files: _sourceFiles, deliveries: _deliveries, item_results: _itemResults, ...withoutCollections } = fixture;

@@ -2643,6 +2643,42 @@ typecheck passed. Android debug unit tests and debug assembly passed. The
 deployed migration and Pixel device refresh confirmed *The Apothecary Diaries
 Season 2* soundtrack displays in album-track order.
 
+### MC-R04 — Preserve localized AMF catalog metadata
+
+| Field | Value |
+|---|---|
+| Status | ✅ Complete (2026-07-22) |
+| Area | AMF contract, server catalog, API, and historical imports |
+| Difficulty | Medium |
+| Depends on | MC-R03 |
+
+#### Scope
+
+- Accept AMF v0.2's `media.anime.albums[].songs[]` response hierarchy rather
+  than falling back to embedded audio tags.
+- Store English, romanized, and Japanese album/song titles and localized artist
+  arrays, while displaying English → romanized → Japanese.
+- Backfill already-imported files only from their retained AMF job results.
+
+#### Completion and testing notes
+
+Completed on 2026-07-22. The AMF adapter now flattens the v0.2 media response
+into validated delivery evidence, preserving all three localized title values
+and artist arrays without retaining AMF absolute paths or URLs. Catalog display
+uses English, then romanized, then Japanese; the new fields are also exposed by
+the server API for a future client language picker.
+
+Migration 0014 and Android Room migration 23→24 added localized song/release columns. On deployment the server
+re-fetched only retained AMF jobs whose imported deliveries lacked localized
+evidence, matched them by AMF file index and persisted path, and updated 36
+existing catalog songs without inferring translations from filenames. The LAN
+API and database were healthy after rebuild. A valid v0.2 response that omits
+the optional item-index list falls back to its legacy file association instead
+of dropping deliveries. The attached Pixel 7 Pro installed the new debug APK
+and opened successfully after the Room migration. Full server Vitest passed
+(446 passed, 22 environment-gated skipped) and TypeScript typecheck passed;
+the focused Android localization persistence test and debug assembly passed.
+
 ## 9. Effort summary
 
 | Workstream | Tickets | Experienced effort |

@@ -32,7 +32,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DownloadItemEntity::class,
         DownloadGroupItemEntity::class
     ],
-    version = 23,
+    version = 24,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -411,6 +411,17 @@ abstract class AppDatabase : RoomDatabase() {
                         INNER JOIN `download_request` dr ON dr.`themeId` = dgt.`themeId`
                         WHERE dr.`status` = 'completed'"""
                 )
+            }
+        }
+
+        val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                for (table in arrayOf("songs", "music_releases")) {
+                    db.execSQL("ALTER TABLE `$table` ADD COLUMN `titleEnglish` TEXT")
+                    db.execSQL("ALTER TABLE `$table` ADD COLUMN `titleRomaji` TEXT")
+                    db.execSQL("ALTER TABLE `$table` ADD COLUMN `titleJapanese` TEXT")
+                    db.execSQL("ALTER TABLE `$table` ADD COLUMN `artistNamesJson` TEXT NOT NULL DEFAULT '[]'")
+                }
             }
         }
     }

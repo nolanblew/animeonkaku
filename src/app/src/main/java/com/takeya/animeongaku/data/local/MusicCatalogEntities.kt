@@ -11,7 +11,11 @@ data class SongEntity(
     val artistCredit: String,
     val durationSeconds: Int? = null,
     val audioUrl: String,
-    val fileSize: Long? = null
+    val fileSize: Long? = null,
+    val titleEnglish: String? = null,
+    val titleRomaji: String? = null,
+    val titleJapanese: String? = null,
+    val artistNamesJson: String = "[]"
 )
 @Entity(tableName = "music_releases")
 data class MusicReleaseEntity(
@@ -20,7 +24,11 @@ data class MusicReleaseEntity(
     val artistCredit: String,
     val releaseDate: String? = null,
     val year: Int? = null,
-    val artworkUrl: String? = null
+    val artworkUrl: String? = null,
+    val titleEnglish: String? = null,
+    val titleRomaji: String? = null,
+    val titleJapanese: String? = null,
+    val artistNamesJson: String = "[]"
 )
 
 @Entity(

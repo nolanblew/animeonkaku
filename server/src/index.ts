@@ -72,6 +72,19 @@ const musicRequestHandlers = createMusicRequestHandlers({ repo: musicRequestRepo
 const amfDeliveryRepo = new PgAmfDeliveryRepository(pool);
 const syncRepo = new DrizzleSyncRepository(db);
 
+// AMF v0.2 retained localized job media for the jobs we imported before this
+// adapter understood it. Refresh only those catalog-backed deliveries, then
+// apply the exact returned values; an expired AMF job is merely skipped.
+for (const target of await musicRequestRepo.listLocalizedCatalogBackfillTargets()) {
+  try {
+    await musicRequestRepo.recordProviderEvidence(target.batchId, await amfClient.getJob(target.amfJobId), new Date());
+  } catch {
+    externalLogger.warn({ batchId: target.batchId }, "AMF localized metadata backfill job was unavailable");
+  }
+}
+const localizedCatalogRows = await musicRequestRepo.backfillLocalizedCatalog();
+if (localizedCatalogRows > 0) externalLogger.info({ localizedCatalogRows }, "backfilled AMF localized catalog metadata");
+
 // Each upstream host shares one politeness budget (bucket) and one breaker
 // across two lanes: "interactive" for request/response paths a client is
 // waiting on, "background" for job-queue work. Background requests yield the
