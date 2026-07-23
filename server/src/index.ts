@@ -68,6 +68,7 @@ await mkdir(join(config.MEDIA_ROOT, "images", "artists"), { recursive: true });
 const jobQueue = new JobQueue(new PgJobRepository(pool));
 const musicRequestRepo = new PgMusicRequestRepository(pool);
 const musicRequestService = new MusicRequestService({ repo: musicRequestRepo, queue: jobQueue });
+const MUSIC_REQUEST_RECHECK_INTERVAL_MS = 15 * 60 * 1000;
 const musicRequestHandlers = createMusicRequestHandlers({ repo: musicRequestRepo, queue: jobQueue, client: amfClient });
 const amfDeliveryRepo = new PgAmfDeliveryRepository(pool);
 const syncRepo = new DrizzleSyncRepository(db);
@@ -205,6 +206,17 @@ const fetchHandlers = createFetchMediaHandlers({
 });
 await jobQueue.recoverRunningJobs();
 await musicRequestService.recover();
+const recheckIncompleteMusicRequests = async () => {
+  try {
+    const rechecked = await musicRequestService.recheckIncomplete();
+    if (rechecked > 0) externalLogger.info({ rechecked }, "re-enqueued incomplete AMF music batches for periodic status check");
+  } catch (error) {
+    externalLogger.warn({ err: error }, "unable to recheck incomplete AMF music batches");
+  }
+};
+await recheckIncompleteMusicRequests();
+const incompleteMusicRequestTimer = setInterval(() => void recheckIncompleteMusicRequests(), MUSIC_REQUEST_RECHECK_INTERVAL_MS);
+incompleteMusicRequestTimer.unref();
 for (const batchId of await amfDeliveryRepo.listRecoverableBatchIds()) {
   await jobQueue.enqueue({ type: "IMPORT_AMF_MUSIC_BATCH", priority: JobPriority.NORMAL, payload: { batchId },
     dedupeKey: `IMPORT_AMF_MUSIC_BATCH:${batchId}`, maxAttempts: 8 });
@@ -293,6 +305,7 @@ const app = buildApp({
 
 async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, "shutting down");
+  clearInterval(incompleteMusicRequestTimer);
   syncScheduler.stop();
   worker.stop();
   interactiveWorker.stop();

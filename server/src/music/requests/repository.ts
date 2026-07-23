@@ -78,6 +78,14 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
     return result.rows.map(mapBatch);
   }
 
+  async listRecheckableBatches(): Promise<StoredMusicBatch[]> {
+    const result = await this.pool.query(`SELECT * FROM anime_music_request_batches
+      WHERE amf_job_id IS NOT NULL
+        AND state IN ('AWAITING_OPERATOR', 'FAILED', 'PROCESSING', 'COMPLETED_WITH_WARNINGS')
+      ORDER BY updated_at,created_at,batch_index`);
+    return result.rows.map(mapBatch);
+  }
+
   async listLocalizedCatalogBackfillTargets(): Promise<Array<{ batchId: string; amfJobId: string }>> {
     const result = await this.pool.query<{ batch_id: string; amf_job_id: string }>(`SELECT DISTINCT b.id batch_id,b.amf_job_id
       FROM anime_music_request_batches b

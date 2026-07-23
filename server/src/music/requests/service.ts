@@ -49,6 +49,17 @@ export class MusicRequestService {
     return batches.length;
   }
 
+  /**
+   * AMF can wait for a human to choose source files for an unbounded time. A
+   * low-frequency sweep observes those jobs again without keeping a hot poll
+   * running while the operator is deciding.
+   */
+  async recheckIncomplete(): Promise<number> {
+    const batches = await this.deps.repo.listRecheckableBatches();
+    await Promise.all(batches.map((batch) => this.enqueueBatch(batch.id, true)));
+    return batches.length;
+  }
+
   private async enqueueBatch(batchId: string, polling: boolean) {
     await this.deps.queue.enqueue({
       type: polling ? "POLL_AMF_MUSIC_BATCH" : "SUBMIT_AMF_MUSIC_BATCH",

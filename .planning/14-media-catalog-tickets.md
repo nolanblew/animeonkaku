@@ -2684,6 +2684,41 @@ order expression PostgreSQL rejects. With that removed, `/v1/changes` succeeds
 and the Pixel refreshed the existing Apothecary Diaries songs to English-first
 titles without clearing its database.
 
+### MC-R05 — Recheck incomplete AMF jobs
+
+| Field | Value |
+|---|---|
+| Status | ✅ Complete (2026-07-22) |
+| Area | AMF request orchestration |
+| Difficulty | Low |
+| Depends on | MC-R04 |
+
+#### Scope
+
+- Re-poll AMF jobs that await manual file selection, failed, or completed with
+  warnings at a deliberately low frequency, so human intervention can take an
+  indefinite amount of time without making the catalog forget the job.
+- Reset the Akebi's Sailor Uniform debug acquisition record and imported catalog
+  entries without deleting the original media files, allowing a clean re-trigger.
+
+#### Completion and testing notes
+
+Completed on 2026-07-22. The server now performs an immediate recovery check at
+startup and a low-frequency 15-minute recheck of AMF jobs with a provider job
+ID that are awaiting manual selection, failed, processing, or completed with
+warnings. Each sweep enqueues one normal AMF status poll and does not keep a
+hot polling loop alive while a human is selecting files. The deployed service
+was healthy and logged two eligible batches during its first recheck.
+
+The scoped Akebi's Sailor Uniform reset removed its one request, one batch,
+three queue records, five imported catalog tracks, and five server cache copies.
+Its nine original AMF-library files under the separate mounted source directory
+were verified before and after the reset and remain untouched. The anime detail
+is ready for a new debug request. Server Vitest passed (448 passed, 22
+environment-gated skipped) and TypeScript typecheck passed; the request
+repository integration assertion runs when its PostgreSQL test database is
+configured.
+
 ## 9. Effort summary
 
 | Workstream | Tickets | Experienced effort |

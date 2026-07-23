@@ -15,6 +15,7 @@ export interface MusicRequestRepository {
   findLatest(animeThemesAnimeId: number): Promise<StoredMusicRequest | null>;
   findBatch(id: string): Promise<StoredMusicBatch | null>;
   listRecoverableBatches(): Promise<StoredMusicBatch[]>;
+  listRecheckableBatches(): Promise<StoredMusicBatch[]>;
   recordProviderState(batchId: string, input: { state: MusicBatchState; amfJobId?: string; warningCount?: number; lastError?: string | null; providerStatus?: AmfJob["status"] }, now: Date): Promise<void>;
   recordProviderEvidence(batchId: string, job: AmfJob, now: Date): Promise<void>;
 }

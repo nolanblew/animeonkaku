@@ -193,6 +193,18 @@ describe("anime music request orchestration", () => {
     expect(queue.enqueue).toHaveBeenNthCalledWith(1, expect.objectContaining({ type: "SUBMIT_AMF_MUSIC_BATCH", payload: { batchId: pending.id } }));
     expect(queue.enqueue).toHaveBeenNthCalledWith(2, expect.objectContaining({ type: "POLL_AMF_MUSIC_BATCH", payload: { batchId: accepted.id } }));
   });
+
+  it("rechecks terminal AMF jobs that may change after human intervention", async () => {
+    const awaiting = { ...storedBatch("AWAITING_OPERATOR"), amfJobId: "amf-awaiting" };
+    const failed = { ...storedBatch("FAILED"), id: "batch-failed", amfJobId: "amf-failed" };
+    const repo = fakeRepo(awaiting);
+    vi.mocked(repo.listRecheckableBatches).mockResolvedValue([awaiting, failed]);
+    const queue = { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue;
+
+    expect(await new MusicRequestService({ repo, queue }).recheckIncomplete()).toBe(2);
+    expect(queue.enqueue).toHaveBeenNthCalledWith(1, expect.objectContaining({ type: "POLL_AMF_MUSIC_BATCH", payload: { batchId: awaiting.id } }));
+    expect(queue.enqueue).toHaveBeenNthCalledWith(2, expect.objectContaining({ type: "POLL_AMF_MUSIC_BATCH", payload: { batchId: failed.id } }));
+  });
 });
 
 function storedBatch(state: StoredMusicBatch["state"]): StoredMusicBatch {
@@ -208,7 +220,7 @@ function storedRequest(states: StoredMusicBatch["state"][]): StoredMusicRequest 
 }
 function fakeRepo(batch: StoredMusicBatch): MusicRequestRepository {
   return { loadMetadata: vi.fn(), createOrReplay: vi.fn(), findById: vi.fn(), findLatest: vi.fn(), findBatch: vi.fn().mockResolvedValue(batch),
-    listRecoverableBatches: vi.fn(), recordProviderState: vi.fn(), recordProviderEvidence: vi.fn() } as unknown as MusicRequestRepository;
+    listRecoverableBatches: vi.fn(), listRecheckableBatches: vi.fn(), recordProviderState: vi.fn(), recordProviderEvidence: vi.fn() } as unknown as MusicRequestRepository;
 }
 function amfJob(status: AmfJob["status"]): AmfJob {
   return { id: "amf-1", status, destination: "anime-ongaku-staging/request-request-1/batch-0", last_progress: null,
