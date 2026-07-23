@@ -50,21 +50,58 @@ describe("anime music request composition", () => {
       ]);
   });
 
-  it("ignores unnumbered themes and deterministically sorts source rows", () => {
+  it("treats bare OP and ED as number one while preferring explicit duplicates", () => {
     const [batch] = buildMusicRequestBatches({
       kitsuId: "7",
       requestId: "22222222-2222-4222-8222-222222222222",
       titles: { title: "Show" },
       themes: [
         { id: 9, themeType: "ED2", title: "End", artists: [] },
-        { id: 2, themeType: "OP", title: "Ignored", artists: [] },
+        { id: 2, themeType: "OP", title: "Implicit Open", artists: [] },
         { id: 3, themeType: "OP1", title: "Open", artists: ["Singer"] },
+        { id: 4, themeType: "ED", title: "First End", artists: ["Ending Singer"] },
       ],
     });
-    expect(batch?.body.items.slice(0, 2)).toEqual([
-      expect.objectContaining({ kind: "OP", number: 1, version: "FULL" }),
+    expect(batch?.body.items.slice(0, 3)).toEqual([
+      expect.objectContaining({ kind: "OP", number: 1, version: "FULL", song_titles: { romaji: "Open" }, artists: ["Singer"] }),
+      expect.objectContaining({ kind: "ED", number: 1, version: "FULL", song_titles: { romaji: "First End" }, artists: ["Ending Singer"] }),
       expect.objectContaining({ kind: "ED", number: 2, version: "FULL" }),
     ]);
+  });
+
+  it("requests full versions for a unique bare OP and ED", () => {
+    const [batch] = buildMusicRequestBatches({
+      kitsuId: "49928",
+      requestId: "44444444-4444-4444-8444-444444444444",
+      titles: { english: "Yano-kun's Ordinary Days", romaji: "Yano-kun no Futsuu no Hibi" },
+      themes: [
+        { id: 13961, themeType: "OP", title: "POP LIFE", artists: ["FANTASTICS"] },
+        { id: 13962, themeType: "ED", title: "Better Off", artists: ["iScream"] },
+      ],
+    });
+
+    expect(batch?.body.items.slice(0, 2)).toEqual([
+      expect.objectContaining({ kind: "OP", number: 1, version: "FULL", song_titles: { romaji: "POP LIFE" }, artists: ["FANTASTICS"] }),
+      expect.objectContaining({ kind: "ED", number: 1, version: "FULL", song_titles: { romaji: "Better Off" }, artists: ["iScream"] }),
+    ]);
+  });
+
+  it("requests unique bare themes but does not invent numbering for ambiguous duplicates", () => {
+    const [batch] = buildMusicRequestBatches({
+      kitsuId: "8",
+      requestId: "33333333-3333-4333-8333-333333333333",
+      titles: { title: "Show" },
+      themes: [
+        { id: 1, themeType: "OP", title: "Unknown Open A", artists: [] },
+        { id: 2, themeType: "OP", title: "Unknown Open B", artists: [] },
+        { id: 3, themeType: "ED", title: "Only Ending", artists: ["Singer"] },
+      ],
+    });
+
+    expect(batch?.body.items.filter((item) => item.kind === "OP")).toEqual([]);
+    expect(batch?.body.items).toContainEqual(expect.objectContaining({
+      kind: "ED", number: 1, version: "FULL", song_titles: { romaji: "Only Ending" },
+    }));
   });
 });
 

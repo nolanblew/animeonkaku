@@ -2765,6 +2765,32 @@ typecheck passed, and the live AMF payloads parsed into 9 and 45 delivery files.
 Android debug unit tests and debug assembly passed. Device playback was not run
 because no ADB device was connected for this ticket.
 
+### MC-R08 — Include unnumbered first OP/ED themes in AMF requests
+
+| Field | Value |
+|---|---|
+| Status | ✅ Complete (2026-07-23) |
+| Area | AMF request composition |
+
+AnimeThemes can represent an anime's only opening or ending as `OP`/`ED`
+without a numeric sequence. The request builder now treats a unique bare type
+as OP1/ED1 for AMF Full Size acquisition. Explicit `OP1`/`ED1` metadata still
+wins if both forms coexist, while multiple bare themes of the same kind remain
+excluded rather than receiving invented sequence numbers.
+
+The deployed fix was applied to the already-active *Yano-kun's Ordinary Days*
+request with an additive supplemental batch, preserving its original related
+music batch. AMF job `046aeca8-3c4e-491e-b5b6-5400790a165f` accepted OP1
+**POP LIFE** by FANTASTICS and ED1 **Better Off** by iScream, selected from two
+candidates, and entered the normal acquisition flow. The server remained
+healthy.
+
+The focused request-builder tests passed (15 tests), TypeScript typecheck
+passed, and the full server suite passed serially (452 passed, 22
+environment-gated skipped). The first parallel full-suite attempt had two
+Windows Vitest workers exit without assertion failures; the serial rerun
+completed every test file successfully.
+
 ## 9. Effort summary
 
 | Workstream | Tickets | Experienced effort |

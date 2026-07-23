@@ -43,15 +43,35 @@ export function buildMusicRequestBatches(input: MusicRequestMetadata): BuiltMusi
   ].map(clean).filter((value): value is string => Boolean(value)))
     .filter((value) => !Object.values(primary).includes(value));
 
-  const numbered = input.themes.flatMap((theme) => {
-    const match = /^(OP|ED)([1-9]\d?)$/i.exec(theme.themeType?.trim() ?? "");
-    if (!match) return [];
-    return [{
-      theme,
-      kind: match[1]!.toUpperCase() as "OP" | "ED",
-      number: Number(match[2]),
-    }];
-  }).sort((a, b) => {
+  const themesByNumber = new Map<string, {
+    theme: MusicRequestTheme;
+    kind: "OP" | "ED";
+    number: number;
+  }>();
+  const unnumberedThemes: Record<"OP" | "ED", MusicRequestTheme[]> = { OP: [], ED: [] };
+  for (const theme of input.themes) {
+    const match = /^(OP|ED)([1-9]\d?)?$/i.exec(theme.themeType?.trim() ?? "");
+    if (!match) continue;
+    const kind = match[1]!.toUpperCase() as "OP" | "ED";
+    if (!match[2]) {
+      unnumberedThemes[kind].push(theme);
+      continue;
+    }
+    const number = Number(match[2]);
+    const key = `${kind}:${number}`;
+    const existing = themesByNumber.get(key);
+    if (!existing || theme.id < existing.theme.id) {
+      themesByNumber.set(key, { theme, kind, number });
+    }
+  }
+  for (const kind of ["OP", "ED"] as const) {
+    const [onlyTheme] = unnumberedThemes[kind];
+    const key = `${kind}:1`;
+    if (unnumberedThemes[kind].length === 1 && onlyTheme && !themesByNumber.has(key)) {
+      themesByNumber.set(key, { theme: onlyTheme, kind, number: 1 });
+    }
+  }
+  const numbered = [...themesByNumber.values()].sort((a, b) => {
     const kind = (a.kind === "OP" ? 0 : 1) - (b.kind === "OP" ? 0 : 1);
     return kind || a.number - b.number || a.theme.id - b.theme.id;
   }).map(({ theme, kind, number }) => ({
