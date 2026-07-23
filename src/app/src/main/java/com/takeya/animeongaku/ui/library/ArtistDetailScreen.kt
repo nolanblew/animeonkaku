@@ -55,6 +55,7 @@ import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.repository.RelatedTrack
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
@@ -80,6 +81,7 @@ fun ArtistDetailScreen(
     viewModel: ArtistDetailViewModel = hiltViewModel()
 ) {
     val themes by viewModel.themes.collectAsStateWithLifecycle()
+    val catalogTracks by viewModel.catalogTracks.collectAsStateWithLifecycle()
     val topSongs by viewModel.topSongs.collectAsStateWithLifecycle()
     val allSongsSorted by viewModel.allSongsSorted.collectAsStateWithLifecycle()
     val anime by viewModel.anime.collectAsStateWithLifecycle()
@@ -294,7 +296,7 @@ fun ArtistDetailScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "${themes.size} songs · ${artistAnime.size} anime",
+                            text = "${themes.size + catalogTracks.size} songs · ${artistAnime.size} anime",
                             style = MaterialTheme.typography.labelMedium,
                             color = Mist200
                         )
@@ -414,6 +416,19 @@ fun ArtistDetailScreen(
                 }
             }
 
+            if (catalogTracks.isNotEmpty()) {
+                item {
+                    Text("Full songs & albums", style = MaterialTheme.typography.titleMedium, color = Mist100,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
+                }
+                itemsIndexed(catalogTracks, key = { _, track -> "catalog-${track.song.id}-${track.release.id}" }) { index, track ->
+                    ArtistCatalogTrackRow(index + 1, track) {
+                        viewModel.playCatalogTrack(track)
+                        onPlayTheme()
+                    }
+                }
+            }
+
             // Anime section
             if (artistAnime.isNotEmpty()) {
                 item {
@@ -437,6 +452,18 @@ fun ArtistDetailScreen(
                 Spacer(modifier = Modifier.height(90.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun ArtistCatalogTrackRow(index: Int, track: RelatedTrack, onPlay: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onPlay).padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(index.toString(), color = Mist200, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(30.dp))
+        Column(Modifier.weight(1f)) {
+            Text(track.song.title, color = Mist100, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(track.release.title, color = Mist200, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Icon(Icons.Rounded.PlayArrow, contentDescription = "Play ${track.song.title}", tint = Mist200, modifier = Modifier.size(20.dp))
     }
 }
 

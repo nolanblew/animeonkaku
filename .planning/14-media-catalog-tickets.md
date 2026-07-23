@@ -2719,6 +2719,21 @@ environment-gated skipped) and TypeScript typecheck passed; the request
 repository integration assertion runs when its PostgreSQL test database is
 configured.
 
+### MC-R06 — Surface imported catalog artists
+
+| Field | Value |
+|---|---|
+| Status | ✅ Complete (2026-07-22) |
+| Area | Android catalog search and artist detail |
+
+Imported OST/full-song artist credits now contribute to Artist search and the
+artist library. Artist identity merges only reversible Latin first/last-name
+order; script variants remain separate unless an explicit source alias is
+available. Artist detail pages expose matching imported tracks under **Full
+songs & albums** and play them through the catalog queue. Focused identity
+tests and debug assembly passed; the debug APK was installed on the attached
+device.
+
 ## 9. Effort summary
 
 | Workstream | Tickets | Experienced effort |

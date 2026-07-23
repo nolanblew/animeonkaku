@@ -3,6 +3,7 @@ package com.takeya.animeongaku.data.repository
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.AnimeMusicReleaseEntity
+import com.takeya.animeongaku.data.local.ArtistTrackCount
 import com.takeya.animeongaku.data.local.MusicCatalogDao
 import com.takeya.animeongaku.data.local.MusicReleaseEntity
 import com.takeya.animeongaku.data.local.MusicReleaseSearchRow
@@ -11,6 +12,7 @@ import com.takeya.animeongaku.data.local.MusicTrackRow
 import com.takeya.animeongaku.data.local.MusicTrackSearchRow
 import com.takeya.animeongaku.data.local.ReleaseTrackEntity
 import com.takeya.animeongaku.data.local.SongEntity
+import com.takeya.animeongaku.data.local.artistIdentity
 import com.takeya.animeongaku.data.remote.OngakuMusicAnimeSummaryDto
 import com.takeya.animeongaku.data.remote.OngakuMusicApi
 import com.takeya.animeongaku.data.remote.OngakuMusicReleaseDto
@@ -82,6 +84,16 @@ class MusicCatalogRepository @Inject constructor(
 
     fun observeHomeTracks(): Flow<List<RelatedTrack>> =
         dao.observeHomeTracks().map { rows -> rows.map(MusicTrackSearchRow::toDomain) }
+
+    fun observeArtistTrackCounts(): Flow<List<ArtistTrackCount>> = dao.observeCatalogArtistTrackCounts()
+
+    fun observeArtistTracks(artistName: String): Flow<List<RelatedTrack>> {
+        val target = artistIdentity(artistName)
+        return dao.observeAllCatalogTracks().map { rows ->
+            rows.filter { artistIdentity(it.song.artistCredit) == target || artistIdentity(it.releaseArtistCredit) == target }
+                .map(MusicTrackSearchRow::toDomain)
+        }
+    }
 
     suspend fun refreshAnime(kitsuId: String): List<RelatedRelease> {
         val response = api.animeMusic(kitsuId)

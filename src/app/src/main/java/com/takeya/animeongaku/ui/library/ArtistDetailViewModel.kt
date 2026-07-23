@@ -19,10 +19,13 @@ import com.takeya.animeongaku.data.local.ThemeModeDao
 import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.repository.AnimeRepository
+import com.takeya.animeongaku.data.repository.MusicCatalogRepository
+import com.takeya.animeongaku.data.repository.RelatedTrack
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
+import com.takeya.animeongaku.media.PlayableItem
 import com.takeya.animeongaku.network.ConnectivityMonitor
 import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
 import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
@@ -52,6 +55,7 @@ class ArtistDetailViewModel @Inject constructor(
     playCountDao: PlayCountDao,
     private val playlistDao: PlaylistDao,
     private val animeRepository: AnimeRepository,
+    private val musicCatalogRepository: MusicCatalogRepository,
     private val serverPlaylistWriter: ServerPlaylistWriter,
     val nowPlayingManager: NowPlayingManager,
     val downloadManager: DownloadManager,
@@ -68,6 +72,9 @@ class ArtistDetailViewModel @Inject constructor(
     private val _onlineAnimeMap = MutableStateFlow<Map<Long, AnimeEntity>>(emptyMap())
 
     private val localThemes: StateFlow<List<ThemeEntity>> = artistDao.observeThemesByArtist(artistName)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val catalogTracks: StateFlow<List<RelatedTrack>> = musicCatalogRepository.observeArtistTracks(artistName)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // Always show the full online catalog when available, fall back to local
@@ -216,6 +223,10 @@ class ArtistDetailViewModel @Inject constructor(
         val idx = list.indexOfFirst { it.id == themeId }.coerceAtLeast(0)
         nowPlayingManager.play(artistName, list, idx, animeMap = buildAnimeMap())
     }
+
+    fun playCatalogTrack(track: RelatedTrack) = nowPlayingManager.playItems(track.release.title, listOf(
+        PlayableItem.RelatedSong(track.song, track.release, track.asAnimeEntity(), track.relationshipType)
+    ))
 
     fun requestPlayVideo(themeId: Long): BrowseVideoStartRequest? {
         val theme = themes.value.firstOrNull { it.id == themeId } ?: return null

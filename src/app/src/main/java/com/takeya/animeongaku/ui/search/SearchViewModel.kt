@@ -7,6 +7,7 @@ import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ArtistDao
 import com.takeya.animeongaku.data.local.ArtistTrackCount
+import com.takeya.animeongaku.data.local.mergeArtistTrackCounts
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.auth.SessionState
@@ -42,6 +43,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -101,7 +103,9 @@ class SearchViewModel @Inject constructor(
 
     val localArtists: StateFlow<List<ArtistTrackCount>> = _query
         .flatMapLatest { q ->
-            if (q.isBlank()) flowOf(emptyList()) else artistDao.searchArtists(q)
+            if (q.isBlank()) flowOf(emptyList()) else combine(artistDao.searchArtists(q), musicCatalogRepository.observeArtistTrackCounts()) { themeArtists, catalogArtists ->
+                mergeArtistTrackCounts(themeArtists + catalogArtists.filter { it.artistName.contains(q, ignoreCase = true) })
+            }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
