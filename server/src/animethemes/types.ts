@@ -33,6 +33,10 @@ export interface AnimeThemeEntry {
   animeId: number;
   animeName: string | null;
   animeNameEn: string | null;
+  /** AnimeThemes' own URL slug for this anime (e.g. "toradora"). Present on
+   * every anime resource the API returns; pinning it on outbound requests to
+   * dependent providers avoids re-deriving identity from translated titles. */
+  animeSlug: string | null;
   animeSynonyms: string[];
   kitsuId: string | null;
   coverUrl: string | null;

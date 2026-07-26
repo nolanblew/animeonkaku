@@ -5,6 +5,7 @@ function animeFixture(overrides: Record<string, unknown> = {}) {
   return {
     id: 2984,
     name: "Toradora!",
+    slug: "toradora",
     resources: [{ site: "Kitsu", external_id: "4224" }],
     images: [
       { facet: "Small Cover", path: "covers/small.jpg" },
@@ -77,6 +78,7 @@ describe("toThemeEntries", () => {
       animeId: 2984,
       animeName: "Toradora!",
       animeNameEn: "Tiger X Dragon",
+      animeSlug: "toradora",
       animeSynonyms: ["Tiger X Dragon"],
       kitsuId: "4224",
       coverUrl: "https://i.animethemes.moe/covers/large.jpg",
@@ -104,6 +106,12 @@ describe("toThemeEntries", () => {
       audioUrl: "https://v.animethemes.moe/Toradora-ED2.webm",
       videoFallback: true,
     });
+  });
+
+  it("treats a missing slug as null rather than inventing one", () => {
+    const entries = toThemeEntries(animeFixture({ slug: undefined }));
+
+    expect(entries[0]!.animeSlug).toBeNull();
   });
 
   it("normalizes numeric external ids to strings", () => {

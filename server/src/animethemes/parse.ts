@@ -41,6 +41,7 @@ export function toThemeEntries(anime: unknown): AnimeThemeEntry[] {
 
   const animeName = stringValue(animeObject.name);
   const animeNameEn = englishTitle(animeObject);
+  const animeSlug = stringValue(animeObject.slug);
   const animeSynonyms = synonymTitles(animeObject);
   const kitsuId = externalIdForSite(animeObject, "Kitsu");
   const coverUrl = coverImageUrl(animeObject);
@@ -69,6 +70,7 @@ export function toThemeEntries(anime: unknown): AnimeThemeEntry[] {
       animeId,
       animeName,
       animeNameEn,
+      animeSlug,
       animeSynonyms,
       kitsuId,
       coverUrl,

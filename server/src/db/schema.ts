@@ -85,6 +85,10 @@ export const animethemesAnime = pgTable("animethemes_anime", {
   name: text("name"),
   nameEn: text("name_en"),
   coverUrl: text("cover_url"), // origin URL (i.animethemes.moe)
+  // AnimeThemes' own URL slug (e.g. "toradora"). Pinning this on outbound
+  // provider requests (AMF's `animethemes_slug`) avoids re-deriving identity
+  // from translated titles. Nullable until synced for existing rows.
+  slug: text("slug"),
   syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

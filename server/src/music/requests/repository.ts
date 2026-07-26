@@ -12,25 +12,43 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
   async loadMetadata(kitsuId: string) {
     const anime = await this.pool.query<{
       kitsu_id: string; animethemes_anime_id: string | number; title: string | null; title_en: string | null;
-      title_ja: string | null; title_romaji: string | null; at_name: string | null; at_name_en: string | null;
+      title_ja: string | null; title_romaji: string | null; at_name: string | null; at_name_en: string | null; at_slug: string | null;
     }>(`SELECT k.kitsu_id, k.animethemes_anime_id, k.title, k.title_en, k.title_ja, k.title_romaji,
-              a.name at_name, a.name_en at_name_en
+              a.name at_name, a.name_en at_name_en, a.slug at_slug
          FROM kitsu_anime k JOIN animethemes_anime a ON a.id = k.animethemes_anime_id
         WHERE k.kitsu_id = $1 AND k.deleted_at IS NULL AND k.mapping_state = 'MAPPED'`, [kitsuId]);
     const row = anime.rows[0];
     if (!row) return null;
-    const themes = await this.pool.query<{ id: string | number; theme_type: string | null; title: string; artists: string[] | null }>(
+    // Left-join a matched full song (if any exists yet for this theme) so a
+    // re-request can send AMF the localized song title/artist names it
+    // already resolved, instead of only the single AnimeThemes-provided title.
+    const themes = await this.pool.query<{
+      id: string | number; theme_type: string | null; title: string; artists: string[] | null;
+      song_title_english: string | null; song_title_romaji: string | null; song_title_japanese: string | null;
+      song_artist_names: Array<{ english?: string | null; romaji?: string | null; japanese?: string | null }> | null;
+    }>(
       `SELECT t.id, t.theme_type, t.title,
+              s.title_english song_title_english, s.title_romaji song_title_romaji, s.title_japanese song_title_japanese,
+              s.artist_names song_artist_names,
               COALESCE(array_agg(DISTINCT ta.artist_name ORDER BY ta.artist_name) FILTER (WHERE ta.artist_name IS NOT NULL), '{}') artists
-         FROM themes t LEFT JOIN theme_artists ta ON ta.theme_id = t.id
+         FROM themes t
+         LEFT JOIN theme_artists ta ON ta.theme_id = t.id
+         LEFT JOIN theme_full_songs tfs ON tfs.theme_id = t.id
+         LEFT JOIN songs s ON s.id = tfs.song_id
         WHERE t.animethemes_anime_id = $1 AND t.deleted_at IS NULL
-        GROUP BY t.id, t.theme_type, t.title`, [row.animethemes_anime_id]);
+        GROUP BY t.id, t.theme_type, t.title, s.title_english, s.title_romaji, s.title_japanese, s.artist_names`,
+      [row.animethemes_anime_id]);
     return {
       kitsuId: row.kitsu_id,
       requestId: "",
       animeThemesAnimeId: Number(row.animethemes_anime_id),
+      animeThemesSlug: row.at_slug,
       titles: { title: row.title, english: row.title_en, japanese: row.title_ja, romaji: row.title_romaji, animeThemesName: row.at_name, animeThemesNameEn: row.at_name_en },
-      themes: themes.rows.map((theme) => ({ id: Number(theme.id), themeType: theme.theme_type, title: theme.title, artists: theme.artists ?? [] })),
+      themes: themes.rows.map((theme) => ({
+        id: Number(theme.id), themeType: theme.theme_type, title: theme.title, artists: theme.artists ?? [],
+        titleEnglish: theme.song_title_english, titleJapanese: theme.song_title_japanese, titleRomaji: theme.song_title_romaji,
+        artistNames: theme.song_artist_names,
+      })),
     };
   }
 

@@ -8,6 +8,7 @@ import type { MusicRequestRepository, StoredMusicBatch, StoredMusicRequest } fro
 import type { AmfJob } from "../src/music/animeMusicFetcher/schemas.js";
 import { vi } from "vitest";
 import { AnimeMusicFetcherError } from "../src/music/animeMusicFetcher/errors.js";
+import { SUPPORTED_AUDIO_FORMATS } from "../src/music/requests/deliveryImporter.js";
 
 describe("anime music request composition", () => {
   it("composes multilingual numbered full themes plus collection categories in stable batches", () => {
@@ -102,6 +103,113 @@ describe("anime music request composition", () => {
     expect(batch?.body.items).toContainEqual(expect.objectContaining({
       kind: "ED", number: 1, version: "FULL", song_titles: { romaji: "Only Ending" },
     }));
+  });
+
+  it("sends the AnimeThemes slug when known, to pin identity precisely instead of re-derived titles", () => {
+    const [batch] = buildMusicRequestBatches({
+      kitsuId: "1",
+      requestId: "55555555-5555-4555-8555-555555555555",
+      animeThemesSlug: "toradora",
+      titles: { romaji: "Toradora!" },
+      themes: [{ id: 1, themeType: "OP1", title: "Pre-Parade", artists: ["Yui Horie"] }],
+    });
+    expect(batch?.body.animethemes_slug).toBe("toradora");
+  });
+
+  it("omits the AnimeThemes slug entirely when it is not known", () => {
+    const [batch] = buildMusicRequestBatches({
+      kitsuId: "1",
+      requestId: "66666666-6666-4666-8666-666666666666",
+      titles: { romaji: "Toradora!" },
+      themes: [{ id: 1, themeType: "OP1", title: "Pre-Parade", artists: ["Yui Horie"] }],
+    });
+    expect(batch?.body).not.toHaveProperty("animethemes_slug");
+  });
+
+  it("sends every known song title localization and the matched song's localized artist names", () => {
+    const [batch] = buildMusicRequestBatches({
+      kitsuId: "1",
+      requestId: "77777777-7777-4777-8777-777777777777",
+      titles: { romaji: "Toradora!" },
+      themes: [{
+        id: 1, themeType: "OP1", title: "Pre-Parade", artists: ["Yui Horie"],
+        titleEnglish: "Pre-Parade", titleJapanese: "プレパレード", titleRomaji: "Pre-Parade",
+        artistNames: [{ romaji: "Yui Horie", japanese: "堀江由衣" }],
+      }],
+    });
+    expect(batch?.body.items[0]).toMatchObject({
+      song_titles: { english: "Pre-Parade", japanese: "プレパレード", romaji: "Pre-Parade" },
+      artist_names: [{ romaji: "Yui Horie", japanese: "堀江由衣" }],
+    });
+  });
+
+  it("falls back to the theme title and plain-name artist_names when no localized song is matched yet", () => {
+    const [batch] = buildMusicRequestBatches({
+      kitsuId: "1",
+      requestId: "88888888-8888-4888-8888-888888888888",
+      titles: { romaji: "Toradora!" },
+      themes: [{ id: 1, themeType: "OP1", title: "Pre-Parade", artists: ["Yui Horie"] }],
+    });
+    expect(batch?.body.items[0]).toMatchObject({
+      song_titles: { romaji: "Pre-Parade" },
+      artist_names: [{ romaji: "Yui Horie" }],
+    });
+  });
+
+  it("keeps song_titles to only the localizations actually known and omits artist_names with no artists", () => {
+    const [batch] = buildMusicRequestBatches({
+      kitsuId: "1",
+      requestId: "99999999-9999-4999-8999-999999999999",
+      titles: { romaji: "Toradora!" },
+      themes: [{ id: 1, themeType: "OP1", title: "Pre-Parade", artists: [], titleEnglish: "Pre-Parade" }],
+    });
+    expect(batch?.body.items[0]?.song_titles).toEqual({ english: "Pre-Parade", romaji: "Pre-Parade" });
+    expect(batch?.body.items[0]?.artist_names).toBeUndefined();
+  });
+
+  it("restricts quality.preferred_formats to formats the delivery importer can actually accept", () => {
+    const [batch] = buildMusicRequestBatches({
+      kitsuId: "1",
+      requestId: "10101010-1010-4101-8101-101010101010",
+      titles: { romaji: "Toradora!" },
+      themes: [{ id: 1, themeType: "OP1", title: "Pre-Parade", artists: [] }],
+    });
+    expect(batch?.body.quality?.preferred_formats).toEqual(SUPPORTED_AUDIO_FORMATS);
+    expect(batch?.body.quality?.preferred_formats).not.toContain("ape");
+    expect(batch?.body.quality?.preferred_formats).not.toContain("wv");
+  });
+
+  it("composes the full AMF job body for an anime with a known slug, localized titles, and quality limits", () => {
+    const batches = buildMusicRequestBatches({
+      kitsuId: "1",
+      requestId: "11111111-2222-4333-8444-555555555555",
+      animeThemesSlug: "toradora",
+      titles: { romaji: "Toradora!", english: "Tiger X Dragon" },
+      themes: [{
+        id: 3040, themeType: "OP1", title: "Pre-Parade", artists: ["Yui Horie"],
+        titleEnglish: "Pre-Parade", titleJapanese: "プレパレード", titleRomaji: "Pre-Parade",
+        artistNames: [{ romaji: "Yui Horie", japanese: "堀江由衣" }],
+      }],
+    });
+
+    expect(batches).toHaveLength(1);
+    expect(batches[0]?.body).toMatchObject({
+      titles: { romaji: "Toradora!", english: "Tiger X Dragon" },
+      animethemes_slug: "toradora",
+      metadata_lookup: true,
+      quality: { preferred_formats: SUPPORTED_AUDIO_FORMATS },
+      destination: "anime-ongaku-staging/request-11111111-2222-4333-8444-555555555555/batch-0",
+      selection_mode: "automatic",
+    });
+    expect(batches[0]?.body.items).toEqual([
+      { kind: "OP", number: 1, version: "FULL", release_preference: "INDIVIDUAL",
+        song_titles: { japanese: "プレパレード", romaji: "Pre-Parade", english: "Pre-Parade" },
+        artists: ["Yui Horie"], artist_names: [{ japanese: "堀江由衣", romaji: "Yui Horie" }] },
+      { kind: "OST", release_preference: "COLLECTION" },
+      { kind: "CHARACTER_SONG", release_preference: "COLLECTION" },
+      { kind: "DRAMA", release_preference: "COLLECTION" },
+      { kind: "OTHER", release_preference: "ANY" },
+    ]);
   });
 });
 

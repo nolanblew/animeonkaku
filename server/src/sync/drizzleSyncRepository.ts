@@ -274,6 +274,7 @@ export class DrizzleSyncRepository implements SyncRepository {
           name: anime.animeName,
           nameEn: anime.animeNameEn,
           coverUrl: anime.coverUrl,
+          slug: anime.animeSlug,
           syncedAt: new Date(),
         })
         .onConflictDoUpdate({
@@ -282,6 +283,7 @@ export class DrizzleSyncRepository implements SyncRepository {
             name: anime.animeName,
             nameEn: anime.animeNameEn,
             coverUrl: anime.coverUrl,
+            slug: anime.animeSlug,
             syncedAt: new Date(),
           },
         });

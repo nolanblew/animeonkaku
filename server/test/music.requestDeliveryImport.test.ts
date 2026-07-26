@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { validateAmfDeliveryFile } from "../src/music/requests/deliveryImporter.js";
+import { AmfDeliveryValidationError, AmfUnsupportedFormatDeliveryError, validateAmfDeliveryFile } from "../src/music/requests/deliveryImporter.js";
 import { AmfDeliveryImportService, createAmfDeliveryImportHandlers, releaseTrackDisplayOrder, type AmfDeliveryRepository } from "../src/music/requests/deliveryService.js";
 import type { MediaStore } from "../src/media/mediaStore.js";
 import type { JobQueue } from "../src/jobs/jobQueue.js";
@@ -47,6 +47,22 @@ describe("AMF delivery staging validation", () => {
     await writeFile(join(root, "album.ape"), Buffer.alloc(2048, 1));
     await expect(validateAmfDeliveryFile(root, { relativePath: "album.ape", size: null, sha256: null }))
       .rejects.toThrow(/unsupported/i);
+  });
+
+  it("classifies an unsupported-format delivery distinctly from other validation failures, so it can be closed rather than left blocking", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ongaku-amf-library-"));
+    await writeFile(join(root, "album.ape"), Buffer.alloc(2048, 1));
+
+    const formatError = await validateAmfDeliveryFile(root, { relativePath: "album.ape", size: null, sha256: null })
+      .catch((value) => value);
+    expect(formatError).toBeInstanceOf(AmfUnsupportedFormatDeliveryError);
+    expect(formatError).toBeInstanceOf(AmfDeliveryValidationError);
+    expect((formatError as AmfUnsupportedFormatDeliveryError).extension).toBe(".ape");
+
+    const pathError = await validateAmfDeliveryFile(root, { relativePath: "../song.flac", size: null, sha256: null })
+      .catch((value) => value);
+    expect(pathError).toBeInstanceOf(AmfDeliveryValidationError);
+    expect(pathError).not.toBeInstanceOf(AmfUnsupportedFormatDeliveryError);
   });
 });
 

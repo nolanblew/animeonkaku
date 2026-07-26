@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { AnimeThemeEntry, AnimeThemesVideoCandidate } from "../src/animethemes/types.js";
-import { mediaFiles, songs, themes as themeTable, themeVideoSources } from "../src/db/schema.js";
+import { animethemesAnime, mediaFiles, songs, themes as themeTable, themeVideoSources } from "../src/db/schema.js";
 import { DrizzleSyncRepository } from "../src/sync/drizzleSyncRepository.js";
 
 interface InsertOperation {
@@ -68,6 +68,7 @@ function theme(themeId: number, videoCandidates: AnimeThemesVideoCandidate[]): A
     animeId: 2984,
     animeName: "Toradora!",
     animeNameEn: "Tiger X Dragon",
+    animeSlug: "toradora",
     animeSynonyms: [],
     kitsuId: "4224",
     coverUrl: null,
@@ -187,5 +188,26 @@ describe("DrizzleSyncRepository AnimeThemes catalog persistence", () => {
     });
     expect(db.inserts.find((operation) => operation.table === themeVideoSources)!.values)
       .toMatchObject({ link: "https://v.animethemes.moe/selected.webm" });
+  });
+
+  it("persists the AnimeThemes slug so identity can be pinned on outbound provider requests", async () => {
+    const db = new RecordingDb();
+    const repo = new DrizzleSyncRepository(db as never);
+
+    await repo.saveAnimeThemesCatalog([theme(3040, [])]);
+
+    const animeWrite = db.inserts.find((operation) => operation.table === animethemesAnime);
+    expect(animeWrite!.values).toMatchObject({ id: 2984, slug: "toradora" });
+    expect((animeWrite!.conflict as { set: Record<string, unknown> }).set).toMatchObject({ slug: "toradora" });
+  });
+
+  it("persists a null slug rather than inventing one when AnimeThemes omits it", async () => {
+    const db = new RecordingDb();
+    const repo = new DrizzleSyncRepository(db as never);
+
+    await repo.saveAnimeThemesCatalog([{ ...theme(3040, []), animeSlug: null }]);
+
+    const animeWrite = db.inserts.find((operation) => operation.table === animethemesAnime);
+    expect(animeWrite!.values).toMatchObject({ slug: null });
   });
 });
