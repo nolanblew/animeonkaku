@@ -22,7 +22,7 @@ export function createMusicOperatorHandlers(deps: { repo: MusicRequestRepository
     else if (action === "REPROCESS_PROVIDER") result = await deps.client.reprocessJob(batch.amfJobId);
     else throw new Error("Unsupported AMF operator action");
     const now = new Date();
-    if (["completed", "completed_with_warnings", "failed", "cancelled", "awaiting_selection", "awaiting_file_selection", "download_stalled"].includes(result.status))
+    if (["completed", "completed_with_warnings", "failed", "cancelled", "awaiting_selection", "awaiting_file_selection", "download_stalled", "archived"].includes(result.status))
       await deps.repo.recordProviderEvidence(batch.id, result, now);
     const state = mapStatus(result.status);
     await deps.repo.recordProviderState(batch.id, { state, amfJobId: result.id, warningCount: result.warnings.length, lastError: null, providerStatus: result.status }, now);
@@ -36,9 +36,13 @@ export function createMusicOperatorHandlers(deps: { repo: MusicRequestRepository
 function mapStatus(status: AmfJob["status"]): MusicBatchState {
   if (status === "queued") return "QUEUED";
   if (["searching", "selected", "submitting"].includes(status)) return "SEARCHING";
-  if (["awaiting_selection", "awaiting_file_selection", "download_stalled"].includes(status)) return "AWAITING_OPERATOR";
+  // "archived" (dormant: closed for now, never closed forever) and any
+  // status we don't recognize both land here, matching requests/handlers.ts
+  // — non-terminal, never FAILED, never CANCELLED.
+  if (["awaiting_selection", "awaiting_file_selection", "download_stalled", "archived"].includes(status)) return "AWAITING_OPERATOR";
   if (status === "downloading") return "DOWNLOADING";
   if (["processing", "completed", "completed_with_warnings"].includes(status)) return "PROCESSING";
   if (status === "failed") return "FAILED";
-  return "CANCELLED";
+  if (status === "cancelled") return "CANCELLED";
+  return "AWAITING_OPERATOR";
 }

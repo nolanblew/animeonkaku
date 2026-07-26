@@ -362,6 +362,75 @@ describe("anime music request orchestration", () => {
     expect(queue.enqueue).toHaveBeenNthCalledWith(2, expect.objectContaining({ type: "POLL_AMF_MUSIC_BATCH", payload: { batchId: accepted.id } }));
   });
 
+  it("keeps an archived provider job dormant: non-terminal, never FAILED, still polled forever", async () => {
+    const batch = { ...storedBatch("AWAITING_OPERATOR"), amfJobId: "amf-1" };
+    const repo = fakeRepo(batch);
+    const queue = { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue;
+    const client = { submitJob: vi.fn(), getJob: vi.fn().mockResolvedValue(amfJob("archived")) };
+    const handlers = createMusicRequestHandlers({ repo, queue, client });
+
+    const error = await handlers.POLL_AMF_MUSIC_BATCH({ batchId: batch.id }, {} as never).catch((value) => value);
+
+    expect(repo.recordProviderState).toHaveBeenCalledWith(batch.id,
+      expect.objectContaining({ providerStatus: "archived" }), expect.any(Date));
+    expect(repo.recordProviderState).not.toHaveBeenCalledWith(batch.id, expect.objectContaining({ state: "FAILED" }), expect.anything());
+    expect(repo.recordProviderState).not.toHaveBeenCalledWith(batch.id, expect.objectContaining({ state: "COMPLETED" }), expect.anything());
+    expect(repo.recordProviderState).not.toHaveBeenCalledWith(batch.id, expect.objectContaining({ state: "CANCELLED" }), expect.anything());
+    expect(error).toBeInstanceOf(RetryableJobError);
+  });
+
+  it("imports deliveries reported by an archived job with no operator action", async () => {
+    const batch = { ...storedBatch("AWAITING_OPERATOR"), amfJobId: "amf-1" };
+    const repo = fakeRepo(batch);
+    const queue = { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue;
+    const archivedWithDelivery = {
+      ...amfJob("archived"),
+      item_results: [{ requested_item_index: 0, label: "OP1", kind: "OP" as const, number: 1,
+        status: "delivered" as const, candidate_indexes: [], selected_release_indexes: [0], matched_releases: [], delivered_files: [], file_count: 1 }],
+      deliveries: [{ requested_item_index: 0, label: "OP1", kind: "OP" as const, number: 1, files: [{
+        file_index: 0, relative_path: `${batch.body.destination}/01.flac`, size: 10, sha256: "a".repeat(64), metadata: {},
+      }] }],
+    };
+    const client = { submitJob: vi.fn(), getJob: vi.fn().mockResolvedValue(archivedWithDelivery) };
+    const handlers = createMusicRequestHandlers({ repo, queue, client });
+
+    await handlers.POLL_AMF_MUSIC_BATCH({ batchId: batch.id }, {} as never).catch(() => undefined);
+
+    expect(repo.recordProviderEvidence).toHaveBeenCalledWith(batch.id, archivedWithDelivery, expect.any(Date));
+    expect(queue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ type: "IMPORT_AMF_MUSIC_BATCH", payload: { batchId: batch.id } }));
+    expect(repo.recordProviderState).not.toHaveBeenCalledWith(batch.id, expect.objectContaining({ state: "FAILED" }), expect.anything());
+  });
+
+  it("tolerates an unrecognized provider status instead of failing the domain", async () => {
+    const batch = { ...storedBatch("SEARCHING"), amfJobId: "amf-1" };
+    const repo = fakeRepo(batch);
+    const queue = { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue;
+    const client = { submitJob: vi.fn(), getJob: vi.fn().mockResolvedValue(amfJob("brand_new_status")) };
+    const handlers = createMusicRequestHandlers({ repo, queue, client });
+
+    const error = await handlers.POLL_AMF_MUSIC_BATCH({ batchId: batch.id }, {} as never).catch((value) => value);
+
+    expect(repo.recordProviderState).toHaveBeenCalledWith(batch.id,
+      expect.objectContaining({ providerStatus: "brand_new_status" }), expect.any(Date));
+    expect(repo.recordProviderState).not.toHaveBeenCalledWith(batch.id, expect.objectContaining({ state: "FAILED" }), expect.anything());
+    expect(error).toBeInstanceOf(RetryableJobError);
+  });
+
+  it("treats a poll 404 as provider-gone attention, not a domain failure", async () => {
+    const batch = { ...storedBatch("SEARCHING"), amfJobId: "amf-1" };
+    const repo = fakeRepo(batch);
+    const queue = { enqueue: vi.fn() } as unknown as JobQueue;
+    const client = { submitJob: vi.fn(), getJob: vi.fn().mockRejectedValue(
+      new AnimeMusicFetcherError("NOT_FOUND", "Anime Music Fetcher could not find job poll", false, 404)) };
+    const handlers = createMusicRequestHandlers({ repo, queue, client });
+
+    await expect(handlers.POLL_AMF_MUSIC_BATCH({ batchId: batch.id }, {} as never)).resolves.toBeUndefined();
+
+    expect(repo.recordProviderState).toHaveBeenCalledWith(batch.id,
+      expect.objectContaining({ lastError: expect.stringContaining("could not find job poll") }), expect.any(Date));
+    expect(repo.recordProviderState).not.toHaveBeenCalledWith(batch.id, expect.objectContaining({ state: "FAILED" }), expect.anything());
+  });
+
   it("rechecks terminal AMF jobs that may change after human intervention", async () => {
     const awaiting = { ...storedBatch("AWAITING_OPERATOR"), amfJobId: "amf-awaiting" };
     const failed = { ...storedBatch("FAILED"), id: "batch-failed", amfJobId: "amf-failed" };

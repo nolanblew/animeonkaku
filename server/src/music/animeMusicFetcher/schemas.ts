@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+// The 13 statuses AMF's README documents. The live controller also returns
+// values outside this list (e.g. "archived", from POST /jobs/{id}/archive)
+// and its OpenAPI declares JobRead.status as a plain string, not an enum.
+// Kept here as documentation and for the OUTBOUND request/action surface;
+// INBOUND job status parsing below deliberately does NOT enforce this list
+// (see amfRawJobSchema / amfJsonApiJobAttributesSchema) so an unrecognized
+// or provider-bookkeeping status can never fail the whole-document parse.
 export const AMF_JOB_STATUSES = [
   "queued",
   "searching",
@@ -246,7 +253,11 @@ const nullableUnknownObjectArray = z.array(unknownObject).nullable();
 
 const amfRawJobSchema = z.object({
   id: z.string().min(1),
-  status: amfJobStatusSchema,
+  // Parsed as an open string, not amfJobStatusSchema: the provider's status
+  // surface is not actually closed (see AMF_JOB_STATUSES comment above), and
+  // an unrecognized value must never fail parsing of the rest of the
+  // document — item results and deliveries still need to come through.
+  status: z.string().min(1),
   request_payload: unknownObject,
   destination: z.string().min(1).refine(isSafeAmfRelativePath, "unsafe response destination"),
   candidate_snapshot: nullableUnknownObjectArray,
@@ -295,7 +306,8 @@ const amfJsonApiMediaResourceSchema = z.object({
 }).passthrough();
 
 const amfJsonApiJobAttributesSchema = z.object({
-  status: amfJobStatusSchema,
+  // See amfRawJobSchema above: open string, not the strict enum.
+  status: z.string().min(1),
   destination: z.string().min(1).refine(isSafeAmfRelativePath, "unsafe response destination"),
   last_progress: z.number().nullable(),
   warnings: z.array(z.string()).nullable().optional().transform((value) => (value ?? []).map(redactAmfText)),
@@ -418,7 +430,10 @@ function mergeMediaDeliveries(
   })) }));
 }
 
-export type AmfJobStatus = z.infer<typeof amfJobStatusSchema>;
+// Intentionally a plain string, not z.infer<typeof amfJobStatusSchema>: the
+// provider can and does return statuses (e.g. "archived") outside that
+// documented list. See amfRawJobSchema's status field.
+export type AmfJobStatus = string;
 export type AmfJobCreate = z.input<typeof amfJobCreateSchema>;
 export type AmfJob = z.output<typeof amfJobSchema>;
 export type AmfDeliveryFile = z.output<typeof amfDeliveryFileSchema>;
