@@ -489,6 +489,12 @@ export const animeMusicRequestBatches = pgTable("anime_music_request_batches", {
   warnings: jsonb("warnings").$type<string[]>().notNull().default([]),
   manifestEvidence: jsonb("manifest_evidence").notNull().default({}),
   lastError: text("last_error"),
+  // MC-S16 escalating poll backoff. Lives here, not on the job row, because
+  // PgJobRepository's enqueue upsert resets a re-enqueued job's `attempts` to
+  // 0 and pulls `next_run_at` forward — the ladder position must survive
+  // that (see requests/handlers.ts nextPollSchedule).
+  pollBackoffStep: integer("poll_backoff_step").notNull().default(0),
+  pollNotBefore: timestamp("poll_not_before", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),

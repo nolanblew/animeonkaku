@@ -9,6 +9,8 @@ import type { AmfJob } from "../src/music/animeMusicFetcher/schemas.js";
 import { vi } from "vitest";
 import { AnimeMusicFetcherError } from "../src/music/animeMusicFetcher/errors.js";
 import { SUPPORTED_AUDIO_FORMATS } from "../src/music/requests/deliveryImporter.js";
+import { parseStoredMusicRequestBody } from "../src/music/requests/repository.js";
+import { amfJobCreateSchema } from "../src/music/animeMusicFetcher/schemas.js";
 
 describe("anime music request composition", () => {
   it("composes multilingual numbered full themes plus collection categories in stable batches", () => {
@@ -442,12 +444,166 @@ describe("anime music request orchestration", () => {
     expect(queue.enqueue).toHaveBeenNthCalledWith(1, expect.objectContaining({ type: "POLL_AMF_MUSIC_BATCH", payload: { batchId: awaiting.id } }));
     expect(queue.enqueue).toHaveBeenNthCalledWith(2, expect.objectContaining({ type: "POLL_AMF_MUSIC_BATCH", payload: { batchId: failed.id } }));
   });
+
+  describe("poll backoff ladder (MC-S16)", () => {
+    const EXPECTED_LADDER_MS = [5_000, 30_000, 120_000, 300_000, 600_000, 1_200_000];
+
+    it("walks an unchanged awaiting_selection batch up the ladder to the 20-minute cap and holds it there", async () => {
+      const { repo, current } = statefulRepo(storedBatch("AWAITING_OPERATOR"));
+      let clock = new Date("2026-07-26T00:00:00Z");
+      const client = { submitJob: vi.fn(), getJob: vi.fn().mockResolvedValue(amfJob("awaiting_selection")) };
+      const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn() } as unknown as JobQueue, client, now: () => clock });
+      // Give the batch an amfJobId so POLL doesn't take the "not submitted yet" early exit.
+      await repo.recordProviderState("batch-1", { state: "AWAITING_OPERATOR", amfJobId: "amf-1" }, clock);
+
+      const observedDelays: number[] = [];
+      for (let i = 0; i < EXPECTED_LADDER_MS.length + 1; i++) {
+        const error = await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch((value) => value);
+        expect(error).toBeInstanceOf(RetryableJobError);
+        const delay = (error as RetryableJobError).options.retryAfterMs!;
+        observedDelays.push(delay);
+        clock = new Date(clock.getTime() + delay);
+      }
+
+      expect(observedDelays).toEqual([...EXPECTED_LADDER_MS, EXPECTED_LADDER_MS[EXPECTED_LADDER_MS.length - 1]]);
+      expect(current().pollBackoffStep).toBe(EXPECTED_LADDER_MS.length - 1);
+      expect(repo.recordProviderState).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ state: "FAILED" }), expect.anything());
+      // The manifest never changed, so evidence is written only once (the
+      // first observation) — every later poll must skip the write entirely.
+      expect(repo.recordProviderEvidence).toHaveBeenCalledTimes(1);
+    });
+
+    it("drops back to 5s within one interval the moment the provider document changes", async () => {
+      const { repo, current } = statefulRepo(storedBatch("AWAITING_OPERATOR"));
+      let clock = new Date("2026-07-26T00:00:00Z");
+      const client = { submitJob: vi.fn(), getJob: vi.fn().mockResolvedValue(amfJob("awaiting_selection")) };
+      const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn() } as unknown as JobQueue, client, now: () => clock });
+      await repo.recordProviderState("batch-1", { state: "AWAITING_OPERATOR", amfJobId: "amf-1" }, clock);
+
+      // Walk up to step 3 (5-minute cadence) on an unchanged manifest: poll 1
+      // is the first observation (step 0), then three more unchanged polls
+      // advance it to step 1, 2, 3.
+      for (let i = 0; i < 4; i++) {
+        const error = await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch((value) => value);
+        clock = new Date(clock.getTime() + (error as RetryableJobError).options.retryAfterMs!);
+      }
+      expect(current().pollBackoffStep).toBe(3);
+
+      // An operator selects a release in AMF's UI: item_results now show a
+      // delivered item where before there was nothing.
+      client.getJob.mockResolvedValue({
+        ...amfJob("awaiting_selection"),
+        item_results: [{ requested_item_index: 0, label: "OST", kind: "OST" as const, number: null,
+          status: "delivered" as const, candidate_indexes: [], selected_release_indexes: [0], matched_releases: [], delivered_files: [], file_count: 0 }],
+      });
+      const error = await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch((value) => value);
+
+      expect((error as RetryableJobError).options.retryAfterMs).toBe(5_000);
+      expect(current().pollBackoffStep).toBe(0);
+    });
+
+    it("keeps an archived batch polling at the 20-minute cap forever without ever terminating or failing", async () => {
+      const { repo, current } = statefulRepo(storedBatch("AWAITING_OPERATOR"));
+      let clock = new Date("2026-07-26T00:00:00Z");
+      const client = { submitJob: vi.fn(), getJob: vi.fn().mockResolvedValue(amfJob("archived")) };
+      const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn() } as unknown as JobQueue, client, now: () => clock });
+      await repo.recordProviderState("batch-1", { state: "AWAITING_OPERATOR", amfJobId: "amf-1" }, clock);
+
+      for (let i = 0; i < EXPECTED_LADDER_MS.length + 3; i++) {
+        const error = await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch((value) => value);
+        expect(error).toBeInstanceOf(RetryableJobError);
+        clock = new Date(clock.getTime() + (error as RetryableJobError).options.retryAfterMs!);
+      }
+
+      expect(current().pollBackoffStep).toBe(EXPECTED_LADDER_MS.length - 1);
+      expect(repo.recordProviderState).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ state: "FAILED" }), expect.anything());
+      expect(repo.recordProviderState).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ state: "COMPLETED" }), expect.anything());
+      expect(repo.recordProviderState).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ state: "CANCELLED" }), expect.anything());
+    });
+
+    it("keeps machine-active statuses on the fast 5s cadence regardless of repeated identical polls", async () => {
+      const { repo, current } = statefulRepo(storedBatch("DOWNLOADING"));
+      let clock = new Date("2026-07-26T00:00:00Z");
+      const client = { submitJob: vi.fn(), getJob: vi.fn().mockResolvedValue(amfJob("downloading")) };
+      const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn() } as unknown as JobQueue, client, now: () => clock });
+      await repo.recordProviderState("batch-1", { state: "DOWNLOADING", amfJobId: "amf-1" }, clock);
+
+      for (let i = 0; i < 4; i++) {
+        const error = await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch((value) => value);
+        expect((error as RetryableJobError).options.retryAfterMs).toBe(5_000);
+        clock = new Date(clock.getTime() + 5_000);
+      }
+      expect(current().pollBackoffStep).toBe(0);
+    });
+
+    it("makes a poll that fires before poll_not_before a no-op that never touches the provider or persisted state", async () => {
+      const farFuture = new Date("2026-07-26T01:00:00Z");
+      const batch: StoredMusicBatch = { ...storedBatch("AWAITING_OPERATOR"), amfJobId: "amf-1", pollBackoffStep: 3, pollNotBefore: farFuture };
+      const repo = fakeRepo(batch);
+      const client = { submitJob: vi.fn(), getJob: vi.fn() };
+      // "now" is well before pollNotBefore — e.g. the 15-minute recheckIncomplete
+      // sweep pulled the job's own next_run_at forward, but the batch's ladder
+      // state says it isn't due yet.
+      const earlyNow = new Date("2026-07-26T00:00:01Z");
+      const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn() } as unknown as JobQueue, client, now: () => earlyNow });
+
+      const error = await handlers.POLL_AMF_MUSIC_BATCH({ batchId: batch.id }, {} as never).catch((value) => value);
+
+      expect(client.getJob).not.toHaveBeenCalled();
+      expect(repo.recordProviderState).not.toHaveBeenCalled();
+      expect(repo.recordProviderEvidence).not.toHaveBeenCalled();
+      expect(error).toBeInstanceOf(RetryableJobError);
+      expect((error as RetryableJobError).options).toEqual({
+        incrementAttempts: false, retryAfterMs: farFuture.getTime() - earlyNow.getTime(),
+      });
+    });
+
+    it("survives a process restart because the ladder lives on the batch, not in the handler instance", async () => {
+      const { repo, current } = statefulRepo(storedBatch("AWAITING_OPERATOR"));
+      let clock = new Date("2026-07-26T00:00:00Z");
+      const client = { submitJob: vi.fn(), getJob: vi.fn().mockResolvedValue(amfJob("awaiting_selection")) };
+      await repo.recordProviderState("batch-1", { state: "AWAITING_OPERATOR", amfJobId: "amf-1" }, clock);
+
+      const processA = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn() } as unknown as JobQueue, client, now: () => clock });
+      const firstError = await processA.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch((value) => value);
+      clock = new Date(clock.getTime() + (firstError as RetryableJobError).options.retryAfterMs!);
+      expect(current().pollBackoffStep).toBe(0); // first observation always resets to step 0
+
+      // Simulate a process restart: a brand new handlers closure, sharing
+      // nothing with processA except the (Postgres-backed, in this test
+      // in-memory) repository.
+      const processB = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn() } as unknown as JobQueue, client, now: () => clock });
+      const secondError = await processB.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch((value) => value);
+
+      expect(current().pollBackoffStep).toBe(1);
+      expect((secondError as RetryableJobError).options.retryAfterMs).toBe(EXPECTED_LADDER_MS[1]);
+    });
+  });
+
+  describe("lenient persisted-body reads (F8)", () => {
+    it("mapBatch tolerates a stored body the current strict schema would reject instead of throwing", () => {
+      const legacyBody = {
+        titles: { romaji: "Show" }, items: [{ kind: "OST" }],
+        destination: "anime-ongaku-staging/request-x/batch-0",
+        // A field that no longer exists on the current strict schema.
+        legacy_field: "no longer part of the contract",
+      };
+      expect(() => amfJobCreateSchema.parse(legacyBody)).toThrow();
+      expect(parseStoredMusicRequestBody("batch-x", legacyBody)).toEqual(legacyBody);
+    });
+
+    it("still returns the strictly-parsed value for a body that matches the current schema", () => {
+      const body = { titles: { romaji: "Show" }, items: [{ kind: "OST" }], destination: "anime-ongaku-staging/request-x/batch-0" };
+      expect(parseStoredMusicRequestBody("batch-x", body)).toEqual(amfJobCreateSchema.parse(body));
+    });
+  });
 });
 
 function storedBatch(state: StoredMusicBatch["state"]): StoredMusicBatch {
   return { id: "batch-1", requestId: "request-1", index: 0, state,
     body: { titles: { romaji: "Show" }, items: [{ kind: "OST" }], destination: "anime-ongaku-staging/request-request-1/batch-0" },
-    idempotencyKey: "anime-ongaku:request-1:0", amfJobId: null, warningCount: 0 };
+    idempotencyKey: "anime-ongaku:request-1:0", amfJobId: null, warningCount: 0,
+    pollBackoffStep: 0, pollNotBefore: null, manifestEvidence: { status: null, itemResults: [], deliveries: [] } };
 }
 function storedRequest(states: StoredMusicBatch["state"][]): StoredMusicRequest {
   const when = new Date("2026-07-21T12:00:00Z");
@@ -463,4 +619,35 @@ function amfJob(status: AmfJob["status"]): AmfJob {
   return { id: "amf-1", status, destination: "anime-ongaku-staging/request-request-1/batch-0", last_progress: null,
     source_files: [], deliveries: [], item_results: [], warnings: [], error_stage: null, has_error: false,
     created_at: "2026-07-21T12:00:00Z", updated_at: "2026-07-21T12:00:00Z", completed_at: null };
+}
+
+/**
+ * A minimal in-memory MusicRequestRepository double that actually persists
+ * what `recordProviderState`/`recordProviderEvidence` are given and reflects
+ * it back from `findBatch`, the same way Postgres would across separate poll
+ * jobs. Needed to test the poll-backoff ladder, which only makes sense as a
+ * sequence of polls each seeing the previous poll's persisted state.
+ */
+function statefulRepo(initial: StoredMusicBatch) {
+  let current: StoredMusicBatch = { ...initial };
+  const recordProviderState = vi.fn(async (_batchId: string, input: Record<string, unknown>) => {
+    current = {
+      ...current,
+      state: (input.state as StoredMusicBatch["state"]) ?? current.state,
+      amfJobId: (input.amfJobId as string | undefined) ?? current.amfJobId,
+      warningCount: (input.warningCount as number | undefined) ?? current.warningCount,
+      providerStatus: (input.providerStatus as StoredMusicBatch["providerStatus"]) ?? current.providerStatus,
+      pollBackoffStep: (input.pollBackoffStep as number | undefined) ?? current.pollBackoffStep,
+      pollNotBefore: "pollNotBefore" in input ? (input.pollNotBefore as Date | null) : current.pollNotBefore,
+    };
+  });
+  const recordProviderEvidence = vi.fn(async (_batchId: string, job: AmfJob) => {
+    current = { ...current, manifestEvidence: { status: job.status, itemResults: job.item_results, deliveries: job.deliveries } };
+  });
+  const findBatch = vi.fn(async () => current);
+  const repo = {
+    loadMetadata: vi.fn(), createOrReplay: vi.fn(), findById: vi.fn(), findLatest: vi.fn(), findBatch,
+    listRecoverableBatches: vi.fn(), listRecheckableBatches: vi.fn(), recordProviderState, recordProviderEvidence,
+  } as unknown as MusicRequestRepository;
+  return { repo, current: () => current };
 }

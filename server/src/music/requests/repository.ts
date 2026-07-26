@@ -1,6 +1,6 @@
 import type { Pool, PoolClient } from "pg";
 import { amfJobCreateSchema } from "../animeMusicFetcher/schemas.js";
-import type { AmfJob } from "../animeMusicFetcher/schemas.js";
+import type { AmfJob, AmfJobCreate } from "../animeMusicFetcher/schemas.js";
 import { normalizeMusicText } from "../matching/normalize.js";
 import type { MusicRequestRepository, NewMusicRequest, StoredMusicBatch, StoredMusicRequest, MusicBatchState } from "./types.js";
 
@@ -160,14 +160,16 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
     }
     return changed;
   }
-  async recordProviderState(batchId: string, input: { state: MusicBatchState; amfJobId?: string; warningCount?: number; lastError?: string | null; providerStatus?: AmfJob["status"] }, now: Date): Promise<void> {
+  async recordProviderState(batchId: string, input: { state: MusicBatchState; amfJobId?: string; warningCount?: number; lastError?: string | null; providerStatus?: AmfJob["status"]; pollBackoffStep?: number; pollNotBefore?: Date | null }, now: Date): Promise<void> {
     const terminal = TERMINAL.has(input.state);
     await this.pool.query(`UPDATE anime_music_request_batches SET state=$2,
       amf_job_id=COALESCE($3,amf_job_id), warning_count=COALESCE($4,warning_count), last_error=$5,
       completed_at=CASE WHEN $6 THEN COALESCE(completed_at,$7) ELSE NULL END,
       manifest_evidence=CASE WHEN $8::text IS NULL THEN manifest_evidence ELSE jsonb_set(manifest_evidence,'{status}',to_jsonb($8::text),true) END,
+      poll_backoff_step=COALESCE($9,poll_backoff_step), poll_not_before=CASE WHEN $10 THEN $11 ELSE poll_not_before END,
       updated_at=$7 WHERE id=$1`,
-      [batchId, input.state, input.amfJobId ?? null, input.warningCount ?? null, input.lastError ?? null, terminal, now, input.providerStatus ?? null]);
+      [batchId, input.state, input.amfJobId ?? null, input.warningCount ?? null, input.lastError ?? null, terminal, now, input.providerStatus ?? null,
+        input.pollBackoffStep ?? null, "pollNotBefore" in input, input.pollNotBefore ?? null]);
     await this.pool.query(`UPDATE anime_music_requests r SET updated_at=$2,
       completed_at=CASE WHEN NOT EXISTS (SELECT 1 FROM anime_music_request_batches b WHERE b.request_id=r.id AND b.completed_at IS NULL)
         THEN COALESCE(r.completed_at,$2) ELSE NULL END
@@ -271,9 +273,31 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
   }
 }
 
+/**
+ * Parses a persisted `amf_request_body`, tolerating a body written under a
+ * schema that has since tightened (F8). The body is validated strictly once,
+ * at write time (`builder.ts`); re-validating on every read means a later
+ * schema change (F5/F6 both add fields) would make every route, handler, and
+ * recovery sweep touching an older row throw just to learn its `state`. On
+ * mismatch, replay the stored JSON verbatim instead — it is only ever handed
+ * back to AMF (which re-validates it independently) or read for shape, never
+ * trusted as a source of new invariants.
+ */
+export function parseStoredMusicRequestBody(batchId: string, value: unknown): AmfJobCreate {
+  const parsed = amfJobCreateSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  console.warn(`[amf] stored request body for batch ${batchId} no longer matches the current schema; replaying it as-is (${parsed.error.issues.map((issue) => issue.message).join("; ")})`);
+  return value as AmfJobCreate;
+}
+
 function mapBatch(row: any): StoredMusicBatch {
-  return { id: row.id, requestId: row.request_id, index: row.batch_index, state: row.state, body: amfJobCreateSchema.parse(row.amf_request_body), idempotencyKey: row.idempotency_key, amfJobId: row.amf_job_id, warningCount: row.warning_count,
-    providerStatus: row.manifest_evidence?.status ?? null };
+  const manifestEvidence = row.manifest_evidence ?? {};
+  return { id: row.id, requestId: row.request_id, index: row.batch_index, state: row.state, body: parseStoredMusicRequestBody(row.id, row.amf_request_body), idempotencyKey: row.idempotency_key, amfJobId: row.amf_job_id, warningCount: row.warning_count,
+    providerStatus: manifestEvidence.status ?? null,
+    pollBackoffStep: row.poll_backoff_step ?? 0,
+    pollNotBefore: row.poll_not_before ?? null,
+    manifestEvidence: { status: manifestEvidence.status ?? null, itemResults: manifestEvidence.itemResults ?? [], deliveries: manifestEvidence.deliveries ?? [] },
+  };
 }
 
 type LocalizedTitles = { english: string | null; romaji: string | null; japanese: string | null };
