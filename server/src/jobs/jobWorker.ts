@@ -54,7 +54,12 @@ const DEFAULT_TIMEOUTS_MS: Record<JobType, number> = {
   IMPORT_MUSIC_AUDIO: 10 * 60_000,
   SUBMIT_AMF_MUSIC_BATCH: 2 * 60_000,
   POLL_AMF_MUSIC_BATCH: 2 * 60_000,
-  IMPORT_AMF_MUSIC_BATCH: 10 * 60_000,
+  // The batch job only plans chunks and enqueues IMPORT_AMF_MUSIC_ITEM jobs
+  // now (MC-S18) — it does no file I/O, so this is a generous ceiling.
+  IMPORT_AMF_MUSIC_BATCH: 2 * 60_000,
+  // A chunk of AMF_IMPORT_CHUNK_SIZE deliveries, each read in full twice
+  // (hash verification + copy verification).
+  IMPORT_AMF_MUSIC_ITEM: 10 * 60_000,
   OPERATE_AMF_MUSIC_BATCH: 2 * 60_000,
 };
 

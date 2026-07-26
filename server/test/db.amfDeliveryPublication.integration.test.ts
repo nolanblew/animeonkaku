@@ -93,6 +93,50 @@ describe.skipIf(!adminDatabaseUrl)("AMF delivery publication (PostgreSQL + files
       expect((await pool.query("SELECT count(*)::int count FROM music_acquisitions WHERE provider='AMF'")).rows[0].count).toBe(3);
     });
   });
+
+  it("closes an unsupported-format delivery as COMPLETED_WITH_WARNINGS instead of stranding the request in AWAITING_OPERATOR (F6/MC-S18)", async () => {
+    await withDatabase(async (pool) => {
+      const libraryRoot = await mkdtemp(join(tmpdir(), "ongaku-amf-pg-library-"));
+      const mediaRoot = await mkdtemp(join(tmpdir(), "ongaku-amf-pg-media-"));
+      await seedCatalog(pool);
+      const repo = new PgAmfDeliveryRepository(pool);
+      const mediaStore = new MediaStore({ mediaRoot, providerImportRoot: libraryRoot,
+        repo: new DrizzleMediaFileRepo(drizzle(pool)), minBytes: 1 });
+      const service = new AmfDeliveryImportService({ repo, mediaStore, libraryRoot });
+
+      // AMF is only asked to prefer importable formats (MC-S17), but the
+      // importer keeps this as defence in depth: an APE delivery reaches us
+      // anyway. No bytes need to exist on disk — the extension is rejected
+      // before any file is read.
+      await seedRequest(pool, { requestId: "request-unsupported", batchId: "batch-unsupported", items: [{
+        id: "item-unsupported", index: 0, kind: "OST", number: null, themeId: null, fileIndex: 0,
+        relativePath: "anime-ongaku-staging/request-related/batch-0/album.ape",
+        metadata: { title: "Unsupported Track" }, sha: null,
+      }] });
+
+      expect(await service.importBatch("batch-unsupported")).toBe("COMPLETED_WITH_WARNINGS");
+
+      const row = await pool.query<any>(`SELECT i.import_state item_state, i.import_error item_error,
+        d.import_state delivery_state, d.import_error delivery_error, d.metadata,
+        b.state batch_state, b.completed_at batch_completed_at, r.completed_at request_completed_at
+        FROM anime_music_request_deliveries d JOIN anime_music_request_items i ON i.id=d.item_id
+        JOIN anime_music_request_batches b ON b.id=i.batch_id JOIN anime_music_requests r ON r.id=b.request_id
+        WHERE i.id='item-unsupported'`);
+      expect(row.rows[0]).toMatchObject({ item_state: "ATTENTION", delivery_state: "ATTENTION", batch_state: "COMPLETED_WITH_WARNINGS" });
+      expect(row.rows[0].item_error).toMatch(/AMF_UNSUPPORTED_FORMAT:/);
+      expect(row.rows[0].delivery_error).toMatch(/AMF_UNSUPPORTED_FORMAT:/);
+      expect(row.rows[0].metadata.amfClassification).toBe("UNSUPPORTED_FORMAT");
+      // Terminal at both the batch and the request level — this is the F6
+      // "closable, does not strand" proof: nothing an operator can do on the
+      // Anime Ongaku side resolves this, so it must not block completion.
+      expect(row.rows[0].batch_completed_at).not.toBeNull();
+      expect(row.rows[0].request_completed_at).not.toBeNull();
+
+      // Re-running the import (crash-recovery replay) is a no-op that neither
+      // re-reads a (nonexistent) file nor changes the outcome.
+      expect(await service.importBatch("batch-unsupported")).toBe("COMPLETED_WITH_WARNINGS");
+    });
+  });
 });
 
 async function seedCatalog(pool: Pool) {

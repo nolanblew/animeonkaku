@@ -2,9 +2,33 @@ import type { Pool, PoolClient } from "pg";
 import type { MediaStore } from "../../media/mediaStore.js";
 import { MediaValidationError } from "../../media/mediaStore.js";
 import { normalizeMusicText } from "../matching/normalize.js";
-import { AmfDeliveryValidationError, validateAmfDeliveryFile } from "./deliveryImporter.js";
+import {
+  AMF_UNSUPPORTED_FORMAT_ERROR_PREFIX,
+  AmfDeliveryValidationError,
+  AmfUnsupportedFormatDeliveryError,
+  unsupportedFormatImportError,
+  validateAmfDeliveryFile,
+} from "./deliveryImporter.js";
 import type { JobHandler } from "../../jobs/types.js";
+import { JobPriority } from "../../jobs/types.js";
 import type { JobQueue } from "../../jobs/jobQueue.js";
+
+/**
+ * How many not-yet-READY deliveries go into a single `IMPORT_AMF_MUSIC_ITEM`
+ * job. A single AMF request item can deliver many files (a live OST item
+ * delivered 71), and each file is read in full at least once for hash
+ * verification, so importing an entire large item in one queue job holds a
+ * `pg_advisory_lock` per file for the whole duration and head-of-line-blocks
+ * the queue. Chunking makes progress visible and lets other jobs interleave.
+ * See F7 / MC-S18 in `.planning/18-amf-fetch-robustness-review.md`.
+ */
+export const AMF_IMPORT_CHUNK_SIZE = 10;
+
+/** jsonb key written into a delivery's `metadata` to classify why it needs
+ * attention, so a retried job can re-affirm the classification without
+ * re-reading (or even re-checking the existence of) the source file. */
+export const AMF_DELIVERY_CLASSIFICATION_KEY = "amfClassification";
+export const AMF_DELIVERY_CLASSIFICATION_UNSUPPORTED_FORMAT = "UNSUPPORTED_FORMAT";
 
 export interface DeliveryRecord {
   id: string; fileIndex: number; relativePath: string; byteSize: number | null; sha256: string | null;
@@ -16,74 +40,208 @@ export interface DeliveryItemRecord {
 }
 export interface DeliveryBatchRecord { id: string; animeId: number; destination: string; warningCount: number; items: DeliveryItemRecord[] }
 export interface DeliveryCatalogReservation { songId: number; releaseId: number }
+export type AmfBatchImportOutcome = "PROCESSING" | "AWAITING_OPERATOR" | "COMPLETED" | "COMPLETED_WITH_WARNINGS";
+export interface AmfImportChunk { itemId: string; deliveryIds: string[] }
+export interface AmfImportPlan { chunks: AmfImportChunk[] }
 export interface AmfDeliveryRepository {
   loadBatch(batchId: string): Promise<DeliveryBatchRecord | null>;
   reserveCatalog(deliveryId: string, verified: { byteSize: number; sha256: string }): Promise<DeliveryCatalogReservation>;
   publishDelivery(deliveryId: string): Promise<void>;
   markAttention(deliveryId: string | null, itemId: string, error: string): Promise<void>;
-  finishBatch(batchId: string, now: Date): Promise<"PROCESSING" | "AWAITING_OPERATOR" | "COMPLETED" | "COMPLETED_WITH_WARNINGS">;
+  /**
+   * Classifies a delivery (and, unless the item already needs genuine
+   * operator review, the item) as rejected solely for an unsupported audio
+   * format — distinct from generic `markAttention` so `finishBatch` can let
+   * the batch/request reach a terminal state instead of stranding on it. See
+   * `AMF_UNSUPPORTED_FORMAT_ERROR_PREFIX` in deliveryImporter.ts.
+   */
+  markUnsupportedFormat(deliveryId: string, itemId: string, extension: string): Promise<void>;
+  finishBatch(batchId: string, now: Date): Promise<AmfBatchImportOutcome>;
   listRecoverableBatchIds(): Promise<string[]>;
   withContentLock<T>(sha256: string, action: () => Promise<T>): Promise<T>;
   markOperationalExhausted(batchId: string, error: string, now: Date): Promise<void>;
+  /** Same as `markOperationalExhausted` but scoped to one item's own chunk of
+   * deliveries, so one chunk job exhausting its retries cannot mark unrelated
+   * items/chunks of the same batch as needing attention. */
+  markItemOperationalExhausted(itemId: string, deliveryIds: string[], error: string, now: Date): Promise<void>;
 }
 
 export class AmfDeliveryImportService {
-  constructor(private readonly deps: { repo: AmfDeliveryRepository; mediaStore: MediaStore; libraryRoot?: string; now?: () => Date }) {}
+  constructor(private readonly deps: { repo: AmfDeliveryRepository; mediaStore: MediaStore; libraryRoot?: string; now?: () => Date; chunkSize?: number }) {}
 
-  async importBatch(batchId: string): Promise<"PROCESSING" | "AWAITING_OPERATOR" | "COMPLETED" | "COMPLETED_WITH_WARNINGS" | null> {
+  private now(): Date {
+    return (this.deps.now ?? (() => new Date()))();
+  }
+
+  private chunkSize(): number {
+    return this.deps.chunkSize && this.deps.chunkSize > 0 ? this.deps.chunkSize : AMF_IMPORT_CHUNK_SIZE;
+  }
+
+  /**
+   * Computes the per-item chunks of work remaining for a batch, without
+   * doing any file I/O. The caller (the `IMPORT_AMF_MUSIC_BATCH` job handler)
+   * enqueues one `IMPORT_AMF_MUSIC_ITEM` job per chunk. When there is nothing
+   * left to import — every delivered item is already `READY`, the library
+   * root is not configured, or the batch has no delivered items yet — there
+   * is no chunk job to finalize the batch, so this finalizes it directly.
+   */
+  async planImport(batchId: string): Promise<AmfImportPlan | null> {
     const batch = await this.deps.repo.loadBatch(batchId);
     if (!batch) return null;
     if (!this.deps.libraryRoot) {
       for (const item of batch.items) await this.deps.repo.markAttention(null, item.id, "AMF library root is not configured.");
-      return this.deps.repo.finishBatch(batchId, (this.deps.now ?? (() => new Date()))());
+      await this.deps.repo.finishBatch(batchId, this.now());
+      return { chunks: [] };
     }
+    const chunkSize = this.chunkSize();
+    const chunks: AmfImportChunk[] = [];
     for (const item of batch.items) {
       if (item.importState === "READY") continue;
-      if (item.resultStatus !== "delivered" || item.deliveries.length === 0) {
-        continue;
-      }
-      for (const delivery of item.deliveries) {
-        if (delivery.importState === "READY") continue;
-        if (delivery.importState === "ATTENTION") { await this.deps.repo.markAttention(null, item.id, "AMF delivery requires operator review."); continue; }
-        try {
-          const verified = await validateAmfDeliveryFile(this.deps.libraryRoot, {
-            relativePath: delivery.relativePath, size: delivery.byteSize, sha256: delivery.sha256,
-          }, batch.destination);
-          await this.deps.repo.withContentLock(verified.sha256, async () => {
-            const reservation = await this.deps.repo.reserveCatalog(delivery.id, { byteSize: verified.byteSize, sha256: verified.sha256 });
-            await this.deps.mediaStore.importLocalSongFile({ songId: reservation.songId, sourcePath: verified.path,
-              expectedByteSize: verified.byteSize, expectedSha256: verified.sha256 });
-            await this.deps.repo.publishDelivery(delivery.id);
-          });
-        } catch (error) {
-          if (error instanceof AmfDeliveryValidationError || error instanceof MediaValidationError) {
-            await this.deps.repo.markAttention(delivery.id, item.id, error.message);
-            continue;
-          }
-          throw error;
-        }
+      if (item.resultStatus !== "delivered" || item.deliveries.length === 0) continue;
+      const pendingDeliveryIds = item.deliveries.filter((delivery) => delivery.importState !== "READY").map((delivery) => delivery.id);
+      for (let offset = 0; offset < pendingDeliveryIds.length; offset += chunkSize) {
+        chunks.push({ itemId: item.id, deliveryIds: pendingDeliveryIds.slice(offset, offset + chunkSize) });
       }
     }
-    return this.deps.repo.finishBatch(batchId, (this.deps.now ?? (() => new Date()))());
+    if (chunks.length === 0) await this.deps.repo.finishBatch(batchId, this.now());
+    return { chunks };
+  }
+
+  /**
+   * Imports exactly the deliveries named in `deliveryIds` for one item, then
+   * (re-)finalizes the batch. `finishBatch` is idempotent — it recomputes the
+   * outcome from the current row states and only actually transitions the
+   * batch once every item has settled — so it is safe for every chunk job to
+   * call it unconditionally: the batch/request moves to a terminal state
+   * exactly once in effect, however many chunk jobs happen to call this.
+   * Also safe to re-run with an overlapping or identical `deliveryIds` set
+   * (crash/retry): already-`READY` deliveries are skipped and no catalog
+   * row or media file is duplicated.
+   */
+  async importItemChunk(batchId: string, itemId: string, deliveryIds: string[]): Promise<AmfBatchImportOutcome | null> {
+    const batch = await this.deps.repo.loadBatch(batchId);
+    if (!batch) return null;
+    const item = batch.items.find((candidate) => candidate.id === itemId);
+    if (!item) return this.deps.repo.finishBatch(batchId, this.now());
+    if (!this.deps.libraryRoot) {
+      await this.deps.repo.markAttention(null, item.id, "AMF library root is not configured.");
+      return this.deps.repo.finishBatch(batchId, this.now());
+    }
+    const wanted = new Set(deliveryIds);
+    const deliveries = item.deliveries.filter((delivery) => wanted.has(delivery.id));
+    await this.importDeliveries(batch, item, deliveries);
+    return this.deps.repo.finishBatch(batchId, this.now());
+  }
+
+  /**
+   * Convenience wrapper that plans and runs every chunk of a batch in
+   * process, for callers (tests, the crash-recovery sweep) that want a
+   * single "import everything currently importable" call without going
+   * through the job queue. It exercises exactly the same per-chunk logic
+   * `IMPORT_AMF_MUSIC_ITEM` jobs use.
+   */
+  async importBatch(batchId: string): Promise<AmfBatchImportOutcome | null> {
+    const plan = await this.planImport(batchId);
+    if (!plan) return null;
+    for (const chunk of plan.chunks) {
+      await this.importItemChunk(batchId, chunk.itemId, chunk.deliveryIds);
+    }
+    return this.deps.repo.finishBatch(batchId, this.now());
+  }
+
+  private async importDeliveries(batch: DeliveryBatchRecord, item: DeliveryItemRecord, deliveries: DeliveryRecord[]): Promise<void> {
+    for (const delivery of deliveries) {
+      if (delivery.importState === "READY") continue;
+      if (delivery.importState === "ATTENTION") {
+        if (delivery.metadata?.[AMF_DELIVERY_CLASSIFICATION_KEY] === AMF_DELIVERY_CLASSIFICATION_UNSUPPORTED_FORMAT) {
+          // Re-affirm without touching the filesystem: the classification
+          // was already established from the delivery's manifest extension.
+          const extension = typeof delivery.metadata.amfUnsupportedExtension === "string" ? delivery.metadata.amfUnsupportedExtension : "";
+          await this.deps.repo.markUnsupportedFormat(delivery.id, item.id, extension);
+        } else {
+          await this.deps.repo.markAttention(null, item.id, "AMF delivery requires operator review.");
+        }
+        continue;
+      }
+      try {
+        const verified = await validateAmfDeliveryFile(this.deps.libraryRoot!, {
+          relativePath: delivery.relativePath, size: delivery.byteSize, sha256: delivery.sha256,
+        }, batch.destination);
+        await this.deps.repo.withContentLock(verified.sha256, async () => {
+          const reservation = await this.deps.repo.reserveCatalog(delivery.id, { byteSize: verified.byteSize, sha256: verified.sha256 });
+          await this.deps.mediaStore.importLocalSongFile({ songId: reservation.songId, sourcePath: verified.path,
+            expectedByteSize: verified.byteSize, expectedSha256: verified.sha256 });
+          await this.deps.repo.publishDelivery(delivery.id);
+        });
+      } catch (error) {
+        if (error instanceof AmfUnsupportedFormatDeliveryError) {
+          await this.deps.repo.markUnsupportedFormat(delivery.id, item.id, error.extension);
+          continue;
+        }
+        if (error instanceof AmfDeliveryValidationError || error instanceof MediaValidationError) {
+          await this.deps.repo.markAttention(delivery.id, item.id, error.message);
+          continue;
+        }
+        throw error;
+      }
+    }
   }
 
   async markOperationalExhausted(batchId: string, error: string): Promise<void> {
-    await this.deps.repo.markOperationalExhausted(batchId, error, (this.deps.now ?? (() => new Date()))());
+    await this.deps.repo.markOperationalExhausted(batchId, error, this.now());
+  }
+
+  async markItemOperationalExhausted(batchId: string, itemId: string, deliveryIds: string[], error: string): Promise<AmfBatchImportOutcome> {
+    await this.deps.repo.markItemOperationalExhausted(itemId, deliveryIds, error, this.now());
+    return this.deps.repo.finishBatch(batchId, this.now());
   }
 }
 
-export function createAmfDeliveryImportHandlers(service: AmfDeliveryImportService, _queue: JobQueue, _now: () => Date = () => new Date()): Record<"IMPORT_AMF_MUSIC_BATCH", JobHandler> {
-  return { async IMPORT_AMF_MUSIC_BATCH(payload, job) {
-    if (typeof payload.batchId !== "string") throw new Error("AMF import job is missing batchId");
-    try {
-      await service.importBatch(payload.batchId);
-    } catch (error) {
-      if (job.attempts + 1 >= job.maxAttempts) {
-        await service.markOperationalExhausted(payload.batchId, error instanceof Error ? error.message : "AMF delivery import failed");
+export function createAmfDeliveryImportHandlers(
+  service: AmfDeliveryImportService,
+  queue: JobQueue,
+  _now: () => Date = () => new Date(),
+): Record<"IMPORT_AMF_MUSIC_BATCH" | "IMPORT_AMF_MUSIC_ITEM", JobHandler> {
+  return {
+    async IMPORT_AMF_MUSIC_BATCH(payload, job) {
+      if (typeof payload.batchId !== "string") throw new Error("AMF import job is missing batchId");
+      const batchId = payload.batchId;
+      try {
+        const plan = await service.planImport(batchId);
+        if (!plan) return;
+        for (const chunk of plan.chunks) {
+          await queue.enqueue({
+            type: "IMPORT_AMF_MUSIC_ITEM",
+            priority: JobPriority.NORMAL,
+            payload: { batchId, itemId: chunk.itemId, deliveryIds: chunk.deliveryIds },
+            dedupeKey: `IMPORT_AMF_MUSIC_ITEM:${batchId}:${chunk.itemId}:${chunk.deliveryIds[0]}`,
+            maxAttempts: 8,
+          });
+        }
+      } catch (error) {
+        if (job.attempts + 1 >= job.maxAttempts) {
+          await service.markOperationalExhausted(batchId, error instanceof Error ? error.message : "AMF delivery import planning failed");
+        }
+        throw error;
       }
-      throw error;
-    }
-  } };
+    },
+    async IMPORT_AMF_MUSIC_ITEM(payload, job) {
+      const { batchId, itemId, deliveryIds: rawDeliveryIds } = payload;
+      if (typeof batchId !== "string" || typeof itemId !== "string" || !Array.isArray(rawDeliveryIds)) {
+        throw new Error("AMF item import job is missing batchId/itemId/deliveryIds");
+      }
+      const deliveryIds = rawDeliveryIds.filter((value): value is string => typeof value === "string");
+      try {
+        await service.importItemChunk(batchId, itemId, deliveryIds);
+      } catch (error) {
+        if (job.attempts + 1 >= job.maxAttempts) {
+          await service.markItemOperationalExhausted(batchId, itemId, deliveryIds,
+            error instanceof Error ? error.message : "AMF delivery import failed");
+        }
+        throw error;
+      }
+    },
+  };
 }
 
 export class PgAmfDeliveryRepository implements AmfDeliveryRepository {
@@ -266,19 +424,44 @@ export class PgAmfDeliveryRepository implements AmfDeliveryRepository {
     await this.pool.query("UPDATE anime_music_request_items SET import_state='ATTENTION',import_error=$2 WHERE id=$1 AND import_state<>'READY'", [itemId, error]);
   }
 
-  async finishBatch(batchId: string, now: Date): Promise<"PROCESSING" | "AWAITING_OPERATOR" | "COMPLETED" | "COMPLETED_WITH_WARNINGS"> {
+  async markUnsupportedFormat(deliveryId: string, itemId: string, extension: string): Promise<void> {
+    const message = unsupportedFormatImportError(extension);
+    await this.pool.query(`UPDATE anime_music_request_deliveries SET import_state='ATTENTION',import_error=$2,
+      metadata=COALESCE(metadata,'{}'::jsonb) || jsonb_build_object('${AMF_DELIVERY_CLASSIFICATION_KEY}',$3::text,'amfUnsupportedExtension',$4::text),
+      updated_at=now() WHERE id=$1 AND import_state<>'READY'`,
+      [deliveryId, message, AMF_DELIVERY_CLASSIFICATION_UNSUPPORTED_FORMAT, extension]);
+    // Never downgrade an item that already needs genuine operator review
+    // (a different delivery in the same item failed for some other reason):
+    // only (re-)apply the unsupported-format classification when the item is
+    // still open, or was already classified this same way.
+    await this.pool.query(`UPDATE anime_music_request_items SET import_state='ATTENTION',import_error=$2
+      WHERE id=$1 AND import_state<>'READY' AND (import_state<>'ATTENTION' OR import_error LIKE $3)`,
+      [itemId, message, `${AMF_UNSUPPORTED_FORMAT_ERROR_PREFIX}%`]);
+  }
+
+  async finishBatch(batchId: string, now: Date): Promise<AmfBatchImportOutcome> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
       const locked = await client.query<{ request_id: string }>("SELECT request_id FROM anime_music_request_batches WHERE id=$1 FOR UPDATE", [batchId]);
       if (!locked.rows[0]) { await client.query("COMMIT"); return "PROCESSING"; }
       await client.query("SELECT id FROM anime_music_requests WHERE id=$1 FOR UPDATE", [locked.rows[0].request_id]);
-      const result = await client.query<{ attention: string | number; pending: string | number; warning_count: number }>(`SELECT
-        count(*) FILTER (WHERE i.import_state='ATTENTION') attention,count(*) FILTER (WHERE i.import_state NOT IN ('READY','ATTENTION')) pending,
+      // Items whose only problem is an unsupported delivery format (marker
+      // prefix on import_error, see deliveryImporter.ts) are deliberately
+      // excluded from `attention` — F6/MC-S18: nothing an operator can do on
+      // the Anime Ongaku side resolves this, so it must not strand the batch
+      // in AWAITING_OPERATOR forever. It still counts as a warning so the
+      // outcome is COMPLETED_WITH_WARNINGS rather than a silent COMPLETED.
+      const result = await client.query<{ attention: string | number; unsupported_format: string | number; pending: string | number; warning_count: number }>(`SELECT
+        count(*) FILTER (WHERE i.import_state='ATTENTION' AND (i.import_error IS NULL OR i.import_error NOT LIKE '${AMF_UNSUPPORTED_FORMAT_ERROR_PREFIX}%')) attention,
+        count(*) FILTER (WHERE i.import_state='ATTENTION' AND i.import_error LIKE '${AMF_UNSUPPORTED_FORMAT_ERROR_PREFIX}%') unsupported_format,
+        count(*) FILTER (WHERE i.import_state NOT IN ('READY','ATTENTION')) pending,
         b.warning_count FROM anime_music_request_items i JOIN anime_music_request_batches b ON b.id=i.batch_id WHERE i.batch_id=$1 GROUP BY b.warning_count`, [batchId]);
       const row = result.rows[0];
       if (!row || Number(row.pending) > 0) { await client.query("COMMIT"); return "PROCESSING"; }
-      const state = Number(row.attention) > 0 ? "AWAITING_OPERATOR" : row.warning_count > 0 ? "COMPLETED_WITH_WARNINGS" : "COMPLETED";
+      const state = Number(row.attention) > 0 ? "AWAITING_OPERATOR"
+        : (row.warning_count > 0 || Number(row.unsupported_format) > 0) ? "COMPLETED_WITH_WARNINGS"
+        : "COMPLETED";
       const terminal = state !== "AWAITING_OPERATOR";
       await client.query("UPDATE anime_music_request_batches SET state=$2,completed_at=CASE WHEN $3::boolean THEN $4::timestamptz ELSE NULL END,updated_at=$4 WHERE id=$1", [batchId, state, terminal, now]);
       await client.query(`UPDATE anime_music_requests r SET updated_at=$2,completed_at=CASE WHEN NOT EXISTS
@@ -296,6 +479,16 @@ export class PgAmfDeliveryRepository implements AmfDeliveryRepository {
       FROM anime_music_request_items i WHERE d.item_id=i.id AND i.batch_id=$1 AND d.active=true AND d.import_state<>'READY'`, [batchId, safeError, now]);
     await this.pool.query("UPDATE anime_music_request_items SET import_state='ATTENTION',import_error=$2 WHERE batch_id=$1 AND import_state<>'READY'", [batchId, safeError]);
     await this.finishBatch(batchId, now);
+  }
+
+  async markItemOperationalExhausted(itemId: string, deliveryIds: string[], error: string, now: Date): Promise<void> {
+    const safeError = error.slice(0, 500);
+    if (deliveryIds.length > 0) {
+      await this.pool.query(`UPDATE anime_music_request_deliveries SET import_state='ATTENTION',import_error=$3,updated_at=$4
+        WHERE item_id=$1 AND id = ANY($2::text[]) AND active=true AND import_state<>'READY'`,
+        [itemId, deliveryIds, safeError, now]);
+    }
+    await this.pool.query("UPDATE anime_music_request_items SET import_state='ATTENTION',import_error=$2 WHERE id=$1 AND import_state<>'READY'", [itemId, safeError]);
   }
 
   async listRecoverableBatchIds(): Promise<string[]> {

@@ -38,6 +38,24 @@ export class AmfUnsupportedFormatDeliveryError extends AmfDeliveryValidationErro
   }
 }
 
+/**
+ * Stable prefix `deliveryService.ts` writes into `import_error` for deliveries
+ * (and their parent item) rejected solely by {@link AmfUnsupportedFormatDeliveryError}.
+ * This is the MC-S18 seam for F6/F3: `finishBatch` excludes rows matching this
+ * prefix from the "needs operator review" bucket so an unsupported-format
+ * delivery cannot strand the batch/request in a non-terminal state — it
+ * settles as `COMPLETED_WITH_WARNINGS` instead. MC-S15 can match on this
+ * prefix (or promote the classification to a first-class column) to build a
+ * dedicated operator-facing surface for these; nothing here deletes or hides
+ * the row, so it stays inspectable and — per the F2 "never stop importing"
+ * decision — still eligible to be revisited later.
+ */
+export const AMF_UNSUPPORTED_FORMAT_ERROR_PREFIX = "AMF_UNSUPPORTED_FORMAT:";
+
+export function unsupportedFormatImportError(extension: string): string {
+  return `${AMF_UNSUPPORTED_FORMAT_ERROR_PREFIX} ${extension || "missing"} is not an importable audio format.`;
+}
+
 export interface AmfDeliveryFileEvidence {
   relativePath: string;
   size: number | null;
