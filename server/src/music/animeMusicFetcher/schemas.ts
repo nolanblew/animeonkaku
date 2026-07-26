@@ -282,6 +282,72 @@ export const amfJobSchema = amfRawJobSchema.transform((value) => ({
   completed_at: value.completed_at,
 }));
 
+const amfJsonApiItemResultResourceSchema = z.object({
+  type: z.literal("item_results"),
+  id: z.string().min(1),
+  attributes: amfItemMatchResultSchema,
+}).passthrough();
+
+const amfJsonApiMediaResourceSchema = z.object({
+  type: z.literal("media"),
+  id: z.string().min(1),
+  attributes: amfJobMediaSchema,
+}).passthrough();
+
+const amfJsonApiJobAttributesSchema = z.object({
+  status: amfJobStatusSchema,
+  destination: z.string().min(1).refine(isSafeAmfRelativePath, "unsafe response destination"),
+  last_progress: z.number().nullable(),
+  warnings: z.array(z.string()).nullable().optional().transform((value) => (value ?? []).map(redactAmfText)),
+  error_stage: z.string().nullable(),
+  error_message: z.string().nullable(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+  completed_at: z.string().nullable(),
+}).strict();
+
+// Polling uses AMF's sparse JSON:API representation. The included media is the
+// canonical source for ready files and localized metadata; bulky search,
+// download, and source-file diagnostics are intentionally not requested.
+export const amfJsonApiJobSchema = z.object({
+  data: z.object({
+    type: z.literal("jobs"),
+    id: z.string().min(1),
+    attributes: amfJsonApiJobAttributesSchema,
+  }).passthrough(),
+  included: z.array(z.union([
+    amfJsonApiItemResultResourceSchema,
+    amfJsonApiMediaResourceSchema,
+  ])).optional().default([]),
+}).passthrough().transform((document) => {
+  const itemResults = document.included
+    .filter((resource): resource is z.infer<typeof amfJsonApiItemResultResourceSchema> => resource.type === "item_results")
+    .map((resource) => resource.attributes);
+  const media = document.included.find(
+    (resource): resource is z.infer<typeof amfJsonApiMediaResourceSchema> => resource.type === "media",
+  )?.attributes;
+  const attributes = document.data.attributes;
+  return {
+    id: document.data.id,
+    status: attributes.status,
+    destination: attributes.destination,
+    last_progress: attributes.last_progress,
+    source_files: [],
+    deliveries: media ? mergeMediaDeliveries(media, itemResults, []) : [],
+    item_results: itemResults,
+    warnings: attributes.warnings,
+    error_stage: attributes.error_stage == null ? null : redactAmfText(attributes.error_stage),
+    has_error: attributes.error_message !== null,
+    created_at: attributes.created_at,
+    updated_at: attributes.updated_at,
+    completed_at: attributes.completed_at,
+  };
+});
+
+// Accepting the legacy projection here keeps command responses and retained
+// unit fixtures compatible while all actual GET polling uses JSON:API v2.
+export const amfJobReadSchema = z.union([amfJsonApiJobSchema, amfJobSchema]);
+
 function mediaDeliveries(
   media: z.infer<typeof amfJobMediaSchema>,
   itemResults: z.infer<typeof amfItemMatchResultSchema>[],

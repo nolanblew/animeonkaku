@@ -2791,6 +2791,31 @@ environment-gated skipped). The first parallel full-suite attempt had two
 Windows Vitest workers exit without assertion failures; the serial rerun
 completed every test file successfully.
 
+### MC-R09 — Poll AMF with sparse JSON:API resources
+
+| Field | Value |
+|---|---|
+| Status | ✅ Complete (2026-07-26) |
+| Area | AMF adapter and request polling |
+
+AMF job polling now uses `GET /api/v2/jobs/{id}` with explicit JSON:API
+includes and sparse fieldsets. The request retains compact job state, the six
+item-result fields needed to associate requested items, and the nested media
+document needed for ready-file import and English/romaji/Japanese metadata.
+Submission, retry, cancel, and reprocess commands remain on their documented
+v1 endpoints.
+
+The contract was exercised against three retained AMF jobs before and after
+implementation. Their v1 → sparse-v2 payload sizes fell from 27,432 → 11,743
+bytes, 93,049 → 52,813 bytes, and 10,058 → 3,663 bytes (approximately 43–64%
+smaller). The live v2 responses projected 9, 45, and 2 importable files and
+preserved partial-completion and localized delivery evidence.
+
+The focused client suite passed (53 tests), the full serial server suite passed
+(453 passed, 22 environment-gated skipped), TypeScript typecheck passed, and
+the deployed LAN server rebuilt successfully. Its startup recovery polls
+received successful AMF responses and both server containers remained healthy.
+
 ## 9. Effort summary
 
 | Workstream | Tickets | Experienced effort |

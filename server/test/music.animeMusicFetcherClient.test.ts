@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { TokenBucket } from "../src/http/tokenBucket.js";
 import {
   AMF_API_BASE_URL,
+  AMF_JSON_API_BASE_URL,
   AnimeMusicFetcherClient,
   AnimeMusicFetcherError,
   createAnimeMusicFetcherUpstreamHttp,
@@ -75,6 +76,68 @@ function clientFor(script: FakeResponse[]) {
   const { fetch, requests } = fakeFetch(script);
   const http = createAnimeMusicFetcherUpstreamHttp({ fetch, maxRetries: 0 });
   return { client: new AnimeMusicFetcherClient({ http }), requests };
+}
+
+function jsonApiJobFixture() {
+  const fixture = jobFixture("completed_with_warnings");
+  return {
+    jsonapi: { version: "1.1" },
+    data: {
+      type: "jobs",
+      id: fixture.id,
+      attributes: {
+        status: fixture.status,
+        destination: fixture.destination,
+        last_progress: fixture.last_progress,
+        warnings: ["OST could not be found"],
+        error_stage: fixture.error_stage,
+        error_message: fixture.error_message,
+        created_at: fixture.created_at,
+        updated_at: fixture.updated_at,
+        completed_at: "2026-07-21T12:30:00Z",
+      },
+    },
+    included: [
+      {
+        type: "item_results",
+        id: `${fixture.id}:0`,
+        attributes: {
+          requested_item_index: 0,
+          label: "OP1",
+          kind: "OP",
+          number: 1,
+          status: "delivered",
+          file_count: 1,
+        },
+      },
+      {
+        type: "media",
+        id: fixture.id,
+        attributes: {
+          anime: {
+            titles: { english: "Frieren: Beyond Journey's End", japanese: "葬送のフリーレン", romaji: "Sousou no Frieren" },
+            albums: [{
+              titles: { english: "The Book 3", japanese: null, romaji: "The Book 3" },
+              songs: [{
+                file_index: 0,
+                requested_item_indexes: [0],
+                labels: ["OP1"],
+                titles: { english: "The Brave", japanese: "勇者", romaji: "Yuusha" },
+                artists: [{ english: "YOASOBI", japanese: null, romaji: "YOASOBI" }],
+                relative_path: "anime-ongaku-staging/request/01.flac",
+                absolute_path: "/library/anime-ongaku-staging/request/01.flac",
+                media_url: "/api/v1/jobs/amf-job-1/files/0",
+                download_url: "/api/v1/jobs/amf-job-1/files/0?download=true",
+                size: 1234,
+                sha256: "a".repeat(64),
+                metadata: { title: "勇者", artist: "YOASOBI" },
+              }],
+            }],
+          },
+        },
+      },
+    ],
+  };
 }
 
 describe("AnimeMusicFetcherClient request contract", () => {
@@ -178,6 +241,38 @@ describe("AnimeMusicFetcherClient request contract", () => {
 });
 
 describe("AnimeMusicFetcherClient job lifecycle", () => {
+  it("polls the sparse JSON:API v2 projection and retains importable localized media", async () => {
+    const { client, requests } = clientFor([{ status: 200, body: JSON.stringify(jsonApiJobFixture()) }]);
+
+    const job = await client.getJob("amf-job-1");
+
+    expect(job).toMatchObject({
+      id: "amf-job-1",
+      status: "completed_with_warnings",
+      warnings: ["OST could not be found"],
+      item_results: [expect.objectContaining({ requested_item_index: 0, status: "delivered", file_count: 1 })],
+    });
+    expect(job.source_files).toEqual([]);
+    expect(job.deliveries[0]?.files[0]?.metadata).toMatchObject({
+      localized: {
+        songTitles: { english: "The Brave", japanese: "勇者", romaji: "Yuusha" },
+      },
+    });
+
+    const url = new URL(requests[0]!.url);
+    expect(`${url.origin}/api/v2`).toBe(AMF_JSON_API_BASE_URL);
+    expect(url.pathname).toBe("/api/v2/jobs/amf-job-1");
+    expect(url.searchParams.get("include")).toBe("item_results,media");
+    expect(url.searchParams.get("fields[jobs]")).toBe(
+      "status,destination,last_progress,warnings,error_stage,error_message,created_at,updated_at,completed_at,item_results,media",
+    );
+    expect(url.searchParams.get("fields[item_results]")).toBe(
+      "requested_item_index,label,kind,number,status,file_count",
+    );
+    expect(url.searchParams.get("fields[media]")).toBe("anime");
+    expect(new Headers(requests[0]?.init?.headers).get("Accept")).toBe("application/vnd.api+json");
+  });
+
   it("accepts delegated item results returned by aggregate follow-up jobs", async () => {
     const fixture = jobFixture("completed_with_warnings");
     fixture.item_results[0] = {
@@ -240,7 +335,7 @@ describe("AnimeMusicFetcherClient job lifecycle", () => {
     await expect(client.cancelJob("job/id with spaces")).resolves.toMatchObject({ status: "cancelled" });
     await expect(client.reprocessJob("job/id with spaces")).resolves.toMatchObject({ status: "processing" });
     expect(requests.map((entry) => new URL(entry.url).pathname)).toEqual([
-      "/api/v1/jobs/job%2Fid%20with%20spaces",
+      "/api/v2/jobs/job%2Fid%20with%20spaces",
       "/api/v1/jobs/job%2Fid%20with%20spaces/retry",
       "/api/v1/jobs/job%2Fid%20with%20spaces/cancel",
       "/api/v1/jobs/job%2Fid%20with%20spaces/reprocess",
