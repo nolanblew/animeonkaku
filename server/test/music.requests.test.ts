@@ -4,7 +4,11 @@ import { createMusicRequestHandlers, AMF_POLL_INTERVAL_MS } from "../src/music/r
 import { MusicRequestService, toSummary } from "../src/music/requests/service.js";
 import { RetryableJobError } from "../src/jobs/jobWorker.js";
 import type { JobQueue } from "../src/jobs/jobQueue.js";
-import type { MusicRequestRepository, StoredMusicBatch, StoredMusicRequest } from "../src/music/requests/types.js";
+import type { MusicRequestRepository, StoredMusicBatch, StoredMusicRequest, StoredProviderJobLink } from "../src/music/requests/types.js";
+import {
+  AMF_MAX_PROVIDER_JOBS_PER_BATCH,
+  AMF_PROVIDER_JOB_FILE_INDEX_STRIDE,
+} from "../src/music/requests/providerGraph.js";
 import type { AmfJob } from "../src/music/animeMusicFetcher/schemas.js";
 import { vi } from "vitest";
 import { AnimeMusicFetcherError } from "../src/music/animeMusicFetcher/errors.js";
@@ -580,6 +584,337 @@ describe("anime music request orchestration", () => {
     });
   });
 
+  describe("provider job graph (MC-S13 / F1)", () => {
+    const DESTINATION = "anime-ongaku-staging/request-request-1/batch-0";
+
+    it("adopts, polls, and attributes every delegated child of a parent to the right batch item", async () => {
+      // Shape of live root job ef75e439: delivered items alongside delegated
+      // ones, each delegated item naming its own follow-up job.
+      const { repo, graph } = statefulRepo(storedBatch("PROCESSING"));
+      const client = graphClient({
+        "amf-1": {
+          ...amfJob("completed_with_warnings"),
+          item_results: [
+            itemResult(0, "OP1", "OP", 1, "delivered"),
+            itemResult(4, "ED3", "ED", 3, "delegated", "child-a"),
+            itemResult(6, "CHARACTER_SONG", "CHARACTER_SONG", null, "delegated", "child-b"),
+          ],
+          follow_up_jobs: [
+            { job_id: "child-a", requested_item_index: 4, label: "ED3" },
+            { job_id: "child-b", requested_item_index: 6, label: "CHARACTER_SONG" },
+          ],
+        },
+        "child-a": childJob("child-a", "amf-1", 4, "awaiting_selection", itemResult(0, "ED3", "ED", 3, "possible")),
+        "child-b": childJob("child-b", "amf-1", 6, "awaiting_selection", itemResult(0, "CHARACTER_SONG", "CHARACTER_SONG", null, "possible")),
+      });
+      const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue, client });
+      await repo.recordProviderState("batch-1", { state: "PROCESSING", amfJobId: "amf-1" }, new Date());
+
+      await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch(() => undefined);
+
+      expect(client.getJob.mock.calls.map(([id]) => id)).toEqual(["amf-1", "child-a", "child-b"]);
+      expect(graph().map((link) => [link.amfJobId, link.role, link.itemIndex, link.parentAmfJobId])).toEqual([
+        ["amf-1", "ROOT", null, null],
+        ["child-a", "FOLLOW_UP", 4, "amf-1"],
+        ["child-b", "FOLLOW_UP", 6, "amf-1"],
+      ]);
+      // Each child's item-0 result is remapped onto the batch item its parent delegated.
+      const childScopes = vi.mocked(repo.recordProviderEvidence).mock.calls.slice(1);
+      expect(childScopes.map(([, job]) => job.item_results[0]?.requested_item_index)).toEqual([4, 6]);
+      expect(childScopes.map(([, , , scope]) => scope?.itemIndexes)).toEqual([[4], [6]]);
+      // Evidence must be durable before the per-job manifest that suppresses
+      // the next write, or a crash in between would lose it permanently.
+      expect(Math.max(...vi.mocked(repo.recordProviderEvidence).mock.invocationCallOrder))
+        .toBeLessThan(Math.max(...vi.mocked(repo.saveProviderJobs).mock.invocationCallOrder));
+    });
+
+    it("walks a child that itself delegates, in the same tick", async () => {
+      const { repo, graph } = statefulRepo(storedBatch("PROCESSING"));
+      const client = graphClient({
+        "amf-1": { ...amfJob("completed_with_warnings"),
+          item_results: [itemResult(2, "ED1", "ED", 1, "delegated", "child-a")],
+          follow_up_jobs: [{ job_id: "child-a", requested_item_index: 2, label: "ED1" }] },
+        "child-a": { ...childJob("child-a", "amf-1", 2, "completed_with_warnings", itemResult(0, "ED1", "ED", 1, "delegated", "grandchild")),
+          follow_up_jobs: [{ job_id: "grandchild", requested_item_index: 0, label: "ED1" }] },
+        grandchild: childJob("grandchild", "child-a", 0, "awaiting_selection", itemResult(0, "ED1", "ED", 1, "possible")),
+      });
+      const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue, client });
+      await repo.recordProviderState("batch-1", { state: "PROCESSING", amfJobId: "amf-1" }, new Date());
+
+      await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch(() => undefined);
+
+      expect(client.getJob.mock.calls.map(([id]) => id)).toEqual(["amf-1", "child-a", "grandchild"]);
+      // A grandchild inherits its ancestor's batch item: its own
+      // parent_item_index (0) is relative to a single-item job, not the batch.
+      expect(graph().find((link) => link.amfJobId === "grandchild")).toMatchObject({ itemIndex: 2, depth: 2 });
+    });
+
+    it("terminates when a follow-up points back at an ancestor instead of walking the cycle forever", async () => {
+      const { repo, graph } = statefulRepo(storedBatch("PROCESSING"));
+      const client = graphClient({
+        "amf-1": { ...amfJob("completed_with_warnings"),
+          item_results: [itemResult(0, "OST", "OST", null, "delegated", "child-a")],
+          follow_up_jobs: [{ job_id: "child-a", requested_item_index: 0, label: "OST" }] },
+        "child-a": { ...childJob("child-a", "amf-1", 0, "awaiting_selection", itemResult(0, "OST", "OST", null, "possible")),
+          // Points back at the root *and* at itself.
+          follow_up_jobs: [
+            { job_id: "amf-1", requested_item_index: 0, label: "OST" },
+            { job_id: "child-a", requested_item_index: 0, label: "OST" },
+          ] },
+      });
+      const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue, client });
+      await repo.recordProviderState("batch-1", { state: "PROCESSING", amfJobId: "amf-1" }, new Date());
+
+      await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch(() => undefined);
+
+      expect(client.getJob.mock.calls.map(([id]) => id)).toEqual(["amf-1", "child-a"]);
+      expect(graph()).toHaveLength(2);
+    });
+
+    it("enforces the per-batch fan-out cap so a runaway provider cannot grow the graph unboundedly", async () => {
+      const { repo, graph } = statefulRepo(storedBatch("PROCESSING"));
+      const followUps = Array.from({ length: AMF_MAX_PROVIDER_JOBS_PER_BATCH * 3 }, (_, index) => ({
+        job_id: `child-${index}`, requested_item_index: 0, label: "OST",
+      }));
+      const jobs: Record<string, AmfJob> = {
+        "amf-1": { ...amfJob("completed_with_warnings"),
+          item_results: [itemResult(0, "OST", "OST", null, "delegated", "child-0")], follow_up_jobs: followUps },
+      };
+      for (const followUp of followUps) {
+        jobs[followUp.job_id] = childJob(followUp.job_id, "amf-1", 0, "awaiting_selection", itemResult(0, "OST", "OST", null, "possible"));
+      }
+      const client = graphClient(jobs);
+      const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue, client });
+      await repo.recordProviderState("batch-1", { state: "PROCESSING", amfJobId: "amf-1" }, new Date());
+
+      await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch(() => undefined);
+
+      expect(graph().length).toBe(AMF_MAX_PROVIDER_JOBS_PER_BATCH);
+      expect(client.getJob).toHaveBeenCalledTimes(AMF_MAX_PROVIDER_JOBS_PER_BATCH);
+    });
+
+    it("attributes a child's delivery into the shared parent destination onto the parent item, in its own file-index window", async () => {
+      const { repo } = statefulRepo(storedBatch("PROCESSING"));
+      const queue = { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue;
+      const client = graphClient({
+        "amf-1": { ...amfJob("completed_with_warnings"),
+          item_results: [itemResult(3, "ED2", "ED", 2, "delegated", "child-a")],
+          follow_up_jobs: [{ job_id: "child-a", requested_item_index: 3, label: "ED2" }] },
+        "child-a": { ...childJob("child-a", "amf-1", 3, "completed", itemResult(0, "ED2", "ED", 2, "delivered")),
+          deliveries: [{ requested_item_index: 0, label: "ED2", kind: "ED", number: 2, files: [
+            { file_index: 0, relative_path: `${DESTINATION}/ed2.flac`, size: 10, sha256: "c".repeat(64), metadata: {} },
+          ] }] },
+      });
+      const handlers = createMusicRequestHandlers({ repo, queue, client });
+      await repo.recordProviderState("batch-1", { state: "PROCESSING", amfJobId: "amf-1" }, new Date());
+
+      await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch(() => undefined);
+
+      const [, childEvidence, , childScope] = vi.mocked(repo.recordProviderEvidence).mock.calls[1]!;
+      expect(childEvidence.deliveries[0]).toMatchObject({ requested_item_index: 3 });
+      // Containment still holds: the child delivers under the batch destination.
+      expect(childEvidence.deliveries[0]?.files[0]?.relative_path.startsWith(DESTINATION)).toBe(true);
+      // ...but into the child's own file_index window, so a sibling follow-up
+      // job for the same item cannot collide on (item_id, file_index).
+      expect(childEvidence.deliveries[0]?.files[0]?.file_index).toBe(AMF_PROVIDER_JOB_FILE_INDEX_STRIDE);
+      expect(childScope).toMatchObject({ itemIndexes: [3], fileIndexOffset: AMF_PROVIDER_JOB_FILE_INDEX_STRIDE });
+      expect(queue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ type: "IMPORT_AMF_MUSIC_BATCH", payload: { batchId: "batch-1" } }));
+    });
+
+    it("refuses to attribute evidence from a job whose destination escapes the batch staging directory", async () => {
+      const { repo } = statefulRepo(storedBatch("PROCESSING"));
+      const client = graphClient({
+        "amf-1": { ...amfJob("completed_with_warnings"),
+          item_results: [itemResult(0, "OST", "OST", null, "delegated", "child-a")],
+          follow_up_jobs: [{ job_id: "child-a", requested_item_index: 0, label: "OST" }] },
+        "child-a": { ...childJob("child-a", "amf-1", 0, "completed", itemResult(0, "OST", "OST", null, "delivered")),
+          destination: "anime-ongaku-staging/request-someone-else/batch-0",
+          deliveries: [{ requested_item_index: 0, label: "OST", kind: "OST", number: null, files: [
+            { file_index: 0, relative_path: "anime-ongaku-staging/request-someone-else/batch-0/x.flac", size: 10, sha256: "d".repeat(64), metadata: {} },
+          ] }] },
+      });
+      const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue, client });
+      await repo.recordProviderState("batch-1", { state: "PROCESSING", amfJobId: "amf-1" }, new Date());
+
+      await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch(() => undefined);
+
+      expect(vi.mocked(repo.recordProviderEvidence).mock.calls).toHaveLength(1);
+      expect(vi.mocked(repo.recordProviderEvidence).mock.calls[0]?.[1].id).toBe("amf-1");
+    });
+
+    it("adopts a child that only appears on a later poll — the live backfill case", async () => {
+      const { repo, graph } = statefulRepo(storedBatch("PROCESSING"));
+      let clock = new Date("2026-07-26T00:00:00Z");
+      const rootWithoutChildren = { ...amfJob("awaiting_selection"), item_results: [itemResult(0, "OST", "OST", null, "possible")] };
+      const client = graphClient({ "amf-1": rootWithoutChildren });
+      const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue, client, now: () => clock });
+      await repo.recordProviderState("batch-1", { state: "AWAITING_OPERATOR", amfJobId: "amf-1" }, clock);
+
+      const first = await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch((value) => value);
+      expect(graph().map((link) => link.amfJobId)).toEqual(["amf-1"]);
+
+      // AMF delegates the item between polls.
+      client.setJob("amf-1", { ...amfJob("completed_with_warnings"),
+        item_results: [itemResult(0, "OST", "OST", null, "delegated", "child-late")],
+        follow_up_jobs: [{ job_id: "child-late", requested_item_index: 0, label: "OST" }] });
+      client.setJob("child-late", childJob("child-late", "amf-1", 0, "awaiting_selection", itemResult(0, "OST", "OST", null, "possible")));
+      clock = new Date(clock.getTime() + (first as RetryableJobError).options.retryAfterMs!);
+
+      await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch(() => undefined);
+
+      expect(graph().map((link) => link.amfJobId)).toEqual(["amf-1", "child-late"]);
+      expect(graph()[1]).toMatchObject({ itemIndex: 0, parentItemIndex: 0, providerStatus: "awaiting_selection" });
+    });
+
+    it("is not provider-terminal while any descendant is non-terminal, even with a completed_with_warnings root", async () => {
+      // This is exactly the live state of root ef75e439.
+      const { repo, current } = statefulRepo(storedBatch("PROCESSING"));
+      const client = graphClient({
+        "amf-1": { ...amfJob("completed_with_warnings"),
+          item_results: [itemResult(4, "ED3", "ED", 3, "delegated", "child-a")],
+          follow_up_jobs: [{ job_id: "child-a", requested_item_index: 4, label: "ED3" }] },
+        "child-a": childJob("child-a", "amf-1", 4, "awaiting_selection", itemResult(0, "ED3", "ED", 3, "possible")),
+      });
+      const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue, client });
+      await repo.recordProviderState("batch-1", { state: "PROCESSING", amfJobId: "amf-1" }, new Date());
+
+      const error = await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch((value) => value);
+
+      expect(error).toBeInstanceOf(RetryableJobError);
+      expect(current().state).toBe("AWAITING_OPERATOR");
+      expect(repo.recordProviderState).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ state: "COMPLETED" }), expect.anything());
+    });
+
+    it("settles the batch only once the root and every descendant are terminal", async () => {
+      const { repo, current } = statefulRepo(storedBatch("PROCESSING"));
+      const client = graphClient({
+        "amf-1": { ...amfJob("completed_with_warnings"),
+          item_results: [itemResult(0, "OST", "OST", null, "delegated", "child-a")],
+          follow_up_jobs: [{ job_id: "child-a", requested_item_index: 0, label: "OST" }] },
+        "child-a": childJob("child-a", "amf-1", 0, "completed", itemResult(0, "OST", "OST", null, "delivered")),
+      });
+      const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue, client });
+      await repo.recordProviderState("batch-1", { state: "PROCESSING", amfJobId: "amf-1" }, new Date());
+
+      await expect(handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never)).resolves.toBeUndefined();
+      expect(current().state).toBe("PROCESSING");
+    });
+
+    it("keeps a dormant archived child non-terminal without ever failing the batch", async () => {
+      const { repo, current } = statefulRepo(storedBatch("PROCESSING"));
+      const client = graphClient({
+        "amf-1": { ...amfJob("completed_with_warnings"),
+          item_results: [itemResult(7, "DRAMA", "DRAMA", null, "delegated", "child-archived")],
+          follow_up_jobs: [{ job_id: "child-archived", requested_item_index: 7, label: "DRAMA" }] },
+        "child-archived": childJob("child-archived", "amf-1", 7, "archived", itemResult(0, "DRAMA", "DRAMA", null, "not_found")),
+      });
+      const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue, client });
+      await repo.recordProviderState("batch-1", { state: "PROCESSING", amfJobId: "amf-1" }, new Date());
+
+      const error = await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch((value) => value);
+
+      expect(error).toBeInstanceOf(RetryableJobError);
+      expect(current().state).toBe("AWAITING_OPERATOR");
+      expect(repo.recordProviderState).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ state: "FAILED" }), expect.anything());
+      expect(repo.recordProviderState).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ state: "CANCELLED" }), expect.anything());
+    });
+
+    it("retires a follow-up job the provider no longer holds without failing the batch", async () => {
+      const { repo, graph } = statefulRepo(storedBatch("PROCESSING"));
+      const client = graphClient({
+        "amf-1": { ...amfJob("completed_with_warnings"),
+          item_results: [itemResult(0, "OST", "OST", null, "delegated", "child-gone")],
+          follow_up_jobs: [{ job_id: "child-gone", requested_item_index: 0, label: "OST" }] },
+      });
+      client.rejectJob("child-gone", new AnimeMusicFetcherError("NOT_FOUND", "Anime Music Fetcher could not find job poll", false, 404));
+      let clock = new Date("2026-07-26T00:00:00Z");
+      const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue, client, now: () => clock });
+      await repo.recordProviderState("batch-1", { state: "PROCESSING", amfJobId: "amf-1" }, clock);
+
+      // A gone child is the one genuine stop condition, so the graph settles.
+      await expect(handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never)).resolves.toBeUndefined();
+
+      expect(graph().find((link) => link.amfJobId === "child-gone")?.goneAt).toBeInstanceOf(Date);
+      expect(repo.recordProviderState).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ state: "FAILED" }), expect.anything());
+      // A retired child no longer blocks the graph and is never polled again.
+      client.getJob.mockClear();
+      clock = new Date(clock.getTime() + 60 * 60 * 1000);
+      await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch(() => undefined);
+      expect(client.getJob.mock.calls.map(([id]) => id)).toEqual(["amf-1"]);
+    });
+
+    it("recovers after a restart mid-graph by resuming the persisted graph instead of rediscovering it", async () => {
+      const { repo, graph } = statefulRepo(storedBatch("PROCESSING"));
+      const client = graphClient({
+        "amf-1": { ...amfJob("completed_with_warnings"),
+          item_results: [itemResult(4, "ED3", "ED", 3, "delegated", "child-a")],
+          follow_up_jobs: [{ job_id: "child-a", requested_item_index: 4, label: "ED3" }] },
+        "child-a": childJob("child-a", "amf-1", 4, "awaiting_selection", itemResult(0, "ED3", "ED", 3, "possible")),
+      });
+      let clock = new Date("2026-07-26T00:00:00Z");
+      await repo.recordProviderState("batch-1", { state: "PROCESSING", amfJobId: "amf-1" }, clock);
+      const processA = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue, client, now: () => clock });
+      const first = await processA.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch((value) => value);
+      const discovered = graph();
+
+      // A brand new handler closure sharing nothing but the repository.
+      client.getJob.mockClear();
+      clock = new Date(clock.getTime() + (first as RetryableJobError).options.retryAfterMs!);
+      const processB = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue, client, now: () => clock });
+      await processB.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch(() => undefined);
+
+      expect(client.getJob.mock.calls.map(([id]) => id)).toEqual(["amf-1", "child-a"]);
+      // Ordinals and file-index windows are stable across the restart, so a
+      // child's delivery identity never moves.
+      expect(graph().map((link) => [link.amfJobId, link.ordinal, link.fileIndexOffset]))
+        .toEqual(discovered.map((link) => [link.amfJobId, link.ordinal, link.fileIndexOffset]));
+    });
+
+    it("keeps the whole graph on the fast cadence while any member is still doing machine work", async () => {
+      const { repo } = statefulRepo(storedBatch("PROCESSING"));
+      const client = graphClient({
+        "amf-1": { ...amfJob("completed_with_warnings"),
+          item_results: [itemResult(0, "OST", "OST", null, "delegated", "child-a")],
+          follow_up_jobs: [{ job_id: "child-a", requested_item_index: 0, label: "OST" }] },
+        "child-a": childJob("child-a", "amf-1", 0, "downloading", itemResult(0, "OST", "OST", null, "found")),
+      });
+      const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue, client });
+      await repo.recordProviderState("batch-1", { state: "PROCESSING", amfJobId: "amf-1" }, new Date());
+
+      const first = await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch((value) => value);
+      const second = await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch((value) => value);
+
+      expect((first as RetryableJobError).options.retryAfterMs).toBe(AMF_POLL_INTERVAL_MS);
+      expect((second as RetryableJobError).options.retryAfterMs).toBe(AMF_POLL_INTERVAL_MS);
+    });
+
+    it("resets the ladder when only a descendant's document changes", async () => {
+      const { repo, current } = statefulRepo(storedBatch("PROCESSING"));
+      let clock = new Date("2026-07-26T00:00:00Z");
+      const client = graphClient({
+        "amf-1": { ...amfJob("completed_with_warnings"),
+          item_results: [itemResult(0, "OST", "OST", null, "delegated", "child-a")],
+          follow_up_jobs: [{ job_id: "child-a", requested_item_index: 0, label: "OST" }] },
+        "child-a": childJob("child-a", "amf-1", 0, "awaiting_selection", itemResult(0, "OST", "OST", null, "possible")),
+      });
+      const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue, client, now: () => clock });
+      await repo.recordProviderState("batch-1", { state: "PROCESSING", amfJobId: "amf-1" }, clock);
+
+      for (let index = 0; index < 4; index += 1) {
+        const error = await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch((value) => value);
+        clock = new Date(clock.getTime() + (error as RetryableJobError).options.retryAfterMs!);
+      }
+      expect(current().pollBackoffStep).toBeGreaterThan(0);
+
+      // Only the child moves — an operator selecting a release in AMF's UI.
+      client.setJob("child-a", childJob("child-a", "amf-1", 0, "awaiting_selection", itemResult(0, "OST", "OST", null, "found")));
+      const error = await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch((value) => value);
+
+      expect((error as RetryableJobError).options.retryAfterMs).toBe(AMF_POLL_INTERVAL_MS);
+      expect(current().pollBackoffStep).toBe(0);
+    });
+  });
+
   describe("lenient persisted-body reads (F8)", () => {
     it("mapBatch tolerates a stored body the current strict schema would reject instead of throwing", () => {
       const legacyBody = {
@@ -611,14 +946,50 @@ function storedRequest(states: StoredMusicBatch["state"][]): StoredMusicRequest 
     completedAt: states.every((state) => ["COMPLETED", "COMPLETED_WITH_WARNINGS", "FAILED", "CANCELLED"].includes(state)) ? when : null,
     batches: states.map((state, index) => ({ ...storedBatch(state), id: `batch-${index}`, index })) };
 }
-function fakeRepo(batch: StoredMusicBatch): MusicRequestRepository {
+function fakeRepo(batch: StoredMusicBatch, providerJobs: StoredProviderJobLink[] = []): MusicRequestRepository {
+  const graph = [...providerJobs];
   return { loadMetadata: vi.fn(), createOrReplay: vi.fn(), findById: vi.fn(), findLatest: vi.fn(), findBatch: vi.fn().mockResolvedValue(batch),
-    listRecoverableBatches: vi.fn(), listRecheckableBatches: vi.fn(), recordProviderState: vi.fn(), recordProviderEvidence: vi.fn() } as unknown as MusicRequestRepository;
+    listRecoverableBatches: vi.fn(), listRecheckableBatches: vi.fn(), recordProviderState: vi.fn(), recordProviderEvidence: vi.fn(),
+    listProviderJobs: vi.fn(async () => graph), saveProviderJobs: vi.fn() } as unknown as MusicRequestRepository;
 }
 function amfJob(status: AmfJob["status"]): AmfJob {
   return { id: "amf-1", status, destination: "anime-ongaku-staging/request-request-1/batch-0", last_progress: null,
-    source_files: [], deliveries: [], item_results: [], warnings: [], error_stage: null, has_error: false,
+    source_files: [], deliveries: [], item_results: [], parent_job_id: null, parent_item_index: null, follow_up_jobs: [],
+    warnings: [], error_stage: null, has_error: false,
     created_at: "2026-07-21T12:00:00Z", updated_at: "2026-07-21T12:00:00Z", completed_at: null };
+}
+
+type AmfItemResult = AmfJob["item_results"][number];
+
+function itemResult(index: number, label: string, kind: AmfItemResult["kind"], number: number | null,
+  status: AmfItemResult["status"], followUpJobId: string | null = null): AmfItemResult {
+  return { requested_item_index: index, label, kind, number, status, candidate_indexes: [],
+    selected_release_indexes: [], matched_releases: [], delivered_files: [], file_count: 0,
+    follow_up_job_id: followUpJobId };
+}
+
+/** A single-item follow-up job, shaped like live child 5d8c3275. */
+function childJob(id: string, parentJobId: string, parentItemIndex: number, status: string, result: AmfItemResult): AmfJob {
+  return { ...amfJob(status), id, parent_job_id: parentJobId, parent_item_index: parentItemIndex, item_results: [result] };
+}
+
+/**
+ * A provider client double backed by a job graph keyed by provider job id, so
+ * a test can assert exactly which jobs a poll tick walked and in what order.
+ */
+function graphClient(jobs: Record<string, AmfJob>) {
+  const store = new Map<string, AmfJob | Error>(Object.entries(jobs));
+  const getJob = vi.fn(async (id: string) => {
+    const entry = store.get(id);
+    if (!entry) throw new AnimeMusicFetcherError("NOT_FOUND", `Anime Music Fetcher could not find job ${id}`, false, 404);
+    if (entry instanceof Error) throw entry;
+    return entry;
+  });
+  return {
+    submitJob: vi.fn(), getJob,
+    setJob: (id: string, job: AmfJob) => store.set(id, job),
+    rejectJob: (id: string, error: Error) => store.set(id, error),
+  };
 }
 
 /**
@@ -645,9 +1016,15 @@ function statefulRepo(initial: StoredMusicBatch) {
     current = { ...current, manifestEvidence: { status: job.status, itemResults: job.item_results, deliveries: job.deliveries } };
   });
   const findBatch = vi.fn(async () => current);
+  const graph = new Map<string, StoredProviderJobLink>();
+  const listProviderJobs = vi.fn(async () => [...graph.values()].sort((a, b) => a.ordinal - b.ordinal));
+  const saveProviderJobs = vi.fn(async (_batchId: string, links: StoredProviderJobLink[]) => {
+    for (const link of links) graph.set(link.amfJobId, { ...link });
+  });
   const repo = {
     loadMetadata: vi.fn(), createOrReplay: vi.fn(), findById: vi.fn(), findLatest: vi.fn(), findBatch,
     listRecoverableBatches: vi.fn(), listRecheckableBatches: vi.fn(), recordProviderState, recordProviderEvidence,
+    listProviderJobs, saveProviderJobs,
   } as unknown as MusicRequestRepository;
-  return { repo, current: () => current };
+  return { repo, current: () => current, graph: () => [...graph.values()].sort((a, b) => a.ordinal - b.ordinal) };
 }

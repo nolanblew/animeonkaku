@@ -32,6 +32,11 @@ const AMF_JOB_FIELDS = [
   "completed_at",
   "item_results",
   "media",
+  // MC-S13/F1: the provider job graph. Without these the delegated majority of
+  // AMF's work (34 of 44 live jobs) is invisible to Anime Ongaku.
+  "parent_job_id",
+  "parent_item_index",
+  "follow_up_jobs",
 ].join(",");
 const AMF_ITEM_RESULT_FIELDS = [
   "requested_item_index",
@@ -40,6 +45,7 @@ const AMF_ITEM_RESULT_FIELDS = [
   "number",
   "status",
   "file_count",
+  "follow_up_job_id",
 ].join(",");
 
 export interface AnimeMusicFetcherClientOptions {
@@ -108,7 +114,7 @@ export class AnimeMusicFetcherClient {
   private jsonApiJobUrl(jobId: string): string {
     if (jobId.length === 0) throw amfInvalidRequest("job identity");
     const query = new URLSearchParams({
-      include: "item_results,media",
+      include: "item_results,media,follow_up_jobs",
       "fields[jobs]": AMF_JOB_FIELDS,
       "fields[item_results]": AMF_ITEM_RESULT_FIELDS,
       "fields[media]": "anime",

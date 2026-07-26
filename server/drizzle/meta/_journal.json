@@ -120,6 +120,13 @@
       "when": 1784858400000,
       "tag": "0016_amf_poll_backoff_ladder",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1784862000000,
+      "tag": "0017_amf_provider_job_graph",
+      "breakpoints": true
     }
   ]
 }

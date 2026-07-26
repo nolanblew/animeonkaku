@@ -2,9 +2,15 @@ import type { Pool, PoolClient } from "pg";
 import { amfJobCreateSchema } from "../animeMusicFetcher/schemas.js";
 import type { AmfJob, AmfJobCreate } from "../animeMusicFetcher/schemas.js";
 import { normalizeMusicText } from "../matching/normalize.js";
-import type { MusicRequestRepository, NewMusicRequest, StoredMusicBatch, StoredMusicRequest, MusicBatchState } from "./types.js";
+import { AMF_PROVIDER_JOB_FILE_INDEX_STRIDE } from "./providerGraph.js";
+import type { MusicRequestRepository, NewMusicRequest, ProviderEvidenceScope, StoredMusicBatch, StoredProviderJobLink, StoredMusicRequest, MusicBatchState } from "./types.js";
 
 const TERMINAL = new Set<MusicBatchState>(["COMPLETED", "COMPLETED_WITH_WARNINGS", "FAILED", "CANCELLED"]);
+
+/** What a root job has always meant: its item results cover the entire batch. */
+const WHOLE_BATCH_EVIDENCE_SCOPE: ProviderEvidenceScope = {
+  itemIndexes: null, fileIndexOffset: 0, fileIndexStride: AMF_PROVIDER_JOB_FILE_INDEX_STRIDE,
+};
 
 export class PgMusicRequestRepository implements MusicRequestRepository {
   constructor(private readonly pool: Pool) {}
@@ -176,38 +182,122 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
       WHERE r.id=(SELECT request_id FROM anime_music_request_batches WHERE id=$1)`, [batchId, now]);
   }
 
-  async recordProviderEvidence(batchId: string, job: AmfJob, now: Date): Promise<void> {
+  async listProviderJobs(batchId: string): Promise<StoredProviderJobLink[]> {
+    const result = await this.pool.query<any>(
+      "SELECT * FROM anime_music_request_batch_jobs WHERE batch_id=$1 ORDER BY ordinal", [batchId]);
+    return result.rows.map(mapProviderJobLink);
+  }
+
+  async saveProviderJobs(batchId: string, links: StoredProviderJobLink[], now: Date): Promise<void> {
+    if (links.length === 0) return;
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      await client.query(`UPDATE anime_music_request_batches SET warnings=$2::jsonb,manifest_evidence=$3::jsonb,updated_at=$4 WHERE id=$1`,
-        [batchId, JSON.stringify(job.warnings), JSON.stringify({ status: job.status, sourceFiles: job.source_files, itemResults: job.item_results, deliveries: job.deliveries, warnings: job.warnings, updatedAt: job.updated_at, completedAt: job.completed_at }), now]);
-      const itemRows = await client.query<{ id: string; item_index: number; kind: string; number: number | null; import_state: string }>("SELECT id,item_index,kind,number,import_state FROM anime_music_request_items WHERE batch_id=$1", [batchId]);
+      for (const link of links) {
+        // Identity is (batch, provider job): re-observing a job updates it in
+        // place, and a follow-up already adopted is never adopted twice — which
+        // is also what makes a cyclic `follow_up_jobs` claim inert.
+        await client.query(`INSERT INTO anime_music_request_batch_jobs
+          (id,batch_id,amf_job_id,role,ordinal,depth,parent_amf_job_id,parent_item_index,item_index,file_index_offset,
+           provider_status,destination,manifest_evidence,gone_at,last_polled_at,created_at,updated_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,$16)
+          ON CONFLICT (batch_id,amf_job_id) DO UPDATE SET
+            provider_status=COALESCE(EXCLUDED.provider_status,anime_music_request_batch_jobs.provider_status),
+            destination=COALESCE(EXCLUDED.destination,anime_music_request_batch_jobs.destination),
+            manifest_evidence=EXCLUDED.manifest_evidence,
+            gone_at=COALESCE(EXCLUDED.gone_at,anime_music_request_batch_jobs.gone_at),
+            last_polled_at=COALESCE(EXCLUDED.last_polled_at,anime_music_request_batch_jobs.last_polled_at),
+            updated_at=EXCLUDED.updated_at`,
+          [`${batchId}:${link.amfJobId}`, batchId, link.amfJobId, link.role, link.ordinal, link.depth,
+            link.parentAmfJobId, link.parentItemIndex, link.itemIndex, link.fileIndexOffset,
+            link.providerStatus, link.destination, JSON.stringify(link.manifestEvidence), link.goneAt, link.lastPolledAt, now]);
+      }
+      await client.query("COMMIT");
+    } catch (error) { await client.query("ROLLBACK"); throw error; }
+    finally { client.release(); }
+  }
+
+  /**
+   * Persists one provider job's evidence against the batch.
+   *
+   * `scope` names the slice of the batch the job actually speaks for. Omitted
+   * (or whole-batch) means a root job whose `item_results` cover every item —
+   * the pre-MC-S13 contract, unchanged. A follow-up job passes a single item
+   * index and its own `file_index` window, which is what keeps the
+   * `identityConflict` guard meaningful: it still fires when a manifest and the
+   * persisted batch genuinely disagree (an index we never requested, a
+   * duplicated index, a kind/number that does not match the persisted item),
+   * but it no longer fires merely because a single-item child job does not
+   * enumerate its siblings.
+   */
+  async recordProviderEvidence(batchId: string, job: AmfJob, now: Date, scope?: ProviderEvidenceScope): Promise<void> {
+    const evidenceScope = scope ?? WHOLE_BATCH_EVIDENCE_SCOPE;
+    const isRootScope = evidenceScope.itemIndexes === null;
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      // Only the root job owns the batch-level warning/manifest projection: it
+      // is what `mapBatch` reads back as `providerStatus`, what the operator
+      // surface renders, and what MC-S16's ladder compares against. A child's
+      // own manifest lives on its `anime_music_request_batch_jobs` row.
+      if (isRootScope) {
+        await client.query(`UPDATE anime_music_request_batches SET warnings=$2::jsonb,manifest_evidence=$3::jsonb,updated_at=$4 WHERE id=$1`,
+          [batchId, JSON.stringify(job.warnings), JSON.stringify({ status: job.status, sourceFiles: job.source_files, itemResults: job.item_results, deliveries: job.deliveries, warnings: job.warnings, updatedAt: job.updated_at, completedAt: job.completed_at }), now]);
+      }
+      const itemRows = isRootScope
+        ? await client.query<{ id: string; item_index: number; kind: string; number: number | null; import_state: string }>(
+          "SELECT id,item_index,kind,number,import_state FROM anime_music_request_items WHERE batch_id=$1", [batchId])
+        : await client.query<{ id: string; item_index: number; kind: string; number: number | null; import_state: string }>(
+          "SELECT id,item_index,kind,number,import_state FROM anime_music_request_items WHERE batch_id=$1 AND item_index = ANY($2::int[])",
+          [batchId, evidenceScope.itemIndexes]);
       const itemByIndex = new Map(itemRows.rows.map((row) => [row.item_index, row]));
       const resultByIndex = new Map(job.item_results.map((result) => [result.requested_item_index, result]));
       const resultIndexes = job.item_results.map((result) => result.requested_item_index);
+      // The guard's real purpose: catch a manifest that does not describe the
+      // batch we persisted. Every clause below is still evaluated, just against
+      // the scoped slice — a follow-up job whose remapped index is not a real
+      // batch item, or that claims more than one item, still trips it.
       let identityConflict = new Set(resultIndexes).size !== resultIndexes.length
         || resultIndexes.some((index) => !itemByIndex.has(index))
-        || [...itemByIndex.keys()].some((index) => !resultByIndex.has(index));
+        || (isRootScope && [...itemByIndex.keys()].some((index) => !resultByIndex.has(index)))
+        || (!isRootScope && evidenceScope.itemIndexes!.some((index) => !itemByIndex.has(index)));
       for (const [index, item] of itemByIndex) {
         const result = resultByIndex.get(index);
         if (result && (result.kind !== item.kind || (result.number ?? null) !== item.number)) identityConflict = true;
         const evidenceIsFinal = ["completed", "completed_with_warnings", "failed", "cancelled", "awaiting_selection", "awaiting_file_selection", "download_stalled"].includes(job.status);
-        const importState = result?.status === "delivered" ? "PENDING" : evidenceIsFinal ? "ATTENTION" : "PENDING";
+        // A "delegated" item is explicitly work AMF moved to a linked follow-up
+        // job, so it is in progress, not stuck. Marking it ATTENTION here would
+        // be sticky and would survive the child later delivering the song.
+        const delegated = result?.status === "delegated";
+        const importState = result?.status === "delivered" || delegated ? "PENDING" : evidenceIsFinal ? "ATTENTION" : "PENDING";
         await client.query(`UPDATE anime_music_request_items SET result_status=$2,result_evidence=$3::jsonb,
           import_state=CASE WHEN import_state IN ('READY','ATTENTION') THEN import_state ELSE $4 END,
           import_error=CASE WHEN import_state IN ('READY','ATTENTION') THEN import_error WHEN $4='ATTENTION' THEN 'AMF item is not an unambiguous delivered result' ELSE NULL END
           WHERE id=$1`,
           [item.id, result?.status ?? null, JSON.stringify(result ?? {}), importState]);
       }
+      // Deactivation is scoped to this job's own items *and* its own
+      // `file_index` window, so one provider job re-reporting cannot deactivate
+      // a sibling job's deliveries into the same item.
       await client.query(`UPDATE anime_music_request_deliveries d SET active=false,updated_at=$2
-        FROM anime_music_request_items i WHERE d.item_id=i.id AND i.batch_id=$1 AND d.import_state<>'READY'`, [batchId, now]);
+        FROM anime_music_request_items i WHERE d.item_id=i.id AND i.batch_id=$1 AND d.import_state<>'READY'
+          AND ($3::int[] IS NULL OR i.item_index = ANY($3::int[]))
+          AND d.file_index >= $4 AND d.file_index < $5`,
+      [batchId, now, evidenceScope.itemIndexes, evidenceScope.fileIndexOffset, evidenceScope.fileIndexOffset + evidenceScope.fileIndexStride]);
       for (const delivery of job.deliveries) {
         const item = itemByIndex.get(delivery.requested_item_index);
         if (!item) { identityConflict = true; continue; }
         if (delivery.kind !== item.kind || (delivery.number ?? null) !== item.number) identityConflict = true;
         const itemId = item.id;
         for (const file of delivery.files) {
+          // A job may only write inside its own `file_index` window; anything
+          // outside would collide with a sibling follow-up job's deliveries
+          // into the same item.
+          if (file.file_index < evidenceScope.fileIndexOffset
+            || file.file_index >= evidenceScope.fileIndexOffset + evidenceScope.fileIndexStride) {
+            identityConflict = true;
+            continue;
+          }
           const deliveryId = `${itemId}:${file.file_index}`;
           await client.query(`INSERT INTO anime_music_request_deliveries
             (id,item_id,file_index,relative_path,byte_size,sha256,metadata)
@@ -255,9 +345,14 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
           AND EXISTS (SELECT 1 FROM anime_music_request_deliveries d WHERE d.item_id=i.id AND d.active=true AND d.import_state='PENDING')
           AND NOT EXISTS (SELECT 1 FROM anime_music_request_deliveries d WHERE d.item_id=i.id AND d.active=true AND d.import_state='ATTENTION')`, [batchId]);
       if (identityConflict) {
-        await client.query("UPDATE anime_music_request_items SET import_state='ATTENTION',import_error='AMF manifest item identity does not match the persisted batch' WHERE batch_id=$1 AND import_state<>'READY'", [batchId]);
+        // Contained to the slice this job speaks for: a root conflict still
+        // flags the whole batch (unchanged), but one bad follow-up job must not
+        // mark its healthy siblings' items as needing review.
+        await client.query(`UPDATE anime_music_request_items SET import_state='ATTENTION',import_error='AMF manifest item identity does not match the persisted batch'
+          WHERE batch_id=$1 AND import_state<>'READY' AND ($2::int[] IS NULL OR item_index = ANY($2::int[]))`, [batchId, evidenceScope.itemIndexes]);
         await client.query(`UPDATE anime_music_request_deliveries d SET import_state='ATTENTION',import_error='AMF manifest item identity does not match the persisted batch',updated_at=$2
-          FROM anime_music_request_items i WHERE d.item_id=i.id AND i.batch_id=$1 AND d.import_state<>'READY'`, [batchId, now]);
+          FROM anime_music_request_items i WHERE d.item_id=i.id AND i.batch_id=$1 AND d.import_state<>'READY'
+            AND ($3::int[] IS NULL OR i.item_index = ANY($3::int[]))`, [batchId, now, evidenceScope.itemIndexes]);
       }
       await client.query("COMMIT");
     } catch (error) { await client.query("ROLLBACK"); throw error; }
@@ -288,6 +383,21 @@ export function parseStoredMusicRequestBody(batchId: string, value: unknown): Am
   if (parsed.success) return parsed.data;
   console.warn(`[amf] stored request body for batch ${batchId} no longer matches the current schema; replaying it as-is (${parsed.error.issues.map((issue) => issue.message).join("; ")})`);
   return value as AmfJobCreate;
+}
+
+function mapProviderJobLink(row: any): StoredProviderJobLink {
+  const manifestEvidence = row.manifest_evidence ?? {};
+  return {
+    batchId: row.batch_id, amfJobId: row.amf_job_id, role: row.role, ordinal: row.ordinal, depth: row.depth,
+    parentAmfJobId: row.parent_amf_job_id ?? null,
+    parentItemIndex: row.parent_item_index === null || row.parent_item_index === undefined ? null : Number(row.parent_item_index),
+    itemIndex: row.item_index === null || row.item_index === undefined ? null : Number(row.item_index),
+    fileIndexOffset: row.file_index_offset ?? 0,
+    providerStatus: row.provider_status ?? manifestEvidence.status ?? null,
+    destination: row.destination ?? null,
+    manifestEvidence: { status: manifestEvidence.status ?? null, itemResults: manifestEvidence.itemResults ?? [], deliveries: manifestEvidence.deliveries ?? [] },
+    goneAt: row.gone_at ?? null, lastPolledAt: row.last_polled_at ?? null,
+  };
 }
 
 function mapBatch(row: any): StoredMusicBatch {

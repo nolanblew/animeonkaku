@@ -262,12 +262,12 @@ describe("AnimeMusicFetcherClient job lifecycle", () => {
     const url = new URL(requests[0]!.url);
     expect(`${url.origin}/api/v2`).toBe(AMF_JSON_API_BASE_URL);
     expect(url.pathname).toBe("/api/v2/jobs/amf-job-1");
-    expect(url.searchParams.get("include")).toBe("item_results,media");
+    expect(url.searchParams.get("include")).toBe("item_results,media,follow_up_jobs");
     expect(url.searchParams.get("fields[jobs]")).toBe(
-      "status,destination,last_progress,warnings,error_stage,error_message,created_at,updated_at,completed_at,item_results,media",
+      "status,destination,last_progress,warnings,error_stage,error_message,created_at,updated_at,completed_at,item_results,media,parent_job_id,parent_item_index,follow_up_jobs",
     );
     expect(url.searchParams.get("fields[item_results]")).toBe(
-      "requested_item_index,label,kind,number,status,file_count",
+      "requested_item_index,label,kind,number,status,file_count,follow_up_job_id",
     );
     expect(url.searchParams.get("fields[media]")).toBe("anime");
     expect(new Headers(requests[0]?.init?.headers).get("Accept")).toBe("application/vnd.api+json");
@@ -332,6 +332,105 @@ describe("AnimeMusicFetcherClient job lifecycle", () => {
       relative_path: "anime-ongaku-staging/request/01.flac",
       sha256: "a".repeat(64),
     });
+  });
+
+  it("retains the delegation graph on a legacy parent job: follow_up_jobs and per-item follow_up_job_id", async () => {
+    // Shape copied from live root job ef75e439 (Your Lie in April).
+    const fixture = {
+      ...jobFixture("completed_with_warnings"),
+      item_results: [
+        { requested_item_index: 0, label: "OP1", kind: "OP", number: 1, status: "delivered",
+          candidate_indexes: [], selected_release_indexes: [0], matched_releases: [], delivered_files: [], file_count: 3,
+          follow_up_job_id: null },
+        { requested_item_index: 4, label: "ED3", kind: "ED", number: 3, status: "delegated",
+          candidate_indexes: [], selected_release_indexes: [], matched_releases: [], delivered_files: [], file_count: 0,
+          follow_up_job_id: "5d8c3275-3120-4d7e-982e-efc73ee121c3" },
+      ],
+      parent_job_id: null,
+      parent_item_index: null,
+      follow_up_jobs: [{ job_id: "5d8c3275-3120-4d7e-982e-efc73ee121c3", requested_item_index: 4, label: "ED3" }],
+    };
+    const { client } = clientFor([{ status: 200, body: JSON.stringify(fixture) }]);
+
+    const job = await client.getJob("amf-job-1");
+
+    expect(job.parent_job_id).toBeNull();
+    expect(job.parent_item_index).toBeNull();
+    expect(job.follow_up_jobs).toEqual([
+      { job_id: "5d8c3275-3120-4d7e-982e-efc73ee121c3", requested_item_index: 4, label: "ED3" },
+    ]);
+    expect(job.item_results[1]).toMatchObject({ status: "delegated", follow_up_job_id: "5d8c3275-3120-4d7e-982e-efc73ee121c3" });
+    expect(job.item_results[0]?.follow_up_job_id).toBeNull();
+  });
+
+  it("retains parent linkage on a legacy single-item child job", async () => {
+    // Shape copied from live child job 5d8c3275 (parent ef75e439, item 4).
+    const fixture = {
+      ...jobFixture("awaiting_selection"),
+      item_results: [{ requested_item_index: 0, label: "ED3", kind: "ED", number: 3, status: "possible",
+        candidate_indexes: [0], selected_release_indexes: [], matched_releases: [], delivered_files: [], file_count: 0,
+        follow_up_job_id: null }],
+      parent_job_id: "ef75e439-828c-4ff1-b7a9-b25afd97e7c5",
+      parent_item_index: 4,
+      follow_up_jobs: [],
+    };
+    const { client } = clientFor([{ status: 200, body: JSON.stringify(fixture) }]);
+
+    const job = await client.getJob("amf-job-1");
+
+    expect(job.parent_job_id).toBe("ef75e439-828c-4ff1-b7a9-b25afd97e7c5");
+    expect(job.parent_item_index).toBe(4);
+    expect(job.follow_up_jobs).toEqual([]);
+  });
+
+  it("requests and resolves the JSON:API delegation graph: parent linkage attributes and follow_up_jobs includes", async () => {
+    const fixture = jsonApiJobFixture();
+    (fixture.data.attributes as Record<string, unknown>).parent_job_id = null;
+    (fixture.data.attributes as Record<string, unknown>).parent_item_index = null;
+    (fixture.included[0]!.attributes as Record<string, unknown>).follow_up_job_id = null;
+    fixture.included.push({
+      type: "follow_up_jobs",
+      id: "child-1",
+      attributes: { job_id: "child-1", requested_item_index: 1, label: "OST" },
+    } as never);
+    const { client, requests } = clientFor([{ status: 200, body: JSON.stringify(fixture) }]);
+
+    const job = await client.getJob("amf-job-1");
+
+    expect(job.follow_up_jobs).toEqual([{ job_id: "child-1", requested_item_index: 1, label: "OST" }]);
+    expect(job.parent_job_id).toBeNull();
+    const url = new URL(requests[0]!.url);
+    expect(url.searchParams.get("include")).toBe("item_results,media,follow_up_jobs");
+    expect(url.searchParams.get("fields[jobs]")).toContain("parent_job_id");
+    expect(url.searchParams.get("fields[jobs]")).toContain("parent_item_index");
+    expect(url.searchParams.get("fields[jobs]")).toContain("follow_up_jobs");
+    expect(url.searchParams.get("fields[item_results]")).toContain("follow_up_job_id");
+  });
+
+  it("resolves JSON:API parent linkage for a child job", async () => {
+    const fixture = jsonApiJobFixture();
+    (fixture.data.attributes as Record<string, unknown>).parent_job_id = "parent-1";
+    (fixture.data.attributes as Record<string, unknown>).parent_item_index = 6;
+    const { client } = clientFor([{ status: 200, body: JSON.stringify(fixture) }]);
+
+    await expect(client.getJob("amf-job-1")).resolves.toMatchObject({ parent_job_id: "parent-1", parent_item_index: 6 });
+  });
+
+  it("defaults the delegation graph to empty when the provider omits it entirely", async () => {
+    const { client } = clientFor([{ status: 200, body: JSON.stringify(jobFixture("queued")) }]);
+    await expect(client.getJob("amf-job-1")).resolves.toMatchObject({
+      follow_up_jobs: [], parent_job_id: null, parent_item_index: null,
+    });
+  });
+
+  it("redacts a follow-up label the same way every other provider-authored text is redacted", async () => {
+    const fixture = {
+      ...jobFixture("completed_with_warnings"),
+      follow_up_jobs: [{ job_id: "child-1", requested_item_index: 1, label: "OST magnet:?xt=urn:btih:deadbeef" }],
+    };
+    const { client } = clientFor([{ status: 200, body: JSON.stringify(fixture) }]);
+    const job = await client.getJob("amf-job-1");
+    expect(job.follow_up_jobs[0]?.label).toBe("OST [redacted]");
   });
 
   it("tolerates the archived dormant status and keeps its deliveries importable", async () => {

@@ -126,7 +126,26 @@ export const amfItemMatchResultSchema = z.object({
   matched_releases: z.array(z.string().transform(redactAmfText)).default([]),
   delivered_files: z.array(z.string().min(1).refine(isSafeAmfRelativePath, "unsafe delivered file path")).default([]),
   file_count: z.number().int().default(0),
+  // MC-S13/F1: when `status` is "delegated" AMF has moved this item's work to
+  // a linked single-item follow-up job. Dropping this field (as we did before)
+  // made the entire delegated half of the provider job graph invisible.
+  follow_up_job_id: z.string().min(1).nullable().optional(),
 });
+
+/**
+ * One entry of a parent job's `follow_up_jobs` array. `requested_item_index`
+ * is an index into the *parent's* item list, not ours; `label` is
+ * provider-authored free text and is redacted like every other such string.
+ */
+export const amfFollowUpJobSchema = z.object({
+  job_id: z.string().min(1),
+  requested_item_index: z.number().int(),
+  label: z.string().default("").transform(redactAmfText),
+}).passthrough().transform((value) => ({
+  job_id: value.job_id,
+  requested_item_index: value.requested_item_index,
+  label: value.label,
+}));
 
 export function isSafeAmfRelativePath(value: string): boolean {
   if (value.length === 0 || value.includes("\0") || value.includes("\\")) return false;
@@ -269,6 +288,13 @@ const amfRawJobSchema = z.object({
   source_files: z.array(amfSourceFileSchema).default([]),
   deliveries: z.array(amfJobDeliverySchema).default([]),
   item_results: z.array(amfItemMatchResultSchema).default([]),
+  // MC-S13/F1: the provider job graph. A parent lists its delegated children
+  // in `follow_up_jobs`; each child carries `parent_job_id` /
+  // `parent_item_index`. All three are optional on the wire so an older or
+  // sparser projection still parses.
+  parent_job_id: z.string().min(1).nullable().optional(),
+  parent_item_index: z.number().int().nullable().optional(),
+  follow_up_jobs: z.array(amfFollowUpJobSchema).nullable().optional(),
   warnings: z.array(z.string()).nullable().optional().transform((value) => (value ?? []).map(redactAmfText)),
   error_stage: z.string().nullable(),
   error_message: z.string().nullable(),
@@ -285,6 +311,9 @@ export const amfJobSchema = amfRawJobSchema.transform((value) => ({
   source_files: value.source_files,
   deliveries: value.media ? mergeMediaDeliveries(value.media, value.item_results, value.deliveries) : value.deliveries,
   item_results: value.item_results,
+  parent_job_id: value.parent_job_id ?? null,
+  parent_item_index: value.parent_item_index ?? null,
+  follow_up_jobs: value.follow_up_jobs ?? [],
   warnings: value.warnings,
   error_stage: value.error_stage == null ? null : redactAmfText(value.error_stage),
   has_error: value.error_message !== null,
@@ -305,11 +334,22 @@ const amfJsonApiMediaResourceSchema = z.object({
   attributes: amfJobMediaSchema,
 }).passthrough();
 
+const amfJsonApiFollowUpJobResourceSchema = z.object({
+  type: z.literal("follow_up_jobs"),
+  id: z.string().min(1),
+  attributes: amfFollowUpJobSchema,
+}).passthrough();
+
 const amfJsonApiJobAttributesSchema = z.object({
   // See amfRawJobSchema above: open string, not the strict enum.
   status: z.string().min(1),
   destination: z.string().min(1).refine(isSafeAmfRelativePath, "unsafe response destination"),
   last_progress: z.number().nullable(),
+  // Parent linkage is a plain attribute in AMF's JSON:API projection (see
+  // `fields[jobs]` in client.ts); `follow_up_jobs` is a relationship whose
+  // members arrive in `included`.
+  parent_job_id: z.string().min(1).nullable().optional(),
+  parent_item_index: z.number().int().nullable().optional(),
   warnings: z.array(z.string()).nullable().optional().transform((value) => (value ?? []).map(redactAmfText)),
   error_stage: z.string().nullable(),
   error_message: z.string().nullable(),
@@ -330,6 +370,7 @@ export const amfJsonApiJobSchema = z.object({
   included: z.array(z.union([
     amfJsonApiItemResultResourceSchema,
     amfJsonApiMediaResourceSchema,
+    amfJsonApiFollowUpJobResourceSchema,
   ])).optional().default([]),
 }).passthrough().transform((document) => {
   const itemResults = document.included
@@ -338,6 +379,9 @@ export const amfJsonApiJobSchema = z.object({
   const media = document.included.find(
     (resource): resource is z.infer<typeof amfJsonApiMediaResourceSchema> => resource.type === "media",
   )?.attributes;
+  const followUpJobs = document.included
+    .filter((resource): resource is z.infer<typeof amfJsonApiFollowUpJobResourceSchema> => resource.type === "follow_up_jobs")
+    .map((resource) => resource.attributes);
   const attributes = document.data.attributes;
   return {
     id: document.data.id,
@@ -347,6 +391,9 @@ export const amfJsonApiJobSchema = z.object({
     source_files: [],
     deliveries: media ? mergeMediaDeliveries(media, itemResults, []) : [],
     item_results: itemResults,
+    parent_job_id: attributes.parent_job_id ?? null,
+    parent_item_index: attributes.parent_item_index ?? null,
+    follow_up_jobs: followUpJobs,
     warnings: attributes.warnings,
     error_stage: attributes.error_stage == null ? null : redactAmfText(attributes.error_stage),
     has_error: attributes.error_message !== null,
@@ -436,4 +483,7 @@ function mergeMediaDeliveries(
 export type AmfJobStatus = string;
 export type AmfJobCreate = z.input<typeof amfJobCreateSchema>;
 export type AmfJob = z.output<typeof amfJobSchema>;
+export type AmfFollowUpJob = z.output<typeof amfFollowUpJobSchema>;
+export type AmfItemMatchResult = z.output<typeof amfItemMatchResultSchema>;
+export type AmfJobDelivery = z.output<typeof amfJobDeliverySchema>;
 export type AmfDeliveryFile = z.output<typeof amfDeliveryFileSchema>;

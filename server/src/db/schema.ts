@@ -503,6 +503,46 @@ export const animeMusicRequestBatches = pgTable("anime_music_request_batches", {
   index("anime_music_request_batches_recovery_idx").on(t.completedAt, t.createdAt),
 ]);
 
+/**
+ * MC-S13/F1: the provider job graph behind one batch. AMF splits a multi-item
+ * request by delegating uncovered items to linked single-item follow-up jobs,
+ * so a batch has *many* provider jobs, not one. `anime_music_request_batches.
+ * amf_job_id` remains the ROOT job (backward compatibility and the operator
+ * surface); every job — root included — also has a row here.
+ *
+ * `item_index` is the batch item a job's results attribute to (NULL for the
+ * root, which covers every item). `file_index_offset` namespaces a job's
+ * delivery file indexes inside the shared item, because sibling follow-up jobs
+ * both start at file_index 0 and would otherwise collide on
+ * `anime_music_request_deliveries (item_id, file_index)`. The root's offset is
+ * 0, so pre-existing delivery rows are unaffected.
+ */
+export const animeMusicRequestBatchJobs = pgTable("anime_music_request_batch_jobs", {
+  id: text("id").primaryKey(),
+  batchId: text("batch_id").notNull().references(() => animeMusicRequestBatches.id, { onDelete: "cascade" }),
+  amfJobId: text("amf_job_id").notNull(),
+  role: text("role").$type<"ROOT" | "FOLLOW_UP">().notNull().default("FOLLOW_UP"),
+  /** Discovery order within the batch; 0 is always the root. Drives `fileIndexOffset`. */
+  ordinal: integer("ordinal").notNull(),
+  depth: integer("depth").notNull().default(0),
+  parentAmfJobId: text("parent_amf_job_id"),
+  parentItemIndex: integer("parent_item_index"),
+  itemIndex: integer("item_index"),
+  fileIndexOffset: integer("file_index_offset").notNull().default(0),
+  providerStatus: text("provider_status"),
+  destination: text("destination"),
+  manifestEvidence: jsonb("manifest_evidence").notNull().default({}),
+  /** Set when a poll returned 404 — the one genuine stop condition (F2). */
+  goneAt: timestamp("gone_at", { withTimezone: true }),
+  lastPolledAt: timestamp("last_polled_at", { withTimezone: true }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [
+  unique("anime_music_request_batch_jobs_batch_job_unique").on(t.batchId, t.amfJobId),
+  unique("anime_music_request_batch_jobs_batch_ordinal_unique").on(t.batchId, t.ordinal),
+  index("anime_music_request_batch_jobs_job_idx").on(t.amfJobId),
+]);
+
 export const animeMusicRequestItems = pgTable("anime_music_request_items", {
   id: text("id").primaryKey(),
   batchId: text("batch_id").notNull().references(() => animeMusicRequestBatches.id, { onDelete: "cascade" }),

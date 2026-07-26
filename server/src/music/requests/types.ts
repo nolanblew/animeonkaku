@@ -29,6 +29,55 @@ export interface StoredMusicBatch {
   pollNotBefore: Date | null;
   manifestEvidence: StoredMusicBatchManifest;
 }
+export type ProviderJobRole = "ROOT" | "FOLLOW_UP";
+
+/**
+ * One provider job in a batch's job graph (MC-S13/F1). AMF delegates items it
+ * cannot confidently cover to linked single-item follow-up jobs, so a batch
+ * owns many provider jobs; `StoredMusicBatch.amfJobId` stays the ROOT.
+ */
+export interface StoredProviderJobLink {
+  batchId: string;
+  amfJobId: string;
+  role: ProviderJobRole;
+  /** Discovery order within the batch. 0 is the root; drives `fileIndexOffset`. */
+  ordinal: number;
+  depth: number;
+  parentAmfJobId: string | null;
+  /** Index into the *parent job's* item list, as AMF reports it. */
+  parentItemIndex: number | null;
+  /**
+   * The persisted batch item index this job's results attribute to. `null`
+   * only for the root, whose item results cover the whole batch. A grandchild
+   * inherits its parent's value, so a multi-level walk still lands on the
+   * original batch item.
+   */
+  itemIndex: number | null;
+  /**
+   * Added to every delivery `file_index` this job reports, so two sibling
+   * follow-up jobs covering the same batch item cannot collide on
+   * `anime_music_request_deliveries (item_id, file_index)`. Root is 0.
+   */
+  fileIndexOffset: number;
+  providerStatus: string | null;
+  destination: string | null;
+  manifestEvidence: StoredMusicBatchManifest;
+  /** Set once a poll 404s — the provider no longer holds this record (F2). */
+  goneAt: Date | null;
+  lastPolledAt: Date | null;
+}
+
+/**
+ * Restricts one `recordProviderEvidence` pass to the slice of a batch that a
+ * single provider job actually speaks for. The root's scope is the whole batch
+ * (`itemIndexes: null`, offset 0), which is exactly the pre-MC-S13 behaviour.
+ */
+export interface ProviderEvidenceScope {
+  itemIndexes: number[] | null;
+  fileIndexOffset: number;
+  fileIndexStride: number;
+}
+
 export interface StoredMusicRequest { id: string; kitsuId: string; animeThemesAnimeId: number; createdAt: Date; updatedAt: Date; completedAt: Date | null; batches: StoredMusicBatch[]; }
 export interface NewMusicRequest { id: string; requestedByUserId: string; kitsuId: string; animeThemesAnimeId: number; source: MusicRequestSource; batches: Array<{ id: string; index: number; body: AmfJobCreate; idempotencyKey: string; items: Array<{ id: string; itemIndex: number; kind: string; number: number | null; themeId: number | null }> }>; }
 export interface MusicRequestRepository {
@@ -40,7 +89,18 @@ export interface MusicRequestRepository {
   listRecoverableBatches(): Promise<StoredMusicBatch[]>;
   listRecheckableBatches(): Promise<StoredMusicBatch[]>;
   recordProviderState(batchId: string, input: { state: MusicBatchState; amfJobId?: string; warningCount?: number; lastError?: string | null; providerStatus?: AmfJob["status"]; pollBackoffStep?: number; pollNotBefore?: Date | null }, now: Date): Promise<void>;
-  recordProviderEvidence(batchId: string, job: AmfJob, now: Date): Promise<void>;
+  /**
+   * `scope` is optional purely for backward compatibility: omitting it means
+   * "this job's item results cover the entire batch", which is what a root job
+   * has always meant. A follow-up job passes its own narrow scope so the
+   * identity guard is evaluated against the slice it speaks for rather than
+   * the whole batch (see MC-S13).
+   */
+  recordProviderEvidence(batchId: string, job: AmfJob, now: Date, scope?: ProviderEvidenceScope): Promise<void>;
+  /** The batch's persisted provider job graph, root first (ordinal order). */
+  listProviderJobs(batchId: string): Promise<StoredProviderJobLink[]>;
+  /** Upserts observed/discovered graph members. Never deletes: a provider job we once knew about stays observable. */
+  saveProviderJobs(batchId: string, links: StoredProviderJobLink[], now: Date): Promise<void>;
 }
 
 export type MusicRequestState = MusicBatchState;

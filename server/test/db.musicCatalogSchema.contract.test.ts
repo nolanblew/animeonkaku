@@ -2,6 +2,8 @@ import { getTableConfig } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import {
   animeMusicReleases,
+  animeMusicRequestBatchJobs,
+  animeMusicRequestBatches,
   mediaFiles,
   musicAcquisitions,
   musicDiscoveryState,
@@ -78,6 +80,25 @@ describe("music catalog schema contract", () => {
       "disliked_tv_size",
       "disliked_full_size",
     ]));
+  });
+
+  it("models a batch's provider jobs as a graph while keeping the batch's root identity (MC-S13)", () => {
+    const config = getTableConfig(animeMusicRequestBatchJobs);
+    expect(config.name).toBe("anime_music_request_batch_jobs");
+    expect(columnNames(animeMusicRequestBatchJobs)).toEqual(expect.arrayContaining([
+      "batch_id", "amf_job_id", "role", "ordinal", "depth",
+      "parent_amf_job_id", "parent_item_index", "item_index", "file_index_offset",
+      "provider_status", "destination", "manifest_evidence", "gone_at",
+    ]));
+    // One row per (batch, provider job) is what makes adoption idempotent and
+    // a cyclic follow-up claim inert; the ordinal constraint is what keeps each
+    // job's delivery file-index window disjoint from its siblings'.
+    expect(config.uniqueConstraints.map((constraint) => constraint.name)).toEqual(expect.arrayContaining([
+      "anime_music_request_batch_jobs_batch_job_unique",
+      "anime_music_request_batch_jobs_batch_ordinal_unique",
+    ]));
+    // The batch keeps a single root job id for backward compatibility.
+    expect(columnNames(animeMusicRequestBatches)).toContain("amf_job_id");
   });
 
   it("keeps occurrence identity separate from playlist item identity", () => {

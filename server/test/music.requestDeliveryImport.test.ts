@@ -23,6 +23,7 @@ import {
   type DeliveryItemRecord,
   type DeliveryRecord,
 } from "../src/music/requests/deliveryService.js";
+import { AMF_PROVIDER_JOB_FILE_INDEX_STRIDE } from "../src/music/requests/providerGraph.js";
 import { MediaStore } from "../src/media/mediaStore.js";
 import type { MediaDescriptor, MediaFileRecord, MediaFileRepo, SaveMediaFileInput } from "../src/media/types.js";
 import type { JobQueue } from "../src/jobs/jobQueue.js";
@@ -233,6 +234,45 @@ describe("AMF delivery import job splitting (F7)", () => {
     const badDelivery = deliveries.find((delivery) => delivery.id === files[1]!.id)!;
     expect(badDelivery.importState).toBe("ATTENTION");
     expect(fake.importErrorFor(files[1]!.id)).toMatch(/hash/i);
+  });
+
+  it("imports a follow-up job's delivery through the shared parent destination and keeps containment (MC-S13)", async () => {
+    // A child job writes into the *parent's* destination (34/34 live) but into
+    // its own file_index window, so its delivery must still pass the batch
+    // destination containment check and import like any other.
+    const destination = "anime-ongaku-staging/request-child/batch-0";
+    const root = await mkdtemp(join(tmpdir(), "ongaku-amf-library-"));
+    const relativePath = `${destination}/ed3.flac`;
+    const absolutePath = join(root, ...relativePath.split("/"));
+    await mkdir(join(absolutePath, ".."), { recursive: true });
+    const bytes = Buffer.from("delegated-ed3-payload");
+    await writeFile(absolutePath, bytes);
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    const childFileIndex = AMF_PROVIDER_JOB_FILE_INDEX_STRIDE;
+
+    // Containment is asserted directly against the batch destination, not assumed.
+    await expect(validateAmfDeliveryFile(root, { relativePath, size: bytes.length, sha256 }, destination))
+      .resolves.toEqual({ path: absolutePath, byteSize: bytes.length, sha256 });
+
+    const fake = createFakeDeliveryRepo({
+      batchId: "batch", destination,
+      items: [{ id: "ed3", index: 4, kind: "ED", deliveries: [
+        { id: `ed3:${childFileIndex}`, fileIndex: childFileIndex, relativePath, byteSize: bytes.length, sha256 },
+      ] }],
+    });
+    const { mediaStore, importCalls } = await realMediaStore(root);
+    const service = new AmfDeliveryImportService({ repo: fake.repo, mediaStore, libraryRoot: root });
+
+    const plan = await service.planImport("batch");
+    expect(plan?.chunks).toEqual([{ itemId: "ed3", deliveryIds: [`ed3:${childFileIndex}`] }]);
+    const outcome = await service.importItemChunk("batch", "ed3", [`ed3:${childFileIndex}`]);
+
+    expect(outcome).toBe("COMPLETED");
+    expect(importCalls.count).toBe(1);
+    const batch = await fake.repo.loadBatch("batch");
+    expect(batch!.items[0]!.deliveries[0]!.importState).toBe("READY");
+    // A child's offset never collapses into a sibling's track ordering.
+    expect(releaseTrackDisplayOrder(1, null, childFileIndex)).toBe(1_000_000 + childFileIndex);
   });
 
   it("classifies an unsupported-format delivery distinctly, does not strand the batch, and re-affirms on retry without touching the filesystem", async () => {
