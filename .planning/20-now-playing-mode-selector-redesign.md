@@ -194,3 +194,60 @@ worth a sweep if light-mode users are in scope.
 
 Chip horizontal padding was also trimmed 6dp → 2dp so the `·` separators space
 evenly with the existing eyebrow items.
+
+---
+
+## 9. Follow-up — artwork centring and vertical fit
+
+Reported after the above shipped: the artwork was visibly off-centre, and the
+header sat too low.
+
+### 9.1 Why the artwork was off-centre
+
+Measured from a device capture: the card spanned x=84→1259 on a 1440px screen,
+so **24dp on the left and 51dp on the right**. Not a rounding artifact — the art
+was hard against the left edge of its container.
+
+Cause: each `HorizontalPager` page lays its content out **top-start** by default.
+The art `Box` is a fixed `artSize`, and whenever that is narrower than the page —
+which is any time the size cap binds — it hugged the left edge and left all the
+slack on the right. Nothing centred it; the `contentAlignment = Center` on the
+outer `layoutId("art")` box applies to the pager, not to content inside a page.
+
+Fixed by wrapping each page's art in a `fillMaxSize` box with
+`contentAlignment = Alignment.Center`. Verified at 71px/70px margins, and still
+centred after paging and after a video → music round trip (the path in the
+original report).
+
+### 9.2 Header height and shared margin
+
+`endTopMargin` went from `topInset + 16` to `topInset + 6`, so the header sits
+just clear of the status bar instead of floating mid-gap.
+
+`PLAYER_CONTENT_MARGIN_DP = 20` is now shared by the artwork inset and the seek
+bar's constraint, so the two edges cannot drift apart. This is the artwork's
+*minimum* margin — the most it is ever allowed to grow.
+
+### 9.3 Artwork is now the flexible element
+
+Second report: with the artwork at its width-bound maximum the reaction row was
+pushed down against the Up Next card.
+
+`expandedPlayerArtworkSize` now takes the available height and returns
+`min(widthBound, availableHeight - PLAYER_STACK_BELOW_ART_DP)`, clamped to
+[200dp, 400dp]. The artwork yields to the control stack rather than the other way
+round.
+
+**`configuration.screenHeightDp` includes the system bars** — established
+empirically, not assumed: a probe build with a deliberately oversized reserve
+rendered 331dp artwork, giving `891dp` on a 1440×3120 @ 560dpi device, which
+matches the full window height rather than the inset-excluded height. Worth
+knowing before anyone reuses that value.
+
+`PLAYER_STACK_BELOW_ART_DP = 545` yields 346dp artwork on the reference device —
+slightly larger than the original 336dp, with the reaction row comfortably clear
+of Up Next. On this device the height bound binds, so the artwork's margins
+(33dp) are wider than the 20dp minimum; on a taller window it grows until the
+20dp margin binds instead.
+
+Final state: 512 unit tests, 0 failures. Artwork centred at 115px/114px.

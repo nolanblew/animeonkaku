@@ -270,8 +270,11 @@ fun PlayerScreen(
     val upNextThemeTag = formatThemeTag(upNextTheme?.themeType)
     val isExpanded = progress > 0.5f
     val configuration = LocalConfiguration.current
-    val expandedArtworkSize = expandedPlayerArtworkSize(configuration.screenWidthDp.dp)
-    val artHorizontalInset = if (modeUiState.isVideo) 0 else 24
+    val expandedArtworkSize = expandedPlayerArtworkSize(
+        configuration.screenWidthDp.dp,
+        configuration.screenHeightDp.dp
+    )
+    val artHorizontalInset = if (modeUiState.isVideo) 0 else PLAYER_CONTENT_MARGIN_DP
     val fullscreenVideo = isFullscreenVideo(
         orientation = configuration.orientation,
         isVideo = modeUiState.isVideo,
@@ -300,7 +303,9 @@ fun PlayerScreen(
     }
 
     val topInsetDp = WindowInsets.systemBars.asPaddingValues().calculateTopPadding().value.toInt()
-    val endTopMargin = max(16, topInsetDp + 16)
+    // Sit just clear of the status bar rather than well below it. Every dp saved here is a dp
+    // the artwork can use, and the header was reading as floating in the middle of the gap.
+    val endTopMargin = max(8, topInsetDp + 6)
 
     val motionScene = MotionScene("""{
             ConstraintSets: {
@@ -327,7 +332,7 @@ fun PlayerScreen(
                      playPause: { width: 68, height: 68, start: ['parent', 'start'], end: ['parent', 'end'], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
                      next: { width: 48, height: 48, start: ['playPause', 'end', 12], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
                      miniProgress: { width: 'spread', height: 2, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 0 },
-                     sliderControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 20], end: ['parent', 'end', 20], top: ['titles', 'bottom', 6], alpha: 1 },
+                     sliderControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', $PLAYER_CONTENT_MARGIN_DP], end: ['parent', 'end', $PLAYER_CONTENT_MARGIN_DP], top: ['titles', 'bottom', 6], alpha: 1 },
                      playbackControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 12], end: ['parent', 'end', 12], top: ['sliderControls', 'bottom', 4], alpha: 1 },
                      reactionRow: { width: 'spread', height: 'wrap', start: ['parent', 'start', 72], end: ['parent', 'end', 72], top: ['playbackControls', 'bottom', 4], bottom: ['upNextRow', 'top', 8], alpha: 1 },
                      upNextRow: { width: 'spread', height: 'wrap', start: ['parent', 'start', 16], end: ['parent', 'end', 16], bottom: ['parent', 'bottom', 24], alpha: 1 }
@@ -475,23 +480,31 @@ fun PlayerScreen(
                         addAll(anime?.primaryArtworkUrls().orEmpty())
                     }.distinct()
                     val pageTitle = item?.display?.title ?: title
+                    // A pager page lays its content out top-start by default. Without this the
+                    // artwork hugs the left edge of its page whenever it is narrower than the
+                    // page — which is any time the size cap binds — and reads as off-centre.
                     Box(
-                        modifier = Modifier
-                            .size(artSize)
-                            .shadow(if (isExpandedThreshold) 24.dp else 0.dp, RoundedCornerShape(cornerRadius.dp))
-                            .clip(RoundedCornerShape(cornerRadius.dp))
-                            .background(Ink800, RoundedCornerShape(cornerRadius.dp))
-                            .border(1.dp, Mist200.copy(alpha = 0.15f), RoundedCornerShape(cornerRadius.dp)),
+                        modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (pageArtUrls.isNotEmpty()) {
-                            FallbackAsyncImage(
-                                urls = pageArtUrls,
-                                contentDescription = pageTitle,
-                                modifier = Modifier.fillMaxSize(),
-                                loadOriginalSize = playerArtworkLoadsOriginalSize(progress),
-                                crossfade = true
-                            )
+                        Box(
+                            modifier = Modifier
+                                .size(artSize)
+                                .shadow(if (isExpandedThreshold) 24.dp else 0.dp, RoundedCornerShape(cornerRadius.dp))
+                                .clip(RoundedCornerShape(cornerRadius.dp))
+                                .background(Ink800, RoundedCornerShape(cornerRadius.dp))
+                                .border(1.dp, Mist200.copy(alpha = 0.15f), RoundedCornerShape(cornerRadius.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (pageArtUrls.isNotEmpty()) {
+                                FallbackAsyncImage(
+                                    urls = pageArtUrls,
+                                    contentDescription = pageTitle,
+                                    modifier = Modifier.fillMaxSize(),
+                                    loadOriginalSize = playerArtworkLoadsOriginalSize(progress),
+                                    crossfade = true
+                                )
+                            }
                         }
                     }
                 }
@@ -862,11 +875,40 @@ fun PlayerScreen(
 internal fun playerArtworkLoadsOriginalSize(progress: Float): Boolean = progress > 0.1f
 
 /**
- * Keeps artwork prominent without letting a wide phone turn it into a tall control-stack blocker.
- * Narrow phones retain their current square presentation; wider phones cap at a modest 336 dp.
+ * The horizontal margin shared by the expanded player's artwork and its seek bar, so the
+ * two edges line up and cannot drift apart. Artwork is allowed to grow until it hits this
+ * margin, which is the tightest the expanded player ever gets.
  */
-internal fun expandedPlayerArtworkSize(screenWidth: androidx.compose.ui.unit.Dp): androidx.compose.ui.unit.Dp =
-    minOf((screenWidth - 48.dp).coerceAtLeast(0.dp), 336.dp)
+internal const val PLAYER_CONTENT_MARGIN_DP = 20
+
+/**
+ * Vertical space the expanded player's control stack needs below the artwork: the title block,
+ * seek bar, transport row, reaction row and the Up Next card, plus comfortable gaps between
+ * them. Artwork yields to this rather than the other way round, so the reaction row never gets
+ * squeezed down against Up Next.
+ */
+internal const val PLAYER_STACK_BELOW_ART_DP = 545
+
+/** Never shrink the artwork past this, even on a very short window. */
+internal const val PLAYER_ARTWORK_MIN_DP = 200
+
+/** Never grow past this, so a tablet does not turn a square image into a control-stack blocker. */
+internal const val PLAYER_ARTWORK_MAX_DP = 400
+
+/**
+ * Artwork is the flexible element of the expanded player. It grows until either its margins
+ * match the seek bar's or the control stack below it would start to crowd, whichever binds
+ * first, so everything fits on screen with even spacing.
+ */
+internal fun expandedPlayerArtworkSize(
+    screenWidth: androidx.compose.ui.unit.Dp,
+    availableHeight: androidx.compose.ui.unit.Dp
+): androidx.compose.ui.unit.Dp {
+    val widthBound = (screenWidth - (PLAYER_CONTENT_MARGIN_DP * 2).dp).coerceAtLeast(0.dp)
+    val heightBound = availableHeight - PLAYER_STACK_BELOW_ART_DP.dp
+    return minOf(widthBound, heightBound)
+        .coerceIn(PLAYER_ARTWORK_MIN_DP.dp, PLAYER_ARTWORK_MAX_DP.dp)
+}
 
 @Composable
 fun PlayerBackgroundArt(imageUrl: String?) {

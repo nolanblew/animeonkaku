@@ -7,6 +7,10 @@ import com.takeya.animeongaku.media.RetainedIntentReason
 import com.takeya.animeongaku.ui.player.ModeSelectionDecision
 import com.takeya.animeongaku.ui.player.VideoContentWarning
 import com.takeya.animeongaku.ui.player.derivePlayerModeUiState
+import com.takeya.animeongaku.ui.player.PLAYER_ARTWORK_MAX_DP
+import com.takeya.animeongaku.ui.player.PLAYER_ARTWORK_MIN_DP
+import com.takeya.animeongaku.ui.player.PLAYER_CONTENT_MARGIN_DP
+import com.takeya.animeongaku.ui.player.PLAYER_STACK_BELOW_ART_DP
 import com.takeya.animeongaku.ui.player.expandedPlayerArtworkSize
 import com.takeya.animeongaku.ui.player.isFullscreenVideo
 import com.takeya.animeongaku.ui.player.showsModeChip
@@ -185,9 +189,25 @@ class PlayerModeUiStateTest {
     }
 
     @Test
-    fun `expanded artwork caps on wide phones without shrinking a narrow phone`() {
-        assertEquals(312.dp, expandedPlayerArtworkSize(360.dp))
-        assertEquals(336.dp, expandedPlayerArtworkSize(411.dp))
+    fun `expanded artwork yields to whichever of width or control stack binds first`() {
+        val margin = (PLAYER_CONTENT_MARGIN_DP * 2).dp
+        val roomy = (PLAYER_STACK_BELOW_ART_DP + 500).dp
+
+        // Given plenty of height, the seek bar margin binds and the artwork's edges land
+        // exactly where the seek bar's do.
+        assertEquals(360.dp - margin, expandedPlayerArtworkSize(360.dp, roomy))
+        assertEquals(411.dp - margin, expandedPlayerArtworkSize(411.dp, roomy))
+
+        // On a real phone window the control stack binds first, so the artwork gives up
+        // width to keep the reaction row off the Up Next card.
+        val short = (PLAYER_STACK_BELOW_ART_DP + 300).dp
+        assertEquals(300.dp, expandedPlayerArtworkSize(411.dp, short))
+
+        // A tablet hits the absolute cap rather than swallowing the control stack.
+        assertEquals(PLAYER_ARTWORK_MAX_DP.dp, expandedPlayerArtworkSize(800.dp, roomy))
+
+        // A very short window still leaves recognisable artwork.
+        assertEquals(PLAYER_ARTWORK_MIN_DP.dp, expandedPlayerArtworkSize(411.dp, 100.dp))
     }
 
     @Test
