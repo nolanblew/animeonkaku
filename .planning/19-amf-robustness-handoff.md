@@ -261,6 +261,30 @@ person needs to know, anything deliberately left undone)_
   clean at `b5e9044`; no partial work exists and none needs unpicking. See §4b
   to resume.
 
+- **2026-07-27 — MC-S13/MC-S18 deployed and Erin partial import recovered.**
+  Request `452ae72b-9756-44cd-91f1-00d2b02d8293` exposed a deployment-drift
+  regression: the database had migration `0017`, but the remote source and
+  container still used root-only polling (`include=item_results,media`). The
+  retained root therefore showed seven delegated items while Anime Ongaku had
+  persisted only the root provider job and one ready opening.
+  - Live sparse-v2 probes confirmed the delegated OST child
+    `98bba32e-1c23-4633-9cf7-9eed451cf56f` was `completed`/`delivered` with 46
+    media songs; no AMF mutation or re-request was needed.
+  - The complete tracked server tree at `4d1fcdd` was deployed, including
+    MC-S13 `b5e9044` and MC-S18 `41e5aba`, replacing the earlier selective-file
+    deployment. Startup recovery adopted all eight provider jobs and imported
+    46/46 OST deliveries while leaving the six still-incomplete children under
+    normal polling.
+  - Release `277`, **Erin, the Beast Tamer Original Soundtrack**, was published
+    with 46 ordered, English-first tracks. Focused server verification passed
+    128 tests; the full serial suite passed 515 tests with 32 environment-gated
+    skips, and TypeScript typecheck passed.
+  - The current debug Android app was rebuilt, its unit tests passed, and it was
+    installed on the Pixel 7 Pro. Device smoke verified Erin's **Related Music**
+    section, the 46-track album page, ordered English titles beginning with
+    **Ancient Gods**, and successful streaming playback. No app crash was
+    present in logcat.
+
 ## 4b. Resuming — read this first
 
 State at pause: **HEAD `b5e9044`**, working tree clean, nothing uncommitted.
