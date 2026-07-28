@@ -2816,14 +2816,47 @@ The focused client suite passed (53 tests), the full serial server suite passed
 the deployed LAN server rebuilt successfully. Its startup recovery polls
 received successful AMF responses and both server containers remained healthy.
 
+### MC-R10 — Control automatic full-music searches from server admin
+
+| Field | Value |
+|---|---|
+| Status | ✅ Complete (2026-07-27) |
+| Area | Server admin, acquisition policy, and discovery scheduling |
+
+The server now exposes a password-protected `/admin` page for choosing whether
+automatic full-music acquisition is manual-only, limited to users' favorites,
+limited to user-created and smart playlists, or enabled for every mapped anime
+explicitly present in a user's synced library. Search and playback activity do
+not qualify an anime. The existing debug request action remains available in
+every mode.
+
+Saving a policy immediately enqueues a durable reconciliation job, and the
+server repeats the reconciliation every 15 minutes to backfill existing
+eligible anime and discover newly qualifying themes. Reconciliation uses the
+existing acquisition queue and request service, avoids duplicate cross-user
+requests, does not repeat already-requested themes, and makes an anime eligible
+again when a newly mapped current theme has not appeared in its prior requests.
+The deployed policy remains **Manual**, so validation did not submit real
+automatic requests.
+
+The full server suite passed serially (515 passed, 32 environment-gated
+skipped), TypeScript typecheck passed, and the focused admin/policy suite passed
+9 tests. PostgreSQL integration coverage verifies persistence, eligibility,
+play-only and auto-playlist exclusions, request deduplication, and new-theme
+pickup when `MIGRATION_TEST_DATABASE_URL` is configured. The deployed API and
+database are healthy; login, protected settings access, the completed
+reconciliation job, and zero automatic requests were verified live. Installed
+Edge visual checks passed for both the login screen and the authenticated
+responsive settings page.
+
 ## 9. Effort summary
 
 | Workstream | Tickets | Experienced effort |
 |---|---:|---:|
-| Server catalog/provider/API | 12 | approximately 50–65 days |
+| Server catalog/provider/API | 13 | approximately 50–65 days |
 | Android data/playback/UI/downloads | 11 | approximately 55–75 days |
 | Integrated acceptance and enablement | 1 | approximately 6–8 days |
-| Total sequential | 24 | approximately 111–148 focused days |
+| Total sequential | 25 | approximately 111–148 focused days |
 
 The total is not a calendar estimate. With two contributors and the dependency
 waves above, practical elapsed time can be materially shorter. The high effort
