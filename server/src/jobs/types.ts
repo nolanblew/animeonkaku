@@ -25,7 +25,8 @@ export type JobType =
   | "POLL_AMF_MUSIC_BATCH"
   | "IMPORT_AMF_MUSIC_BATCH"
   | "IMPORT_AMF_MUSIC_ITEM"
-  | "OPERATE_AMF_MUSIC_BATCH";
+  | "OPERATE_AMF_MUSIC_BATCH"
+  | "RECONCILE_MUSIC_SEARCH_POLICY";
 
 export interface JobRecord {
   id: number;

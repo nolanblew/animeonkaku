@@ -61,6 +61,7 @@ const DEFAULT_TIMEOUTS_MS: Record<JobType, number> = {
   // (hash verification + copy verification).
   IMPORT_AMF_MUSIC_ITEM: 10 * 60_000,
   OPERATE_AMF_MUSIC_BATCH: 2 * 60_000,
+  RECONCILE_MUSIC_SEARCH_POLICY: 2 * 60_000,
 };
 
 export class JobWorker {

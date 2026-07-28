@@ -3,7 +3,7 @@ import { MusicSearchPolicyService, type MusicSearchMode } from "../src/music/set
 
 function fixture(mode: MusicSearchMode = "MANUAL") {
   const repo = {
-    getMode: vi.fn().mockResolvedValue(mode),
+    getMode: vi.fn().mockResolvedValue({ mode, updatedAt: new Date("2026-07-27T12:00:00Z") }),
     setMode: vi.fn().mockImplementation(async (next: MusicSearchMode) => ({ mode: next, updatedAt: new Date("2026-07-27T12:00:00Z") })),
     listEligibleAnime: vi.fn().mockResolvedValue([
       { userId: "user-1", kitsuId: "101" },

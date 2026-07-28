@@ -48,6 +48,7 @@ export type AnimeMusicBatchState =
   | "QUEUED" | "SEARCHING" | "AWAITING_OPERATOR" | "DOWNLOADING" | "PROCESSING"
   | "COMPLETED" | "COMPLETED_WITH_WARNINGS" | "FAILED" | "CANCELLED";
 export type AnimeMusicImportState = "PENDING" | "IMPORTING" | "READY" | "ATTENTION";
+export type MusicSearchMode = "MANUAL" | "FAVORITES" | "PLAYLISTS" | "EVERYTHING";
 
 // ===== identity =====
 
@@ -77,6 +78,12 @@ export const deviceSessions = pgTable("device_sessions", {
 }, (t) => [
   index("device_sessions_user_id_idx").on(t.userId),
 ]);
+
+export const musicSearchSettings = pgTable("music_search_settings", {
+  singletonId: integer("singleton_id").primaryKey().default(1),
+  mode: text("mode").$type<MusicSearchMode>().notNull().default("MANUAL"),
+  updatedAt: updatedAt(),
+});
 
 // ===== global catalog =====
 

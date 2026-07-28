@@ -24,8 +24,10 @@ describe("server runtime wiring", () => {
     expect(source).not.toContain("createMusicImportHandlers");
     expect(source).not.toContain("listRecoverableAcquisitionIds");
     expect(source).not.toContain("listRecoverableImportIds");
-    expect(source).toMatch(/handlers: \{ \.\.\.fetchHandlers, \.\.\.syncHandlers, \.\.\.musicRequestHandlers, \.\.\.amfDeliveryHandlers, \.\.\.musicOperatorHandlers \}/);
+    expect(source).toMatch(/handlers: \{ \.\.\.fetchHandlers, \.\.\.syncHandlers, \.\.\.musicRequestHandlers, \.\.\.amfDeliveryHandlers, \.\.\.musicOperatorHandlers,[\s\S]*\.\.\.musicSearchPolicyHandlers \}/);
     expect(source).toContain("musicOperator: musicOperatorService");
+    expect(source).toContain("musicSearchSettings: musicSearchPolicy");
+    expect(source).toContain("musicSearchPolicyScheduler.start()");
   });
 
   it("wires listener catalog visibility into client, search, and song streaming services", async () => {

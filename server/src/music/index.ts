@@ -5,4 +5,5 @@ export * from "./import/index.js";
 export * from "./matching/index.js";
 export * from "./operator/index.js";
 export * from "./requests/index.js";
+export * from "./settings/index.js";
 export * from "./types.js";

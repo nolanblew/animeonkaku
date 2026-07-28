@@ -34,6 +34,10 @@ import {
   PgMusicOperatorRepository,
   MusicOperatorService,
   createMusicOperatorHandlers,
+  createMusicSearchPolicyHandlers,
+  MusicSearchPolicyScheduler,
+  MusicSearchPolicyService,
+  PgMusicSearchSettingsRepository,
 } from "./music/index.js";
 import {
   createFetchMediaHandlers,
@@ -68,6 +72,16 @@ await mkdir(join(config.MEDIA_ROOT, "images", "artists"), { recursive: true });
 const jobQueue = new JobQueue(new PgJobRepository(pool));
 const musicRequestRepo = new PgMusicRequestRepository(pool);
 const musicRequestService = new MusicRequestService({ repo: musicRequestRepo, queue: jobQueue });
+const musicSearchPolicy = new MusicSearchPolicyService({
+  repo: new PgMusicSearchSettingsRepository(pool),
+  queue: jobQueue,
+  requests: musicRequestService,
+});
+const musicSearchPolicyHandlers = createMusicSearchPolicyHandlers(musicSearchPolicy);
+const musicSearchPolicyScheduler = new MusicSearchPolicyScheduler(
+  musicSearchPolicy,
+  (error) => externalLogger.warn({ err: error }, "unable to schedule music search policy reconciliation"),
+);
 const MUSIC_REQUEST_RECHECK_INTERVAL_MS = 15 * 60 * 1000;
 const musicRequestHandlers = createMusicRequestHandlers({ repo: musicRequestRepo, queue: jobQueue, client: amfClient });
 const amfDeliveryRepo = new PgAmfDeliveryRepository(pool);
@@ -225,7 +239,8 @@ const syncHandlers = createSyncJobHandlers(syncPipeline);
 // Background hydration waits until on-demand media traffic has been quiet.
 const mediaActivity = new InteractiveMediaActivity();
 const worker = new JobWorker(jobQueue, {
-  handlers: { ...fetchHandlers, ...syncHandlers, ...musicRequestHandlers, ...amfDeliveryHandlers, ...musicOperatorHandlers },
+  handlers: { ...fetchHandlers, ...syncHandlers, ...musicRequestHandlers, ...amfDeliveryHandlers, ...musicOperatorHandlers,
+    ...musicSearchPolicyHandlers },
   maintenanceFetchDelayMs: config.AUDIO_BACKFILL_DELAY_SECONDS * 1000,
   holdMaintenanceWork: () => !mediaActivity.isQuiet(),
 });
@@ -246,6 +261,7 @@ const syncScheduler = new SyncScheduler({
   syncIntervalMinutes: config.SYNC_INTERVAL_MINUTES,
 });
 syncScheduler.start();
+musicSearchPolicyScheduler.start();
 
 const clientApi = new DrizzleClientApiService(
   db,
@@ -272,6 +288,8 @@ const app = buildApp({
   legacyLibraryImport: clientApi,
   musicRequests: musicRequestService,
   musicOperator: musicOperatorService,
+  musicSearchSettings: musicSearchPolicy,
+  adminPassword: config.ADMIN_PASSWORD,
   mediaApi: new MediaStreamingService({
     repo: new DrizzleMediaApiRepository(db),
     queue: jobQueue,
@@ -307,6 +325,7 @@ async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, "shutting down");
   clearInterval(incompleteMusicRequestTimer);
   syncScheduler.stop();
+  musicSearchPolicyScheduler.stop();
   worker.stop();
   interactiveWorker.stop();
   await app.close();

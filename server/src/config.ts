@@ -41,6 +41,7 @@ const EnvSchema = z.object({
   // Catalog exposure and automatic discovery are independent rollout switches.
   MUSIC_CATALOG_ENABLED: booleanFromEnvironment.default(false),
   MUSIC_DISCOVERY_ENABLED: booleanFromEnvironment.default(false),
+  ADMIN_PASSWORD: z.string().min(1).default("Password123"),
 });
 
 export type Config = z.infer<typeof EnvSchema>;
