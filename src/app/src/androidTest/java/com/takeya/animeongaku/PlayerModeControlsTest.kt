@@ -10,13 +10,12 @@ import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.takeya.animeongaku.media.PlaybackMode
 import com.takeya.animeongaku.ui.player.LandscapeVideoOverlay
-import com.takeya.animeongaku.ui.player.PlayerModeSelector
+import com.takeya.animeongaku.ui.player.PlayerModeChip
 import com.takeya.animeongaku.ui.player.PlayerModeUiState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -30,11 +29,11 @@ class PlayerModeControlsTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun selectorUsesActualModeAccessibleTargetsAndLiveRetainedIntent() {
+    fun chipShowsActualModeKeepsAnAccessibleTargetAndAnnouncesRetainedIntent() {
         var selected: PlaybackMode? = null
         composeRule.setContent {
             MaterialTheme {
-                PlayerModeSelector(
+                PlayerModeChip(
                     state = PlayerModeUiState(
                         visible = true,
                         options = listOf(
@@ -46,22 +45,15 @@ class PlayerModeControlsTest {
                         actualMode = PlaybackMode.TV_SIZE,
                         retainedIntentText = "Video preferred · playing TV Size"
                     ),
-                    isExpanded = true,
                     onModeSelected = { selected = it }
                 )
             }
         }
 
-        val tvMode = composeRule.onNodeWithContentDescription("TV Size playback mode")
-        tvMode.assertIsSelected()
-        val bounds = tvMode.fetchSemanticsNode().boundsInRoot
-        assertTrue(bounds.height >= with(composeRule.density) { 48.dp.toPx() })
-        assertTrue(bounds.width >= with(composeRule.density) { 48.dp.toPx() })
-        composeRule.onNodeWithContentDescription("Video playback mode")
-            .assertIsNotSelected()
-            .performClick()
-        composeRule.onNodeWithText("Video preferred · playing TV Size")
-            .assertIsDisplayed()
+        // Collapsed, the chip reports only the current mode — the alternatives
+        // are not on screen competing for attention.
+        val chip = composeRule.onNodeWithContentDescription("Playback mode: TV Size")
+        chip.assertIsDisplayed()
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
             .assert(
                 SemanticsMatcher.expectValue(
@@ -69,30 +61,38 @@ class PlayerModeControlsTest {
                     "Video preferred · playing TV Size"
                 )
             )
+        composeRule.onNodeWithContentDescription("Video playback mode").assertDoesNotExist()
+
+        // The visual footprint shrank but the touch target must not.
+        val bounds = chip.fetchSemanticsNode().boundsInRoot
+        assertTrue(bounds.height >= with(composeRule.density) { 48.dp.toPx() })
+
+        chip.performClick()
+
+        composeRule.onNodeWithContentDescription("TV Size playback mode").assertIsSelected()
+        composeRule.onNodeWithContentDescription("Video playback mode")
+            .assertIsNotSelected()
+            .performClick()
         composeRule.runOnIdle { assertEquals(PlaybackMode.VIDEO, selected) }
     }
 
     @Test
-    fun collapsedSelectorExposesNoModeActionsOrRetainedIntentSemantics() {
+    fun chipIsAbsentWhenOnlyOneModeIsAvailable() {
         composeRule.setContent {
             MaterialTheme {
-                PlayerModeSelector(
+                PlayerModeChip(
                     state = PlayerModeUiState(
                         visible = true,
-                        options = listOf(PlaybackMode.TV_SIZE, PlaybackMode.VIDEO),
-                        preferredMode = PlaybackMode.VIDEO,
-                        actualMode = PlaybackMode.TV_SIZE,
-                        retainedIntentText = "Video preferred · playing TV Size"
+                        options = listOf(PlaybackMode.TV_SIZE),
+                        preferredMode = PlaybackMode.TV_SIZE,
+                        actualMode = PlaybackMode.TV_SIZE
                     ),
-                    isExpanded = false,
                     onModeSelected = {}
                 )
             }
         }
 
-        composeRule.onNodeWithContentDescription("TV Size playback mode").assertDoesNotExist()
-        composeRule.onNodeWithContentDescription("Video playback mode").assertDoesNotExist()
-        composeRule.onNodeWithText("Video preferred · playing TV Size").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("Playback mode: TV Size").assertDoesNotExist()
     }
 
     @Test

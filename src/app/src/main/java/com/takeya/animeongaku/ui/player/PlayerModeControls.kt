@@ -10,21 +10,24 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowDropDown
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material.icons.rounded.ThumbUp
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,13 +44,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
@@ -67,66 +74,109 @@ import com.takeya.animeongaku.ui.theme.Rose500
 import kotlinx.coroutines.delay
 import androidx.compose.ui.platform.LocalAccessibilityManager
 
+/**
+ * The playback-mode control lives inline in the Now Playing eyebrow row, beside
+ * the anime name and theme tag.
+ *
+ * It renders as quiet text rather than a filled segmented control on purpose.
+ * The previous design floated a saturated capsule over the top of the artwork —
+ * covering the one element on this screen that should never be obscured, and
+ * carrying the loudest colour on the screen for something the user touches
+ * perhaps once a session. Here the current mode stays readable at a glance and
+ * the alternatives are one tap away, without competing for first fixation.
+ */
 @Composable
-fun PlayerModeSelector(
+fun PlayerModeChip(
     state: PlayerModeUiState,
-    isExpanded: Boolean,
     onModeSelected: (PlaybackMode) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    if (!state.visible || !isExpanded) return
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
+    if (!state.showsModeChip()) return
+    val current = state.actualMode ?: state.options.first()
+    val label = current.displayLabel()
+    val retained = state.retainedIntentText
+    var menuOpen by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier) {
         Row(
             modifier = Modifier
-                .background(Ink900.copy(alpha = 0.78f), RoundedCornerShape(50))
-                .padding(horizontal = 3.dp)
-                .selectableGroup(),
-            horizontalArrangement = Arrangement.Center,
+                .minimumInteractiveComponentSize()
+                .clip(RoundedCornerShape(50))
+                .clickable(
+                    role = Role.Button,
+                    onClickLabel = "Change playback mode"
+                ) { menuOpen = true }
+                .padding(horizontal = 2.dp, vertical = 2.dp)
+                .semantics {
+                    contentDescription = "Playback mode: $label"
+                    // The retained-intent explanation no longer has a line of
+                    // its own, so the chip carries the announcement instead.
+                    if (retained != null) {
+                        stateDescription = retained
+                        liveRegion = LiveRegionMode.Polite
+                    }
+                },
             verticalAlignment = Alignment.CenterVertically
         ) {
-            state.options.forEach { mode ->
-                val selected = state.actualMode == mode
-                val label = mode.displayLabel()
-                Box(
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .selectable(
-                            selected = selected,
-                            role = Role.RadioButton,
-                            onClick = { onModeSelected(mode) }
-                        )
-                        .semantics { contentDescription = "$label playback mode" }
-                        .padding(horizontal = 1.dp),
-                    contentAlignment = Alignment.Center
-                ) {
+            Text(
+                text = label,
+                color = Mist200,
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
+                maxLines = 1
+            )
+            Icon(
+                imageVector = Icons.Rounded.ArrowDropDown,
+                contentDescription = null,
+                tint = Mist200,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        // Now Playing paints its own dark Ink/Mist palette regardless of the
+        // system theme, but a DropdownMenu is a popup that reads the ambient
+        // colorScheme — which is the light scheme on a light-mode device. Pin
+        // the menu to the dark surface so it cannot render as a white card on
+        // top of this screen.
+        MaterialTheme(
+            colorScheme = MaterialTheme.colorScheme.copy(
+                surface = Ink800,
+                surfaceContainer = Ink800,
+                onSurface = Mist100,
+                onSurfaceVariant = Mist200
+            )
+        ) {
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                if (retained != null) {
                     Text(
-                        text = label,
-                        color = if (selected) Ink900 else Mist200,
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier
-                            .background(
-                                if (selected) Rose500 else Color.Transparent,
-                                RoundedCornerShape(50)
-                            )
-                            .padding(horizontal = 11.dp, vertical = 7.dp)
+                        text = retained,
+                        color = Mist200.copy(alpha = 0.78f),
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+                state.options.forEach { mode ->
+                    val isSelected = mode == state.actualMode
+                    val modeLabel = mode.displayLabel()
+                    DropdownMenuItem(
+                        text = { Text(modeLabel) },
+                        onClick = {
+                            menuOpen = false
+                            onModeSelected(mode)
+                        },
+                        leadingIcon = {
+                            if (isSelected) {
+                                Icon(Icons.Rounded.Check, contentDescription = null, tint = Rose500)
+                            } else {
+                                Spacer(Modifier.size(24.dp))
+                            }
+                        },
+                        modifier = Modifier.semantics {
+                            role = Role.RadioButton
+                            selected = isSelected
+                            contentDescription = "$modeLabel playback mode"
+                        }
                     )
                 }
             }
-        }
-        state.retainedIntentText?.let { text ->
-            Text(
-                text = text,
-                color = Mist200.copy(alpha = 0.78f),
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.semantics {
-                    liveRegion = LiveRegionMode.Polite
-                    stateDescription = text
-                }
-            )
         }
     }
 }

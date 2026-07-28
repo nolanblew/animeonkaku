@@ -71,7 +71,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layoutId
-import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
@@ -308,7 +307,6 @@ fun PlayerScreen(
                  start: {
                      bg: { width: 'spread', height: 64, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'] },
                      topBar: { width: 'spread', height: 48, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 0 },
-                     modeSelector: { width: 'wrap', height: 'wrap', start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 0 },
                      art: { width: 44, height: 44, start: ['parent', 'start', 12], top: ['parent', 'top', 10], custom: { corner: 8 } },
                      titles: { width: 'spread', height: 'wrap', start: ['art', 'end', 12], end: ['playPause', 'start', 12], top: ['parent', 'top', 12], bottom: ['bg', 'bottom', 12] },
                      statusBadge: { width: 'wrap', height: 'wrap', end: ['art', 'end', 8], bottom: ['art', 'bottom', 8], alpha: 0 },
@@ -323,7 +321,6 @@ fun PlayerScreen(
                  end: {
                      bg: { width: 'spread', height: 'spread', start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], bottom: ['parent', 'bottom'] },
                      topBar: { width: 'spread', height: 48, start: ['parent', 'start', 16], end: ['parent', 'end', 16], top: ['parent', 'top', $endTopMargin], alpha: 1 },
-                     modeSelector: { width: 'wrap', height: 'wrap', start: ['parent', 'start'], end: ['parent', 'end'], top: ['art', 'top', 8], alpha: 1 },
                      art: { width: 'spread', height: ${expandedArtworkSize.value}, start: ['parent', 'start', $artHorizontalInset], end: ['parent', 'end', $artHorizontalInset], top: ['topBar', 'bottom', 6], custom: { corner: 24 } },
                      titles: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['art', 'bottom', 8] },
                      statusBadge: { width: 'wrap', height: 'wrap', end: ['art', 'end', 8], bottom: ['art', 'bottom', 8], alpha: 0 },
@@ -373,25 +370,16 @@ fun PlayerScreen(
             }
         }
 
-        Box(
-            modifier = Modifier.layoutId("modeSelector").zIndex(1f),
-            contentAlignment = Alignment.Center
-        ) {
-            PlayerModeSelector(
-                state = modeUiState,
-                isExpanded = isExpandedThreshold,
-                onModeSelected = { mode ->
-                    when (val decision = modeUiState.selectionDecision(mode)) {
-                        ModeSelectionDecision.Ignore -> Unit
-                        is ModeSelectionDecision.Apply -> viewModel.selectThemeMode(decision.mode)
-                        is ModeSelectionDecision.Confirm -> {
-                            npState.currentEntry?.queueId?.let { queueId ->
-                                pendingModeConfirmation = queueId to decision
-                            }
-                        }
+        val onModeSelected: (PlaybackMode) -> Unit = { mode ->
+            when (val decision = modeUiState.selectionDecision(mode)) {
+                ModeSelectionDecision.Ignore -> Unit
+                is ModeSelectionDecision.Apply -> viewModel.selectThemeMode(decision.mode)
+                is ModeSelectionDecision.Confirm -> {
+                    npState.currentEntry?.queueId?.let { queueId ->
+                        pendingModeConfirmation = queueId to decision
                     }
                 }
-            )
+            }
         }
 
         val cornerProps = motionProperties(id = "art")
@@ -521,7 +509,8 @@ fun PlayerScreen(
             horizontalAlignment = if (isExpandedThreshold) Alignment.CenterHorizontally else Alignment.Start
         ) {
             if (isExpandedThreshold) {
-                if (eyebrowAnimeName != null || eyebrowThemeTag != null) {
+                val showsModeChip = modeUiState.showsModeChip()
+                if (eyebrowAnimeName != null || eyebrowThemeTag != null || showsModeChip) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -530,6 +519,9 @@ fun PlayerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (eyebrowAnimeName != null) {
+                            // Only the anime name flexes. The theme tag and the
+                            // mode chip keep their intrinsic width so a long
+                            // title marquees rather than squeezing them out.
                             MarqueeText(
                                 text = eyebrowAnimeName,
                                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
@@ -553,6 +545,17 @@ fun PlayerScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
+                        if (showsModeChip && (eyebrowAnimeName != null || eyebrowThemeTag != null)) {
+                            Text(
+                                text = "  \u00B7  ",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = Mist200
+                            )
+                        }
+                        PlayerModeChip(
+                            state = modeUiState,
+                            onModeSelected = onModeSelected
+                        )
                     }
                 }
                 MarqueeText(

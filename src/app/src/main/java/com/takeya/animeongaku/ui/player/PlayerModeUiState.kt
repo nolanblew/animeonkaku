@@ -46,6 +46,15 @@ data class PlayerModeUiState(
     }
 }
 
+/**
+ * A chooser with a single choice is not a control, and the Now Playing eyebrow
+ * row it lives in is scarce space. A theme with no imported full song offers
+ * only TV Size, so rendering a one-option control would add clutter to the most
+ * common case without offering an action. The theme tag beside it still
+ * identifies the track.
+ */
+fun PlayerModeUiState.showsModeChip(): Boolean = visible && options.size >= 2
+
 private val themeModeOrder = listOf(
     PlaybackMode.TV_SIZE,
     PlaybackMode.FULL_SIZE,
