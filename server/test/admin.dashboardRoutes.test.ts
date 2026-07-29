@@ -17,6 +17,8 @@ describe("comprehensive admin dashboard", () => {
     listAnime: vi.fn(),
     listSongs: vi.fn(),
     listLogs: vi.fn(),
+    listRequests: vi.fn(),
+    listJobs: vi.fn(),
     syncUser: vi.fn(),
     revokeUserSessions: vi.fn(),
     refreshAnime: vi.fn(),
@@ -24,6 +26,8 @@ describe("comprehensive admin dashboard", () => {
     refreshThemeMedia: vi.fn(),
     removeMedia: vi.fn(),
     clearCache: vi.fn(),
+    retryJob: vi.fn(),
+    operateBatch: vi.fn(),
   };
 
   beforeEach(() => {
@@ -37,6 +41,8 @@ describe("comprehensive admin dashboard", () => {
     dashboard.listAnime.mockResolvedValue([{ kitsuId: "1", title: "Toradora!", mapped: true, themeCount: 4, tvReady: 3, fullReady: 1 }]);
     dashboard.listSongs.mockResolvedValue([{ id: 9, title: "Pre-Parade", artist: "Rie Kugimiya", mediaState: "READY", byteSize: 700 }]);
     dashboard.listLogs.mockReturnValue([{ id: 1, level: "INFO", message: "server started", time: "2026-07-28T12:00:00.000Z", data: {} }]);
+    dashboard.listRequests.mockResolvedValue([]);
+    dashboard.listJobs.mockResolvedValue([]);
     dashboard.syncUser.mockResolvedValue({ queued: true });
     dashboard.revokeUserSessions.mockResolvedValue({ revoked: 2 });
     dashboard.refreshAnime.mockResolvedValue({ queued: true });
@@ -44,6 +50,8 @@ describe("comprehensive admin dashboard", () => {
     dashboard.refreshThemeMedia.mockResolvedValue({ queued: 3 });
     dashboard.removeMedia.mockResolvedValue({ removedFiles: 1, removedBytes: 500 });
     dashboard.clearCache.mockResolvedValue({ removedFiles: 2, removedBytes: 300 });
+    dashboard.retryJob.mockResolvedValue({ queued: true });
+    dashboard.operateBatch.mockResolvedValue({ queued: true });
 
     app = buildApp({
       authService: new AuthService(new FakeAuthRepo(), new StubKitsuAuthClient()),

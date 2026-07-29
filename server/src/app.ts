@@ -5,7 +5,7 @@ import {
   validatorCompiler,
 } from "fastify-type-provider-zod";
 import { registerAuthRoutes } from "./api/authRoutes.js";
-import { registerAdminRoutes, type MusicSearchSettingsApi } from "./admin/routes.js";
+import { registerAdminRoutes, type AdminDashboardApi, type MusicSearchSettingsApi } from "./admin/routes.js";
 import { registerClientRoutes, type ClientApiService } from "./api/clientRoutes.js";
 import { ApiError, errorEnvelope } from "./api/errors.js";
 import { registerHealthRoutes, type HealthDeps } from "./api/healthRoutes.js";
@@ -31,6 +31,7 @@ export interface AppDeps {
   musicRequests?: MusicRequestService;
   musicOperator?: MusicOperatorApiService;
   musicSearchSettings?: MusicSearchSettingsApi;
+  adminDashboard?: AdminDashboardApi;
   adminPassword?: string;
   onLogin?: (result: LoginResult) => Promise<void>;
   /**
@@ -87,7 +88,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   registerHealthRoutes(app, deps.health);
   if (deps.musicSearchSettings) {
-    registerAdminRoutes(app, deps.musicSearchSettings, deps.adminPassword ?? "Password123");
+    registerAdminRoutes(app, deps.musicSearchSettings, deps.adminPassword ?? "Password123", deps.adminDashboard);
   }
   registerApiRoutes(app, deps);
   app.register(

@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { statfs } from "node:fs/promises";
 import { join } from "node:path";
 import { buildApp } from "./app.js";
+import { PgAdminDashboardService } from "./admin/service.js";
 import { AnimeThemesClient } from "./animethemes/client.js";
 import { DrizzleClientApiService } from "./api/drizzleClientApiService.js";
 import { DrizzleMediaApiRepository } from "./api/drizzleMediaApiRepository.js";
@@ -21,7 +22,7 @@ import { UpstreamHttp } from "./http/upstream.js";
 import { JobPriority, JobQueue, JobWorker, PgJobRepository } from "./jobs/index.js";
 import { RealKitsuAuthClient } from "./kitsu/kitsuAuthClient.js";
 import { KitsuClient } from "./kitsu/kitsuClient.js";
-import { createJsonStdoutLogger } from "./logging.js";
+import { createJsonStdoutLogger, RecentLogStore } from "./logging.js";
 import {
   AnimeMusicFetcherClient,
   createAnimeMusicFetcherUpstreamHttp,
@@ -56,7 +57,8 @@ import {
 } from "./sync/index.js";
 
 const config = loadConfig();
-const externalLogger = createJsonStdoutLogger();
+const recentLogs = new RecentLogStore();
+const externalLogger = createJsonStdoutLogger(recentLogs);
 
 const amfHttp = createAnimeMusicFetcherUpstreamHttp({ logger: externalLogger });
 const amfClient = new AnimeMusicFetcherClient({ http: amfHttp });
@@ -289,6 +291,14 @@ const app = buildApp({
   musicRequests: musicRequestService,
   musicOperator: musicOperatorService,
   musicSearchSettings: musicSearchPolicy,
+  adminDashboard: new PgAdminDashboardService({
+    pool,
+    queue: jobQueue,
+    requests: musicRequestService,
+    operator: musicOperatorService,
+    mediaRoot: config.MEDIA_ROOT,
+    logs: recentLogs,
+  }),
   adminPassword: config.ADMIN_PASSWORD,
   mediaApi: new MediaStreamingService({
     repo: new DrizzleMediaApiRepository(db),
