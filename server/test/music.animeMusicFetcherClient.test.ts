@@ -585,8 +585,12 @@ describe("AnimeMusicFetcherClient job lifecycle", () => {
         anime: {
           titles: { english: "The Apothecary Diaries", romaji: "Kusuriya no Hitorigoto", japanese: "薬屋のひとりごと" },
           albums: [{
-            titles: { english: "Season 2 Original Soundtrack", romaji: "Kusuriya no Hitorigoto 2 OST", japanese: "薬屋のひとりごと 第2期 OST" },
-            songs: [{
+          titles: { english: "Season 2 Original Soundtrack", romaji: "Kusuriya no Hitorigoto 2 OST", japanese: "薬屋のひとりごと 第2期 OST" },
+          artwork: {
+            url: "/api/v1/jobs/amf-job-1/albums/0/artwork",
+            media_type: "image/jpeg",
+          },
+          songs: [{
               file_index: 7,
               requested_item_indexes: [0],
               labels: ["OP1"],
@@ -622,6 +626,10 @@ describe("AnimeMusicFetcherClient job lifecycle", () => {
       localized: {
         animeTitles: { english: "The Apothecary Diaries", romaji: "Kusuriya no Hitorigoto", japanese: "薬屋のひとりごと" },
         albumTitles: { english: "Season 2 Original Soundtrack", romaji: "Kusuriya no Hitorigoto 2 OST", japanese: "薬屋のひとりごと 第2期 OST" },
+        albumArtwork: {
+          url: "/api/v1/jobs/amf-job-1/albums/0/artwork",
+          mediaType: "image/jpeg",
+        },
         songTitles: { english: "Hyakka Ryouran", romaji: "Hyakka Ryouran", japanese: "百花繚乱" },
         artists: [{ english: "Lilas Ikuta", romaji: "Ikuta Lilas", japanese: "幾田りら" }],
       },

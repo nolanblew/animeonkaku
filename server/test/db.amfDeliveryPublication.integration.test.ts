@@ -29,7 +29,8 @@ describe.skipIf(!adminDatabaseUrl)("AMF delivery publication (PostgreSQL + files
       await stage(libraryRoot, fullPath, bytes);
       await seedRequest(pool, { requestId: "request-full", batchId: "batch-full", items: [{
         id: "item-full", index: 0, kind: "OP", number: 1, themeId: 100, fileIndex: 1, relativePath: fullPath,
-        metadata: { title: "Opening Full", artist: "Singer", album: "Theme Single" }, sha,
+        metadata: { title: "Opening Full", artist: "Singer", album: "Theme Single",
+          localized: { albumArtwork: { url: "/api/v1/jobs/full/albums/0/artwork", mediaType: "image/jpeg" } } }, sha,
       }] });
       expect((await pool.query("SELECT count(*)::int count FROM theme_full_songs")).rows[0].count).toBe(0);
       const publish = repo.publishDelivery.bind(repo);
@@ -50,6 +51,7 @@ describe.skipIf(!adminDatabaseUrl)("AMF delivery publication (PostgreSQL + files
         JOIN theme_full_songs tfs ON tfs.song_id=d.song_id WHERE d.id='item-full:1'`);
       expect(full.rows[0]).toMatchObject({ import_state: "READY", item_state: "READY", batch_state: "COMPLETED",
         acquisition_state: "READY", media_state: "READY", theme_id: "100" });
+      expect((await pool.query("SELECT artwork_url FROM music_releases WHERE id=$1", [full.rows[0].release_id])).rows[0]?.artwork_url ?? null).toBeNull();
       expect(await readFile(join(mediaRoot, `audio/songs/${full.rows[0].song_id}/original.flac`))).toEqual(bytes);
 
       const ostPath = "anime-ongaku-staging/request-related/batch-0/ost.flac";
@@ -62,7 +64,8 @@ describe.skipIf(!adminDatabaseUrl)("AMF delivery publication (PostgreSQL + files
       await stage(libraryRoot, characterPath, bytes);
       await seedRequest(pool, { requestId: "request-related", batchId: "batch-related", items: [
         { id: "item-ost", index: 0, kind: "OST", number: null, themeId: null, fileIndex: 3, relativePath: ostPath,
-          metadata: { title: "Shared Song", artist: "Band", albumartist: "Soundtrack Cast", album: "OST" }, sha },
+          metadata: { title: "Shared Song", artist: "Band", albumartist: "Soundtrack Cast", album: "OST",
+            localized: { albumArtwork: { url: "/api/v1/jobs/related/albums/0/artwork", mediaType: "image/png" } } }, sha },
         { id: "item-character", index: 1, kind: "CHARACTER_SONG", number: null, themeId: null, fileIndex: 4, relativePath: characterPath,
           metadata: { title: "Shared Song", artist: "Band", album: "Character Album" }, sha },
       ] });
@@ -86,6 +89,8 @@ describe.skipIf(!adminDatabaseUrl)("AMF delivery publication (PostgreSQL + files
       expect(new Set(related.rows.map((row) => String(row.release_id))).size).toBe(2);
       expect(related.rows.every((row) => row.import_state === "READY" && row.acquisition_state === "READY")).toBe(true);
       expect((await pool.query("SELECT count(*)::int count FROM anime_music_releases WHERE animethemes_anime_id=42")).rows[0].count).toBe(2);
+      const ostRelease = await pool.query("SELECT artwork_url FROM music_releases WHERE id=$1", [firstOst.releaseId]);
+      expect(ostRelease.rows[0].artwork_url).toBe("http://192.168.68.68:9292/api/v1/jobs/related/albums/0/artwork");
 
       // Publication/copy replay is idempotent and preserves the same catalog identities.
       expect(await service.importBatch("batch-related")).toBe("COMPLETED");
