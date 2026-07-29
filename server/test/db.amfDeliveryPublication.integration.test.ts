@@ -43,7 +43,7 @@ describe.skipIf(!adminDatabaseUrl)("AMF delivery publication (PostgreSQL + files
       expect((await pool.query("SELECT count(*)::int count FROM theme_full_songs")).rows[0].count).toBe(0);
       expect((await pool.query("SELECT count(*)::int count FROM media_files WHERE state='READY'")).rows[0].count).toBe(1);
       expect(await service.importBatch("batch-full")).toBe("COMPLETED");
-      const full = await pool.query<any>(`SELECT d.song_id,d.import_state,i.import_state item_state,b.state batch_state,
+      const full = await pool.query<any>(`SELECT d.song_id,d.release_id,d.import_state,i.import_state item_state,b.state batch_state,
         a.state acquisition_state,m.state media_state,tfs.theme_id
         FROM anime_music_request_deliveries d JOIN anime_music_request_items i ON i.id=d.item_id
         JOIN anime_music_request_batches b ON b.id=i.batch_id JOIN music_acquisitions a ON a.id=i.acquisition_id

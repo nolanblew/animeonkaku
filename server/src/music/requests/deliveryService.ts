@@ -12,6 +12,7 @@ import {
 import type { JobHandler } from "../../jobs/types.js";
 import { JobPriority } from "../../jobs/types.js";
 import type { JobQueue } from "../../jobs/jobQueue.js";
+import { AMF_API_BASE_URL } from "../animeMusicFetcher/client.js";
 
 /**
  * How many not-yet-READY deliveries go into a single `IMPORT_AMF_MUSIC_ITEM`
@@ -322,16 +323,19 @@ export class PgAmfDeliveryRepository implements AmfDeliveryRepository {
       const releaseArtist = preferredArtists(localized.artists) ?? textMetadata(metadata.albumartist) ?? textMetadata(requestedArtist) ?? animeTitle;
       const album = preferredTitle(localized.albumTitles) ?? textMetadata(metadata.album) ?? `${animeTitle} ${row.kind === "OST" ? "Original Soundtrack" : row.kind.replaceAll("_", " ")}`;
       const releaseType = row.kind === "OP" || row.kind === "ED" ? "THEME" : row.kind === "OST" ? "SOUNDTRACK" : row.kind === "CHARACTER_SONG" ? "CHARACTER" : "OTHER";
+      // Album art belongs to related releases only. Full-size OP/ED playback is
+      // theme-owned and deliberately continues to use the anime artwork.
+      const artworkUrl = row.kind === "OP" || row.kind === "ED" ? null : amfArtworkUrl(localized.albumArtwork);
       await client.query(`INSERT INTO music_releases
-        (provider,provider_release_id,title,title_english,title_romaji,title_japanese,normalized_title,artist_credit,artist_names,release_type)
-        VALUES ('AMF',$1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9) ON CONFLICT (provider,provider_release_id) DO UPDATE SET
+        (provider,provider_release_id,title,title_english,title_romaji,title_japanese,normalized_title,artist_credit,artist_names,release_type,artwork_url)
+        VALUES ('AMF',$1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10) ON CONFLICT (provider,provider_release_id) DO UPDATE SET
           title=EXCLUDED.title,title_english=COALESCE(EXCLUDED.title_english,music_releases.title_english),
           title_romaji=COALESCE(EXCLUDED.title_romaji,music_releases.title_romaji),title_japanese=COALESCE(EXCLUDED.title_japanese,music_releases.title_japanese),
           normalized_title=EXCLUDED.normalized_title,artist_credit=EXCLUDED.artist_credit,
           artist_names=CASE WHEN EXCLUDED.artist_names <> '[]'::jsonb THEN EXCLUDED.artist_names ELSE music_releases.artist_names END,
-          release_type=EXCLUDED.release_type,updated_at=now(),deleted_at=NULL RETURNING id`,
+          release_type=EXCLUDED.release_type,artwork_url=COALESCE(EXCLUDED.artwork_url,music_releases.artwork_url),updated_at=now(),deleted_at=NULL RETURNING id`,
         [`item:${row.item_id}`, album, localized.albumTitles.english, localized.albumTitles.romaji, localized.albumTitles.japanese,
-          normalizeMusicText(album), releaseArtist, JSON.stringify(localized.artists), releaseType]);
+          normalizeMusicText(album), releaseArtist, JSON.stringify(localized.artists), releaseType, artworkUrl]);
       const release = await client.query<{ id: string | number; normalized_title: string; artist_credit: string; release_type: string }>(
         "SELECT id,normalized_title,artist_credit,release_type FROM music_releases WHERE provider='AMF' AND provider_release_id=$1 FOR UPDATE", [`item:${row.item_id}`]);
       const releaseRow = release.rows[0]!;
@@ -506,6 +510,7 @@ type LocalizedTitles = { english: string | null; romaji: string | null; japanese
 function localizedMetadata(metadata: Record<string, unknown>): {
   animeTitles: LocalizedTitles;
   albumTitles: LocalizedTitles;
+  albumArtwork: Record<string, unknown> | null;
   songTitles: LocalizedTitles;
   artists: LocalizedTitles[];
 } {
@@ -513,6 +518,7 @@ function localizedMetadata(metadata: Record<string, unknown>): {
   return {
     animeTitles: localizedTitles(localized.animeTitles),
     albumTitles: localizedTitles(localized.albumTitles),
+    albumArtwork: nullableObjectMetadata(localized.albumArtwork),
     songTitles: localizedTitles(localized.songTitles),
     artists: Array.isArray(localized.artists) ? localized.artists.map(localizedTitles).filter(hasLocalizedTitle) : [],
   };
@@ -520,6 +526,18 @@ function localizedMetadata(metadata: Record<string, unknown>): {
 
 function objectMetadata(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function nullableObjectMetadata(value: unknown): Record<string, unknown> | null {
+  const object = objectMetadata(value);
+  return Object.keys(object).length > 0 ? object : null;
+}
+
+function amfArtworkUrl(value: Record<string, unknown> | null): string | null {
+  const path = textMetadata(value?.url);
+  const mediaType = textMetadata(value?.mediaType);
+  if (!path || !mediaType?.toLowerCase().startsWith("image/") || !path.startsWith("/api/v1/jobs/")) return null;
+  return new URL(path, AMF_API_BASE_URL).toString();
 }
 
 function localizedTitles(value: unknown): LocalizedTitles {

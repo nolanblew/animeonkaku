@@ -450,6 +450,7 @@ function mediaDeliveries(
             localized: {
               animeTitles: media.anime.titles,
               albumTitles: album.titles,
+              albumArtwork: album.artwork ? { url: album.artwork.url, mediaType: album.artwork.media_type } : null,
               songTitles: song.titles,
               artists: song.artists,
             },
@@ -472,7 +473,13 @@ function mergeMediaDeliveries(
   for (const album of media.anime.albums) for (const song of album.songs) {
     localizedByFile.set(`${song.file_index}:${song.relative_path}`, {
       ...song.metadata,
-      localized: { animeTitles: media.anime.titles, albumTitles: album.titles, songTitles: song.titles, artists: song.artists },
+      localized: {
+        animeTitles: media.anime.titles,
+        albumTitles: album.titles,
+        albumArtwork: album.artwork ? { url: album.artwork.url, mediaType: album.artwork.media_type } : null,
+        songTitles: song.titles,
+        artists: song.artists,
+      },
     });
   }
   return legacyDeliveries.map((delivery) => ({ ...delivery, files: delivery.files.map((file) => ({
