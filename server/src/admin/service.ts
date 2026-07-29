@@ -109,6 +109,18 @@ export class PgAdminDashboardService implements AdminDashboardApi {
     return { queued: themes.rows.length };
   }
 
+  async removeThemeMedia(kitsuId: string) {
+    const anime = await this.requireAnime(kitsuId);
+    if (!anime.animethemes_anime_id) throw new Error("Anime is not mapped to AnimeThemes.");
+    const themes = await this.options.pool.query("SELECT id FROM themes WHERE animethemes_anime_id=$1 AND deleted_at IS NULL", [anime.animethemes_anime_id]);
+    let removedFiles = 0; let removedBytes = 0;
+    for (const row of themes.rows) {
+      const removed = await this.removeMedia("AUDIO", String(row.id), "SHORT");
+      removedFiles += Number(removed.removedFiles); removedBytes += Number(removed.removedBytes);
+    }
+    return { removedFiles, removedBytes };
+  }
+
   async removeMedia(kind: AdminMediaKind, refId: string, variant: AdminMediaVariant) {
     const result = await this.options.pool.query("SELECT file_path,byte_size FROM media_files WHERE kind=$1 AND ref_id=$2 AND variant=$3 LIMIT 1", [kind, refId, variant]);
     const row = result.rows[0];

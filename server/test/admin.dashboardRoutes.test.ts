@@ -24,6 +24,7 @@ describe("comprehensive admin dashboard", () => {
     refreshAnime: vi.fn(),
     requestAnimeMusic: vi.fn(),
     refreshThemeMedia: vi.fn(),
+    removeThemeMedia: vi.fn(),
     removeMedia: vi.fn(),
     clearCache: vi.fn(),
     retryJob: vi.fn(),
@@ -48,6 +49,7 @@ describe("comprehensive admin dashboard", () => {
     dashboard.refreshAnime.mockResolvedValue({ queued: true });
     dashboard.requestAnimeMusic.mockResolvedValue({ requestId: "request-1", replayed: false });
     dashboard.refreshThemeMedia.mockResolvedValue({ queued: 3 });
+    dashboard.removeThemeMedia.mockResolvedValue({ removedFiles: 3, removedBytes: 1500 });
     dashboard.removeMedia.mockResolvedValue({ removedFiles: 1, removedBytes: 500 });
     dashboard.clearCache.mockResolvedValue({ removedFiles: 2, removedBytes: 300 });
     dashboard.retryJob.mockResolvedValue({ queued: true });
@@ -85,6 +87,7 @@ describe("comprehensive admin dashboard", () => {
     expect((await app.inject({ method: "GET", url: "/api/v1/admin/anime?q=tora", headers })).json().anime[0].themeCount).toBe(4);
     expect((await app.inject({ method: "GET", url: "/api/v1/admin/songs?q=parade", headers })).json().songs[0].mediaState).toBe("READY");
     expect((await app.inject({ method: "GET", url: "/api/v1/admin/logs?level=INFO", headers })).json().logs[0].message).toBe("server started");
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/logs?level=", headers })).statusCode).toBe(200);
     expect(dashboard.listUsers).toHaveBeenCalledWith({ query: "nol", limit: 100 });
   });
 
@@ -96,6 +99,7 @@ describe("comprehensive admin dashboard", () => {
       ["POST", "/api/v1/admin/anime/1/refresh", undefined, "refreshAnime"],
       ["POST", "/api/v1/admin/anime/1/music-requests", undefined, "requestAnimeMusic"],
       ["POST", "/api/v1/admin/anime/1/tv-media/refresh", undefined, "refreshThemeMedia"],
+      ["DELETE", "/api/v1/admin/anime/1/tv-media", undefined, "removeThemeMedia"],
       ["DELETE", "/api/v1/admin/media/AUDIO/9/ORIGINAL", undefined, "removeMedia"],
       ["DELETE", "/api/v1/admin/cache?category=artwork", undefined, "clearCache"],
     ];
