@@ -68,6 +68,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import retrofit2.Response
@@ -111,6 +112,45 @@ class LibraryPullManagerTest {
         second.await()
 
         assertEquals(1, observedMax)
+    }
+
+    @Test
+    fun `incremental response omits unchanged snapshots while still applying changed anime`() = runBlocking {
+        val library = libraryResponse()
+        val cache = FakeLibraryPullCache(emptyMap())
+        val api = FakeOngakuApi(
+            libraryResponse = library,
+            prefsResponse = emptyList(),
+            autoPlaylistResponse = emptyList(),
+            changesResponseOverride = OngakuChangesResponse(
+                serverTime = library.serverTime + 1,
+                anime = listOf(library.anime.first().copy(title = "Changed title")),
+                themes = null,
+                prefs = emptyList(),
+                playlists = emptyList(),
+                musicCatalog = null
+            )
+        )
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+            serverPullCursor = library.serverTime
+        }
+        val manager = LibraryPullManager(
+            api,
+            settings,
+            cache,
+            FakeLibraryPullSideEffects(),
+            testMoshi(),
+            activeSessionStateManager()
+        )
+
+        manager.pullNow(forceFull = false)
+
+        assertEquals("Changed title", cache.upsertedAnime.single().title)
+        assertTrue(cache.upsertedThemes.isEmpty())
+        assertTrue(cache.themeModes.isEmpty())
+        assertEquals(0, cache.musicCatalogReplaceCalls)
+        assertNull(cache.musicCatalog)
     }
 
     @Test
@@ -577,6 +617,7 @@ private class FakeLibraryPullCache(
     var dynamicSpecs: List<DynamicPlaylistSpecEntity> = emptyList()
     var songPreferences: List<SongPreferenceEntity> = emptyList()
     var musicCatalog: MusicCatalogSnapshot? = null
+    var musicCatalogReplaceCalls: Int = 0
     var fullThemeSnapshot: Boolean = false
     var fullSongSnapshot: Boolean = false
 
@@ -610,6 +651,7 @@ private class FakeLibraryPullCache(
     }
 
     override suspend fun replaceMusicCatalog(snapshot: MusicCatalogSnapshot) {
+        musicCatalogReplaceCalls += 1
         musicCatalog = snapshot
     }
 
@@ -709,7 +751,8 @@ private class FakeOngakuApi(
     private val events: MutableList<String> = mutableListOf(),
     private val songPrefsResponse: List<OngakuSongPrefDto>? = null,
     private val musicCatalogResponse: List<OngakuAnimeMusicDto>? = null,
-    private val onChanges: suspend (Long?) -> Unit = {}
+    private val onChanges: suspend (Long?) -> Unit = {},
+    private val changesResponseOverride: OngakuChangesResponse? = null
 ) : OngakuApi {
     var requestedSince: Long? = null
     var requestedChangesSince: Long? = null
@@ -723,7 +766,7 @@ private class FakeOngakuApi(
         events += "changes"
         changesCalled = true
         requestedChangesSince = since
-        return OngakuChangesResponse(
+        return changesResponseOverride ?: OngakuChangesResponse(
             serverTime = libraryResponse.serverTime,
             anime = libraryResponse.anime,
             themes = libraryResponse.themes,

@@ -91,6 +91,18 @@ describe("comprehensive admin dashboard", () => {
     expect(dashboard.listUsers).toHaveBeenCalledWith({ query: "nol", limit: 100 });
   });
 
+  it("rejects an administratively supplied cookie after the server-side session lifetime", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(new Date("2026-07-29T00:00:00.000Z").getTime());
+    try {
+      const headers = { cookie: await cookie() };
+      clock.mockReturnValue(new Date("2026-07-29T12:00:00.001Z").getTime());
+
+      expect((await app.inject({ method: "GET", url: "/api/v1/admin/music/settings", headers })).statusCode).toBe(401);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("offers explicit user, anime, media, and cache operations", async () => {
     const headers = { cookie: await cookie() };
     const cases: Array<[string, string, unknown, keyof typeof dashboard]> = [

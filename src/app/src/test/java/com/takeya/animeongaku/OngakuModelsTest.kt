@@ -171,6 +171,24 @@ class OngakuModelsTest {
     }
 
     @Test
+    fun `incremental changes may omit unchanged theme and catalog snapshots`() {
+        val adapter = moshi.adapter(OngakuChangesResponse::class.java)
+        val response = adapter.fromJson(
+            """
+            {
+              "serverTime": 1760000000001,
+              "anime": [],
+              "prefs": [],
+              "playlists": []
+            }
+            """.trimIndent()
+        )!!
+
+        assertNull(response.themes)
+        assertNull(response.musicCatalog)
+    }
+
+    @Test
     fun `parses additive media catalog playlist preferences and play contracts`() {
         val adapter = moshi.adapter(OngakuChangesResponse::class.java)
         val response = adapter.fromJson(

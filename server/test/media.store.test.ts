@@ -1,8 +1,8 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MediaStore, MediaValidationError } from "../src/media/mediaStore.js";
 import type {
   MediaFileRecord,
@@ -160,6 +160,60 @@ describe("MediaStore", () => {
 
     expect(repo.records.get("AUDIO:3040:SHORT")?.state).toBe("FAILED");
     expect(existsSync(join(mediaRoot, "audio", "3040.ogg"))).toBe(false);
+  });
+
+  it("preserves a pre-existing final file when a later fetch attempt fails", async () => {
+    mediaRoot = mkdtempSync(join(tmpdir(), "ongaku-media-"));
+    mkdirSync(join(mediaRoot, "audio"), { recursive: true });
+    const finalPath = join(mediaRoot, "audio", "3040.ogg");
+    writeFileSync(finalPath, "previous-ready-media");
+    const repo = new FakeMediaRepo();
+    const store = new MediaStore({
+      mediaRoot,
+      repo,
+      fetch: async () => response("<html>maintenance</html>", { "content-type": "text/html" }),
+      minBytes: 4,
+    });
+
+    await expect(store.fetchToMediaFile({
+      kind: "AUDIO",
+      refId: "3040",
+      variant: "SHORT",
+      originUrl: "https://a.animethemes.moe/Toradora-OP1.ogg",
+      filePath: "audio/3040.ogg",
+      videoFallback: false,
+    })).rejects.toBeInstanceOf(MediaValidationError);
+
+    expect(await readFile(finalPath, "utf8")).toBe("previous-ready-media");
+  });
+
+  it("uses a collision-safe temporary destination for each fetch attempt", async () => {
+    mediaRoot = mkdtempSync(join(tmpdir(), "ongaku-media-"));
+    mkdirSync(join(mediaRoot, "audio", "tmp"), { recursive: true });
+    const collisionPath = join(mediaRoot, "audio", "tmp", "AUDIO-3040-1.tmp");
+    writeFileSync(collisionPath, "another attempt is using this file");
+    const now = vi.spyOn(Date, "now").mockReturnValue(1);
+    const store = new MediaStore({
+      mediaRoot,
+      repo: new FakeMediaRepo(),
+      fetch: async () => response("<html>maintenance</html>", { "content-type": "text/html" }),
+      minBytes: 4,
+    });
+
+    try {
+      await expect(store.fetchToMediaFile({
+        kind: "AUDIO",
+        refId: "3040",
+        variant: "SHORT",
+        originUrl: "https://a.animethemes.moe/Toradora-OP1.ogg",
+        filePath: "audio/3040.ogg",
+        videoFallback: false,
+      })).rejects.toBeInstanceOf(MediaValidationError);
+    } finally {
+      now.mockRestore();
+    }
+
+    expect(await readFile(collisionPath, "utf8")).toBe("another attempt is using this file");
   });
 
   it("never re-downloads media that is already READY with the file on disk", async () => {

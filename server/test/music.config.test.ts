@@ -34,4 +34,10 @@ describe("music provider configuration", () => {
       .toBe("F:/anime-fetcher/library");
     expect(loadConfig(baseEnvironment).AMF_LIBRARY_ROOT).toBeUndefined();
   });
+
+  it("rejects the built-in admin password outside development", () => {
+    expect(() => loadConfig({ ...baseEnvironment, NODE_ENV: "production" })).toThrow(/ADMIN_PASSWORD/i);
+    expect(() => loadConfig({ ...baseEnvironment, NODE_ENV: "production", ADMIN_PASSWORD: "Password123" })).toThrow(/ADMIN_PASSWORD/i);
+    expect(loadConfig({ ...baseEnvironment, NODE_ENV: "development" }).ADMIN_PASSWORD).toBe("Password123");
+  });
 });
