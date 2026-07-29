@@ -202,6 +202,10 @@ const amfJobMediaSchema = z.object({
     titles: amfResponseTitlesSchema,
     albums: z.array(z.object({
       titles: amfResponseTitlesSchema,
+      artwork: z.object({
+        url: z.string().min(1).refine(isSafeAmfApiReference, "unsafe artwork URL"),
+        media_type: z.string().regex(/^image\/[A-Za-z0-9.+-]+$/),
+      }).strict().nullable().default(null),
       songs: z.array(amfMediaSongSchema).default([]),
     }).strict()).default([]),
   }).strict(),

@@ -118,6 +118,10 @@ function jsonApiJobFixture() {
             titles: { english: "Frieren: Beyond Journey's End", japanese: "葬送のフリーレン", romaji: "Sousou no Frieren" },
             albums: [{
               titles: { english: "The Book 3", japanese: null, romaji: "The Book 3" },
+              artwork: {
+                url: "/api/v1/jobs/amf-job-1/albums/0/artwork",
+                media_type: "image/jpeg",
+              },
               songs: [{
                 file_index: 0,
                 requested_item_indexes: [0],
