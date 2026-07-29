@@ -60,7 +60,12 @@ import com.takeya.animeongaku.sync.LibraryPullManager
 import com.takeya.animeongaku.sync.LibraryPullSideEffects
 import com.takeya.animeongaku.sync.MusicCatalogSnapshot
 import com.takeya.animeongaku.sync.legacyPlaylistEntryId
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -68,6 +73,46 @@ import org.junit.Test
 import retrofit2.Response
 
 class LibraryPullManagerTest {
+    @Test
+    fun `concurrent pull requests do not overlap their server reads`() = runTest {
+        val releaseFirstRead = CompletableDeferred<Unit>()
+        val activeReads = AtomicInteger(0)
+        val maxConcurrentReads = AtomicInteger(0)
+        val api = FakeOngakuApi(
+            libraryResponse = libraryResponse(),
+            prefsResponse = emptyList(),
+            autoPlaylistResponse = emptyList(),
+            onChanges = {
+                val active = activeReads.incrementAndGet()
+                maxConcurrentReads.updateAndGet { current -> maxOf(current, active) }
+                releaseFirstRead.await()
+                activeReads.decrementAndGet()
+            }
+        )
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+        }
+        val manager = LibraryPullManager(
+            api,
+            settings,
+            FakeLibraryPullCache(emptyMap()),
+            FakeLibraryPullSideEffects(),
+            testMoshi(),
+            activeSessionStateManager()
+        )
+
+        val first = async { manager.pullNow(forceFull = false) }
+        runCurrent()
+        val second = async { manager.pullNow(forceFull = false) }
+        runCurrent()
+        val observedMax = maxConcurrentReads.get()
+        releaseFirstRead.complete(Unit)
+        first.await()
+        second.await()
+
+        assertEquals(1, observedMax)
+    }
+
     @Test
     fun `pull uses changes cursor maps library and reconciles server user state`() = runBlocking {
         val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
@@ -663,7 +708,8 @@ private class FakeOngakuApi(
     private val autoPlaylistResponse: List<OngakuPlaylistDto>,
     private val events: MutableList<String> = mutableListOf(),
     private val songPrefsResponse: List<OngakuSongPrefDto>? = null,
-    private val musicCatalogResponse: List<OngakuAnimeMusicDto>? = null
+    private val musicCatalogResponse: List<OngakuAnimeMusicDto>? = null,
+    private val onChanges: suspend (Long?) -> Unit = {}
 ) : OngakuApi {
     var requestedSince: Long? = null
     var requestedChangesSince: Long? = null
@@ -673,6 +719,7 @@ private class FakeOngakuApi(
     var autoPlaylistsCalled = false
 
     override suspend fun changes(since: Long?): OngakuChangesResponse {
+        onChanges(since)
         events += "changes"
         changesCalled = true
         requestedChangesSince = since

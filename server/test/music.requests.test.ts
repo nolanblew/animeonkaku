@@ -872,14 +872,15 @@ describe("anime music request orchestration", () => {
 
     it("keeps the whole graph on the fast cadence while any member is still doing machine work", async () => {
       const { repo } = statefulRepo(storedBatch("PROCESSING"));
+      const clock = new Date("2026-07-26T00:00:00Z");
       const client = graphClient({
         "amf-1": { ...amfJob("completed_with_warnings"),
           item_results: [itemResult(0, "OST", "OST", null, "delegated", "child-a")],
           follow_up_jobs: [{ job_id: "child-a", requested_item_index: 0, label: "OST" }] },
         "child-a": childJob("child-a", "amf-1", 0, "downloading", itemResult(0, "OST", "OST", null, "found")),
       });
-      const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue, client });
-      await repo.recordProviderState("batch-1", { state: "PROCESSING", amfJobId: "amf-1" }, new Date());
+      const handlers = createMusicRequestHandlers({ repo, queue: { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue, client, now: () => clock });
+      await repo.recordProviderState("batch-1", { state: "PROCESSING", amfJobId: "amf-1" }, clock);
 
       const first = await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch((value) => value);
       const second = await handlers.POLL_AMF_MUSIC_BATCH({ batchId: "batch-1" }, {} as never).catch((value) => value);

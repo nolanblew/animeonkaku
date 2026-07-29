@@ -2,6 +2,10 @@ package com.takeya.animeongaku
 
 import com.takeya.animeongaku.data.local.SongEntity
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.ThemeModeEntity
+import com.takeya.animeongaku.media.PlaybackIntent
+import com.takeya.animeongaku.media.PlaybackMode
+import com.takeya.animeongaku.media.PlaybackResolver
 import com.takeya.animeongaku.media.NowPlayingState
 import com.takeya.animeongaku.media.PlayableItem
 import com.takeya.animeongaku.media.QueueEntry
@@ -21,7 +25,7 @@ class PreCacheManagerTest {
         )
         val state = NowPlayingState(
             nowPlayingEntries = listOf(
-                QueueEntry(1, PlayableItem.Theme(theme(1))),
+                QueueEntry(1, PlayableItem.Theme(theme(1).first)),
                 QueueEntry(2, song)
             )
         )
@@ -36,7 +40,7 @@ class PreCacheManagerTest {
     fun `mixed queue protects theme and related song urls from eviction`() {
         val state = NowPlayingState(
             nowPlayingEntries = listOf(
-                QueueEntry(1, PlayableItem.Theme(theme(1))),
+                QueueEntry(1, PlayableItem.Theme(theme(1).first)),
                 QueueEntry(
                     2,
                     PlayableItem.RelatedSong(
@@ -48,6 +52,80 @@ class PreCacheManagerTest {
 
         assertEquals(
             setOf("https://example.com/theme-1.mp3", "https://example.com/song.flac"),
+            protectedPlaybackUrls(state, activeServerBaseUrl = null)
+        )
+    }
+
+    @Test
+    fun `pre-cache follows the resolver selected full-size URI instead of the legacy theme URI`() {
+        val nextTheme = theme(
+            id = 2,
+            audioUrl = "https://server.example/audio/theme/2",
+            modeDescriptor = ThemeModeEntity(
+                themeId = 2,
+                tvSizeUrl = "https://server.example/audio/theme/2",
+                fullSizeSongId = 20,
+                fullSizeUrl = "https://server.example/audio/song/20",
+                videoUrl = null,
+                videoSpoiler = false,
+                videoNsfw = false
+            )
+        )
+        val nextEntry = QueueEntry(2, PlayableItem.Theme(nextTheme.first, modeDescriptor = nextTheme.second))
+        val state = NowPlayingState(
+            nowPlayingEntries = listOf(
+                QueueEntry(1, PlayableItem.Theme(theme(1).first)),
+                nextEntry
+            ),
+            currentIndex = 0,
+            playbackIntent = PlaybackIntent(rememberedAudioMode = PlaybackMode.FULL_SIZE)
+        )
+
+        val resolvedUri = PlaybackResolver().resolve(
+            entry = nextEntry,
+            intent = state.playbackIntent,
+            isOnline = true,
+            localMedia = emptyMap()
+        ).uri
+
+        assertEquals("https://server.example/audio/song/20", resolvedUri)
+        assertEquals(
+            listOf(resolvedUri),
+            upcomingPlaybackUrls(state, maxTracks = 2, activeServerBaseUrl = null)
+        )
+    }
+
+    @Test
+    fun `protected cache keys follow the resolver selected URI for the current full-size track`() {
+        val (fullTheme, descriptor) = theme(
+            id = 3,
+            audioUrl = "https://server.example/audio/theme/3",
+            modeDescriptor = ThemeModeEntity(
+                themeId = 3,
+                tvSizeUrl = "https://server.example/audio/theme/3",
+                fullSizeSongId = 30,
+                fullSizeUrl = "https://server.example/audio/song/30",
+                videoUrl = null,
+                videoSpoiler = false,
+                videoNsfw = false
+            )
+        )
+        val entry = QueueEntry(3, PlayableItem.Theme(fullTheme, modeDescriptor = descriptor))
+        val state = NowPlayingState(
+            nowPlayingEntries = listOf(entry),
+            playbackIntent = PlaybackIntent(rememberedAudioMode = PlaybackMode.FULL_SIZE)
+        )
+
+        val resolvedUri = PlaybackResolver().resolve(
+            entry = entry,
+            intent = state.playbackIntent,
+            isOnline = true,
+            localMedia = emptyMap()
+        ).uri
+
+        assertEquals("https://server.example/audio/song/30", resolvedUri)
+        assertEquals(
+            setOf(resolvedUri),
             protectedPlaybackUrls(state, activeServerBaseUrl = null)
         )
     }
@@ -67,14 +145,18 @@ class PreCacheManagerTest {
         assertTrue(isCacheComplete(contentLength = -1L, cachedBytes = 1L))
     }
 
-    private fun theme(id: Long) = ThemeEntity(
+    private fun theme(
+        id: Long,
+        audioUrl: String = "https://example.com/theme-$id.mp3",
+        modeDescriptor: ThemeModeEntity? = null
+    ): Pair<ThemeEntity, ThemeModeEntity?> = ThemeEntity(
         id = id,
         animeId = null,
         title = "Theme $id",
         artistName = null,
-        audioUrl = "https://example.com/theme-$id.mp3",
+        audioUrl = audioUrl,
         videoUrl = null,
         isDownloaded = false,
         localFilePath = null
-    )
+    ) to modeDescriptor
 }
