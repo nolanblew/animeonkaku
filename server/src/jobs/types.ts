@@ -56,7 +56,7 @@ export interface EnqueueJobInput {
 export interface RetryJobInput {
   state: "QUEUED" | "FAILED";
   nextRunAt: Date;
-  lastError: string;
+  lastError: string | null;
   incrementAttempts: boolean;
 }
 
@@ -67,14 +67,24 @@ export interface JobRepository {
   complete(id: number): Promise<void>;
   fail(id: number, input: RetryJobInput): Promise<JobRecord | null>;
   recoverRunning(): Promise<number>;
-  list(status?: JobState): Promise<JobRecord[]>;
+  list(status?: JobState, limit?: number): Promise<JobRecord[]>;
+  /** Fetch recent jobs for one user without unrelated queue traffic displacing sync status. */
+  listForUser?(userId: string, types: readonly JobType[], limit: number): Promise<JobRecord[]>;
+  /** Delete a bounded batch of old completed/cancelled work during maintenance. */
+  pruneTerminalJobs(olderThan: Date, limit: number): Promise<number>;
   retry(id: number, now: Date): Promise<JobRecord | null>;
   updateProgress(id: number, progress: Record<string, unknown>): Promise<void>;
   hasQueuedPriorityAtOrBelow(priority: number): Promise<boolean>;
 }
 
+export interface JobExecutionContext {
+  /** Aborted when the worker's execution deadline elapses. */
+  signal: AbortSignal;
+}
+
 export type JobHandler = (
   payload: Record<string, unknown>,
   job: JobRecord,
+  context: JobExecutionContext,
 ) => Promise<void>;
 

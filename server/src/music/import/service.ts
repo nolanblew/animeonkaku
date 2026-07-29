@@ -208,6 +208,11 @@ export class PgMusicAcquisitionImportRepository implements MusicAcquisitionImpor
           if (legacyInput.purpose === "FULL_SIZE" && legacyInput.themeId !== null) {
             await client.query("DELETE FROM theme_full_songs WHERE theme_id=$1 AND song_id=$2 AND source_release_id=$3",
               [legacyInput.themeId, legacyInput.songId ?? intent.tracks[0]!.songId, legacyInput.releaseId]);
+            // The visible Full-size descriptor lost its publication edge. Its
+            // source row is gone now, so advance the durable theme cursor too
+            // and let existing clients clear the stale mode on their next
+            // incremental pull.
+            await client.query("UPDATE themes SET updated_at=now() WHERE id=$1", [legacyInput.themeId]);
           } else {
             await client.query("DELETE FROM anime_music_releases WHERE animethemes_anime_id=$1 AND release_id=$2", [legacyInput.animeId, legacyInput.releaseId]);
           }

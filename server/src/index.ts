@@ -27,6 +27,7 @@ import {
   AnimeMusicFetcherClient,
   createAnimeMusicFetcherUpstreamHttp,
   createMusicRequestHandlers,
+  startLocalizedCatalogBackfill,
   MusicRequestService,
   PgMusicRequestRepository,
   AmfDeliveryImportService,
@@ -72,7 +73,7 @@ await mkdir(join(config.MEDIA_ROOT, "images", "anime"), { recursive: true });
 await mkdir(join(config.MEDIA_ROOT, "images", "artists"), { recursive: true });
 
 const jobQueue = new JobQueue(new PgJobRepository(pool));
-const musicRequestRepo = new PgMusicRequestRepository(pool);
+const musicRequestRepo = new PgMusicRequestRepository(pool, externalLogger);
 const musicRequestService = new MusicRequestService({ repo: musicRequestRepo, queue: jobQueue });
 const musicSearchPolicy = new MusicSearchPolicyService({
   repo: new PgMusicSearchSettingsRepository(pool),
@@ -85,22 +86,9 @@ const musicSearchPolicyScheduler = new MusicSearchPolicyScheduler(
   (error) => externalLogger.warn({ err: error }, "unable to schedule music search policy reconciliation"),
 );
 const MUSIC_REQUEST_RECHECK_INTERVAL_MS = 15 * 60 * 1000;
-const musicRequestHandlers = createMusicRequestHandlers({ repo: musicRequestRepo, queue: jobQueue, client: amfClient });
+const musicRequestHandlers = createMusicRequestHandlers({ repo: musicRequestRepo, queue: jobQueue, client: amfClient, logger: externalLogger });
 const amfDeliveryRepo = new PgAmfDeliveryRepository(pool);
 const syncRepo = new DrizzleSyncRepository(db);
-
-// AMF v0.2 retained localized job media for the jobs we imported before this
-// adapter understood it. Refresh only those catalog-backed deliveries, then
-// apply the exact returned values; an expired AMF job is merely skipped.
-for (const target of await musicRequestRepo.listLocalizedCatalogBackfillTargets()) {
-  try {
-    await musicRequestRepo.recordProviderEvidence(target.batchId, await amfClient.getJob(target.amfJobId), new Date());
-  } catch {
-    externalLogger.warn({ batchId: target.batchId }, "AMF localized metadata backfill job was unavailable");
-  }
-}
-const localizedCatalogRows = await musicRequestRepo.backfillLocalizedCatalog();
-if (localizedCatalogRows > 0) externalLogger.info({ localizedCatalogRows }, "backfilled AMF localized catalog metadata");
 
 // Each upstream host shares one politeness budget (bucket) and one breaker
 // across two lanes: "interactive" for request/response paths a client is
@@ -245,6 +233,7 @@ const worker = new JobWorker(jobQueue, {
     ...musicSearchPolicyHandlers },
   maintenanceFetchDelayMs: config.AUDIO_BACKFILL_DELAY_SECONDS * 1000,
   holdMaintenanceWork: () => !mediaActivity.isQuiet(),
+  onError: (error, context) => externalLogger.error({ err: error, context }, "background job worker recovered from an error"),
 });
 worker.start();
 // A second worker restricted to urgent/high jobs so a client-facing fetch is
@@ -252,6 +241,7 @@ worker.start();
 const interactiveWorker = new JobWorker(jobQueue, {
   handlers: { ...fetchHandlers, ...syncHandlers },
   maxPriority: JobPriority.HIGH,
+  onError: (error, context) => externalLogger.error({ err: error, context }, "interactive job worker recovered from an error"),
 });
 interactiveWorker.start();
 
@@ -261,6 +251,7 @@ const syncScheduler = new SyncScheduler({
   pipeline: syncPipeline,
   mediaRoot: config.MEDIA_ROOT,
   syncIntervalMinutes: config.SYNC_INTERVAL_MINUTES,
+  onError: (error, task) => externalLogger.warn({ err: error, task }, "periodic scheduler task failed"),
 });
 syncScheduler.start();
 musicSearchPolicyScheduler.start();
@@ -347,3 +338,12 @@ process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 
 await app.listen({ port: config.PORT, host: "0.0.0.0" });
+startLocalizedCatalogBackfill({
+  repo: musicRequestRepo,
+  client: amfClient,
+  logger: externalLogger,
+  schedule: (task) => {
+    const handle = setImmediate(() => void task());
+    handle.unref?.();
+  },
+});

@@ -3,6 +3,7 @@ import type { SyncApiService, SyncMappingStatus, SyncStatusResponse } from "./sy
 import { kitsuSyncDedupeKey } from "../sync/syncJobKeys.js";
 
 const SYNC_TYPES = new Set<JobType>(["KITSU_FULL_SYNC", "KITSU_DELTA_SYNC"]);
+const STATUS_TYPES: readonly JobType[] = ["KITSU_FULL_SYNC", "KITSU_DELTA_SYNC", "MAP_THEMES"];
 
 /** Error signatures that indicate AnimeThemes blocked us rather than a transient bug. */
 const UPSTREAM_BLOCK_PATTERNS = [/\b403\b/, /\b451\b/, /circuit open/i, /cloudflare/i];
@@ -22,7 +23,7 @@ export class JobSyncApiService implements SyncApiService {
   }
 
   async getStatus(userId: string): Promise<SyncStatusResponse> {
-    const all = await this.queue.list();
+    const all = await this.queue.listForUser(userId, STATUS_TYPES);
     const jobs = all
       .filter((job) => SYNC_TYPES.has(job.type) && job.payload.userId === userId)
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || b.id - a.id);

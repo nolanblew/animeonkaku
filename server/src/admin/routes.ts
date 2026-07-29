@@ -46,6 +46,7 @@ const cacheQuery = z.object({ category: z.enum(["artwork", "temporary", "all"]).
 const batchParams = z.object({ id: z.string().min(1).max(100), action: z.enum(["retry", "cancel", "reprocess"]) });
 const jobParams = z.object({ id: z.coerce.number().int().positive() });
 const COOKIE_NAME = "admin_session";
+const SESSION_MAX_AGE_SECONDS = 12 * 60 * 60;
 
 export function registerAdminRoutes(
   fastify: FastifyInstance,
@@ -54,10 +55,13 @@ export function registerAdminRoutes(
   dashboard?: AdminDashboardApi,
 ): void {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
-  const sessions = new Set<string>();
+  const sessions = new Map<string, number>();
   const authenticated = (request: FastifyRequest) => {
     const token = parseCookies(request.headers.cookie ?? "").get(COOKIE_NAME);
-    return token !== undefined && sessions.has(token);
+    if (token === undefined) return false;
+    pruneExpiredSessions(sessions);
+    const expiresAt = sessions.get(token);
+    return expiresAt !== undefined && expiresAt > Date.now();
   };
   const requireAdmin = async (request: FastifyRequest) => {
     if (!authenticated(request)) throw new ApiError(401, "ADMIN_AUTH_REQUIRED", "Admin authentication required.");
@@ -73,9 +77,9 @@ export function registerAdminRoutes(
       throw new ApiError(401, "ADMIN_LOGIN_FAILED", "Incorrect password.");
     }
     const token = randomBytes(32).toString("base64url");
-    sessions.add(token);
+    sessions.set(token, Date.now() + SESSION_MAX_AGE_SECONDS * 1_000);
     return reply
-      .header("Set-Cookie", `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200`)
+      .header("Set-Cookie", `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SESSION_MAX_AGE_SECONDS}`)
       .code(204)
       .send();
   });
@@ -118,6 +122,11 @@ export function registerAdminRoutes(
   app.delete("/api/v1/admin/cache", { schema: { querystring: cacheQuery }, preHandler: requireAdmin }, async (request, reply) => reply.code(202).send(await dashboard.clearCache(request.query.category)));
   app.post("/api/v1/admin/jobs/:id/retry", { schema: { params: jobParams }, preHandler: requireAdmin }, async (request, reply) => reply.code(202).send(await dashboard.retryJob(request.params.id)));
   app.post("/api/v1/admin/batches/:id/:action", { schema: { params: batchParams }, preHandler: requireAdmin }, async (request, reply) => reply.code(202).send(await dashboard.operateBatch(request.params.id, request.params.action)));
+}
+
+function pruneExpiredSessions(sessions: Map<string, number>): void {
+  const now = Date.now();
+  for (const [token, expiresAt] of sessions) if (expiresAt <= now) sessions.delete(token);
 }
 
 function sameSecret(candidate: string, expected: string): boolean {

@@ -54,6 +54,45 @@ describe("server reliability audit regressions", () => {
     worker.stop();
   });
 
+  it("aborts a cooperative job handler at its deadline before scheduling a retry", async () => {
+    vi.useFakeTimers();
+    const observedAbort = vi.fn();
+    const queue = {
+      claimNext: vi.fn().mockResolvedValue(runningAudioJob()),
+      complete: vi.fn(async () => {}),
+      failRetryable: vi.fn(async () => null),
+      hasUrgentQueued: vi.fn(async () => false),
+    } as unknown as JobQueue;
+    const worker = new JobWorker(queue, {
+      handlers: {
+        FETCH_AUDIO: async (_payload, _job, context) => await new Promise<void>((_resolve, reject) => {
+          context.signal.addEventListener("abort", () => {
+            observedAbort();
+            reject(new Error("request aborted"));
+          }, { once: true });
+        }),
+      },
+      timeoutsMs: { FETCH_AUDIO: 1 },
+      jitterMs: () => 0,
+    });
+
+    try {
+      const result = worker.runOnce();
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(result).resolves.toBe(true);
+
+      expect(observedAbort).toHaveBeenCalledOnce();
+      expect(queue.failRetryable).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 7 }),
+        expect.objectContaining({ message: expect.stringContaining("timed out") }),
+        expect.objectContaining({ incrementAttempts: true }),
+      );
+      expect(queue.complete).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("contains a periodic scheduler failure and continues on the next tick", async () => {
     vi.useFakeTimers();
     const onError = vi.fn();
@@ -115,8 +154,8 @@ describe("server reliability audit regressions", () => {
     });
   });
 
-  it("omits the music catalog for an incremental changes pull", async () => {
-    const service = new DrizzleClientApiService({} as Db, queueStub, undefined, undefined, true);
+  it("omits the music catalog for an unchanged incremental changes pull", async () => {
+    const service = new DrizzleClientApiService({} as Db, queueStub, () => new Date(0), undefined, true);
     vi.spyOn(service, "getLibrary").mockResolvedValue({ serverTime: 123, anime: [], themes: [] });
     vi.spyOn(service, "getThemePrefs").mockResolvedValue([]);
     vi.spyOn(service, "getSongPrefs").mockResolvedValue([]);
@@ -124,17 +163,32 @@ describe("server reliability audit regressions", () => {
     vi.spyOn(service, "getMusicCatalog").mockRejectedValue(
       new Error("an unchanged incremental pull must not load the full catalog"),
     );
+    vi.spyOn(service as never as { musicCatalogChanged: (userId: string, since: Date) => Promise<boolean> }, "musicCatalogChanged")
+      .mockResolvedValue(false);
 
     await expect(service.getChanges("listener", 123)).resolves.not.toHaveProperty("musicCatalog");
   });
 
-  it("omits an unchanged theme snapshot from an incremental changes pull", async () => {
-    const service = new DrizzleClientApiService({} as Db, queueStub);
+  it("returns an empty themes array for an unchanged incremental pull", async () => {
+    const service = new DrizzleClientApiService({} as Db, queueStub, () => new Date(0));
     vi.spyOn(service, "getLibrary").mockResolvedValue({ serverTime: 123, anime: [], themes: [] });
     vi.spyOn(service, "getThemePrefs").mockResolvedValue([]);
     vi.spyOn(service, "getSongPrefs").mockResolvedValue([]);
     vi.spyOn(service, "listPlaylists").mockResolvedValue([]);
 
-    await expect(service.getChanges("listener", 123)).resolves.not.toHaveProperty("themes");
+    await expect(service.getChanges("listener", 123)).resolves.toMatchObject({ themes: [] });
+  });
+
+  it("refreshes the atomic music catalog when publication inputs changed", async () => {
+    const service = new DrizzleClientApiService({} as Db, queueStub, () => new Date(0), undefined, true);
+    vi.spyOn(service, "getLibrary").mockResolvedValue({ serverTime: 123, anime: [], themes: [] });
+    vi.spyOn(service, "getThemePrefs").mockResolvedValue([]);
+    vi.spyOn(service, "getSongPrefs").mockResolvedValue([]);
+    vi.spyOn(service, "listPlaylists").mockResolvedValue([]);
+    vi.spyOn(service, "getMusicCatalog").mockResolvedValue([]);
+    vi.spyOn(service as never as { musicCatalogChanged: (userId: string, since: Date) => Promise<boolean> }, "musicCatalogChanged")
+      .mockResolvedValue(true);
+
+    await expect(service.getChanges("listener", 123)).resolves.toMatchObject({ musicCatalog: [] });
   });
 });

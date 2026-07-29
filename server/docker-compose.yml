@@ -7,6 +7,7 @@ services:
     ports: ["${ONGAKU_SERVER_HOST_PORT:-48668}:8080"]
     environment:
       DATABASE_URL: postgres://ongaku:${DB_PASSWORD:-ongaku-dev}@db:5432/ongaku
+      NODE_ENV: ${NODE_ENV:-production}
       MEDIA_ROOT: /data/media
       AMF_LIBRARY_ROOT: /mnt/amf-library
       KITSU_CLIENT_ID: ${KITSU_CLIENT_ID:-}
@@ -14,7 +15,7 @@ services:
       KITSU_AUTH_MODE: ${KITSU_AUTH_MODE:-stub}
       MUSIC_CATALOG_ENABLED: ${MUSIC_CATALOG_ENABLED:-true}
       MUSIC_DISCOVERY_ENABLED: ${MUSIC_DISCOVERY_ENABLED:-false}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Password123}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD to a non-default value}
       SYNC_INTERVAL_MINUTES: "10080"
       AUDIO_BACKFILL_DELAY_SECONDS: "8"
     volumes:

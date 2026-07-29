@@ -42,29 +42,43 @@ describe("listener music catalog query shape", () => {
     const db = {
       select: vi.fn(() => ({
         from: () => ({
-          where: () => ({
-            orderBy: async () => [{ kitsuId: "one" }, { kitsuId: "two" }, { kitsuId: "three" }],
+          innerJoin: () => ({
+            where: () => ({
+              orderBy: async () => [
+                { kitsuId: "one", animeThemesId: 1, title: "One", titleEn: null, posterUrl: null, posterUrlLarge: null },
+                { kitsuId: "two", animeThemesId: 2, title: "Two", titleEn: null, posterUrl: null, posterUrlLarge: null },
+                { kitsuId: "three", animeThemesId: 3, title: "Three", titleEn: null, posterUrl: null, posterUrlLarge: null },
+              ],
+            }),
           }),
         }),
       })),
     };
     const service = new DrizzleClientApiService(db as never, queue, undefined, undefined, true);
-    const lookup = vi.spyOn(service, "getAnimeMusic").mockImplementation(async (_userId, kitsuId) => ({
-      anime: { kitsuId, title: kitsuId, titleEn: null, posterUrl: null },
-      releases: [],
-    }));
+    const internals = service as unknown as {
+      readyMusicRows(animeThemesIds?: number[], releaseId?: number): Promise<ReadyMusicRow[]>;
+    };
+    const readyRows = vi.spyOn(internals, "readyMusicRows").mockResolvedValue([
+      readyRow(200, 100, "One Album", "one", 1),
+      readyRow(201, 101, "Two Album", "two", 2),
+      readyRow(202, 102, "Three Album", "three", 3),
+    ]);
 
     const catalog = await service.getMusicCatalog("user-1");
 
     expect(catalog.map((item) => item.anime.kitsuId)).toEqual(["one", "two", "three"]);
-    expect(lookup.mock.calls.length).toBeLessThanOrEqual(1);
+    expect(readyRows).toHaveBeenCalledTimes(1);
   });
 
   it("returns complete multi-release search results from a bounded number of ready-row reads", async () => {
     const service = new DrizzleClientApiService({} as never, queue, undefined, undefined, true);
     const rows = [readyRow(200, 100, "Ready Album One"), readyRow(201, 101, "Ready Album Two")];
     const internals = service as unknown as {
-      readyMusicRows(animeThemesIds?: number[], releaseId?: number): Promise<ReadyMusicRow[]>;
+      readyMusicRows(
+        animeThemesIds?: number[],
+        releaseId?: number,
+        options?: { normalizedQuery?: string; limit?: number; releaseIds?: number[] },
+      ): Promise<ReadyMusicRow[]>;
     };
     const readyRows = vi.spyOn(internals, "readyMusicRows").mockImplementation(async (_animeThemesIds, releaseId) =>
       releaseId === undefined ? rows : rows.filter((row) => row.releaseId === releaseId),
@@ -74,14 +88,54 @@ describe("listener music catalog query shape", () => {
 
     expect(result.tracks).toHaveLength(2);
     expect(result.releases).toHaveLength(2);
-    expect(readyRows.mock.calls.length).toBeLessThanOrEqual(1);
+    expect(readyRows.mock.calls.length).toBeLessThanOrEqual(2);
+    expect(readyRows).toHaveBeenNthCalledWith(1, undefined, undefined, {
+      normalizedQuery: "ready album",
+      limit: 500,
+    });
+    expect(readyRows).toHaveBeenNthCalledWith(2, undefined, undefined, {
+      releaseIds: [200, 201],
+    });
+  });
+
+  it("hydrates every owner of a selected shared release in one IN lookup", async () => {
+    const service = new DrizzleClientApiService({} as never, queue, undefined, undefined, true);
+    const internals = service as unknown as {
+      readyMusicRows(
+        animeThemesIds?: number[],
+        releaseId?: number,
+        options?: { normalizedQuery?: string; limit?: number; releaseIds?: number[] },
+      ): Promise<ReadyMusicRow[]>;
+    };
+    const matchingOwner = readyRow(200, 100, "Shared Album", "one", 1);
+    matchingOwner.animeTitle = "One Anime";
+    const otherOwner = readyRow(200, 100, "Shared Album", "two", 2);
+    otherOwner.animeTitle = "Two Anime";
+    const secondTrack = readyRow(200, 101, "Shared Album", "two", 2);
+    secondTrack.animeTitle = "Two Anime";
+    vi.spyOn(internals, "readyMusicRows").mockImplementation(async (_animeThemesIds, _releaseId, options) =>
+      options?.releaseIds ? [matchingOwner, otherOwner, secondTrack] : [matchingOwner],
+    );
+
+    const result = await service.searchMusic("user-1", "one anime");
+
+    expect(result.releases).toMatchObject([{
+      anime: [{ kitsuId: "one" }, { kitsuId: "two" }],
+      release: { id: 200, tracks: [{ id: 100 }, { id: 101 }] },
+    }]);
   });
 });
 
-function readyRow(releaseId: number, songId: number, releaseTitle: string): ReadyMusicRow {
+function readyRow(
+  releaseId: number,
+  songId: number,
+  releaseTitle: string,
+  kitsuId = "kitsu-1",
+  animeThemesId = 1,
+): ReadyMusicRow {
   return {
-    animeThemesId: 1,
-    kitsuId: "kitsu-1",
+    animeThemesId,
+    kitsuId,
     animeTitle: "Ready Anime",
     animeTitleEn: "Ready Anime",
     animeTitleRomaji: null,

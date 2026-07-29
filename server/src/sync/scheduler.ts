@@ -21,10 +21,14 @@ export interface SyncSchedulerOptions {
   mediaRoot: string;
   syncIntervalMinutes?: number;
   now?: () => Date;
+  /** Reports contained timer failures without allowing an unhandled rejection. */
+  onError?: (error: Error, task: string) => void;
+  terminalJobRetentionDays?: number;
 }
 
 export class SyncScheduler {
   private timers: NodeJS.Timeout[] = [];
+  private readonly runningTasks = new Set<string>();
   private readonly now: () => Date;
 
   constructor(private readonly options: SyncSchedulerOptions) {
@@ -34,9 +38,9 @@ export class SyncScheduler {
   start(): void {
     if (this.timers.length > 0) return;
     const syncMs = (this.options.syncIntervalMinutes ?? 10080) * 60_000;
-    this.timers.push(setInterval(() => void this.enqueuePeriodicSyncs(), syncMs));
-    this.timers.push(setInterval(() => void this.runDailyMaintenance(), 24 * 60 * 60_000));
-    this.timers.push(setInterval(() => void this.runWeeklyMaintenance(), 7 * 24 * 60 * 60_000));
+    this.timers.push(setInterval(() => void this.runScheduled("periodic sync", () => this.enqueuePeriodicSyncs()), syncMs));
+    this.timers.push(setInterval(() => void this.runScheduled("daily maintenance", () => this.runDailyMaintenance()), 24 * 60 * 60_000));
+    this.timers.push(setInterval(() => void this.runScheduled("weekly maintenance", () => this.runWeeklyMaintenance()), 7 * 24 * 60 * 60_000));
     for (const timer of this.timers) timer.unref?.();
   }
 
@@ -76,6 +80,22 @@ export class SyncScheduler {
 
   async runWeeklyMaintenance(): Promise<void> {
     await this.options.pipeline.requeueFailedMedia();
+    const retentionDays = this.options.terminalJobRetentionDays ?? 30;
+    await this.options.queue.pruneTerminalJobs(
+      new Date(this.now().getTime() - retentionDays * 24 * 60 * 60_000),
+    );
+  }
+
+  private async runScheduled(task: string, run: () => Promise<void>): Promise<void> {
+    if (this.runningTasks.has(task)) return;
+    this.runningTasks.add(task);
+    try {
+      await run();
+    } catch (error) {
+      this.options.onError?.(error instanceof Error ? error : new Error(String(error)), task);
+    } finally {
+      this.runningTasks.delete(task);
+    }
   }
 
   private activeAfterCutoff(): Date {

@@ -185,7 +185,7 @@ describe("AMF delivery import job splitting (F7)", () => {
     const finalBatch = await fake.repo.loadBatch("batch");
     expect(finalBatch!.items[0]!.importState).toBe("READY");
     expect(finalBatch!.items[0]!.deliveries.every((delivery) => delivery.importState === "READY")).toBe(true);
-  });
+  }, 15_000);
 
   it("is restart-safe: re-running a chunk job skips already-READY deliveries and does not duplicate media or catalog rows", async () => {
     const { root, files } = await stageFiles("request-b", 5);

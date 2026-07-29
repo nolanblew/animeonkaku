@@ -162,16 +162,17 @@ describe("MediaStore", () => {
     expect(existsSync(join(mediaRoot, "audio", "3040.ogg"))).toBe(false);
   });
 
-  it("preserves a pre-existing final file when a later fetch attempt fails", async () => {
+  it("adopts a final file left by a crash after rename without fetching again", async () => {
     mediaRoot = mkdtempSync(join(tmpdir(), "ongaku-media-"));
     mkdirSync(join(mediaRoot, "audio"), { recursive: true });
     const finalPath = join(mediaRoot, "audio", "3040.ogg");
     writeFileSync(finalPath, "previous-ready-media");
     const repo = new FakeMediaRepo();
+    const fetch = vi.fn(async () => response("<html>maintenance</html>", { "content-type": "text/html" }));
     const store = new MediaStore({
       mediaRoot,
       repo,
-      fetch: async () => response("<html>maintenance</html>", { "content-type": "text/html" }),
+      fetch,
       minBytes: 4,
     });
 
@@ -182,9 +183,18 @@ describe("MediaStore", () => {
       originUrl: "https://a.animethemes.moe/Toradora-OP1.ogg",
       filePath: "audio/3040.ogg",
       videoFallback: false,
-    })).rejects.toBeInstanceOf(MediaValidationError);
+    })).resolves.toEqual(expect.objectContaining({
+      state: "READY",
+      filePath: "audio/3040.ogg",
+      byteSize: "previous-ready-media".length,
+    }));
 
     expect(await readFile(finalPath, "utf8")).toBe("previous-ready-media");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(repo.records.get("AUDIO:3040:SHORT")).toEqual(expect.objectContaining({
+      state: "READY",
+      filePath: "audio/3040.ogg",
+    }));
   });
 
   it("uses a collision-safe temporary destination for each fetch attempt", async () => {

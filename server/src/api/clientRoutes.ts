@@ -101,6 +101,7 @@ export interface LibraryThemeDto {
 export interface LibraryResponse {
   serverTime: number;
   anime: LibraryAnimeDto[];
+  /** Always present for backwards-compatible clients; empty means no delta. */
   themes: LibraryThemeDto[];
 }
 
@@ -197,11 +198,13 @@ export interface PlaylistCreateInput {
 export interface ChangesResponse {
   serverTime: number;
   anime: LibraryAnimeDto[];
+  /** Always present for backwards-compatible clients; empty means no delta. */
   themes: LibraryThemeDto[];
   prefs: ThemePrefDto[];
   songPrefs: SongPrefDto[];
   playlists: PlaylistDto[];
-  musicCatalog: AnimeMusicDto[];
+  /** Omitted from incremental pulls; an empty array remains a full-pull snapshot. */
+  musicCatalog?: AnimeMusicDto[];
 }
 
 export interface ClientApiService {

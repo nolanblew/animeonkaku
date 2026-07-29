@@ -2,6 +2,7 @@ import type { Pool, PoolClient } from "pg";
 import { amfJobCreateSchema } from "../animeMusicFetcher/schemas.js";
 import type { AmfJob, AmfJobCreate } from "../animeMusicFetcher/schemas.js";
 import { normalizeMusicText } from "../matching/normalize.js";
+import type { AppLogger } from "../../logging.js";
 import { AMF_PROVIDER_JOB_FILE_INDEX_STRIDE } from "./providerGraph.js";
 import type { MusicRequestRepository, NewMusicRequest, ProviderEvidenceScope, StoredMusicBatch, StoredProviderJobLink, StoredMusicRequest, MusicBatchState } from "./types.js";
 
@@ -13,7 +14,7 @@ const WHOLE_BATCH_EVIDENCE_SCOPE: ProviderEvidenceScope = {
 };
 
 export class PgMusicRequestRepository implements MusicRequestRepository {
-  constructor(private readonly pool: Pool) {}
+  constructor(private readonly pool: Pool, private readonly logger?: AppLogger) {}
 
   async loadMetadata(kitsuId: string) {
     const anime = await this.pool.query<{
@@ -95,11 +96,11 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
   }
   async findBatch(id: string): Promise<StoredMusicBatch | null> {
     const result = await this.pool.query("SELECT * FROM anime_music_request_batches WHERE id=$1", [id]);
-    return result.rows[0] ? mapBatch(result.rows[0]) : null;
+    return result.rows[0] ? mapBatch(result.rows[0], this.logger) : null;
   }
   async listRecoverableBatches(): Promise<StoredMusicBatch[]> {
     const result = await this.pool.query("SELECT * FROM anime_music_request_batches WHERE completed_at IS NULL ORDER BY created_at,batch_index");
-    return result.rows.map(mapBatch);
+    return result.rows.map((row) => mapBatch(row, this.logger));
   }
 
   async listRecheckableBatches(): Promise<StoredMusicBatch[]> {
@@ -107,7 +108,7 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
       WHERE amf_job_id IS NOT NULL
         AND state IN ('AWAITING_OPERATOR', 'FAILED', 'PROCESSING', 'COMPLETED_WITH_WARNINGS')
       ORDER BY updated_at,created_at,batch_index`);
-    return result.rows.map(mapBatch);
+    return result.rows.map((row) => mapBatch(row, this.logger));
   }
 
   async listLocalizedCatalogBackfillTargets(): Promise<Array<{ batchId: string; amfJobId: string }>> {
@@ -364,7 +365,7 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
     if (!request.rows[0]) return null;
     const batches = await queryable.query("SELECT * FROM anime_music_request_batches WHERE request_id=$1 ORDER BY batch_index", [id]);
     const row = request.rows[0];
-    return { id: row.id, kitsuId: row.kitsu_id, animeThemesAnimeId: Number(row.animethemes_anime_id), createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at, batches: batches.rows.map(mapBatch) };
+    return { id: row.id, kitsuId: row.kitsu_id, animeThemesAnimeId: Number(row.animethemes_anime_id), createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at, batches: batches.rows.map((batch) => mapBatch(batch, this.logger)) };
   }
 }
 
@@ -378,10 +379,13 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
  * back to AMF (which re-validates it independently) or read for shape, never
  * trusted as a source of new invariants.
  */
-export function parseStoredMusicRequestBody(batchId: string, value: unknown): AmfJobCreate {
+export function parseStoredMusicRequestBody(batchId: string, value: unknown, logger?: AppLogger): AmfJobCreate {
   const parsed = amfJobCreateSchema.safeParse(value);
   if (parsed.success) return parsed.data;
-  console.warn(`[amf] stored request body for batch ${batchId} no longer matches the current schema; replaying it as-is (${parsed.error.issues.map((issue) => issue.message).join("; ")})`);
+  logger?.warn?.(
+    { batchId, issues: parsed.error.issues.map((issue) => issue.message) },
+    "stored AMF request body no longer matches the current schema; replaying it as-is",
+  );
   return value as AmfJobCreate;
 }
 
@@ -400,9 +404,9 @@ function mapProviderJobLink(row: any): StoredProviderJobLink {
   };
 }
 
-function mapBatch(row: any): StoredMusicBatch {
+function mapBatch(row: any, logger?: AppLogger): StoredMusicBatch {
   const manifestEvidence = row.manifest_evidence ?? {};
-  return { id: row.id, requestId: row.request_id, index: row.batch_index, state: row.state, body: parseStoredMusicRequestBody(row.id, row.amf_request_body), idempotencyKey: row.idempotency_key, amfJobId: row.amf_job_id, warningCount: row.warning_count,
+  return { id: row.id, requestId: row.request_id, index: row.batch_index, state: row.state, body: parseStoredMusicRequestBody(row.id, row.amf_request_body, logger), idempotencyKey: row.idempotency_key, amfJobId: row.amf_job_id, warningCount: row.warning_count,
     providerStatus: manifestEvidence.status ?? null,
     pollBackoffStep: row.poll_backoff_step ?? 0,
     pollNotBefore: row.poll_not_before ?? null,

@@ -4,6 +4,7 @@ import type { AmfJob, AmfJobStatus } from "../animeMusicFetcher/schemas.js";
 import type { JobQueue } from "../../jobs/jobQueue.js";
 import { RetryableJobError } from "../../jobs/jobWorker.js";
 import { JobPriority, type JobHandler } from "../../jobs/types.js";
+import type { AppLogger } from "../../logging.js";
 import {
   adoptFollowUpJobs,
   isProviderGraphTerminal,
@@ -13,6 +14,7 @@ import {
 import type { MusicBatchState, MusicRequestRepository, StoredMusicBatch, StoredMusicBatchManifest, StoredProviderJobLink } from "./types.js";
 
 export const AMF_POLL_INTERVAL_MS = 5_000;
+export const AMF_POLL_CONCURRENCY = 8;
 
 // Statuses that represent AMF actively doing machine work on a job. Anything
 // else (operator-wait states, "archived", or a status we don't recognize
@@ -38,7 +40,7 @@ const AMF_POLL_BACKOFF_LADDER_MS = [5_000, 30_000, 120_000, 300_000, 600_000, 1_
 /** One provider job observed during a single poll tick. */
 interface ObservedProviderJob { link: StoredProviderJobLink; job: AmfJob }
 
-export function createMusicRequestHandlers(deps: { repo: MusicRequestRepository; queue: JobQueue; client: Pick<AnimeMusicFetcherClient, "submitJob" | "getJob">; now?: () => Date }): Record<"SUBMIT_AMF_MUSIC_BATCH" | "POLL_AMF_MUSIC_BATCH", JobHandler> {
+export function createMusicRequestHandlers(deps: { repo: MusicRequestRepository; queue: JobQueue; client: Pick<AnimeMusicFetcherClient, "submitJob" | "getJob">; now?: () => Date; logger?: AppLogger }): Record<"SUBMIT_AMF_MUSIC_BATCH" | "POLL_AMF_MUSIC_BATCH", JobHandler> {
   const now = deps.now ?? (() => new Date());
   const poll = async (batchId: string, delayMs?: number) => deps.queue.enqueue({ type: "POLL_AMF_MUSIC_BATCH", priority: JobPriority.NORMAL,
     payload: { batchId }, dedupeKey: `POLL_AMF_MUSIC_BATCH:${batchId}`, maxAttempts: 8,
@@ -46,20 +48,26 @@ export function createMusicRequestHandlers(deps: { repo: MusicRequestRepository;
   const importBatch = async (batchId: string) => deps.queue.enqueue({ type: "IMPORT_AMF_MUSIC_BATCH", priority: JobPriority.NORMAL,
     payload: { batchId }, dedupeKey: `IMPORT_AMF_MUSIC_BATCH:${batchId}`, maxAttempts: 8 });
   return {
-    async SUBMIT_AMF_MUSIC_BATCH(payload) {
+    async SUBMIT_AMF_MUSIC_BATCH(payload, _job, context) {
       const batch = await requireBatch(deps.repo, payload);
       if (batch.amfJobId) { await poll(batch.id); return; }
       let providerJob: AmfJob;
       try {
-        providerJob = await deps.client.submitJob(batch.body, batch.idempotencyKey);
-      } catch (error) { await handleProviderError(deps.repo, batch.id, error, now()); return; }
+        providerJob = context?.signal
+          ? await deps.client.submitJob(batch.body, batch.idempotencyKey, context.signal)
+          : await deps.client.submitJob(batch.body, batch.idempotencyKey);
+      } catch (error) {
+        throwIfExecutionAborted(context?.signal, "AMF submission");
+        await handleProviderError(deps.repo, batch.id, error, now());
+        return;
+      }
       const nowTs = now();
       // Seed the graph with the root we just created. A brand new job has no
       // follow-ups yet; discovery happens on the polls that follow.
       const root = seedRootProviderJob({ ...batch, amfJobId: providerJob.id })!;
       const schedule = nextPollSchedule(batch, [{ link: root, job: providerJob }], nowTs);
       if (shouldPersistEvidence(providerJob) && schedule.changed) await deps.repo.recordProviderEvidence(batch.id, providerJob, nowTs);
-      await deps.repo.recordProviderState(batch.id, { ...providerUpdate(providerJob), pollBackoffStep: schedule.backoffStep, pollNotBefore: schedule.notBefore }, nowTs);
+      await deps.repo.recordProviderState(batch.id, { ...providerUpdate(providerJob, deps.logger), pollBackoffStep: schedule.backoffStep, pollNotBefore: schedule.notBefore }, nowTs);
       await deps.repo.saveProviderJobs(batch.id, [observedLink(root, providerJob, nowTs)], nowTs);
       if (hasImportableEvidence(providerJob)) await importBatch(batch.id);
       if (!isTerminal(providerJob.status)) await poll(batch.id, schedule.delayMs);
@@ -73,7 +81,7 @@ export function createMusicRequestHandlers(deps: { repo: MusicRequestRepository;
      * lets the batch be provider-terminal once the root *and every descendant*
      * are terminal. See MC-S13 / finding F1.
      */
-    async POLL_AMF_MUSIC_BATCH(payload) {
+    async POLL_AMF_MUSIC_BATCH(payload, _job, context) {
       const batch = await requireBatch(deps.repo, payload);
       if (!batch.amfJobId) throw new RetryableJobError("AMF submission identity is not persisted yet", { incrementAttempts: false, retryAfterMs: AMF_POLL_INTERVAL_MS });
       const nowTs = now();
@@ -99,29 +107,43 @@ export function createMusicRequestHandlers(deps: { repo: MusicRequestRepository;
       const observed: ObservedProviderJob[] = [];
       const touched: StoredProviderJobLink[] = [];
       let rootJob: AmfJob | null = null;
-      for (let index = 0; index < pending.length; index += 1) {
-        const link = pending[index]!;
-        if (link.goneAt) continue;
-        let job: AmfJob;
-        try { job = await deps.client.getJob(link.amfJobId); }
-        catch (error) {
+      while (pending.length > 0) {
+        const wave = pending.splice(0, AMF_POLL_CONCURRENCY);
+        const outcomes = await Promise.all(wave.map(async (link) => {
+          if (link.goneAt) return { link, skipped: true } as const;
+          try {
+            const job = context?.signal
+              ? await deps.client.getJob(link.amfJobId, context.signal)
+              : await deps.client.getJob(link.amfJobId);
+            return { link, job } as const;
+          } catch (error) {
+            return { link, error } as const;
+          }
+        }));
+        for (const outcome of outcomes) {
+          const { link } = outcome;
+          if ("skipped" in outcome || link.goneAt) continue;
+          if ("error" in outcome) {
+          throwIfExecutionAborted(context?.signal, "AMF poll");
           // The root keeps the exact pre-MC-S13 error semantics, including
           // returning without rescheduling; only a child's failure is
           // contained so it cannot destroy the batch.
-          if (link.role === "ROOT") { await handleProviderError(deps.repo, batch.id, error, nowTs); return; }
-          if (await handleFollowUpProviderError(batch.id, link, error) === "GONE") {
+          if (link.role === "ROOT") { await handleProviderError(deps.repo, batch.id, outcome.error, nowTs); return; }
+          if (await handleFollowUpProviderError(batch.id, link, outcome.error, deps.logger) === "GONE") {
             touched.push({ ...link, goneAt: nowTs, lastPolledAt: nowTs });
           }
           continue;
         }
+        const job = outcome.job;
         observed.push({ link, job });
         if (link.role === "ROOT") rootJob = job;
         const adoption = adoptFollowUpJobs(link, job, known);
         if (adoption.truncated) {
-          console.warn(`[amf] batch ${batch.id} reached the provider follow-up bound; refusing further adoption from job ${link.amfJobId}`);
+          deps.logger?.warn?.({ batchId: batch.id, amfJobId: link.amfJobId }, "AMF provider follow-up bound reached; refusing further adoption");
         }
         pending.push(...adoption.adopted);
         touched.push(observedLink(link, job, nowTs));
+        }
       }
       const schedule = nextPollSchedule(batch, observed, nowTs);
       // Evidence is written *before* the per-job manifests that gate it, for
@@ -139,7 +161,7 @@ export function createMusicRequestHandlers(deps: { repo: MusicRequestRepository;
         if (!shouldPersistEvidence(entry.job)) continue;
         if (!manifestChanged(entry.link.manifestEvidence, entry.job)) continue;
         if (!sharesBatchDestination(batch, entry)) {
-          console.warn(`[amf] provider job ${entry.job.id} reports destination outside batch ${batch.id}; refusing to attribute its evidence`);
+          deps.logger?.warn?.({ batchId: batch.id, amfJobId: entry.job.id }, "AMF provider job destination is outside its batch; refusing evidence attribution");
           continue;
         }
         const projected = projectProviderJobEvidence(entry.link, entry.job);
@@ -165,8 +187,8 @@ export function createMusicRequestHandlers(deps: { repo: MusicRequestRepository;
 
       const graphTerminal = isProviderGraphTerminal(touched, isTerminal);
       await deps.repo.recordProviderState(batch.id, {
-        ...providerUpdate(rootJob),
-        state: graphState(rootJob, observed, graphTerminal),
+        ...providerUpdate(rootJob, deps.logger),
+        state: graphState(rootJob, observed, graphTerminal, deps.logger),
         pollBackoffStep: schedule.backoffStep, pollNotBefore: schedule.notBefore,
       }, nowTs);
       if (observed.some((entry) => hasImportableEvidence(entry.job))) await importBatch(batch.id);
@@ -174,7 +196,11 @@ export function createMusicRequestHandlers(deps: { repo: MusicRequestRepository;
       // of root ef75e439 — completed_with_warnings with four children still
       // awaiting_selection — must keep polling, not settle.
       if (graphTerminal) return;
-      throw new RetryableJobError("AMF batch is still active", { incrementAttempts: false, retryAfterMs: schedule.delayMs });
+      throw new RetryableJobError("AMF batch is still active", {
+        incrementAttempts: false,
+        retryAfterMs: schedule.delayMs,
+        recordError: false,
+      });
     },
   };
 }
@@ -213,8 +239,8 @@ async function requireBatch(repo: MusicRequestRepository, payload: Record<string
   if (!batch) throw new Error("Music request batch does not exist");
   return batch;
 }
-function providerUpdate(job: AmfJob): { state: MusicBatchState; amfJobId: string; warningCount: number; lastError: null; providerStatus: AmfJobStatus } {
-  return { state: mapStatus(job.status), amfJobId: job.id, warningCount: job.warnings.length, lastError: null, providerStatus: job.status };
+function providerUpdate(job: AmfJob, logger?: AppLogger): { state: MusicBatchState; amfJobId: string; warningCount: number; lastError: null; providerStatus: AmfJobStatus } {
+  return { state: mapStatus(job.status, logger), amfJobId: job.id, warningCount: job.warnings.length, lastError: null, providerStatus: job.status };
 }
 /**
  * The batch state for a whole graph.
@@ -227,10 +253,10 @@ function providerUpdate(job: AmfJob): { state: MusicBatchState; amfJobId: string
  * item is already marked through the normal item-level machinery, and
  * `finishBatch` settles the batch from item state.
  */
-function graphState(rootJob: AmfJob, observed: ObservedProviderJob[], graphTerminal: boolean): MusicBatchState {
-  const rootState = mapStatus(rootJob.status);
+function graphState(rootJob: AmfJob, observed: ObservedProviderJob[], graphTerminal: boolean, logger?: AppLogger): MusicBatchState {
+  const rootState = mapStatus(rootJob.status, logger);
   if (graphTerminal) return rootState;
-  const states = observed.map((entry) => mapStatus(entry.job.status));
+  const states = observed.map((entry) => mapStatus(entry.job.status, logger));
   for (const candidate of ["AWAITING_OPERATOR", "PROCESSING", "DOWNLOADING", "SEARCHING", "QUEUED"] as const) {
     if (states.includes(candidate)) return candidate;
   }
@@ -250,7 +276,7 @@ function graphState(rootJob: AmfJob, observed: ObservedProviderJob[], graphTermi
  * raw status string itself is also captured verbatim on the batch via
  * recordProviderEvidence (see shouldPersistEvidence).
  */
-function mapStatus(status: AmfJobStatus): MusicBatchState {
+function mapStatus(status: AmfJobStatus, logger?: AppLogger): MusicBatchState {
   switch (status) {
     case "queued": return "QUEUED";
     case "searching": case "selected": case "submitting": return "SEARCHING";
@@ -262,7 +288,7 @@ function mapStatus(status: AmfJobStatus): MusicBatchState {
     case "cancelled": return "CANCELLED";
     case "archived": return "AWAITING_OPERATOR";
     default:
-      console.warn(`[amf] unrecognized provider job status "${status}" observed — treating as dormant: non-terminal, non-failing, operator-visible`);
+      logger?.warn?.({ status }, "unrecognized AMF provider job status; treating as dormant");
       return "AWAITING_OPERATOR";
   }
 }
@@ -304,6 +330,15 @@ function deepEqual(a: unknown, b: unknown): boolean {
   return false;
 }
 function hasImportableEvidence(job: AmfJob) { return job.deliveries.some((delivery) => delivery.files.length > 0); }
+
+function throwIfExecutionAborted(signal: AbortSignal | undefined, operation: string): void {
+  if (!signal?.aborted) return;
+  throw new RetryableJobError(`${operation} was cancelled by the worker deadline`, {
+    incrementAttempts: false,
+    retryAfterMs: AMF_POLL_INTERVAL_MS,
+  });
+}
+
 async function handleProviderError(repo: MusicRequestRepository, batchId: string, error: unknown, now: Date): Promise<never | void> {
   if (error instanceof AnimeMusicFetcherError) {
     if (error.retryable) {
@@ -329,14 +364,14 @@ async function handleProviderError(repo: MusicRequestRepository, batchId: string
  * keeps being observed. A retryable error still aborts the whole tick, so a
  * partially observed graph is never mistaken for a terminal one.
  */
-async function handleFollowUpProviderError(batchId: string, link: StoredProviderJobLink, error: unknown): Promise<"GONE" | "LIVE"> {
+async function handleFollowUpProviderError(batchId: string, link: StoredProviderJobLink, error: unknown, logger?: AppLogger): Promise<"GONE" | "LIVE"> {
   if (error instanceof AnimeMusicFetcherError && error.retryable) {
     throw new RetryableJobError(error.message, { incrementAttempts: false, retryAfterMs: AMF_POLL_INTERVAL_MS });
   }
   if (error instanceof AnimeMusicFetcherError && error.code === "NOT_FOUND") {
-    console.warn(`[amf] follow-up job ${link.amfJobId} is no longer held by the provider; retiring it from batch ${batchId}`);
+    logger?.warn?.({ batchId, amfJobId: link.amfJobId }, "AMF follow-up job is no longer held by the provider; retiring it");
     return "GONE";
   }
-  console.warn(`[amf] follow-up job ${link.amfJobId} could not be polled for batch ${batchId}: ${error instanceof Error ? error.message : String(error)}`);
+  logger?.warn?.({ batchId, amfJobId: link.amfJobId, err: error }, "AMF follow-up job could not be polled");
   return "LIVE";
 }

@@ -36,7 +36,7 @@ export function createFetchMediaHandlers(deps: FetchMediaHandlersDeps): {
     // Fetches the canonical (AUDIO, SHORT) variant. The variant model lets future
     // jobs warm (AUDIO, FULL) / (VIDEO, FULL) through the same store; payloads stay
     // backward-compatible ({ themeId }) and resolve to the canonical audio.
-    FETCH_AUDIO: async (payload) => {
+    FETCH_AUDIO: async (payload, _job, context) => {
       await assertDiskFree(deps.getDiskFreeBytes, minFreeBytes);
       const themeId = requiredNumber(payload.themeId, "themeId");
       const audio = await deps.catalog.findThemeAudio(themeId);
@@ -50,9 +50,9 @@ export function createFetchMediaHandlers(deps: FetchMediaHandlersDeps): {
         originUrl: audio.audioOriginUrl,
         filePath: themeMediaFilePath(CANONICAL_AUDIO.kind, CANONICAL_AUDIO.variant, String(themeId)),
         videoFallback,
-      });
+      }, { signal: context?.signal });
     },
-    FETCH_IMAGE: async (payload) => {
+    FETCH_IMAGE: async (payload, _job, context) => {
       await assertDiskFree(deps.getDiskFreeBytes, minFreeBytes);
       const kind = requiredImageKind(payload.kind);
       const refId = requiredString(payload.refId, "refId");
@@ -65,7 +65,7 @@ export function createFetchMediaHandlers(deps: FetchMediaHandlersDeps): {
         originUrl: image.originUrl,
         filePath: imageFilePath(kind, refId),
         videoFallback: false,
-      });
+      }, { signal: context?.signal });
     },
   };
 }

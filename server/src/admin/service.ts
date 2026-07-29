@@ -68,7 +68,7 @@ export class PgAdminDashboardService implements AdminDashboardApi {
 
   listLogs(input: { level: string | undefined; limit: number }) { return this.options.logs.list(input).map((entry) => ({ ...entry })); }
   listRequests() { return this.options.operator.listRequests(); }
-  async listJobs() { return (await this.options.queue.list()).slice(0, 250).map((job) => ({ ...job, nextRunAt: job.nextRunAt.toISOString(), createdAt: job.createdAt.toISOString(), updatedAt: job.updatedAt.toISOString() })); }
+  async listJobs() { return (await this.options.queue.list(undefined, 250)).map((job) => ({ ...job, nextRunAt: job.nextRunAt.toISOString(), createdAt: job.createdAt.toISOString(), updatedAt: job.updatedAt.toISOString() })); }
 
   async syncUser(userId: string) {
     await this.requireUser(userId);

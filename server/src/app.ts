@@ -88,7 +88,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   registerHealthRoutes(app, deps.health);
   if (deps.musicSearchSettings) {
-    registerAdminRoutes(app, deps.musicSearchSettings, deps.adminPassword ?? "Password123", deps.adminDashboard);
+    if (!deps.adminPassword) throw new Error("ADMIN_PASSWORD is required when the admin dashboard is enabled.");
+    registerAdminRoutes(app, deps.musicSearchSettings, deps.adminPassword, deps.adminDashboard);
   }
   registerApiRoutes(app, deps);
   app.register(

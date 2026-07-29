@@ -48,15 +48,17 @@ export class MediaStore {
     this.minBytes = options.minBytes ?? DEFAULT_MIN_BYTES;
   }
 
-  async fetchToMediaFile(input: SaveMediaFileInput): Promise<MediaFileRecord> {
+  async fetchToMediaFile(input: SaveMediaFileInput, options: { signal?: AbortSignal } = {}): Promise<MediaFileRecord> {
     const cached = await this.findReadyCached(input);
     if (cached) return cached;
 
     const finalPath = join(this.options.mediaRoot, input.filePath);
     const tmpDir = join(this.options.mediaRoot, "audio", "tmp");
-    const tmpPath = join(tmpDir, `${input.kind}-${input.refId}-${Date.now()}.tmp`);
+    const tmpPath = join(tmpDir, `${input.kind}-${input.refId}-${randomUUID()}.tmp`);
     await mkdir(dirname(finalPath), { recursive: true });
     await mkdir(tmpDir, { recursive: true });
+    const recovered = await this.adoptOrphanedFinal(input, finalPath);
+    if (recovered) return recovered;
     await this.options.repo.markDownloading(input);
 
     const logData = {
@@ -71,7 +73,7 @@ export class MediaStore {
       this.options.logger?.info(logData, "external media download request");
       const fetchForKind =
         input.kind === "AUDIO" || input.kind === "VIDEO" ? this.fetchImpl : this.imageFetchImpl;
-      const response = await fetchForKind(input.originUrl);
+      const response = await fetchForKind(input.originUrl, options.signal ? { signal: options.signal } : undefined);
       this.options.logger?.info(
         {
           ...logData,
@@ -89,8 +91,16 @@ export class MediaStore {
         throw new MediaValidationError("Origin response had no body");
       }
 
-      const { byteSize, sha256 } = await writeAndHash(response.body, tmpPath);
+      const { byteSize, sha256 } = await writeAndHash(response.body, tmpPath, options.signal);
       validateSize(byteSize, response.headers.get("content-length"), this.minBytes);
+      // Another execution (or a prior crash after rename) may have published the
+      // destination while this request was downloading. Adopt that complete file
+      // instead of overwriting it or leaving the DB in a permanent FAILED loop.
+      const raced = await this.adoptOrphanedFinal(input, finalPath);
+      if (raced) {
+        await rm(tmpPath, { force: true });
+        return raced;
+      }
       await rename(tmpPath, finalPath);
       await this.options.repo.markReady({ ...input, byteSize, sha256 });
       const saved = await stat(finalPath);
@@ -121,12 +131,48 @@ export class MediaStore {
       };
     } catch (error) {
       await rm(tmpPath, { force: true });
-      await rm(finalPath, { force: true });
       const err = error instanceof Error ? error : new Error(String(error));
       this.options.logger?.warn?.({ ...logData, error: err.message }, "external media download failed");
       await this.options.repo.markFailed({ ...input, errorMessage: err.message });
       throw err;
     }
+  }
+
+  private async adoptOrphanedFinal(
+    input: SaveMediaFileInput,
+    finalPath: string,
+  ): Promise<MediaFileRecord | null> {
+    const existing = await stat(finalPath).catch(() => null);
+    if (!existing) return null;
+    if (!existing.isFile()) {
+      throw new MediaValidationError(`Managed media destination is not a file: ${input.filePath}`);
+    }
+    if (existing.size < this.minBytes) {
+      // Atomic publication means a valid prior download cannot be partial here.
+      // Remove only this invalid managed artifact so the retry can make progress.
+      await rm(finalPath, { force: true });
+      return null;
+    }
+
+    const sha256 = await hashFile(finalPath);
+    await this.options.repo.markReady({ ...input, byteSize: existing.size, sha256 });
+    const now = new Date();
+    return {
+      id: 0,
+      kind: input.kind,
+      refId: input.refId,
+      variant: input.variant,
+      originUrl: input.originUrl,
+      state: "READY",
+      filePath: input.filePath,
+      byteSize: existing.size,
+      sha256,
+      errorMessage: null,
+      attempts: 1,
+      fetchedAt: now,
+      updatedAt: now,
+      videoFallback: input.videoFallback,
+    };
   }
 
   async importLocalSongFile(input: ImportLocalSongFileInput): Promise<MediaFileRecord> {
@@ -399,6 +445,7 @@ function readyRecord(input: SaveMediaFileInput, byteSize: number, sha256: string
 async function writeAndHash(
   body: ReadableStream<Uint8Array>,
   tmpPath: string,
+  signal?: AbortSignal,
 ): Promise<{ byteSize: number; sha256: string }> {
   const hash = createHash("sha256");
   let byteSize = 0;
@@ -409,7 +456,7 @@ async function writeAndHash(
       callback(null, chunk);
     },
   });
-  await pipeline(Readable.fromWeb(body), counter, createWriteStream(tmpPath));
+  await pipeline(Readable.fromWeb(body), counter, createWriteStream(tmpPath, { flags: "wx" }), { signal });
   return { byteSize, sha256: hash.digest("hex") };
 }
 

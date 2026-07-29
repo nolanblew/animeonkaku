@@ -5,7 +5,7 @@ Self-hosted API server for the Anime Ongaku Android app. Design docs live in [`.
 ## Run with Docker
 
 ```bash
-cp .env.example .env   # edit DB_PASSWORD; leave KITSU_AUTH_MODE=stub for local smoke tests
+cp .env.example .env   # edit DB_PASSWORD and ADMIN_PASSWORD; leave KITSU_AUTH_MODE=stub for local smoke tests
 docker compose up -d --build
 curl http://localhost:48668/healthz
 ```

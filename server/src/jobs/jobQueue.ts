@@ -53,7 +53,7 @@ export class JobQueue {
   async failRetryable(
     job: JobRecord,
     error: Error,
-    options: { incrementAttempts: boolean; retryAfterMs?: number; jitterMs?: number } = {
+    options: { incrementAttempts: boolean; retryAfterMs?: number; jitterMs?: number; recordError?: boolean } = {
       incrementAttempts: true,
     },
   ): Promise<JobRecord | null> {
@@ -63,7 +63,7 @@ export class JobQueue {
     return this.repo.fail(job.id, {
       state: failed ? "FAILED" : "QUEUED",
       nextRunAt: failed ? this.now() : new Date(this.now().getTime() + retryDelayMs),
-      lastError: error.message,
+      lastError: options.recordError === false ? null : error.message,
       incrementAttempts: options.incrementAttempts,
     });
   }
@@ -72,12 +72,20 @@ export class JobQueue {
     return this.repo.recoverRunning();
   }
 
-  async list(status?: JobState): Promise<JobRecord[]> {
-    return this.repo.list(status);
+  async list(status?: JobState, limit = 250): Promise<JobRecord[]> {
+    return this.repo.list(status, limit);
   }
 
-  async listJobs(status?: JobState): Promise<JobRecord[]> {
-    return this.list(status);
+  async listForUser(userId: string, types: readonly JobType[], limit = 250): Promise<JobRecord[]> {
+    if (this.repo.listForUser) return this.repo.listForUser(userId, types, limit);
+    // Compatibility for in-memory/test adapters that predate the scoped query.
+    return (await this.repo.list(undefined, 10_000))
+      .filter((job) => job.payload.userId === userId && types.includes(job.type))
+      .slice(0, limit);
+  }
+
+  async listJobs(status?: JobState, limit = 250): Promise<JobRecord[]> {
+    return this.list(status, limit);
   }
 
   async retryJob(id: number): Promise<JobRecord | null> {
@@ -86,6 +94,13 @@ export class JobQueue {
 
   async updateProgress(id: number, progress: Record<string, unknown>): Promise<void> {
     await this.repo.updateProgress(id, progress);
+  }
+
+  async pruneTerminalJobs(olderThan: Date, limit = 500): Promise<number> {
+    // Older in-memory/test repository adapters predate retention support.
+    // Production PgJobRepository implements it; treating a legacy adapter as
+    // a no-op keeps maintenance best-effort rather than taking down the timer.
+    return this.repo.pruneTerminalJobs?.(olderThan, limit) ?? 0;
   }
 
   async hasUrgentQueued(): Promise<boolean> {

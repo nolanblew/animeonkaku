@@ -35,11 +35,8 @@ describe.skipIf(!adminDatabaseUrl)("ready-only listener music catalog (PostgreSQ
       expect(library.themes.find((theme) => theme.id === 11)?.mediaModes.fullSize).toBeNull();
 
       const changes = await service.getChanges("user-1", Date.now() + 60_000);
-      expect(changes.musicCatalog).toEqual([expect.objectContaining({ anime: expect.objectContaining({ kitsuId: "kitsu-1" }) })]);
-      expect(changes.themes[0]?.mediaModes).toMatchObject({
-        fullSize: { songId: 100, url: "/v1/media/songs/100/audio" },
-        video: { url: "https://example.invalid/video.webm" },
-      });
+      expect(changes.musicCatalog).toBeUndefined();
+      expect(changes.themes).toEqual([]);
       const search = await service.searchMusic("user-1", "ready artist");
       expect(search.tracks).toHaveLength(1);
       expect(search.releases).toHaveLength(1);
@@ -56,8 +53,8 @@ describe.skipIf(!adminDatabaseUrl)("ready-only listener music catalog (PostgreSQ
       expect(await service.getMusicRelease("user-1", 200)).toBeNull();
       expect(await service.searchMusic("user-1", "ready")).toEqual({ releases: [], tracks: [] });
       const disabledChanges = await service.getChanges("user-1", Date.now() + 60_000);
-      expect(disabledChanges.musicCatalog).toEqual([]);
-      expect(disabledChanges.themes[0]?.mediaModes).toMatchObject({ fullSize: null, video: null });
+      expect(disabledChanges.musicCatalog).toBeUndefined();
+      expect(disabledChanges.themes).toEqual([]);
       expect((await service.getLibrary("user-1", null)).themes[0]?.mediaModes).toMatchObject({ fullSize: null, video: null });
     });
   });
@@ -82,17 +79,82 @@ describe.skipIf(!adminDatabaseUrl)("ready-only listener music catalog (PostgreSQ
       expect(release?.tracks.map((track) => track.trackNumber)).toEqual([1, 5, 17]);
     });
   });
+
+  it("emits descriptor-only media changes and themes for a newly mapped library anime", async () => {
+    await withDatabase(async (pool) => {
+      await seedCatalog(pool);
+      const service = new DrizzleClientApiService(drizzle(pool), queue, undefined, undefined, true);
+      const mediaCursor = Date.now();
+      await tick();
+      await pool.query(`
+        INSERT INTO media_files (kind,ref_id,variant,origin_url,state,file_path,byte_size)
+          VALUES ('AUDIO','10','SHORT','https://example.invalid/tv.ogg','READY','audio/10.ogg',321);
+        UPDATE theme_video_sources SET link='https://example.invalid/video-new.webm' WHERE theme_id=10;
+        UPDATE music_acquisitions SET state='FAILED' WHERE purpose='FULL_SIZE' AND theme_id=10;
+      `);
+
+      const mediaChanges = await service.getChanges("user-1", mediaCursor);
+      expect(mediaChanges.themes.find((theme) => theme.id === 10)?.mediaModes).toMatchObject({
+        tvSize: { fileSize: 321 },
+        fullSize: null,
+        video: { url: "https://example.invalid/video-new.webm" },
+      });
+
+      const mappingCursor = Date.now();
+      await tick();
+      await pool.query("INSERT INTO library_entries (user_id,kitsu_id,watching_status) VALUES ('user-1','kitsu-2','current')");
+      const mappingChanges = await service.getChanges("user-1", mappingCursor);
+      expect(mappingChanges.themes).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 12, animeThemesAnimeId: 2 }),
+      ]));
+    });
+  });
+
+  it("atomically refreshes the ready catalog when a previously hidden release becomes READY", async () => {
+    await withDatabase(async (pool) => {
+      await seedCatalog(pool);
+      const service = new DrizzleClientApiService(drizzle(pool), queue, undefined, undefined, true);
+      const cursor = Date.now();
+      await tick();
+      await pool.query(`
+        INSERT INTO media_files (kind,ref_id,variant,origin_url,state,file_path,byte_size,content_type,source_file_name) VALUES
+          ('AUDIO','song:101','ORIGINAL','provider-import:metadata.flac','READY','audio/songs/101/original.flac',1234,'audio/flac','metadata.flac');
+        INSERT INTO music_acquisitions (provider,animethemes_anime_id,purpose,release_id,state) VALUES
+          ('test',1,'RELATED_RELEASE',201,'READY');
+      `);
+
+      const changes = await service.getChanges("user-1", cursor);
+      expect(changes.musicCatalog?.[0]?.releases.map((release) => release.id)).toEqual([200, 201]);
+    });
+  });
+
+  it("searches accent- and width-folded anime titles in PostgreSQL", async () => {
+    await withDatabase(async (pool) => {
+      await seedCatalog(pool);
+      await pool.query("UPDATE kitsu_anime SET title='Café Anime' WHERE kitsu_id='kitsu-1'");
+      const service = new DrizzleClientApiService(drizzle(pool), queue, undefined, undefined, true);
+
+      const result = await service.searchMusic("user-1", "Ｃａｆｅ　Ａｎｉｍｅ");
+
+      expect(result.releases).toHaveLength(1);
+      expect(result.tracks).toHaveLength(1);
+    });
+  });
 });
 
 async function seedCatalog(pool: Pool): Promise<void> {
   await pool.query(`
     INSERT INTO users (kitsu_user_id,username) VALUES ('user-1','listener');
     INSERT INTO animethemes_anime (id,name,name_en) VALUES (1,'Catalog Anime','Catalog Anime');
-    INSERT INTO kitsu_anime (kitsu_id,animethemes_anime_id,title,title_en,mapping_state) VALUES ('kitsu-1',1,'Catalog_Anime 100%','Catalog Anime','MAPPED');
+    INSERT INTO animethemes_anime (id,name,name_en) VALUES (2,'Mapped Later','Mapped Later');
+    INSERT INTO kitsu_anime (kitsu_id,animethemes_anime_id,title,title_en,mapping_state) VALUES
+      ('kitsu-1',1,'Catalog_Anime 100%','Catalog Anime','MAPPED'),
+      ('kitsu-2',2,'Mapped Later','Mapped Later','MAPPED');
     INSERT INTO library_entries (user_id,kitsu_id,watching_status) VALUES ('user-1','kitsu-1','current');
     INSERT INTO themes (id,animethemes_anime_id,title,audio_origin_url,duration_seconds) VALUES
       (10,1,'Opening','https://example.invalid/tv.ogg',90),
-      (11,1,'Deleted Release Opening','https://example.invalid/tv-deleted.ogg',90);
+      (11,1,'Deleted Release Opening','https://example.invalid/tv-deleted.ogg',90),
+      (12,2,'Mapped Later Opening','https://example.invalid/later.ogg',90);
     INSERT INTO songs (id,title,normalized_title,artist_credit,normalized_artist,duration_seconds) VALUES
       (100,'Ready Song','ready song','Ready Artist','ready artist',240),
       (101,'Metadata Only','metadata only','Hidden Artist','hidden artist',180),
@@ -121,6 +183,10 @@ async function seedCatalog(pool: Pool): Promise<void> {
     INSERT INTO theme_video_sources (animethemes_video_id,animethemes_entry_id,theme_id,entry_version,link,mime_type,preference_rank)
       VALUES (500,501,10,1,'https://example.invalid/video.webm','video/webm',0);
   `);
+}
+
+async function tick(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 5));
 }
 
 async function withDatabase(run: (pool: Pool) => Promise<void>): Promise<void> {

@@ -75,6 +75,14 @@ import type {
 export class DrizzleClientApiService implements ClientApiService, LegacyLibraryImportService {
   private readonly autoPlaylistRefresher: DrizzleAutoPlaylistRefresher;
   private readonly dynamicPlaylistEvaluator: DrizzleDynamicPlaylistEvaluator;
+  /**
+   * Music-mode exposure is configured at process start.  A restart is therefore
+   * also a small, implicit revision of every theme descriptor: a client whose
+   * cursor predates this process must receive the current descriptors once so
+   * an enabled/disabled catalog flag cannot leave stale Full/Video modes in
+   * Room forever.
+   */
+  private readonly themeModeRevisionAt: Date;
 
   constructor(
     private readonly db: Db,
@@ -85,6 +93,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
   ) {
     this.autoPlaylistRefresher = new DrizzleAutoPlaylistRefresher(db);
     this.dynamicPlaylistEvaluator = new DrizzleDynamicPlaylistEvaluator(db, now);
+    this.themeModeRevisionAt = now();
   }
 
   async getAnimeMusic(_userId: string, kitsuId: string): Promise<AnimeMusicDto | null> {
@@ -117,7 +126,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
   async getMusicRelease(_userId: string, releaseId: number): Promise<MusicReleaseDto | null> {
     if (!this.musicCatalogEnabled) return null;
     const rows = await this.readyMusicRows(undefined, releaseId);
-    const release = (await this.readyMusicReleases(undefined, releaseId))[0];
+    const release = musicReleasesFromRows(rows)[0];
     if (!release) return null;
     release.anime = uniqueAnimeSummaries(rows);
     return release;
@@ -125,20 +134,46 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
 
   async getMusicCatalog(userId: string): Promise<AnimeMusicDto[]> {
     if (!this.musicCatalogEnabled) return [];
-    const rows = await this.db
-      .select({ kitsuId: libraryEntries.kitsuId })
+    const library = await this.db
+      .select({
+        kitsuId: libraryEntries.kitsuId,
+        animeThemesId: kitsuAnime.animethemesAnimeId,
+        title: kitsuAnime.title,
+        titleEn: kitsuAnime.titleEn,
+        posterUrl: kitsuAnime.posterUrl,
+        posterUrlLarge: kitsuAnime.posterUrlLarge,
+      })
       .from(libraryEntries)
-      .where(and(eq(libraryEntries.userId, userId), isNull(libraryEntries.deletedAt)))
+      .innerJoin(kitsuAnime, eq(kitsuAnime.kitsuId, libraryEntries.kitsuId))
+      .where(and(eq(libraryEntries.userId, userId), isNull(libraryEntries.deletedAt), isNull(kitsuAnime.deletedAt)))
       .orderBy(asc(libraryEntries.kitsuId));
-    const catalog = await Promise.all(rows.map((row) => this.getAnimeMusic(userId, row.kitsuId)));
-    return catalog.filter((item): item is AnimeMusicDto => item !== null);
+    const animeThemesIds = uniqueNumbers(library.flatMap((row) => row.animeThemesId === null ? [] : [row.animeThemesId]));
+    const readyRows = animeThemesIds.length > 0 ? await this.readyMusicRows(animeThemesIds) : [];
+    return library.flatMap((anime) => {
+      if (anime.animeThemesId === null) return [];
+      const rows = readyRows.filter((row) => row.kitsuId === anime.kitsuId);
+      return [{
+        anime: rows[0] ? musicAnimeSummary(rows[0]) : {
+          kitsuId: anime.kitsuId,
+          title: anime.title,
+          titleEn: anime.titleEn,
+          posterUrl: anime.posterUrl || anime.posterUrlLarge ? `/v1/media/images/anime/${anime.kitsuId}/poster` : null,
+        },
+        releases: musicReleasesFromRows(rows),
+      }];
+    });
   }
 
   async searchMusic(_userId: string, query: string): Promise<{ releases: unknown[]; tracks: unknown[] }> {
     if (!this.musicCatalogEnabled) return { releases: [], tracks: [] };
     const normalized = normalizeMusicText(query);
     if (!normalized) return { releases: [], tracks: [] };
-    const rows = await this.readyMusicRows();
+    // Keep search bounded in PostgreSQL. The in-memory predicate below is a
+    // final normalization guard, not a scan of every ready catalog row.
+    const rows = await this.readyMusicRows(undefined, undefined, {
+      normalizedQuery: normalized,
+      limit: 500,
+    });
     const trackRows = rows.filter((row) => matchesNormalizedSearch(row, normalized, true));
     const releaseRows = rows.filter((row) => matchesNormalizedSearch(row, normalized, false));
     const tracks = trackRows.slice(0, 25).map((row) => ({
@@ -148,19 +183,32 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       releaseTitle: row.releaseTitle,
       track: musicTrackDto(row),
     }));
-    const releases = [] as Array<{ anime: ReturnType<typeof musicOwnership>[]; release: MusicReleaseDto }>;
-    const seen = new Set<number>();
-    for (const row of releaseRows) {
-      if (seen.has(row.releaseId)) continue;
-      const release = (await this.readyMusicReleases(undefined, row.releaseId))[0];
-      if (release) releases.push({ anime: uniqueAnimeSummaries(rows.filter((candidate) => candidate.releaseId === row.releaseId)), release });
-      seen.add(row.releaseId);
-      if (releases.length === 25) break;
-    }
+    const selectedReleases = musicReleasesFromRows(releaseRows).slice(0, 25);
+    // A release can be shared by several anime. The text match may have come
+    // from only one owner (for example an anime title), so hydrate every owner
+    // for the selected release ids in one bounded IN query before projecting.
+    const selectedReleaseIds = selectedReleases.map((release) => release.id);
+    const ownershipRows = selectedReleaseIds.length === 0
+      ? []
+      : await this.readyMusicRows(undefined, undefined, { releaseIds: selectedReleaseIds });
+    const hydratedReleases = new Map(
+      musicReleasesFromRows(ownershipRows).map((release) => [release.id, release]),
+    );
+    const releases = selectedReleases
+      .flatMap((release) => {
+        const hydrated = hydratedReleases.get(release.id);
+        return hydrated ? [{
+          anime: uniqueAnimeSummaries(ownershipRows.filter((candidate) => candidate.releaseId === release.id)),
+          release: hydrated,
+        }] : [];
+      });
     return { releases, tracks };
   }
 
   async getLibrary(userId: string, since: number | null): Promise<LibraryResponse> {
+    // Capture before any query: rows committed after this point are safely
+    // included by the next delta rather than being skipped behind its cursor.
+    const serverTime = this.now().getTime();
     const sinceDate = millisToDate(since);
     const animeRows = await this.libraryAnimeRows(userId, sinceDate);
     const activeMappings = await this.activeLibraryMappings(userId);
@@ -171,10 +219,13 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       libraryAnimeDto(row, genreMap.get(row.kitsuId) ?? []),
     );
 
+    const themes = await this.libraryThemes(activeMappings, animeRows, sinceDate);
     return {
-      serverTime: this.now().getTime(),
+      serverTime,
       anime,
-      themes: await this.libraryThemes(activeMappings, animeRows, sinceDate),
+      // Older Android releases deserialize this field as non-null. An empty
+      // array is the wire-compatible representation of an unchanged delta.
+      themes,
     };
   }
 
@@ -498,15 +549,24 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     const library = await this.getLibrary(userId, since);
     const prefs = await this.getThemePrefs(userId, since);
     const playlistList = await this.listPlaylists(userId, { since });
-    return {
+    const changes: ChangesResponse = {
       serverTime: library.serverTime,
       anime: library.anime,
       themes: library.themes,
       prefs,
       songPrefs: await this.getSongPrefs(userId, since),
       playlists: playlistList,
-      musicCatalog: await this.getMusicCatalog(userId),
     };
+    const sinceDate = millisToDate(since);
+    if (sinceDate === null || sinceDate < this.themeModeRevisionAt
+      || await this.musicCatalogChanged(userId, sinceDate)) {
+      // Android applies catalog responses as an atomic snapshot, so refresh
+      // the already set-based, per-library catalog only when its publication
+      // inputs changed. This is what makes newly READY music visible without a
+      // manual full pull while avoiding an every-poll catalog reload.
+      changes.musicCatalog = await this.getMusicCatalog(userId);
+    }
+    return changes;
   }
 
   async updateThemePref(userId: string, themeId: number, patch: ThemePrefPatch): Promise<ThemePrefDto> {
@@ -1073,20 +1133,41 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
 
   private async libraryThemes(
     activeMappings: Array<{ kitsuId: string; animeThemesId: number }>,
-    _changedAnimeRows: Awaited<ReturnType<DrizzleClientApiService["libraryAnimeRows"]>>,
+    changedAnimeRows: Awaited<ReturnType<DrizzleClientApiService["libraryAnimeRows"]>>,
     sinceDate: Date | null,
   ): Promise<LibraryThemeDto[]> {
     const activeAnimeThemesIds = uniqueNumbers(activeMappings.map((row) => row.animeThemesId));
     if (activeAnimeThemesIds.length === 0) return [];
 
     const conditions = [inArray(themes.animethemesAnimeId, activeAnimeThemesIds)];
-    // Catalog visibility has no persisted cursor of its own. Return every active
-    // theme even on delta requests so either feature-flag transition immediately
-    // publishes or revokes cached Full/Video descriptors. Preserve recent theme
-    // tombstones alongside that compact complete descriptor snapshot.
-    conditions.push(sinceDate
-      ? or(isNull(themes.deletedAt), gt(themes.deletedAt, sinceDate))!
-      : isNull(themes.deletedAt));
+    const modeRevisionRequiresSnapshot = sinceDate !== null && sinceDate < this.themeModeRevisionAt;
+    const changedMappingAnimeIds = new Set(
+      activeMappings
+        .filter((mapping) => changedAnimeRows.some((row) => row.kitsuId === mapping.kitsuId))
+        .map((mapping) => mapping.animeThemesId),
+    );
+    const descriptorRevisions = sinceDate !== null && !modeRevisionRequiresSnapshot
+      ? await this.changedThemeDescriptorRevisions(activeAnimeThemesIds, sinceDate)
+      : new Map<number, number>();
+    const descriptorThemeIds = [...descriptorRevisions.keys()];
+
+    if (sinceDate && !modeRevisionRequiresSnapshot) {
+      // A delta is a patch, never a compact full snapshot. Theme metadata and
+      // tombstones both have their own cursor. The descriptor revision sources
+      // cover cached TV media, Full-size publication, and video candidates;
+      // changed/re-mapped library anime must also receive their already-known
+      // themes even when those theme rows predate the library entry itself.
+      conditions.push(or(
+        gt(themes.updatedAt, sinceDate),
+        gt(themes.deletedAt, sinceDate),
+        ...(changedMappingAnimeIds.size > 0
+          ? [inArray(themes.animethemesAnimeId, [...changedMappingAnimeIds])]
+          : []),
+        ...(descriptorThemeIds.length > 0 ? [inArray(themes.id, descriptorThemeIds)] : []),
+      )!);
+    } else {
+      conditions.push(isNull(themes.deletedAt));
+    }
 
     const rows = await this.db
       .select({
@@ -1132,10 +1213,95 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
           fullSize: row.deletedAt === null ? catalogModes.full.get(row.id) ?? null : null,
           video: row.deletedAt === null ? catalogModes.video.get(row.id) ?? null : null,
         },
-        updatedAt: Math.max(dateMillis(row.updatedAt) ?? 0, dateMillis(row.deletedAt) ?? 0),
+        updatedAt: Math.max(
+          dateMillis(row.updatedAt) ?? 0,
+          dateMillis(row.deletedAt) ?? 0,
+          descriptorRevisions.get(row.id) ?? 0,
+        ),
         deleted: row.deletedAt !== null,
       };
     });
+  }
+
+  /**
+   * Returns a per-theme descriptor revision for data that changes how a theme
+   * is played without changing its metadata row. Every query is set-based and
+   * scoped to the listener's active AnimeThemes ids; this avoids a full theme
+   * snapshot (or a query per theme) on ordinary incremental pulls.
+   */
+  private async changedThemeDescriptorRevisions(
+    activeAnimeThemesIds: number[],
+    sinceDate: Date,
+  ): Promise<Map<number, number>> {
+    const themeScope = inArray(themes.animethemesAnimeId, activeAnimeThemesIds);
+    const [shortMedia, videoSources, fullLinks, fullSongs, fullReleases, fullAcquisitions, fullMedia] = await Promise.all([
+      this.db
+        .select({ themeId: themes.id, updatedAt: mediaFiles.updatedAt })
+        .from(themes)
+        .innerJoin(mediaFiles, and(
+          eq(mediaFiles.kind, CANONICAL_AUDIO.kind),
+          eq(mediaFiles.variant, CANONICAL_AUDIO.variant),
+          sql`${mediaFiles.refId} = (${themes.id}::text)`,
+        ))
+        .where(and(themeScope, gt(mediaFiles.updatedAt, sinceDate))),
+      this.db
+        .select({ themeId: themes.id, updatedAt: themeVideoSources.updatedAt })
+        .from(themes)
+        .innerJoin(themeVideoSources, eq(themeVideoSources.themeId, themes.id))
+        .where(and(themeScope, gt(themeVideoSources.updatedAt, sinceDate))),
+      this.db
+        .select({ themeId: themes.id, updatedAt: themeFullSongs.updatedAt })
+        .from(themes)
+        .innerJoin(themeFullSongs, eq(themeFullSongs.themeId, themes.id))
+        .where(and(themeScope, gt(themeFullSongs.updatedAt, sinceDate))),
+      this.db
+        .select({ themeId: themes.id, updatedAt: songs.updatedAt })
+        .from(themes)
+        .innerJoin(themeFullSongs, eq(themeFullSongs.themeId, themes.id))
+        .innerJoin(songs, eq(songs.id, themeFullSongs.songId))
+        .where(and(themeScope, or(gt(songs.updatedAt, sinceDate), gt(songs.deletedAt, sinceDate))!)),
+      this.db
+        .select({ themeId: themes.id, updatedAt: musicReleases.updatedAt })
+        .from(themes)
+        .innerJoin(themeFullSongs, eq(themeFullSongs.themeId, themes.id))
+        .innerJoin(musicReleases, eq(musicReleases.id, themeFullSongs.sourceReleaseId))
+        .where(and(themeScope, or(gt(musicReleases.updatedAt, sinceDate), gt(musicReleases.deletedAt, sinceDate))!)),
+      this.db
+        .select({ themeId: themes.id, updatedAt: musicAcquisitions.updatedAt })
+        .from(themes)
+        .innerJoin(themeFullSongs, eq(themeFullSongs.themeId, themes.id))
+        .innerJoin(musicAcquisitions, and(
+          eq(musicAcquisitions.themeId, themeFullSongs.themeId),
+          eq(musicAcquisitions.songId, themeFullSongs.songId),
+          eq(musicAcquisitions.releaseId, themeFullSongs.sourceReleaseId),
+          eq(musicAcquisitions.purpose, "FULL_SIZE"),
+        ))
+        .where(and(themeScope, gt(musicAcquisitions.updatedAt, sinceDate))),
+      this.db
+        .select({ themeId: themes.id, updatedAt: mediaFiles.updatedAt })
+        .from(themes)
+        .innerJoin(themeFullSongs, eq(themeFullSongs.themeId, themes.id))
+        .innerJoin(songs, eq(songs.id, themeFullSongs.songId))
+        .innerJoin(mediaFiles, and(
+          eq(mediaFiles.kind, "AUDIO"),
+          eq(mediaFiles.variant, "ORIGINAL"),
+          sql`${mediaFiles.refId} = ('song:' || ${songs.id}::text)`,
+        ))
+        .where(and(themeScope, gt(mediaFiles.updatedAt, sinceDate))),
+    ]);
+    const revisions = new Map<number, number>();
+    for (const row of [
+      ...shortMedia,
+      ...videoSources,
+      ...fullLinks,
+      ...fullSongs,
+      ...fullReleases,
+      ...fullAcquisitions,
+      ...fullMedia,
+    ]) {
+      revisions.set(row.themeId, Math.max(revisions.get(row.themeId) ?? 0, dateMillis(row.updatedAt) ?? 0));
+    }
+    return revisions;
   }
 
   private async themeArtistMap(themeIds: number[]) {
@@ -1551,36 +1717,55 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     });
   }
 
+  /**
+   * Checks whether the listener-facing Related-music snapshot changed since a
+   * cursor. The actual refresh remains a single set-based catalog query; this
+   * bounded existence check prevents repeatedly rebuilding it on every normal
+   * library poll.
+   */
+  private async musicCatalogChanged(userId: string, sinceDate: Date): Promise<boolean> {
+    if (!this.musicCatalogEnabled) return false;
+    const rows = await this.db
+      .select({ kitsuId: libraryEntries.kitsuId })
+      .from(libraryEntries)
+      .innerJoin(kitsuAnime, eq(kitsuAnime.kitsuId, libraryEntries.kitsuId))
+      .leftJoin(animeMusicReleases, eq(animeMusicReleases.animethemesAnimeId, kitsuAnime.animethemesAnimeId))
+      .leftJoin(musicReleases, eq(musicReleases.id, animeMusicReleases.releaseId))
+      .leftJoin(releaseTracks, eq(releaseTracks.releaseId, musicReleases.id))
+      .leftJoin(songs, eq(songs.id, releaseTracks.songId))
+      .leftJoin(mediaFiles, and(
+        eq(mediaFiles.kind, "AUDIO"),
+        eq(mediaFiles.variant, "ORIGINAL"),
+        sql`${mediaFiles.refId} = ('song:' || ${songs.id}::text)`,
+      ))
+      .leftJoin(musicAcquisitions, and(
+        eq(musicAcquisitions.animethemesAnimeId, kitsuAnime.animethemesAnimeId),
+        eq(musicAcquisitions.releaseId, musicReleases.id),
+        eq(musicAcquisitions.purpose, "RELATED_RELEASE"),
+      ))
+      .where(and(
+        eq(libraryEntries.userId, userId),
+        or(
+          gt(libraryEntries.updatedAt, sinceDate),
+          gt(libraryEntries.deletedAt, sinceDate),
+          gt(kitsuAnime.updatedAt, sinceDate),
+          gt(kitsuAnime.deletedAt, sinceDate),
+          gt(animeMusicReleases.updatedAt, sinceDate),
+          gt(musicReleases.updatedAt, sinceDate),
+          gt(musicReleases.deletedAt, sinceDate),
+          gt(songs.updatedAt, sinceDate),
+          gt(songs.deletedAt, sinceDate),
+          gt(mediaFiles.updatedAt, sinceDate),
+          gt(musicAcquisitions.updatedAt, sinceDate),
+        )!,
+      ))
+      .limit(1);
+    return rows.length > 0;
+  }
+
   private async readyMusicReleases(animeThemesIds?: number[], releaseId?: number): Promise<MusicReleaseDto[]> {
     const rows = await this.readyMusicRows(animeThemesIds, releaseId);
-    const releases = new Map<number, MusicReleaseDto>();
-    const seenSongs = new Map<number, Set<number>>();
-    for (const row of rows) {
-      let release = releases.get(row.releaseId);
-      if (!release) {
-        release = {
-          id: row.releaseId,
-          title: row.releaseTitle,
-          titleEnglish: row.releaseTitleEnglish,
-          titleRomaji: row.releaseTitleRomaji,
-          titleJapanese: row.releaseTitleJapanese,
-          artistCredit: row.releaseArtistCredit,
-          artistNames: row.releaseArtistNames,
-          relationshipType: row.relationshipType,
-          releaseDate: row.releaseDate,
-          year: releaseYear(row.releaseDate),
-          artworkUrl: row.artworkUrl,
-          tracks: [],
-        };
-        releases.set(row.releaseId, release);
-        seenSongs.set(row.releaseId, new Set());
-      }
-      if (!seenSongs.get(row.releaseId)!.has(row.songId)) {
-        release.tracks.push(musicTrackDto(row));
-        seenSongs.get(row.releaseId)!.add(row.songId);
-      }
-    }
-    return [...releases.values()];
+    return musicReleasesFromRows(rows);
   }
 
   private async themeCatalogModes(themeIds: number[]) {
@@ -1647,7 +1832,11 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     return { full, video };
   }
 
-  private async readyMusicRows(animeThemesIds?: number[], releaseId?: number) {
+  private async readyMusicRows(
+    animeThemesIds?: number[],
+    releaseId?: number,
+    options?: { normalizedQuery?: string; limit?: number; releaseIds?: number[] },
+  ) {
     const conditions = [
       eq(musicAcquisitions.purpose, "RELATED_RELEASE"),
       eq(musicAcquisitions.state, "READY"),
@@ -1659,7 +1848,11 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     ];
     if (animeThemesIds) conditions.push(inArray(animeMusicReleases.animethemesAnimeId, animeThemesIds));
     if (releaseId !== undefined) conditions.push(eq(musicReleases.id, releaseId));
-    return this.db
+    if (options?.releaseIds && options.releaseIds.length > 0) {
+      conditions.push(inArray(musicReleases.id, options.releaseIds));
+    }
+    if (options?.normalizedQuery) conditions.push(readyMusicSearchPredicate(options.normalizedQuery));
+    const query = this.db
       .select({
         animeThemesId: animeMusicReleases.animethemesAnimeId,
         kitsuId: kitsuAnime.kitsuId,
@@ -1714,10 +1907,42 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
         asc(releaseTracks.displayOrder),
         asc(songs.id)
       );
+    return options?.limit === undefined ? query : query.limit(options.limit);
   }
 }
 
 type ReadyMusicRow = Awaited<ReturnType<DrizzleClientApiService["readyMusicRows"]>>[number];
+
+function musicReleasesFromRows(rows: ReadyMusicRow[]): MusicReleaseDto[] {
+  const releases = new Map<number, MusicReleaseDto>();
+  const seenSongs = new Map<number, Set<number>>();
+  for (const row of rows) {
+    let release = releases.get(row.releaseId);
+    if (!release) {
+      release = {
+        id: row.releaseId,
+        title: row.releaseTitle,
+        titleEnglish: row.releaseTitleEnglish,
+        titleRomaji: row.releaseTitleRomaji,
+        titleJapanese: row.releaseTitleJapanese,
+        artistCredit: row.releaseArtistCredit,
+        artistNames: row.releaseArtistNames,
+        relationshipType: row.relationshipType,
+        releaseDate: row.releaseDate,
+        year: releaseYear(row.releaseDate),
+        artworkUrl: row.artworkUrl,
+        tracks: [],
+      };
+      releases.set(row.releaseId, release);
+      seenSongs.set(row.releaseId, new Set());
+    }
+    if (!seenSongs.get(row.releaseId)!.has(row.songId)) {
+      release.tracks.push(musicTrackDto(row));
+      seenSongs.get(row.releaseId)!.add(row.songId);
+    }
+  }
+  return [...releases.values()];
+}
 
 function musicTrackDto(row: ReadyMusicRow) {
   return {
@@ -1769,6 +1994,47 @@ function matchesNormalizedSearch(row: ReadyMusicRow, query: string, includeTrack
     ...(includeTrack ? [row.songTitle, row.songArtistCredit] : []),
   ];
   return values.some((value) => value !== null && normalizeMusicText(value).includes(query));
+}
+
+/**
+ * Music release/song titles have durable normalized columns. Other listener
+ * text remains source-faithful, so normalize punctuation/case in PostgreSQL as
+ * a broad, bounded candidate filter and retain the exact JS normalizer above
+ * as the final predicate. `LIKE` metacharacters are escaped first.
+ */
+function readyMusicSearchPredicate(normalizedQuery: string) {
+  const pattern = `%${escapeLike(normalizedQuery)}%`;
+  return or(
+    sql`${musicReleases.normalizedTitle} LIKE ${pattern} ESCAPE '\\'`,
+    sql`${songs.normalizedTitle} LIKE ${pattern} ESCAPE '\\'`,
+    sql`${songs.normalizedArtist} LIKE ${pattern} ESCAPE '\\'`,
+    normalizedCatalogTextLike(musicReleases.title, pattern),
+    normalizedCatalogTextLike(musicReleases.titleEnglish, pattern),
+    normalizedCatalogTextLike(musicReleases.titleRomaji, pattern),
+    normalizedCatalogTextLike(musicReleases.titleJapanese, pattern),
+    normalizedCatalogTextLike(musicReleases.artistCredit, pattern),
+    normalizedCatalogTextLike(songs.title, pattern),
+    normalizedCatalogTextLike(songs.titleEnglish, pattern),
+    normalizedCatalogTextLike(songs.titleRomaji, pattern),
+    normalizedCatalogTextLike(songs.titleJapanese, pattern),
+    normalizedCatalogTextLike(songs.artistCredit, pattern),
+    normalizedCatalogTextLike(kitsuAnime.title, pattern),
+    normalizedCatalogTextLike(kitsuAnime.titleEn, pattern),
+    normalizedCatalogTextLike(kitsuAnime.titleRomaji, pattern),
+    normalizedCatalogTextLike(kitsuAnime.titleJa, pattern),
+  )!;
+}
+
+function normalizedCatalogTextLike(column: unknown, pattern: string) {
+  // The matching migration installs PostgreSQL's trusted `unaccent` module.
+  // NFKD + unaccent + NFKC is intentionally a *superset* of the JavaScript
+  // normalizer (which only strips Latin marks), so the final JS predicate can
+  // reject broad candidates but never misses Cafe/Café or full-width text.
+  return sql`lower(regexp_replace(normalize(unaccent(normalize(coalesce(${column}, '')::text, NFKD)), NFKC), '[^[:alnum:]]+', ' ', 'g')) LIKE ${pattern} ESCAPE '\\'`;
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
 }
 
 function uniqueAnimeSummaries(rows: ReadyMusicRow[]) {

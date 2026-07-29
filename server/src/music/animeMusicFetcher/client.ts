@@ -63,7 +63,7 @@ export class AnimeMusicFetcherClient {
     return this.requestJson("readiness check", `${AMF_SERVICE_BASE_URL}/ready`, undefined, amfReadinessSchema);
   }
 
-  async submitJob(input: AmfJobCreate, idempotencyKey: string): Promise<AmfJob> {
+  async submitJob(input: AmfJobCreate, idempotencyKey: string, signal?: AbortSignal): Promise<AmfJob> {
     const parsedRequest = amfJobCreateSchema.safeParse(input);
     if (!parsedRequest.success) throw amfInvalidRequest("job submission input");
     const request = parsedRequest.data;
@@ -80,16 +80,17 @@ export class AnimeMusicFetcherClient {
           "Idempotency-Key": idempotencyKey,
         },
         body: JSON.stringify(request),
+        ...(signal ? { signal } : {}),
       },
       amfJobSchema,
     );
   }
 
-  async getJob(jobId: string): Promise<AmfJob> {
+  async getJob(jobId: string, signal?: AbortSignal): Promise<AmfJob> {
     return this.requestJson(
       "job poll",
       this.jsonApiJobUrl(jobId),
-      { headers: { Accept: "application/vnd.api+json" } },
+      { headers: { Accept: "application/vnd.api+json" }, ...(signal ? { signal } : {}) },
       amfJobReadSchema,
     );
   }

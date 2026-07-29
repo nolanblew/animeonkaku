@@ -6,7 +6,7 @@ import { JobPriority, type JobHandler, type JobRecord, type JobType } from "./ty
 export class RetryableJobError extends Error {
   constructor(
     message: string,
-    public readonly options: { incrementAttempts?: boolean; retryAfterMs?: number } = {},
+    public readonly options: { incrementAttempts?: boolean; retryAfterMs?: number; recordError?: boolean } = {},
   ) {
     super(message);
     this.name = "RetryableJobError";
@@ -33,6 +33,8 @@ export interface JobWorkerOptions {
    * worker.
    */
   maxPriority?: number;
+  /** Receives errors from the background loop that cannot be attached to a job. */
+  onError?: (error: Error, context: string) => void;
 }
 
 const DEFAULT_TIMEOUTS_MS: Record<JobType, number> = {
@@ -63,6 +65,12 @@ const DEFAULT_TIMEOUTS_MS: Record<JobType, number> = {
   OPERATE_AMF_MUSIC_BATCH: 2 * 60_000,
   RECONCILE_MUSIC_SEARCH_POLICY: 2 * 60_000,
 };
+
+const ABORT_GRACE_MS = 5_000;
+// Both workers in this process share this guard. If an older handler ignores
+// its abort signal, a retried claim is delayed rather than running the same
+// external operation concurrently.
+const activeExecutions = new Set<number>();
 
 export class JobWorker {
   private readonly sleep: Sleep;
@@ -105,9 +113,16 @@ export class JobWorker {
       });
       return true;
     }
+    if (activeExecutions.has(job.id)) {
+      await this.queue.failRetryable(job, new RetryableJobError("Previous execution is still shutting down", {
+        incrementAttempts: false,
+        retryAfterMs: ABORT_GRACE_MS,
+      }), { incrementAttempts: false, retryAfterMs: ABORT_GRACE_MS, jitterMs: 0 });
+      return true;
+    }
 
     try {
-      await withTimeout(handler(job.payload, job), this.timeoutsMs[job.type], job.type);
+      await withTimeout(handler, job, this.timeoutsMs[job.type]);
       await this.queue.complete(job.id);
       // The politeness pause between background fetches must not delay urgent
       // (client-facing) jobs that arrived while this one ran.
@@ -117,12 +132,15 @@ export class JobWorker {
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       if (err instanceof RetryableJobError) {
-        const failOptions: { incrementAttempts: boolean; retryAfterMs?: number; jitterMs: number } = {
+        const failOptions: { incrementAttempts: boolean; retryAfterMs?: number; jitterMs: number; recordError?: boolean } = {
           incrementAttempts: err.options.incrementAttempts ?? true,
           jitterMs: this.jitterMs(),
         };
         if (err.options.retryAfterMs !== undefined) {
           failOptions.retryAfterMs = err.options.retryAfterMs;
+        }
+        if (err.options.recordError !== undefined) {
+          failOptions.recordError = err.options.recordError;
         }
         await this.queue.failRetryable(job, err, failOptions);
       } else {
@@ -144,13 +162,20 @@ export class JobWorker {
   }
 
   private async loop(): Promise<void> {
-    while (!this.stopRequested) {
-      const processed = await this.runOnce();
-      if (!processed) {
-        await this.sleep(1000);
+    try {
+      while (!this.stopRequested) {
+        try {
+          const processed = await this.runOnce();
+          if (!processed) await this.sleep(1000);
+        } catch (error) {
+          const err = error instanceof Error ? error : new Error(String(error));
+          this.options.onError?.(err, "job worker loop");
+          if (!this.stopRequested) await this.sleep(1000);
+        }
       }
+    } finally {
+      this.running = false;
     }
-    this.running = false;
   }
 }
 
@@ -162,14 +187,39 @@ function shouldMaintenanceDelay(job: JobRecord, delayMs: number): boolean {
   );
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, jobType: string): Promise<T> {
+async function withTimeout(handler: JobHandler, job: JobRecord, timeoutMs: number): Promise<void> {
+  const controller = new AbortController();
   let timer: NodeJS.Timeout | undefined;
+  activeExecutions.add(job.id);
+  const execution = Promise.resolve()
+    .then(() => handler(job.payload, job, { signal: controller.signal }))
+    .finally(() => activeExecutions.delete(job.id));
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      reject(new RetryableJobError(`${jobType} timed out after ${timeoutMs}ms`));
+      controller.abort();
+      reject(new RetryableJobError(`${job.type} timed out after ${timeoutMs}ms`));
     }, timeoutMs);
   });
-  return Promise.race([promise, timeout]).finally(() => {
+  try {
+    await Promise.race([execution, timeout]);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      // Give cooperative network/file handlers a short opportunity to unwind.
+      // If an old handler still ignores cancellation afterwards, the shared
+      // execution guard keeps a retry from overlapping its external effects.
+      await settleWithin(execution, ABORT_GRACE_MS);
+    }
+    throw error;
+  } finally {
     if (timer) clearTimeout(timer);
-  });
+  }
+}
+
+async function settleWithin(execution: Promise<void>, timeoutMs: number): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  await Promise.race([
+    execution.catch(() => {}),
+    new Promise<void>((resolve) => { timer = setTimeout(resolve, timeoutMs); }),
+  ]);
+  if (timer) clearTimeout(timer);
 }

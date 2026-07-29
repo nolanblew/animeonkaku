@@ -1,5 +1,5 @@
 import type pg from "pg";
-import type { EnqueueJobInput, JobRecord, JobRepository, JobState, RetryJobInput } from "./types.js";
+import type { EnqueueJobInput, JobRecord, JobRepository, JobState, JobType, RetryJobInput } from "./types.js";
 
 interface JobRow {
   id: number | string;
@@ -126,14 +126,39 @@ export class PgJobRepository implements JobRepository {
     return result.rowCount ?? 0;
   }
 
-  async list(status?: JobState): Promise<JobRecord[]> {
+  async list(status?: JobState, limit = 250): Promise<JobRecord[]> {
     const result = status
       ? await this.pool.query<JobRow>(
-          "SELECT * FROM jobs WHERE state = $1 ORDER BY id",
-          [status],
+          "SELECT * FROM jobs WHERE state = $1 ORDER BY id DESC LIMIT $2",
+          [status, limit],
         )
-      : await this.pool.query<JobRow>("SELECT * FROM jobs ORDER BY id");
+      : await this.pool.query<JobRow>("SELECT * FROM jobs ORDER BY id DESC LIMIT $1", [limit]);
     return result.rows.map(toJobRecord);
+  }
+
+  async listForUser(userId: string, types: readonly JobType[], limit: number): Promise<JobRecord[]> {
+    if (types.length === 0) return [];
+    const result = await this.pool.query<JobRow>(
+      `SELECT * FROM jobs
+       WHERE payload->>'userId' = $1 AND type = ANY($2::text[])
+       ORDER BY id DESC LIMIT $3`,
+      [userId, types, limit],
+    );
+    return result.rows.map(toJobRecord);
+  }
+
+  async pruneTerminalJobs(olderThan: Date, limit: number): Promise<number> {
+    const result = await this.pool.query(
+      `DELETE FROM jobs
+       WHERE id IN (
+         SELECT id FROM jobs
+         WHERE state IN ('DONE', 'CANCELLED') AND updated_at < $1
+         ORDER BY updated_at, id
+         LIMIT $2
+       )`,
+      [olderThan, limit],
+    );
+    return result.rowCount ?? 0;
   }
 
   async retry(id: number, now: Date): Promise<JobRecord | null> {

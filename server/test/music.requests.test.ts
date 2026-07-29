@@ -250,7 +250,11 @@ describe("anime music request orchestration", () => {
     expect(client.getJob).toHaveBeenCalledTimes(1);
     expect(repo.recordProviderState).toHaveBeenCalledWith(batch.id, expect.objectContaining({ state: "DOWNLOADING", providerStatus: "downloading" }), expect.any(Date));
     expect(error).toBeInstanceOf(RetryableJobError);
-    expect((error as RetryableJobError).options).toEqual({ incrementAttempts: false, retryAfterMs: AMF_POLL_INTERVAL_MS });
+    expect((error as RetryableJobError).options).toEqual({
+      incrementAttempts: false,
+      retryAfterMs: AMF_POLL_INTERVAL_MS,
+      recordError: false,
+    });
   });
 
   it("persists completed delivery evidence before moving locally to processing and enqueueing import", async () => {

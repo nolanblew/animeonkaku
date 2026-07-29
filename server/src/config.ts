@@ -4,6 +4,7 @@ export const PUBLIC_KITSU_CLIENT_ID =
   "dd031b32d2f56c990b1425efe6c42ad847e7fe3ab46bf1299f05ecd856bdb7dd";
 export const PUBLIC_KITSU_CLIENT_SECRET =
   "54d7307928f63414defd96399fc31ba847961ceaecef3a5fd93144e960c0e151";
+const DEFAULT_ADMIN_PASSWORD = "Password123";
 
 const blankToUndefined = (value: unknown): unknown =>
   typeof value === "string" && value.trim().length === 0 ? undefined : value;
@@ -17,6 +18,7 @@ const booleanFromEnvironment = z.preprocess((value) => {
 }, z.boolean());
 
 const EnvSchema = z.object({
+  NODE_ENV: z.string().default("development"),
   PORT: z.coerce.number().int().positive().default(8080),
   DATABASE_URL: z.string().min(1),
   MEDIA_ROOT: z.string().min(1),
@@ -41,7 +43,7 @@ const EnvSchema = z.object({
   // Catalog exposure and automatic discovery are independent rollout switches.
   MUSIC_CATALOG_ENABLED: booleanFromEnvironment.default(false),
   MUSIC_DISCOVERY_ENABLED: booleanFromEnvironment.default(false),
-  ADMIN_PASSWORD: z.string().min(1).default("Password123"),
+  ADMIN_PASSWORD: z.string().min(1).default(DEFAULT_ADMIN_PASSWORD),
 });
 
 export type Config = z.infer<typeof EnvSchema>;
@@ -55,5 +57,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error(`Invalid environment configuration — ${issues}`);
   }
 
+  if (parsed.data.NODE_ENV !== "development" && parsed.data.NODE_ENV !== "test"
+    && parsed.data.ADMIN_PASSWORD === DEFAULT_ADMIN_PASSWORD) {
+    throw new Error("Invalid environment configuration — ADMIN_PASSWORD must be explicitly changed outside development.");
+  }
   return parsed.data;
 }
