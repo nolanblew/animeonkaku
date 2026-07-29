@@ -7,7 +7,9 @@ import com.takeya.animeongaku.media.PlayableItem
 import com.takeya.animeongaku.media.QueueEntry
 import com.takeya.animeongaku.media.buildPlaybackResolutionBatchRequest
 import com.takeya.animeongaku.media.controllerConnectionRetryDelayMs
+import com.takeya.animeongaku.media.hasUnconsumedPlayRequest
 import com.takeya.animeongaku.media.playWhenReadyAfterQueueReplacement
+import com.takeya.animeongaku.media.playRequestGenerationAfterPause
 import com.takeya.animeongaku.media.playbackPositionPollIntervalMs
 import com.takeya.animeongaku.media.shouldPreCacheOnNetwork
 import com.takeya.animeongaku.media.shouldSchedulePlaybackTeardownPersist
@@ -80,6 +82,14 @@ class MediaReliabilityPolicyTest {
     }
 
     @Test
+    fun `pause consumes an in-flight play generation but not a later play`() {
+        val consumed = playRequestGenerationAfterPause(currentGeneration = 7L)
+
+        assertFalse(hasUnconsumedPlayRequest(currentGeneration = 7L, consumedGeneration = consumed))
+        assertTrue(hasUnconsumedPlayRequest(currentGeneration = 8L, consumedGeneration = consumed))
+    }
+
+    @Test
     fun `batch resolution request deduplicates all DAO lookup keys for a queue`() {
         val first = QueueEntry(
             queueId = 1,
@@ -140,7 +150,7 @@ class MediaReliabilityPolicyTest {
 
     @Test
     fun `active playback position polling does not exceed four wakeups per second`() {
-        assertTrue(playbackPositionPollIntervalMs(isPlaying = true) >= 250L)
+        assertTrue(requireNotNull(playbackPositionPollIntervalMs(isPlaying = true)) >= 250L)
     }
 
     @Test

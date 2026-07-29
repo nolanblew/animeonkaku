@@ -13,6 +13,7 @@ import com.takeya.animeongaku.work.PendingWritesScheduler
 import com.takeya.animeongaku.download.DownloadPreferences
 import com.takeya.animeongaku.data.auth.SessionStorageMigrator
 import com.takeya.animeongaku.media.NowPlayingPersistence
+import com.takeya.animeongaku.media.AudioCacheProvider
 import com.takeya.animeongaku.media.MediaControllerManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.PreCacheManager
@@ -30,6 +31,7 @@ class AnimeOngakuApp : Application(), Configuration.Provider, ImageLoaderFactory
     @Inject lateinit var workerFactory: HiltWorkerFactory
     @Inject lateinit var imageLoader: ImageLoader
     @Inject lateinit var preCacheManager: PreCacheManager
+    @Inject lateinit var audioCacheProvider: AudioCacheProvider
     @Inject lateinit var nowPlayingPersistence: NowPlayingPersistence
     @Inject lateinit var mediaControllerManager: MediaControllerManager
     @Inject lateinit var nowPlayingManager: NowPlayingManager
@@ -58,6 +60,9 @@ class AnimeOngakuApp : Application(), Configuration.Provider, ImageLoaderFactory
         libraryPullScheduler.schedule()
         pendingWritesScheduler.schedule()
         preCacheManager.start()
+        scope.launch(Dispatchers.IO) {
+            audioCacheProvider.warmUp()
+        }
         
         // Silent restore on app startup
         scope.launch {

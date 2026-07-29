@@ -126,6 +126,18 @@ class NowPlayingManagerTest {
     }
 
     @Test
+    fun `new context and selecting the paused current item each request playback once`() {
+        val before = manager.state.value.playRequestGeneration
+
+        manager.play("ctx", listOf(theme(1), theme(2)))
+        val afterNewContext = manager.state.value.playRequestGeneration
+        manager.skipTo(manager.state.value.currentIndex)
+
+        assertEquals(before + 1, afterNewContext)
+        assertEquals(afterNewContext + 1, manager.state.value.playRequestGeneration)
+    }
+
+    @Test
     fun `play stores animeMap`() {
         val a = anime(10L)
         manager.play("ctx", listOf(theme(1, animeId = 10L)), animeMap = mapOf(10L to a))
@@ -190,12 +202,14 @@ class NowPlayingManagerTest {
 
     @Test
     fun `playNext with empty queue starts queue with single song`() {
+        val before = manager.state.value.playRequestGeneration
         manager.playNext(theme(1))
         val state = manager.state.value
         assertTrue(manager.isActive)
         assertEquals(listOf(1L), state.nowPlaying.map { it.id })
         assertEquals(1L, state.currentTheme?.id)
         assertTrue(state.isFullReload)
+        assertEquals(before + 1, state.playRequestGeneration)
     }
 
     @Test

@@ -29,7 +29,45 @@ class SearchQueryThrottleTest {
         assertTrue(received.isEmpty())
 
         advanceTimeBy(1)
+        runCurrent()
         assertEquals(listOf("nar"), received)
+        collector.cancel()
+    }
+
+    @Test
+    fun `equivalent whitespace is normalized before local search`() = runTest {
+        val source = MutableSharedFlow<String>()
+        val received = mutableListOf<String>()
+        val collector = launch {
+            debouncedDistinctSearchQueries(source).take(1).toList(received)
+        }
+        runCurrent()
+
+        source.emit("  naruto   shippuden  ")
+        advanceTimeBy(250)
+        runCurrent()
+
+        assertEquals(listOf("naruto shippuden"), received)
+        collector.cancel()
+    }
+
+    @Test
+    fun `clearing search emits immediately while text remains debounced`() = runTest {
+        val source = MutableSharedFlow<String>()
+        val received = mutableListOf<String>()
+        val collector = launch {
+            debouncedDistinctSearchQueries(source).take(2).toList(received)
+        }
+        runCurrent()
+
+        source.emit("naruto")
+        advanceTimeBy(250)
+        runCurrent()
+        assertEquals(listOf("naruto"), received)
+
+        source.emit("   ")
+        runCurrent()
+        assertEquals(listOf("naruto", ""), received)
         collector.cancel()
     }
 }

@@ -81,17 +81,18 @@ class PreCacheManagerTest {
             playbackIntent = PlaybackIntent(rememberedAudioMode = PlaybackMode.FULL_SIZE)
         )
 
-        val resolvedUri = PlaybackResolver().resolve(
+        val resolved = PlaybackResolver().resolve(
             entry = nextEntry,
             intent = state.playbackIntent,
             isOnline = true,
             localMedia = emptyMap()
-        ).uri
+        )
+        val resolvedUri = resolved.uri
 
         assertEquals("https://server.example/audio/song/20", resolvedUri)
         assertEquals(
-            listOf(resolvedUri),
-            upcomingPlaybackUrls(state, maxTracks = 2, activeServerBaseUrl = null)
+            listOf(requireNotNull(resolvedUri)),
+            upcomingPlaybackUrls(listOf(resolved), maxTracks = 2)
         )
     }
 
@@ -116,17 +117,18 @@ class PreCacheManagerTest {
             playbackIntent = PlaybackIntent(rememberedAudioMode = PlaybackMode.FULL_SIZE)
         )
 
-        val resolvedUri = PlaybackResolver().resolve(
+        val resolved = PlaybackResolver().resolve(
             entry = entry,
             intent = state.playbackIntent,
             isOnline = true,
             localMedia = emptyMap()
-        ).uri
+        )
+        val resolvedUri = resolved.uri
 
         assertEquals("https://server.example/audio/song/30", resolvedUri)
         assertEquals(
-            setOf(resolvedUri),
-            protectedPlaybackUrls(state, activeServerBaseUrl = null)
+            setOf(requireNotNull(resolvedUri)),
+            protectedPlaybackUrls(listOf(resolved))
         )
     }
 

@@ -2,6 +2,7 @@ package com.takeya.animeongaku
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.viewModels
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -21,10 +22,19 @@ import dagger.hilt.android.AndroidEntryPoint
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import javax.inject.Inject
 import com.takeya.animeongaku.updater.AppUpdateViewModel
+
+private const val MAX_SPLASH_WAIT_MS = 1_500L
+
+internal fun activeRefreshIntervalMs(): Long = 10 * 60 * 1_000L
+
+internal fun shouldKeepSplashScreen(
+    startupReady: Boolean,
+    elapsedMs: Long,
+    maxWaitMs: Long
+): Boolean = !startupReady && elapsedMs < maxWaitMs
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -43,12 +53,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
-        var keepSplashScreen = true
-        lifecycleScope.launch {
-            kotlinx.coroutines.delay(1000L)
-            keepSplashScreen = false
+        val splashStartedAt = SystemClock.elapsedRealtime()
+        var startupReady = false
+        splashScreen.setKeepOnScreenCondition {
+            shouldKeepSplashScreen(
+                startupReady = startupReady,
+                elapsedMs = SystemClock.elapsedRealtime() - splashStartedAt,
+                maxWaitMs = MAX_SPLASH_WAIT_MS
+            )
         }
-        splashScreen.setKeepOnScreenCondition { keepSplashScreen }
         super.onCreate(savedInstanceState)
         pendingNavigateTo.value = intent?.getStringExtra("navigate_to")
         enableEdgeToEdge()
@@ -73,6 +86,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+        startupReady = true
     }
 
     override fun onStart() {
@@ -122,16 +136,17 @@ class MainActivity : ComponentActivity() {
     private fun startActiveRefreshLoop() {
         if (periodicSyncJob != null) return
         // Active-refresh loop: while the app is foregrounded, pull server
-        // changes every minute so anything the server adds in the background
+        // changes every ten minutes so anything the server adds in the background
         // (new mappings, confirmed themes) shows up in the UI via Room flows
         // without a manual refresh. Each pull is a cheap cursor-based delta,
         // and hitting the API also arms the server's own device-activity
         // delta sync when the user has been away for a few hours.
         periodicSyncJob = lifecycleScope.launch {
+            val intervalMs = activeRefreshIntervalMs()
             while (true) {
-                delay(ACTIVE_REFRESH_INTERVAL_MS)
+                kotlinx.coroutines.delay(intervalMs)
                 runCatching {
-                    libraryPullManager.pullIfStale(ACTIVE_REFRESH_INTERVAL_MS)
+                    libraryPullManager.pullIfStale(intervalMs)
                 }
             }
         }
@@ -145,7 +160,6 @@ class MainActivity : ComponentActivity() {
     private companion object {
         const val COLD_START_PULL_INTERVAL_MS = 5 * 60 * 1000L
         const val WARM_RESUME_PULL_INTERVAL_MS = 60 * 60 * 1000L
-        const val ACTIVE_REFRESH_INTERVAL_MS = 60 * 1000L
     }
 }
 

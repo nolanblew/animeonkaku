@@ -203,6 +203,7 @@ class NowPlayingManager @Inject constructor(
                 sessionOverride = initialSessionMode
             ),
             queueVersion = _state.value.queueVersion + 1,
+            playRequestGeneration = _state.value.playRequestGeneration + 1,
             isFullReload = true
         )
     }
@@ -239,7 +240,8 @@ class NowPlayingManager @Inject constructor(
             _state.value = createStandaloneQueueState(
                 contextLabel = current.contextLabel.ifBlank { "Queue" },
                 entries = insertedEntries,
-                animeMap = current.animeMap + animeMap
+                animeMap = current.animeMap + animeMap,
+                playRequestGeneration = current.playRequestGeneration + 1
             )
             return
         }
@@ -299,7 +301,8 @@ class NowPlayingManager @Inject constructor(
             _state.value = createStandaloneQueueState(
                 contextLabel = current.contextLabel.ifBlank { "Queue" },
                 entries = appendedEntries,
-                animeMap = current.animeMap + animeMap
+                animeMap = current.animeMap + animeMap,
+                playRequestGeneration = current.playRequestGeneration + 1
             )
             return
         }
@@ -443,6 +446,7 @@ class NowPlayingManager @Inject constructor(
             historyEntries = newHistory,
             playedIndices = current.playedIndices + skippedIndices + index,
             queueVersion = current.queueVersion + 1,
+            playRequestGeneration = current.playRequestGeneration + 1,
             isFullReload = true
         )
     }
@@ -576,6 +580,7 @@ class NowPlayingManager @Inject constructor(
             playedIndices = setOf(0),
             unskippedEntryIds = emptySet(),
             queueVersion = current.queueVersion + 1,
+            playRequestGeneration = current.playRequestGeneration + 1,
             isFullReload = true
         )
     }
@@ -702,7 +707,8 @@ class NowPlayingManager @Inject constructor(
     private fun createStandaloneQueueState(
         contextLabel: String,
         entries: List<QueueEntry>,
-        animeMap: Map<Long, AnimeEntity>
+        animeMap: Map<Long, AnimeEntity>,
+        playRequestGeneration: Long
     ): NowPlayingState = NowPlayingState(
         originalQueueEntries = entries,
         nowPlayingEntries = entries,
@@ -719,6 +725,7 @@ class NowPlayingManager @Inject constructor(
             rememberedAudioMode = _state.value.playbackIntent.rememberedAudioMode
         ),
         queueVersion = _state.value.queueVersion + 1,
+        playRequestGeneration = playRequestGeneration,
         isFullReload = true
     )
 }
@@ -759,7 +766,9 @@ data class NowPlayingState(
     val queueVersion: Long = 0,
     val isFullReload: Boolean = true,
     val unskippedEntryIds: Set<Long> = emptySet(),
-    val playbackIntent: PlaybackIntent = PlaybackIntent()
+    val playbackIntent: PlaybackIntent = PlaybackIntent(),
+    /** Monotonic user intent consumed once by MediaController queue reconciliation. */
+    val playRequestGeneration: Long = 0L
 ) {
     private val entriesById: Map<Long, QueueEntry> by lazy {
         buildMap {

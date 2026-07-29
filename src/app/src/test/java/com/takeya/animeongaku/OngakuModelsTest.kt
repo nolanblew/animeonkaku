@@ -244,8 +244,8 @@ class OngakuModelsTest {
             """.trimIndent()
         )!!
 
-        assertEquals(300L, response.themes.single().mediaModes?.fullSize?.songId)
-        assertEquals("https://v.animethemes.moe/op.webm", response.themes.single().mediaModes?.video?.url)
+        assertEquals(300L, response.themes!!.single().mediaModes?.fullSize?.songId)
+        assertEquals("https://v.animethemes.moe/op.webm", response.themes!!.single().mediaModes?.video?.url)
         assertTrue(response.prefs.single().dislikedTvSize)
         assertEquals(300L, response.songPrefs!!.single().songId)
         assertEquals("FULL_SIZE", response.playlists.single().defaultMode)

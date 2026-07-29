@@ -67,7 +67,8 @@ data class OngakuLibraryResponse(
 data class OngakuChangesResponse(
     val serverTime: Long,
     val anime: List<OngakuAnimeDto>,
-    val themes: List<OngakuThemeDto>,
+    /** Null means the server's theme/mode snapshot is unchanged for this delta. */
+    val themes: List<OngakuThemeDto>? = null,
     val prefs: List<OngakuThemePrefDto>,
     val playlists: List<OngakuPlaylistDto>,
     val songPrefs: List<OngakuSongPrefDto>? = null,

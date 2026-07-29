@@ -78,17 +78,21 @@ class NowPlayingPersistence @Inject constructor(
     private val adapter = moshi.adapter(PersistedNowPlayingState::class.java)
     private val mutex = Mutex()
 
-    suspend fun save(state: NowPlayingState, positionMs: Long, repeatMode: Int) = withContext(Dispatchers.IO) {
+    suspend fun save(state: NowPlayingState, positionMs: Long, repeatMode: Int): Boolean = withContext(Dispatchers.IO) {
         val persisted = state.toPersistedState(positionMs, repeatMode)
 
         try {
             val json = adapter.toJson(persisted)
             mutex.withLock {
-                file.writeText(json)
+                writeTextAtomically(file) { temporary ->
+                    temporary.writeText(json)
+                }
             }
             Log.d("NowPlayingPersistence", "Saved queue state, size: ${persisted.nowPlayingIds.size}")
+            true
         } catch (e: Exception) {
             Log.e("NowPlayingPersistence", "Failed to save queue state", e)
+            false
         }
     }
 
@@ -162,13 +166,15 @@ class NowPlayingPersistence @Inject constructor(
         }
     }
 
-    suspend fun clear() = withContext(Dispatchers.IO) {
+    suspend fun clear(): Boolean = withContext(Dispatchers.IO) {
         try {
             mutex.withLock {
                 if (file.exists()) file.delete()
             }
+            true
         } catch (e: Exception) {
             Log.e("NowPlayingPersistence", "Failed to clear queue state", e)
+            false
         }
     }
 }

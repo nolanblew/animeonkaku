@@ -39,6 +39,11 @@ class AudioCacheProvider @Inject constructor(
         )
     }
 
+    /** Opens SimpleCache outside a playback/UI-critical path during application startup. */
+    fun warmUp() {
+        cache
+    }
+
     private val serverHttpDataSourceFactory: DataSource.Factory by lazy {
         OkHttpDataSource.Factory(
             buildServerMediaHttpClient(

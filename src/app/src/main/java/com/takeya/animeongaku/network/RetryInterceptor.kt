@@ -1,7 +1,10 @@
 package com.takeya.animeongaku.network
 
 import java.io.IOException
+import java.io.InterruptedIOException
 import java.net.ConnectException
+import java.net.SocketException
+import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import kotlin.math.min
 import kotlin.random.Random
@@ -21,6 +24,9 @@ class RetryInterceptor(
         var lastException: IOException? = null
 
         while (attempt <= maxRetries) {
+            if (isCancelled(chain)) {
+                throw InterruptedIOException("Request cancelled before retry")
+            }
             try {
                 val response = chain.proceed(request)
                 if (!shouldRetry(response, isIdempotent, attempt)) {
@@ -28,17 +34,22 @@ class RetryInterceptor(
                 }
                 response.close()
             } catch (ioException: IOException) {
-                if (ioException is UnknownHostException || ioException is ConnectException) {
+                if (!isIdempotent || attempt >= maxRetries || !isTransientNetworkFailure(ioException)) {
                     throw ioException
                 }
                 lastException = ioException
-                if (!isIdempotent || attempt >= maxRetries) {
-                    throw ioException
-                }
             }
 
+            if (isCancelled(chain)) {
+                throw InterruptedIOException("Request cancelled before backoff")
+            }
             val delay = computeDelay(attempt)
-            Thread.sleep(delay)
+            try {
+                Thread.sleep(delay)
+            } catch (interrupted: InterruptedException) {
+                Thread.currentThread().interrupt()
+                throw InterruptedIOException("Retry backoff interrupted").apply { initCause(interrupted) }
+            }
             attempt += 1
         }
 
@@ -47,7 +58,32 @@ class RetryInterceptor(
 
     private fun shouldRetry(response: Response, isIdempotent: Boolean, attempt: Int): Boolean {
         if (!isIdempotent || attempt >= maxRetries) return false
-        return response.code in setOf(408, 429, 500, 502, 503, 504)
+        // A failed cache fetch is terminal until a new server-side discovery/fetch succeeds.
+        // Retrying it only adds player latency and duplicate traffic while preserving no value.
+        if (response.code == 503 && response.peekBody(16L * 1024L).string()
+                .contains("AUDIO_UNAVAILABLE", ignoreCase = false)
+        ) return false
+        return response.code in setOf(408, 429, 502, 503, 504)
+    }
+
+    private fun isCancelled(chain: Interceptor.Chain): Boolean = try {
+        chain.call().isCanceled()
+    } catch (_: UnsupportedOperationException) {
+        // Lightweight JVM fakes may not model a Call; production OkHttp chains always do.
+        false
+    }
+
+    private fun isTransientNetworkFailure(error: IOException): Boolean = when (error) {
+        is SocketTimeoutException, is ConnectException, is SocketException ->
+            !Thread.currentThread().isInterrupted && !error.isCancellationLike()
+        is UnknownHostException, is InterruptedIOException -> false
+        else -> false
+    }
+
+    private fun IOException.isCancellationLike(): Boolean {
+        val message = message.orEmpty()
+        return message.contains("cancel", ignoreCase = true) ||
+            message.contains("closed", ignoreCase = true)
     }
 
     private fun computeDelay(attempt: Int): Long {

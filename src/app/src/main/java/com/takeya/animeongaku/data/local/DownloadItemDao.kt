@@ -44,8 +44,12 @@ interface DownloadItemDao {
     @Query("SELECT * FROM download_items WHERE status IN (:statuses) ORDER BY createdAt, mediaKey")
     suspend fun getByStatuses(statuses: List<String>): List<DownloadItemEntity>
 
-    @Query("SELECT * FROM download_items WHERE status IN ('pending','downloading','retrying','waiting_for_wifi') AND mediaKey NOT IN (:excludedMediaKeys) ORDER BY createdAt LIMIT :limit")
-    suspend fun getNextBatch(excludedMediaKeys: List<String>, limit: Int): List<DownloadItemEntity>
+    @Query("SELECT * FROM download_items WHERE status IN ('pending','downloading','retrying','waiting_for_wifi') AND (:cursorCreatedAt IS NULL OR createdAt > :cursorCreatedAt OR (createdAt = :cursorCreatedAt AND mediaKey > :cursorMediaKey)) ORDER BY createdAt, mediaKey LIMIT :limit")
+    suspend fun getNextBatchAfter(
+        cursorCreatedAt: Long?,
+        cursorMediaKey: String?,
+        limit: Int
+    ): List<DownloadItemEntity>
 
     @Query("UPDATE download_items SET status = :status, updatedAt = :now WHERE mediaKey = :mediaKey")
     suspend fun updateStatus(mediaKey: String, status: String, now: Long = System.currentTimeMillis())

@@ -73,6 +73,7 @@ fun RelatedMusicScreen(
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val animeArtworkUrls = remember(anime) { anime?.primaryArtworkUrls().orEmpty() }
+    val selectedRelease = selected
     var sheetTrack by remember { mutableStateOf<RelatedTrack?>(null) }
     var pickerTrack by remember { mutableStateOf<RelatedTrack?>(null) }
 
@@ -118,19 +119,19 @@ fun RelatedMusicScreen(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            val hasContent = selected != null || releases.isNotEmpty()
+            val hasContent = selectedRelease != null || releases.isNotEmpty()
             relatedMusicRefreshMessage(hasContent, error != null)?.let { message ->
                 item { Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
             }
-            if (selected != null) {
+            if (selectedRelease != null) {
                 val releaseArtworkUrls = relatedReleaseArtworkUrls(
-                    selected!!.release.artworkUrl,
-                    selected!!.owner.artworkUrl,
+                    selectedRelease.release.artworkUrl,
+                    selectedRelease.owner.artworkUrl,
                     animeArtworkUrls
                 )
                 item {
                     RelatedReleaseHero(
-                        release = selected!!,
+                        release = selectedRelease,
                         artworkUrls = releaseArtworkUrls,
                         onBack = onBack
                     )
@@ -141,7 +142,7 @@ fun RelatedMusicScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Button(
-                            onClick = { viewModel.playRelease(selected!!); onPlay() },
+                            onClick = { viewModel.playRelease(selectedRelease); onPlay() },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(containerColor = Rose500),
                             shape = RoundedCornerShape(12.dp)
@@ -151,7 +152,7 @@ fun RelatedMusicScreen(
                             Text("Play")
                         }
                         OutlinedButton(
-                            onClick = { viewModel.downloadRelease(selected!!) },
+                            onClick = { viewModel.downloadRelease(selectedRelease) },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp)
                         ) { Text("Download album") }
@@ -166,7 +167,7 @@ fun RelatedMusicScreen(
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
                     )
                 }
-                items(selected!!.tracks, key = { it.song.id }) { track ->
+                items(selectedRelease.tracks, key = { it.song.id }) { track ->
                     TrackRow(track, { viewModel.play(track); onPlay() }, { sheetTrack = track })
                 }
                 item { Spacer(Modifier.height(24.dp)) }

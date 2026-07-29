@@ -3,7 +3,10 @@ package com.takeya.animeongaku.media
 import com.takeya.animeongaku.data.local.DownloadItemDao
 import com.takeya.animeongaku.data.local.DownloadItemEntity
 import com.takeya.animeongaku.data.local.ThemeModeDao
+import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.network.ConnectivityMonitor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -273,15 +276,29 @@ class PlaybackResolutionCoordinator @Inject constructor(
     private val themeModeDao: ThemeModeDao
 ) {
     suspend fun resolve(entry: QueueEntry, intent: PlaybackIntent): ResolvedPlaybackItem {
-        val snapshot = snapshot(entry)
+        val snapshot = snapshots(listOf(entry)).single()
         return resolver.resolve(snapshot.entry, intent, snapshot.isOnline, snapshot.localMedia)
+    }
+
+    /**
+     * Resolves a queue as one runtime snapshot. This avoids one Room query per entry and keeps
+     * filesystem validation off the main dispatcher when a queue changes.
+     */
+    suspend fun resolveAll(
+        entries: Collection<QueueEntry>,
+        intent: PlaybackIntent,
+    ): List<ResolvedPlaybackItem> {
+        if (entries.isEmpty()) return emptyList()
+        return snapshots(entries.toList()).map { snapshot ->
+            resolver.resolve(snapshot.entry, intent, snapshot.isOnline, snapshot.localMedia)
+        }
     }
 
     suspend fun resolveVideoFailureFallback(
         entry: QueueEntry,
         intent: PlaybackIntent
     ): ResolvedPlaybackItem {
-        val snapshot = snapshot(entry)
+        val snapshot = snapshots(listOf(entry)).single()
         return resolver.resolveVideoFailureFallback(
             snapshot.entry,
             intent,
@@ -290,18 +307,33 @@ class PlaybackResolutionCoordinator @Inject constructor(
         )
     }
 
-    private suspend fun snapshot(entry: QueueEntry): ResolutionSnapshot {
-        val hydratedEntry = entry.withModeDescriptor(themeModeDao)
-        val keys = hydratedEntry.possibleMediaKeys()
-        val downloads = if (keys.isEmpty()) emptyList() else {
-            downloadItemDao.getByMediaKeys(keys.map { it.value })
+    private suspend fun snapshots(entries: List<QueueEntry>): List<ResolutionSnapshot> =
+        withContext(Dispatchers.IO) {
+            val missingDescriptorThemeIds = entries.mapNotNull { entry ->
+                val theme = entry.item as? PlayableItem.Theme ?: return@mapNotNull null
+                theme.theme.id.takeIf { theme.modeDescriptor == null }
+            }.distinct()
+            val descriptorsByThemeId = if (missingDescriptorThemeIds.isEmpty()) emptyMap() else {
+                themeModeDao.getByThemeIds(missingDescriptorThemeIds).associateBy { it.themeId }
+            }
+            val hydratedEntries = entries.map { entry ->
+                entry.withModeDescriptor(descriptorsByThemeId)
+            }
+            val request = buildPlaybackResolutionBatchRequest(hydratedEntries)
+            val downloads = if (request.mediaKeys.isEmpty()) emptyList() else {
+                downloadItemDao.getByMediaKeys(request.mediaKeys.map { it.value })
+            }
+            val localMedia = completedLocalMedia(downloads)
+            val isOnline = connectivityMonitor.isOnline.value
+            hydratedEntries.map { hydratedEntry ->
+                val keys = hydratedEntry.possibleMediaKeys()
+                ResolutionSnapshot(
+                    entry = hydratedEntry,
+                    isOnline = isOnline,
+                    localMedia = localMedia.filterKeys { it in keys }
+                )
+            }
         }
-        return ResolutionSnapshot(
-            entry = hydratedEntry,
-            isOnline = connectivityMonitor.isOnline.value,
-            localMedia = completedLocalMedia(downloads).filterKeys { it in keys }
-        )
-    }
 }
 
 private data class ResolutionSnapshot(
@@ -310,10 +342,12 @@ private data class ResolutionSnapshot(
     val localMedia: Map<MediaKey, LocalMediaFile>
 )
 
-private suspend fun QueueEntry.withModeDescriptor(themeModeDao: ThemeModeDao): QueueEntry {
+private fun QueueEntry.withModeDescriptor(
+    descriptorsByThemeId: Map<Long, ThemeModeEntity>,
+): QueueEntry {
     val themeItem = item as? PlayableItem.Theme ?: return this
     if (themeItem.modeDescriptor != null) return this
-    val descriptor = themeModeDao.getByThemeIds(listOf(themeItem.theme.id)).firstOrNull()
+    val descriptor = descriptorsByThemeId[themeItem.theme.id]
     return copy(item = themeItem.copy(modeDescriptor = descriptor))
 }
 
@@ -326,7 +360,7 @@ internal fun completedLocalMedia(downloads: List<DownloadItemEntity>): Map<Media
         key to LocalMediaFile(key, path)
     }.toMap()
 
-private fun QueueEntry.possibleMediaKeys(): Set<MediaKey> = when (val playable = item) {
+internal fun QueueEntry.possibleMediaKeys(): Set<MediaKey> = when (val playable = item) {
     is PlayableItem.Theme -> buildSet {
         add(MediaKey.themeTv(playable.theme.id))
         playable.modeDescriptor?.fullSizeSongId?.let { add(MediaKey.songAudio(it)) }

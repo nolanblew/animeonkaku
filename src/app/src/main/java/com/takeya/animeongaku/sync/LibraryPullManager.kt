@@ -14,6 +14,8 @@ import com.takeya.animeongaku.data.remote.OngakuPlaylistDto
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 @Singleton
 class LibraryPullManager @Inject constructor(
@@ -25,25 +27,30 @@ class LibraryPullManager @Inject constructor(
     private val sessionStateManager: SessionStateManager
 ) : LibraryPuller {
     private val anyAdapter = moshi.adapter(Any::class.java)
+    private val pullMutex = Mutex()
 
     suspend fun pullIfStale(
         minIntervalMs: Long,
         now: Long = System.currentTimeMillis()
-    ): LibraryPullResult {
-        if (!sessionStateManager.isOnlineEnabled()) return LibraryPullResult(applied = false)
-        if (!settings.isConfigured) return LibraryPullResult(applied = false)
+    ): LibraryPullResult = pullMutex.withLock {
+        if (!sessionStateManager.isOnlineEnabled()) return@withLock LibraryPullResult(applied = false)
+        if (!settings.isConfigured) return@withLock LibraryPullResult(applied = false)
         if (now - settings.serverLastPullAt < minIntervalMs) {
-            return LibraryPullResult(applied = false)
+            return@withLock LibraryPullResult(applied = false)
         }
 
-        val result = pullNow(forceFull = false)
+        val result = pullNowLocked(forceFull = false)
         if (result.applied) {
             settings.serverLastPullAt = now
         }
-        return result
+        result
     }
 
-    override suspend fun pullNow(forceFull: Boolean): LibraryPullResult {
+    override suspend fun pullNow(forceFull: Boolean): LibraryPullResult = pullMutex.withLock {
+        pullNowLocked(forceFull)
+    }
+
+    private suspend fun pullNowLocked(forceFull: Boolean): LibraryPullResult {
         if (!sessionStateManager.isOnlineEnabled()) return LibraryPullResult(applied = false)
         val serverBaseUrl = settings.serverBaseUrl ?: return LibraryPullResult(applied = false)
         sideEffects.flushPendingWrites()
@@ -52,22 +59,25 @@ class LibraryPullManager @Inject constructor(
         val changes = api.changes(since = since)
 
         val activeAnime = changes.anime.filterNot { it.deleted }
-        val activeThemes = changes.themes.filterNot { it.deleted }
-        val existingThemes = cache.existingThemes(activeThemes.map { it.id })
+        val themeSnapshot = changes.themes
+        val activeThemes = themeSnapshot?.filterNot { it.deleted }.orEmpty()
+        val existingThemes = if (activeThemes.isEmpty()) emptyMap() else cache.existingThemes(activeThemes.map { it.id })
         val genreRows = activeAnime.map { it.toGenreRows() }
 
-        cache.applyLibraryPull(
-            deletedKitsuIds = changes.anime.filter { it.deleted }.map { it.kitsuId },
-            deletedThemeIds = changes.themes.filter { it.deleted }.map { it.id },
-            anime = activeAnime.map { it.toAnimeEntity(serverBaseUrl) },
-            themes = activeThemes.map { theme ->
-                theme.toThemeEntity(serverBaseUrl, existingThemes[theme.id])
-            },
-            themeModes = activeThemes.map { it.toThemeModeEntity(serverBaseUrl) },
-            artistRefs = activeThemes.flatMap { it.toArtistCrossRefs() },
-            genres = genreRows.flatMap { it.first }.distinctBy { it.slug },
-            genreRefs = genreRows.flatMap { it.second }.distinct()
-        )
+        if (changes.anime.isNotEmpty() || themeSnapshot != null) {
+            cache.applyLibraryPull(
+                deletedKitsuIds = changes.anime.filter { it.deleted }.map { it.kitsuId },
+                deletedThemeIds = themeSnapshot.orEmpty().filter { it.deleted }.map { it.id },
+                anime = activeAnime.map { it.toAnimeEntity(serverBaseUrl) },
+                themes = activeThemes.map { theme ->
+                    theme.toThemeEntity(serverBaseUrl, existingThemes[theme.id])
+                },
+                themeModes = activeThemes.map { it.toThemeModeEntity(serverBaseUrl) },
+                artistRefs = activeThemes.flatMap { it.toArtistCrossRefs() },
+                genres = genreRows.flatMap { it.first }.distinctBy { it.slug },
+                genreRefs = genreRows.flatMap { it.second }.distinct()
+            )
+        }
 
         cache.applyThemePrefs(
             preferences = changes.prefs.map {

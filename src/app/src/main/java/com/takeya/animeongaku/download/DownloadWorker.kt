@@ -58,6 +58,23 @@ internal fun audioWarmupDecision(audioState: String): AudioWarmupDecision = when
 internal fun downloadFailureStatus(runAttemptCount: Int, maxAttempts: Int = DOWNLOAD_MAX_ATTEMPTS): String =
     if (runAttemptCount + 1 >= maxAttempts) DownloadItemEntity.STATUS_FAILED else DownloadItemEntity.STATUS_RETRYING
 
+internal fun downloadProgressToPersist(
+    lastPersistedPercent: Int?,
+    nextPercent: Int,
+    isFinal: Boolean
+): Int? {
+    val normalized = nextPercent.coerceIn(0, 100)
+    return normalized.takeIf { isFinal || it != lastPersistedPercent }
+}
+
+internal data class DownloadBatchCursor(
+    val createdAt: Long,
+    val mediaKey: String
+)
+
+internal fun downloadBatchCursorAfter(batch: List<DownloadItemEntity>): DownloadBatchCursor? =
+    batch.lastOrNull()?.let { DownloadBatchCursor(createdAt = it.createdAt, mediaKey = it.mediaKey) }
+
 internal fun downloadFileExtension(url: String, defaultExtension: String): String {
     val segment = url.toHttpUrlOrNull()?.encodedPathSegments?.lastOrNull()
         ?: url.substringBefore('?').substringAfterLast('/')
@@ -138,13 +155,17 @@ class DownloadWorker @AssistedInject constructor(
         } catch (error: Exception) {
             Log.w(TAG, "Unable to enter foreground", error)
         }
-        val processed = mutableSetOf<String>()
+        var cursor: DownloadBatchCursor? = null
         var deferred = false
         try {
             while (true) {
-                val batch = downloadItemDao.getNextBatch(processed.toList(), DOWNLOAD_MAX_PARALLEL_TRANSFERS)
+                val batch = downloadItemDao.getNextBatchAfter(
+                    cursorCreatedAt = cursor?.createdAt,
+                    cursorMediaKey = cursor?.mediaKey,
+                    limit = DOWNLOAD_MAX_PARALLEL_TRANSFERS
+                )
                 if (batch.isEmpty()) break
-                processed += batch.map { it.mediaKey }
+                cursor = downloadBatchCursorAfter(batch)
                 mapWithDownloadParallelism(batch) { download(it) }.forEach {
                     if (it == ThemeDownloadOutcome.DEFERRED) deferred = true
                 }
@@ -257,6 +278,7 @@ class DownloadWorker @AssistedInject constructor(
             val temp = File(root, ".${output.name}.part")
             try {
                 var written = 0L
+                var lastPersistedProgress: Int? = null
                 val total = body.contentLength()
                 body.byteStream().use { input ->
                     FileOutputStream(temp).use { sink ->
@@ -267,16 +289,29 @@ class DownloadWorker @AssistedInject constructor(
                             sink.write(buffer, 0, count)
                             written += count
                             if (total > 0) {
-                                downloadItemDao.updateProgress(
-                                    item.mediaKey,
-                                    DownloadItemEntity.STATUS_DOWNLOADING,
-                                    ((written * 100L) / total).toInt()
-                                )
+                                val progress = ((written * 100L) / total).toInt()
+                                downloadProgressToPersist(lastPersistedProgress, progress, isFinal = false)?.let { persisted ->
+                                    downloadItemDao.updateProgress(
+                                        item.mediaKey,
+                                        DownloadItemEntity.STATUS_DOWNLOADING,
+                                        persisted
+                                    )
+                                    lastPersistedProgress = persisted
+                                }
                             }
                         }
                     }
                 }
                 check(written > 0) { "Empty response" }
+                if (total > 0) {
+                    downloadProgressToPersist(lastPersistedProgress, 100, isFinal = true)?.let { persisted ->
+                        downloadItemDao.updateProgress(
+                            item.mediaKey,
+                            DownloadItemEntity.STATUS_DOWNLOADING,
+                            persisted
+                        )
+                    }
+                }
                 val current = downloadItemDao.get(item.mediaKey)
                 if (!isDownloadStillEligible(current)) {
                     throw DownloadNoLongerEligibleException()
