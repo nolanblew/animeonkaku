@@ -53,7 +53,16 @@ class SyncEngineTest {
         val result = engine.pushPendingWrites()
 
         assertEquals(1, result.opCount)
-        assertEquals(100L to OngakuThemePrefPatch(liked = false, disliked = true, opTs = 20L), api.prefWrites.single())
+        assertEquals(
+            100L to OngakuThemePrefPatch(
+                liked = false,
+                disliked = true,
+                dislikedTvSize = false,
+                dislikedFullSize = false,
+                opTs = 20L
+            ),
+            api.prefWrites.single()
+        )
         assertTrue(store.ops.isEmpty())
     }
 
@@ -84,7 +93,16 @@ class SyncEngineTest {
 
         assertEquals(1, result.opCount)
         assertEquals(true, result.failed)
-        assertEquals(6884L to OngakuThemePrefPatch(liked = true, disliked = false, opTs = 20L), api.prefWrites.single())
+        assertEquals(
+            6884L to OngakuThemePrefPatch(
+                liked = true,
+                disliked = false,
+                dislikedTvSize = false,
+                dislikedFullSize = false,
+                opTs = 20L
+            ),
+            api.prefWrites.single()
+        )
         assertEquals("12994", store.ops.single().entityKey)
         assertEquals(1, store.ops.single().attempts)
     }

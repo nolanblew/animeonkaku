@@ -1,7 +1,10 @@
 package com.takeya.animeongaku
 
+import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.media.QueueOp
+import com.takeya.animeongaku.media.QueueEntry
 import com.takeya.animeongaku.media.computeQueueOps
+import com.takeya.animeongaku.media.computeQueueEntryOps
 import com.takeya.animeongaku.media.computeQueueOpsPreservingCurrent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -9,6 +12,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class QueueDiffTest {
+
+    @Test
+    fun `typed queue diff uses occurrence ids not playable ids`() {
+        val duplicate = ThemeEntity(1, null, "Same", null, "same.mp3", null, false, null)
+        val old = listOf(QueueEntry(10, duplicate), QueueEntry(11, duplicate))
+        val new = listOf(old[1], old[0])
+
+        assertEquals(listOf(QueueOp.Move(0, 1)), computeQueueEntryOps(old, new))
+    }
 
     private fun ids(vararg values: String): List<String> = values.toList()
 

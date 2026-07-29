@@ -54,8 +54,11 @@ class PreCacheManager @Inject constructor(
             nowPlayingManager.state
                 .map { state ->
                     // Only react to changes in upcoming tracks or queue version
-                    val upcoming = state.upcomingTracks.take(MAX_PRE_CACHE_TRACKS)
-                    upcoming.map { it.playbackUriString(serverSettingsStore.serverBaseUrl) }
+                    upcomingPlaybackUrls(
+                        state,
+                        MAX_PRE_CACHE_TRACKS,
+                        serverSettingsStore.serverBaseUrl
+                    )
                 }
                 .distinctUntilChanged()
                 .collect { upcomingUrls ->
@@ -131,9 +134,10 @@ class PreCacheManager @Inject constructor(
     private fun runEviction() {
         try {
             val cache = audioCacheProvider.cache
-            val nowPlayingUrls = nowPlayingManager.state.value.nowPlaying
-                .map { it.playbackUriString(serverSettingsStore.serverBaseUrl) }
-                .toSet()
+            val nowPlayingUrls = protectedPlaybackUrls(
+                nowPlayingManager.state.value,
+                serverSettingsStore.serverBaseUrl
+            )
 
             val now = System.currentTimeMillis()
             val keysToEvict = mutableListOf<String>()
@@ -167,6 +171,21 @@ class PreCacheManager @Inject constructor(
         }
     }
 }
+
+internal fun upcomingPlaybackUrls(
+    state: NowPlayingState,
+    maxTracks: Int,
+    activeServerBaseUrl: String?
+): List<String> = state.upcomingItems
+    .take(maxTracks)
+    .map { it.playbackUriString(activeServerBaseUrl) }
+
+internal fun protectedPlaybackUrls(
+    state: NowPlayingState,
+    activeServerBaseUrl: String?
+): Set<String> = state.nowPlayingItems
+    .map { it.playbackUriString(activeServerBaseUrl) }
+    .toSet()
 
 internal fun isCacheComplete(contentLength: Long, cachedBytes: Long): Boolean {
     return if (contentLength >= 0L) {

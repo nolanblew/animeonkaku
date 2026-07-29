@@ -8,6 +8,7 @@ import com.takeya.animeongaku.data.local.PlayCountEntity
 import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.UserPreferenceEntity
+import com.takeya.animeongaku.data.local.SongPreferenceEntity
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.remote.OngakuPlaylistDto
 import com.takeya.animeongaku.data.server.ServerSettingsStore
@@ -62,6 +63,7 @@ class LibraryPullManager @Inject constructor(
             themes = activeThemes.map { theme ->
                 theme.toThemeEntity(serverBaseUrl, existingThemes[theme.id])
             },
+            themeModes = activeThemes.map { it.toThemeModeEntity(serverBaseUrl) },
             artistRefs = activeThemes.flatMap { it.toArtistCrossRefs() },
             genres = genreRows.flatMap { it.first }.distinctBy { it.slug },
             genreRefs = genreRows.flatMap { it.second }.distinct()
@@ -73,6 +75,8 @@ class LibraryPullManager @Inject constructor(
                     themeId = it.themeId,
                     isLiked = it.liked,
                     isDisliked = it.disliked,
+                    isDislikedTvSize = it.dislikedTvSize,
+                    isDislikedFullSize = it.dislikedFullSize,
                     updatedAt = it.updatedAt,
                     deletedAt = it.updatedAt.takeIf { _ -> it.deleted }
                 )
@@ -83,8 +87,30 @@ class LibraryPullManager @Inject constructor(
                     playCount = it.playCount,
                     lastPlayedAt = it.lastPlayedAt ?: 0L
                 )
-            }
+            },
+            fullSnapshot = since == null
         )
+
+        changes.songPrefs?.let { songPrefs ->
+            cache.applySongPrefs(
+                songPrefs.map {
+                    SongPreferenceEntity(
+                        songId = it.songId,
+                        isLiked = it.liked,
+                        isDisliked = it.disliked,
+                        playCount = it.playCount,
+                        lastPlayedAt = it.lastPlayedAt,
+                        updatedAt = it.updatedAt,
+                        deletedAt = it.updatedAt.takeIf { _ -> it.deleted }
+                    )
+                },
+                fullSnapshot = since == null
+            )
+        }
+
+        changes.musicCatalog?.let { catalog ->
+            cache.replaceMusicCatalog(catalog.toMusicCatalogSnapshot(serverBaseUrl))
+        }
 
         val playlists = changes.playlists
         val activePlaylists = playlists.filterNot { it.deleted }
@@ -94,12 +120,30 @@ class LibraryPullManager @Inject constructor(
             pruneMissingAutoPlaylists = since == null,
             playlists = activePlaylists.map { it.toPlaylistEntity() },
             entries = activePlaylists.flatMap { playlist ->
-                playlist.entries.mapIndexed { index, themeId ->
-                    PlaylistEntryEntity(
-                        playlistId = playlist.id,
-                        themeId = themeId,
-                        orderIndex = index
-                    )
+                if (playlist.items.isNotEmpty()) {
+                    playlist.items.mapIndexed { index, item ->
+                        PlaylistEntryEntity(
+                            playlistId = playlist.id,
+                            themeId = item.itemId.takeIf { item.itemType == PlaylistEntryEntity.ITEM_TYPE_THEME },
+                            orderIndex = index,
+                            entryId = item.entryId,
+                            itemType = item.itemType,
+                            itemId = item.itemId,
+                            modeOverride = item.modeOverride
+                        )
+                    }
+                } else {
+                    val occurrences = mutableMapOf<Long, Int>()
+                    playlist.entries.mapIndexed { index, themeId ->
+                        val occurrence = occurrences.getOrDefault(themeId, 0)
+                        occurrences[themeId] = occurrence + 1
+                        PlaylistEntryEntity(
+                            playlistId = playlist.id,
+                            themeId = themeId,
+                            orderIndex = index,
+                            entryId = legacyPlaylistEntryId(themeId, occurrence)
+                        )
+                    }
                 }
             },
             dynamicSpecs = activePlaylists.mapNotNull { it.toDynamicSpecEntity(anyAdapter) }
@@ -122,6 +166,7 @@ private fun OngakuPlaylistDto.toPlaylistEntity(): PlaylistEntity =
         name = name,
         createdAt = updatedAt,
         isAuto = isAuto || dynamicSpecJson != null,
+        defaultMode = defaultMode,
         updatedAt = updatedAt,
         deletedAt = updatedAt.takeIf { deleted }
     )

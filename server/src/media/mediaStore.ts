@@ -1,13 +1,20 @@
-import { createHash } from "node:crypto";
-import { createWriteStream } from "node:fs";
-import { mkdir, rename, rm, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, realpath, rename, rm, stat } from "node:fs/promises";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { FetchLike } from "../http/types.js";
 import type { AppLogger } from "../logging.js";
 import { safeExternalUrl } from "../logging.js";
-import type { MediaFileRecord, MediaFileRepo, SaveMediaFileInput } from "./types.js";
+import { catalogSongMediaFilePath, catalogSongRefId } from "./mediaLayout.js";
+import { resolveManagedMediaPath } from "./mediaPathSafety.js";
+import type {
+  ImportLocalSongFileInput,
+  MediaFileRecord,
+  MediaFileRepo,
+  SaveMediaFileInput,
+} from "./types.js";
 
 const DEFAULT_MIN_BYTES = 1024;
 
@@ -20,6 +27,8 @@ export class MediaValidationError extends Error {
 
 export interface MediaStoreOptions {
   mediaRoot: string;
+  /** Read-only root mounted from the acquisition provider. Required for local imports. */
+  providerImportRoot?: string;
   repo: MediaFileRepo;
   fetch?: FetchLike;
   /** Fetch used for image origins (Kitsu CDN etc.); falls back to `fetch`. */
@@ -120,6 +129,86 @@ export class MediaStore {
     }
   }
 
+  async importLocalSongFile(input: ImportLocalSongFileInput): Promise<MediaFileRecord> {
+    const providerRoot = this.options.providerImportRoot;
+    if (!providerRoot) {
+      throw new MediaValidationError("A provider import root is not configured.");
+    }
+
+    const sourcePath = await safeProviderFile(providerRoot, input.sourcePath);
+    const format = audioFormatForPath(sourcePath);
+    const sourceFileName = basename(sourcePath);
+    const filePath = catalogSongMediaFilePath(input.songId, format.extension);
+    const mediaInput: SaveMediaFileInput = {
+      kind: "AUDIO",
+      refId: catalogSongRefId(input.songId),
+      variant: "ORIGINAL",
+      originUrl: `provider-import:${encodeURIComponent(sourceFileName)}`,
+      filePath,
+      videoFallback: false,
+      contentType: format.contentType,
+      sourceFileName,
+    };
+
+    const descriptor = { kind: mediaInput.kind, refId: mediaInput.refId, variant: mediaInput.variant };
+    const previous = await this.options.repo.find?.(descriptor) ?? null;
+    const cached = await this.findReadyImported(previous, input.songId, input.expectedByteSize, input.expectedSha256);
+    if (cached) return cached;
+
+    const tmpRelativePath = `audio/tmp/song-${input.songId}-${randomUUID()}.tmp`;
+    let finalPath: string;
+    let tmpPath: string;
+    try {
+      finalPath = await resolveManagedMediaPath(this.options.mediaRoot, filePath);
+      const tmpDir = await resolveManagedMediaPath(this.options.mediaRoot, "audio/tmp");
+      await mkdir(dirname(finalPath), { recursive: true });
+      await mkdir(tmpDir, { recursive: true });
+      // Recheck after directory creation so a pre-existing junction cannot be
+      // hidden by a missing ancestor during the first check.
+      finalPath = await resolveManagedMediaPath(this.options.mediaRoot, filePath);
+      tmpPath = await resolveManagedMediaPath(this.options.mediaRoot, tmpRelativePath);
+    } catch (error) {
+      throw new MediaValidationError(
+        error instanceof Error ? error.message : "Invalid managed media path.",
+      );
+    }
+    const recovered = await this.recoverOrphanedImported(mediaInput, previous, finalPath, sourcePath,
+      input.expectedByteSize, input.expectedSha256);
+    if (recovered) return recovered;
+    await this.options.repo.markDownloading(mediaInput);
+
+    try {
+      const { byteSize, sha256 } = await copyAndHash(sourcePath, tmpPath);
+      validateSize(byteSize, null, this.minBytes);
+      validateExpectedImport(byteSize, sha256, input.expectedByteSize, input.expectedSha256);
+      // The rename is the publication boundary: readers never observe the
+      // partially copied temporary file.
+      await rename(tmpPath, finalPath);
+      await this.options.repo.markReady({ ...mediaInput, byteSize, sha256 });
+      const saved = await stat(finalPath);
+      await this.removePreviousSongFile(input.songId, previous, filePath);
+      this.options.logger?.info(
+        {
+          kind: mediaInput.kind,
+          refId: mediaInput.refId,
+          variant: mediaInput.variant,
+          sourceFileName,
+          byteSize: saved.size,
+          sha256,
+          filePath,
+          externalHit: false,
+        },
+        "local provider media imported",
+      );
+      return readyRecord(mediaInput, saved.size, sha256);
+    } catch (error) {
+      await rm(tmpPath, { force: true });
+      const err = error instanceof Error ? error : new Error(String(error));
+      await this.options.repo.markFailed({ ...mediaInput, errorMessage: err.message });
+      throw err;
+    }
+  }
+
   /**
    * Each media file is downloaded from the origin at most once: if the repo says
    * READY and the file is still on disk, reuse it. A READY row whose file has
@@ -146,6 +235,165 @@ export class MediaStore {
     );
     return existing;
   }
+
+  private async findReadyImported(
+    existing: MediaFileRecord | null,
+    songId: number,
+    expectedByteSize?: number | null,
+    expectedSha256?: string | null,
+  ): Promise<MediaFileRecord | null> {
+    if (
+      !existing ||
+      existing.state !== "READY" ||
+      !existing.filePath ||
+      !isManagedCatalogSongPath(songId, existing.filePath) ||
+      !existing.sha256
+    ) {
+      return null;
+    }
+    const absolutePath = await resolveManagedMediaPath(this.options.mediaRoot, existing.filePath)
+      .catch(() => null);
+    if (!absolutePath) return null;
+    const fileStat = await stat(absolutePath).catch(() => null);
+    if (!fileStat?.isFile()) return null;
+    const currentHash = await hashFile(absolutePath);
+    if (currentHash !== existing.sha256) return null;
+    if (expectedByteSize != null && fileStat.size !== expectedByteSize) return null;
+    if (expectedSha256 != null && currentHash !== expectedSha256.toLowerCase()) return null;
+    return existing;
+  }
+
+  private async removePreviousSongFile(
+    songId: number,
+    previous: MediaFileRecord | null,
+    currentFilePath: string,
+  ): Promise<void> {
+    const previousPath = previous?.filePath;
+    if (
+      previous?.state !== "READY" ||
+      !previousPath ||
+      previousPath === currentFilePath ||
+      !isManagedCatalogSongPath(songId, previousPath)
+    ) {
+      return;
+    }
+    try {
+      const absolutePath = await resolveManagedMediaPath(this.options.mediaRoot, previousPath);
+      await rm(absolutePath, { force: true });
+    } catch (error) {
+      this.options.logger?.warn?.(
+        {
+          refId: catalogSongRefId(songId),
+          filePath: previousPath,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "old catalog-song media cleanup skipped",
+      );
+    }
+  }
+
+  /**
+   * A process/DB failure can happen after atomic rename but before markReady.
+   * On Windows a later rename may not replace that orphan reliably, so adopt
+   * the already-complete managed file before starting another copy.
+   */
+  private async recoverOrphanedImported(
+    input: SaveMediaFileInput,
+    previous: MediaFileRecord | null,
+    finalPath: string,
+    sourcePath: string,
+    expectedByteSize?: number | null,
+    expectedSha256?: string | null,
+  ): Promise<MediaFileRecord | null> {
+    if (previous?.state === "READY") return null;
+    const saved = await stat(finalPath).catch(() => null);
+    if (!saved?.isFile() || saved.size < this.minBytes) return null;
+    const source = await stat(sourcePath);
+    const [sha256, sourceSha256] = await Promise.all([hashFile(finalPath), hashFile(sourcePath)]);
+    if (saved.size !== source.size || sha256 !== sourceSha256) {
+      await rm(finalPath, { force: true });
+      return null;
+    }
+    try {
+      validateExpectedImport(saved.size, sha256, expectedByteSize, expectedSha256);
+    } catch (error) {
+      await rm(finalPath, { force: true });
+      throw error;
+    }
+    await this.options.repo.markReady({ ...input, byteSize: saved.size, sha256 });
+    return readyRecord(input, saved.size, sha256);
+  }
+}
+
+function validateExpectedImport(byteSize: number, sha256: string, expectedByteSize?: number | null, expectedSha256?: string | null): void {
+  if (expectedByteSize != null && byteSize !== expectedByteSize) {
+    throw new MediaValidationError("Copied provider file size conflicts with its manifest.");
+  }
+  if (expectedSha256 != null && sha256 !== expectedSha256.toLowerCase()) {
+    throw new MediaValidationError("Copied provider file hash conflicts with its manifest.");
+  }
+}
+
+const AUDIO_FORMATS = new Map<string, { extension: string; contentType: string }>([
+  [".flac", { extension: "flac", contentType: "audio/flac" }],
+  [".mp3", { extension: "mp3", contentType: "audio/mpeg" }],
+  [".m4a", { extension: "m4a", contentType: "audio/mp4" }],
+  [".aac", { extension: "aac", contentType: "audio/aac" }],
+  [".ogg", { extension: "ogg", contentType: "audio/ogg" }],
+  [".opus", { extension: "opus", contentType: "audio/opus" }],
+  [".wav", { extension: "wav", contentType: "audio/wav" }],
+]);
+
+function isManagedCatalogSongPath(songId: number, filePath: string): boolean {
+  const prefix = `audio/songs/${songId}/original.`;
+  if (!filePath.startsWith(prefix)) return false;
+  const extension = filePath.slice(prefix.length);
+  return [...AUDIO_FORMATS.values()].some((format) => format.extension === extension);
+}
+
+function audioFormatForPath(sourcePath: string): { extension: string; contentType: string } {
+  const format = AUDIO_FORMATS.get(extname(sourcePath).toLowerCase());
+  if (!format) {
+    throw new MediaValidationError(`Unsupported original audio extension: ${extname(sourcePath) || "missing"}`);
+  }
+  return format;
+}
+
+async function safeProviderFile(providerRoot: string, sourcePath: string): Promise<string> {
+  const canonicalRoot = await realpath(resolve(providerRoot)).catch(() => null);
+  if (!canonicalRoot) throw new MediaValidationError("The configured provider root is unavailable.");
+  const requestedPath = isAbsolute(sourcePath) ? sourcePath : join(canonicalRoot, sourcePath);
+  const canonicalSource = await realpath(resolve(requestedPath)).catch(() => null);
+  if (!canonicalSource) throw new MediaValidationError("The provider source file is unavailable.");
+  const relativeToRoot = relative(canonicalRoot, canonicalSource);
+  if (relativeToRoot === ".." || relativeToRoot.startsWith(`..${sep}`) || isAbsolute(relativeToRoot)) {
+    throw new MediaValidationError("The provider source path is outside the configured provider root.");
+  }
+  const sourceStat = await stat(canonicalSource);
+  if (!sourceStat.isFile()) throw new MediaValidationError("The provider source path is not a file.");
+  return canonicalSource;
+}
+
+function readyRecord(input: SaveMediaFileInput, byteSize: number, sha256: string): MediaFileRecord {
+  const now = new Date();
+  return {
+    id: 0,
+    kind: input.kind,
+    refId: input.refId,
+    variant: input.variant,
+    originUrl: input.originUrl,
+    state: "READY",
+    filePath: input.filePath,
+    byteSize,
+    sha256,
+    errorMessage: null,
+    attempts: 1,
+    fetchedAt: now,
+    updatedAt: now,
+    videoFallback: input.videoFallback,
+    contentType: input.contentType ?? null,
+    sourceFileName: input.sourceFileName ?? null,
+  };
 }
 
 async function writeAndHash(
@@ -163,6 +411,26 @@ async function writeAndHash(
   });
   await pipeline(Readable.fromWeb(body), counter, createWriteStream(tmpPath));
   return { byteSize, sha256: hash.digest("hex") };
+}
+
+async function copyAndHash(sourcePath: string, tmpPath: string): Promise<{ byteSize: number; sha256: string }> {
+  const hash = createHash("sha256");
+  let byteSize = 0;
+  const counter = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      byteSize += chunk.length;
+      hash.update(chunk);
+      callback(null, chunk);
+    },
+  });
+  await pipeline(createReadStream(sourcePath), counter, createWriteStream(tmpPath, { flags: "wx" }));
+  return { byteSize, sha256: hash.digest("hex") };
+}
+
+async function hashFile(filePath: string): Promise<string> {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(filePath)) hash.update(chunk);
+  return hash.digest("hex");
 }
 
 function validateContentType(input: SaveMediaFileInput, contentType: string | null): void {

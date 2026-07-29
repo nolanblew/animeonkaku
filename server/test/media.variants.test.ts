@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { deriveThemeMediaSources } from "../src/media/catalogLookup.js";
-import { themeMediaFilePath } from "../src/media/mediaLayout.js";
+import {
+  catalogSongMediaDescriptor,
+  catalogSongMediaFilePath,
+  catalogSongRefId,
+  themeMediaFilePath,
+} from "../src/media/mediaLayout.js";
 
 describe("deriveThemeMediaSources", () => {
   it("always exposes the canonical short audio", () => {
@@ -20,20 +25,19 @@ describe("deriveThemeMediaSources", () => {
     ]);
   });
 
-  it("adds a FULL video variant when a distinct video origin exists", () => {
+  it("never enumerates a remote AnimeThemes video as downloadable media", () => {
     const sources = deriveThemeMediaSources({
       themeId: 7,
       audioOriginUrl: "https://a.animethemes.moe/Show-OP1.ogg",
       videoOriginUrl: "https://v.animethemes.moe/Show-OP1.webm",
     });
-    expect(sources).toHaveLength(2);
-    expect(sources[1]).toEqual({
+    expect(sources).toEqual([{
       themeId: 7,
-      kind: "VIDEO",
-      variant: "FULL",
-      originUrl: "https://v.animethemes.moe/Show-OP1.webm",
+      kind: "AUDIO",
+      variant: "SHORT",
+      originUrl: "https://a.animethemes.moe/Show-OP1.ogg",
       videoFallback: false,
-    });
+    }]);
   });
 
   it("treats audio==video as a video fallback and exposes no separate video variant", () => {
@@ -62,5 +66,23 @@ describe("themeMediaFilePath", () => {
     expect(paths.size).toBe(4);
     expect(themeMediaFilePath("AUDIO", "FULL", "3040")).toBe("audio/3040.full.ogg");
     expect(themeMediaFilePath("VIDEO", "FULL", "3040")).toBe("video/3040.webm");
+  });
+});
+
+describe("catalog song media identity", () => {
+  it("uses a namespaced ref and an original-format path without changing TV paths", () => {
+    expect(catalogSongRefId(42)).toBe("song:42");
+    expect(catalogSongMediaDescriptor(42)).toEqual({
+      kind: "AUDIO",
+      refId: "song:42",
+      variant: "ORIGINAL",
+    });
+    expect(catalogSongMediaFilePath(42, "flac")).toBe("audio/songs/42/original.flac");
+    expect(themeMediaFilePath("AUDIO", "SHORT", "42")).toBe("audio/42.ogg");
+  });
+
+  it("rejects unsafe song IDs and extensions", () => {
+    expect(() => catalogSongRefId(0)).toThrow(/song id/i);
+    expect(() => catalogSongMediaFilePath(42, "../mp3")).toThrow(/extension/i);
   });
 });

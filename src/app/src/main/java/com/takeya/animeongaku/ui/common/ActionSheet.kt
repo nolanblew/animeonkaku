@@ -22,6 +22,8 @@ import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.rounded.LibraryAdd
 import androidx.compose.material.icons.rounded.Movie
@@ -64,15 +66,19 @@ data class ActionSheetConfig(
     val showPlayNext: Boolean = true,
     val showAddToQueue: Boolean = true,
     val showReplaceQueue: Boolean = true,
+    val showPlayVideo: Boolean = false,
     val showSaveToPlaylist: Boolean = true,
     val showAddToLibrary: Boolean = false,
     val showGoToArtist: Boolean = false,
     val showGoToAnime: Boolean = false,
+    val showRelatedMusic: Boolean = false,
     val showDownload: Boolean = false,
     val showDownloading: Boolean = false,
     val showRemoveDownload: Boolean = false,
     val showLike: Boolean = false,
     val isLiked: Boolean = false,
+    val showDislike: Boolean = false,
+    val isDisliked: Boolean = false,
     val showRemoveDislike: Boolean = false,
     val showUnskip: Boolean = false,
     val showRemoveFromQueue: Boolean = false,
@@ -92,13 +98,16 @@ fun ActionSheet(
     onPlayNext: () -> Unit = {},
     onAddToQueue: () -> Unit = {},
     onReplaceQueue: () -> Unit = {},
+    onPlayVideo: () -> Unit = {},
     onSaveToPlaylist: () -> Unit = {},
     onAddToLibrary: () -> Unit = {},
     onGoToArtist: () -> Unit = {},
     onGoToAnime: () -> Unit = {},
+    onRelatedMusic: () -> Unit = {},
     onDownload: () -> Unit = {},
     onRemoveDownload: () -> Unit = {},
     onLike: () -> Unit = {},
+    onDislike: () -> Unit = {},
     onRemoveDislike: () -> Unit = {},
     onUnskip: () -> Unit = {},
     onRemoveFromQueue: () -> Unit = {},
@@ -245,6 +254,20 @@ fun ActionSheet(
                     onClick = { dismissThen(onReplaceQueue) }
                 )
             }
+            if (config.showDislike) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.ThumbDown, contentDescription = null, tint = Mist100) },
+                    label = if (config.isDisliked) "Remove Dislike" else "Dislike",
+                    onClick = { dismissThen(onDislike) }
+                )
+            }
+            if (config.showPlayVideo) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Mist100) },
+                    label = "Play Video",
+                    onClick = { dismissThen(onPlayVideo) }
+                )
+            }
             if (config.showRemoveFromQueue) {
                 OptionRow(
                     icon = { Icon(Icons.Rounded.Close, contentDescription = null, tint = Mist100) },
@@ -273,6 +296,13 @@ fun ActionSheet(
                     icon = { Icon(Icons.Rounded.Movie, contentDescription = null, tint = Mist100) },
                     label = label,
                     onClick = { dismissThen(onGoToAnime) }
+                )
+            }
+            if (config.showRelatedMusic) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.Album, contentDescription = null, tint = Mist100) },
+                    label = "Related Music",
+                    onClick = { dismissThen(onRelatedMusic) }
                 )
             }
             if (config.showDownloading) {

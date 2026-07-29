@@ -4,11 +4,21 @@ import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.remote.OngakuAnimeDto
 import com.takeya.animeongaku.data.remote.OngakuThemeArtistDto
 import com.takeya.animeongaku.data.remote.OngakuThemeDto
+import com.takeya.animeongaku.data.remote.OngakuThemeMediaModesDto
+import com.takeya.animeongaku.data.remote.OngakuTvSizeModeDto
+import com.takeya.animeongaku.data.remote.OngakuFullSizeModeDto
+import com.takeya.animeongaku.data.remote.OngakuVideoModeDto
+import com.takeya.animeongaku.data.remote.OngakuAnimeMusicDto
+import com.takeya.animeongaku.data.remote.OngakuMusicAnimeSummaryDto
+import com.takeya.animeongaku.data.remote.OngakuMusicReleaseDto
+import com.takeya.animeongaku.data.remote.OngakuMusicTrackDto
 import com.takeya.animeongaku.sync.resolveServerUrl
 import com.takeya.animeongaku.sync.toAnimeEntity
 import com.takeya.animeongaku.sync.toArtistCrossRefs
 import com.takeya.animeongaku.sync.toGenreRows
 import com.takeya.animeongaku.sync.toThemeEntity
+import com.takeya.animeongaku.sync.toThemeModeEntity
+import com.takeya.animeongaku.sync.toMusicCatalogSnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -69,6 +79,61 @@ class LibraryPullMapperTest {
         assertEquals("OP1", entity.themeType)
         assertTrue(entity.isDownloaded)
         assertEquals("/data/user/0/files/downloads/100.webm", entity.localFilePath)
+    }
+
+    @Test
+    fun `maps theme modes by rebasing server audio but preserving direct video origin`() {
+        val mode = themeDto().copy(
+            mediaModes = OngakuThemeMediaModesDto(
+                tvSize = OngakuTvSizeModeDto("/v1/media/audio/100", 90, 5_242_880),
+                fullSize = OngakuFullSizeModeDto(300, "/v1/media/songs/300/audio", 271, 1234, 200),
+                video = OngakuVideoModeDto(
+                    "https://v.animethemes.moe/op.webm",
+                    "video/webm",
+                    spoiler = false,
+                    nsfw = false,
+                    entryVersion = 1
+                )
+            )
+        ).toThemeModeEntity(baseUrl)
+
+        assertEquals("http://192.168.1.5:8080/api/v1/media/audio/100", mode.tvSizeUrl)
+        assertEquals("http://192.168.1.5:8080/api/v1/media/songs/300/audio", mode.fullSizeUrl)
+        assertEquals("https://v.animethemes.moe/op.webm", mode.videoUrl)
+    }
+
+    @Test
+    fun `maps ready music snapshot with resolved canonical urls and ordered junctions`() {
+        val snapshot = listOf(
+            OngakuAnimeMusicDto(
+                anime = OngakuMusicAnimeSummaryDto(kitsuId = "1", title = "Bocchi"),
+                releases = listOf(
+                    OngakuMusicReleaseDto(
+                        id = 200,
+                        title = "OST",
+                        artistCredit = "Composer",
+                        relationshipType = "SOUNDTRACK",
+                        artworkUrl = "/v1/media/images/releases/200",
+                        tracks = listOf(
+                            OngakuMusicTrackDto(
+                                id = 300,
+                                title = "Track",
+                                artistCredit = "Composer",
+                                audioUrl = "/v1/media/songs/300/audio",
+                                discNumber = 1,
+                                trackNumber = 2,
+                                displayOrder = 4
+                            )
+                        )
+                    )
+                )
+            )
+        ).toMusicCatalogSnapshot(baseUrl)
+
+        assertEquals("http://192.168.1.5:8080/api/v1/media/songs/300/audio", snapshot.songs.single().audioUrl)
+        assertEquals("http://192.168.1.5:8080/api/v1/media/images/releases/200", snapshot.releases.single().artworkUrl)
+        assertEquals(4, snapshot.releaseTracks.single().displayOrder)
+        assertEquals("SOUNDTRACK", snapshot.animeReleases.single().relationshipType)
     }
 
     @Test

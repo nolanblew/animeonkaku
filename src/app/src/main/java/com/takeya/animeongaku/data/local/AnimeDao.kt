@@ -50,6 +50,9 @@ interface AnimeDao {
     @Query("SELECT * FROM anime WHERE animeThemesId IN (:animeThemesIds)")
     suspend fun getByAnimeThemesIds(animeThemesIds: List<Long>): List<AnimeEntity>
 
+    @Query("SELECT * FROM anime WHERE kitsuId IN (:kitsuIds)")
+    suspend fun getByKitsuIds(kitsuIds: List<String>): List<AnimeEntity>
+
     @Query("SELECT * FROM anime WHERE watchingStatus = :status")
     fun observeByWatchingStatus(status: String): Flow<List<AnimeEntity>>
 
@@ -77,7 +80,7 @@ interface AnimeDao {
     @Query("""
         SELECT DISTINCT a.kitsuId FROM anime a
         INNER JOIN themes t ON t.animeId = a.animeThemesId
-        INNER JOIN playlist_entries pe ON pe.themeId = t.id
+        INNER JOIN playlist_entries pe ON pe.itemType = 'THEME' AND pe.itemId = t.id
         INNER JOIN playlists p ON p.id = pe.playlistId
         WHERE p.isAuto = 0
     """)

@@ -1,11 +1,18 @@
 package com.takeya.animeongaku.ui.player
 
+import com.takeya.animeongaku.media.PlaybackMode
+import com.takeya.animeongaku.media.PlayableItem
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
+import com.takeya.animeongaku.ui.common.BrowseVideoWarningDialog
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.Arrangement
@@ -14,7 +21,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.unit.lerp as dpLerp
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -38,12 +44,14 @@ import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material.icons.rounded.ThumbUp
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -64,6 +72,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -87,7 +96,6 @@ import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
 import com.takeya.animeongaku.ui.common.MarqueeText
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
-import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.theme.Ember400
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
@@ -97,7 +105,7 @@ import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.theme.Rose500
 import kotlin.math.max
 
-@OptIn(ExperimentalMotionApi::class)
+@OptIn(ExperimentalMotionApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun PlayerScreen(
     progress: Float,
@@ -106,25 +114,45 @@ fun PlayerScreen(
     onExpand: () -> Unit = {},
     onCollapse: () -> Unit = {},
     onOpenAnime: (String) -> Unit = {},
+    onOpenRelatedMusic: (String) -> Unit = {},
     onOpenArtist: (String) -> Unit = {},
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val npState by viewModel.nowPlayingState.collectAsStateWithLifecycle()
     val pbState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val modeUiState by viewModel.modeUiState.collectAsStateWithLifecycle()
+    val mediaController by viewModel.mediaControllerManager.mediaController.collectAsStateWithLifecycle()
     val currentPreference by viewModel.currentPreference.collectAsStateWithLifecycle()
+    val currentSongPreference by viewModel.currentSongPreference.collectAsStateWithLifecycle()
+    val hasRelatedMusic by viewModel.hasRelatedMusic.collectAsStateWithLifecycle()
     val nowPlayingManager = viewModel.nowPlayingManager
     val controllerManager = viewModel.mediaControllerManager
 
     var showUpNext by remember { mutableStateOf(false) }
+    var scopedDislikeThemeId by remember { mutableStateOf<Long?>(null) }
     var showPlayerSheet by remember { mutableStateOf(false) }
+    var pendingModeConfirmation by remember {
+        mutableStateOf<Pair<Long, ModeSelectionDecision.Confirm>?>(null)
+    }
+    var pendingBrowseVideo by remember {
+        mutableStateOf<Pair<Long, BrowseVideoStartRequest>?>(null)
+    }
 
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
-    val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
+    val downloadedMediaKeys by viewModel.downloadedMediaKeys.collectAsStateWithLifecycle()
     val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
+    val queuedThemeModesById by viewModel.queuedThemeModesById.collectAsStateWithLifecycle()
+
+    pendingBrowseVideo?.let { (queueId, request) ->
+        BrowseVideoWarningDialog(request, { pendingBrowseVideo = null }) {
+            pendingBrowseVideo = null
+            if (viewModel.startQueuedThemeVideo(queueId, request)) onExpand()
+        }
+    }
 
     LaunchedEffect(swipeUpTrigger) {
         if (swipeUpTrigger) {
@@ -138,7 +166,7 @@ fun PlayerScreen(
             npState = npState,
             nowPlayingManager = nowPlayingManager,
             isOffline = !isOnline,
-            downloadedThemeIds = downloadedThemeIds,
+            downloadedMediaKeys = downloadedMediaKeys,
             dislikedThemeIds = dislikedThemeIds,
             viewModel = viewModel,
             onDismiss = { showUpNext = false }
@@ -146,31 +174,51 @@ fun PlayerScreen(
     }
 
     if (showPlayerSheet) {
-        val theme = npState.currentTheme
-        if (theme != null) {
-            val animeEntity = theme.animeId?.let { npState.animeMap[it] }
-            val animeImageUrls = animeEntity?.primaryArtworkUrls() ?: emptyList()
-            val info = theme.displayInfo(animeEntity)
+        val currentEntry = npState.currentEntry
+        if (currentEntry != null) {
+            val item = currentEntry.item
+            val theme = currentEntry.themeOrNull
+            val animeEntity = item.anime ?: theme?.animeId?.let { npState.animeMap[it] }
+            val animeImageUrls = buildList {
+                item.display.artworkUrl?.let(::add)
+                addAll(animeEntity?.primaryArtworkUrls().orEmpty())
+            }.distinct()
             var songInLibrary by remember { mutableStateOf(true) }
-            LaunchedEffect(theme.id) {
-                songInLibrary = viewModel.isInLibrary(theme.id)
+            LaunchedEffect(theme?.id) {
+                songInLibrary = theme?.let { viewModel.isInLibrary(it.id) } ?: true
             }
             ActionSheet(
                 config = ActionSheetConfig(
-                    title = info.primaryText, subtitle = info.secondaryText,
+                    title = item.display.title,
+                    subtitle = listOfNotNull(item.display.artist, item.display.animeTitle ?: item.display.album)
+                        .joinToString(" · "),
                     imageUrl = animeImageUrls.firstOrNull(), imageUrls = animeImageUrls,
-                    showPlayNext = false, showAddToQueue = false, showReplaceQueue = false, showSaveToPlaylist = true,
-                    showAddToLibrary = !songInLibrary,
-                    showGoToArtist = !theme.artistName.isNullOrBlank(),
+                    showPlayNext = false, showAddToQueue = false, showReplaceQueue = false,
+                    showSaveToPlaylist = theme != null,
+                    showAddToLibrary = theme != null && !songInLibrary,
+                    showGoToArtist = !item.display.artist.isNullOrBlank(),
                     showGoToAnime = animeEntity?.kitsuId != null,
-                    artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
+                    showRelatedMusic = animeEntity?.kitsuId != null && hasRelatedMusic,
+                    showDownload = item is PlayableItem.RelatedSong || theme != null,
+                    showPlayVideo = theme != null && BrowseVideoActionPolicy.singleTheme(
+                        isOnline, queuedThemeModesById[theme.id]
+                    ),
+                    artistName = item.display.artist?.split(",")?.firstOrNull()?.trim(),
                     animeName = animeEntity?.title
                 ),
                 onDismiss = { showPlayerSheet = false },
-                onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) },
-                onGoToArtist = { theme.artistName?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
+                onPlayVideo = {
+                    val queueId = npState.currentEntry?.queueId ?: return@ActionSheet
+                    val request = viewModel.requestQueuedThemeVideo(queueId) ?: return@ActionSheet
+                    if (request.warning != null) pendingBrowseVideo = queueId to request
+                    else if (viewModel.startQueuedThemeVideo(queueId, request)) onExpand()
+                },
+                onSaveToPlaylist = { theme?.let { pickerThemeIds = listOf(it.id) } },
+                onGoToArtist = { item.display.artist?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
                 onGoToAnime = { animeEntity?.kitsuId?.let { onOpenAnime(it) } },
-                onAddToLibrary = { viewModel.saveSongToLibrary(theme, animeEntity) }
+                onRelatedMusic = { animeEntity?.kitsuId?.let { onOpenRelatedMusic(it) } },
+                onAddToLibrary = { theme?.let { viewModel.saveSongToLibrary(it, animeEntity) } },
+                onDownload = { viewModel.downloadCurrent(item, modeUiState.actualMode) }
             )
         }
     }
@@ -179,32 +227,85 @@ fun PlayerScreen(
         PlaylistPickerSheet(
             playlists = playlists, coverUrls = playlistCoverUrls, onDismiss = { pickerThemeIds = null },
             onSelectPlaylist = { playlistId -> viewModel.addToPlaylist(playlistId, ids); pickerThemeIds = null },
-            onCreatePlaylist = { name -> viewModel.createAndAddToPlaylist(name, ids); pickerThemeIds = null }
+            onCreatePlaylist = { name -> viewModel.createAndAddToPlaylist(name, ids); pickerThemeIds = null },
+            showThemeModeChoice = true,
+            onSelectPlaylistWithMode = { playlistId, modeOverride ->
+                viewModel.addToPlaylist(playlistId, ids, modeOverride)
+                pickerThemeIds = null
+            },
+            onCreatePlaylistWithMode = { name, modeOverride ->
+                viewModel.createAndAddToPlaylist(name, ids, modeOverride)
+                pickerThemeIds = null
+            }
         )
     }
 
-    val currentTheme = npState.currentTheme
-    val animeEntity = currentTheme?.animeId?.let { npState.animeMap[it] }
-    val backgroundArtUrl = animeEntity?.backgroundArtworkUrl()
-    val trackInfo = currentTheme?.displayInfo(animeEntity)
-    val title = trackInfo?.primaryText ?: "Select a song"
-    val artist = trackInfo?.secondaryText ?: "Choose a track from your library"
-    val expandedTitle = currentTheme?.title ?: "Select a song"
-    val expandedArtist = currentTheme?.artistName ?: animeEntity?.title ?: "Choose a track from your library"
-    val eyebrowAnimeName = animeEntity?.title?.takeIf { it.isNotBlank() }
+    val currentEntry = npState.currentEntry
+    val currentItem = currentEntry?.item
+    val currentTheme = currentEntry?.themeOrNull
+    val currentSong = (currentItem as? PlayableItem.RelatedSong)?.song
+    val animeEntity = currentItem?.anime ?: currentTheme?.animeId?.let { npState.animeMap[it] }
+    val backgroundArtUrl = currentItem?.display?.artworkUrl ?: animeEntity?.backgroundArtworkUrl()
+    val title = currentItem?.display?.title ?: "Select a song"
+    val artist = listOfNotNull(currentItem?.display?.artist, currentItem?.display?.animeTitle ?: currentItem?.display?.album)
+        .filter { it.isNotBlank() }
+        .joinToString(" · ")
+        .ifBlank { "Choose a track from your library" }
+    val expandedTitle = currentItem?.display?.title ?: "Select a song"
+    val expandedArtist = currentItem?.display?.artist ?: animeEntity?.title ?: "Choose a track from your library"
+    val eyebrowAnimeName = currentItem?.display?.animeTitle?.takeIf { it.isNotBlank() }
     val eyebrowThemeTag = formatThemeTag(currentTheme?.themeType)
     val upNextEntry = npState.upcomingEntries.firstOrNull { entry ->
         val queueIdx = npState.indexOfQueueId(entry.queueId)
-        !dislikedThemeIds.contains(entry.theme.id) || npState.unskippedIndices.contains(queueIdx)
+        entry.themeOrNull?.id !in dislikedThemeIds || entry.queueId in npState.unskippedEntryIds
     }
-    val upNextTheme = upNextEntry?.theme
-    val upNextAnime = upNextTheme?.animeId?.let { npState.animeMap[it] }
-    val upNextArtworkUrls = upNextAnime?.primaryArtworkUrls() ?: emptyList()
-    val upNextAnimeName = upNextAnime?.title?.takeIf { it.isNotBlank() } ?: "Nothing queued"
+    val upNextTheme = upNextEntry?.themeOrNull
+    val upNextItem = upNextEntry?.item
+    val upNextAnime = upNextItem?.anime ?: upNextTheme?.animeId?.let { npState.animeMap[it] }
+    val upNextArtworkUrls = buildList {
+        upNextItem?.display?.artworkUrl?.let(::add)
+        addAll(upNextAnime?.primaryArtworkUrls().orEmpty())
+    }.distinct()
+    val upNextAnimeName = upNextItem?.display?.animeTitle ?: upNextItem?.display?.album ?: "Nothing queued"
     val upNextThemeTag = formatThemeTag(upNextTheme?.themeType)
+    val isExpanded = progress > 0.5f
+    val configuration = LocalConfiguration.current
+    val expandedArtworkSize = expandedPlayerArtworkSize(
+        configuration.screenWidthDp.dp,
+        configuration.screenHeightDp.dp
+    )
+    val artHorizontalInset = if (modeUiState.isVideo) 0 else PLAYER_CONTENT_MARGIN_DP
+    val fullscreenVideo = isFullscreenVideo(
+        orientation = configuration.orientation,
+        isVideo = modeUiState.isVideo,
+        isExpanded = isExpanded
+    )
+
+    pendingModeConfirmation?.let { (queueId, confirmation) ->
+        AlertDialog(
+            onDismissRequest = { pendingModeConfirmation = null },
+            title = { Text("Content warning") },
+            text = { Text(confirmation.warning.message) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingModeConfirmation = null
+                        if (npState.currentEntry?.queueId == queueId) {
+                            viewModel.selectThemeMode(confirmation.mode)
+                        }
+                    }
+                ) { Text("Play video") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingModeConfirmation = null }) { Text("Cancel") }
+            }
+        )
+    }
 
     val topInsetDp = WindowInsets.systemBars.asPaddingValues().calculateTopPadding().value.toInt()
-    val endTopMargin = max(16, topInsetDp + 16)
+    // Sit just clear of the status bar rather than well below it. Every dp saved here is a dp
+    // the artwork can use, and the header was reading as floating in the middle of the gap.
+    val endTopMargin = max(8, topInsetDp + 6)
 
     val motionScene = MotionScene("""{
             ConstraintSets: {
@@ -225,15 +326,15 @@ fun PlayerScreen(
                  end: {
                      bg: { width: 'spread', height: 'spread', start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], bottom: ['parent', 'bottom'] },
                      topBar: { width: 'spread', height: 48, start: ['parent', 'start', 16], end: ['parent', 'end', 16], top: ['parent', 'top', $endTopMargin], alpha: 1 },
-                     art: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['topBar', 'bottom', 8], custom: { corner: 24 } },
-                     titles: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['art', 'bottom', 12] },
+                     art: { width: 'spread', height: ${expandedArtworkSize.value}, start: ['parent', 'start', $artHorizontalInset], end: ['parent', 'end', $artHorizontalInset], top: ['topBar', 'bottom', 6], custom: { corner: 24 } },
+                     titles: { width: 'spread', height: 'wrap', start: ['parent', 'start', 24], end: ['parent', 'end', 24], top: ['art', 'bottom', 8] },
                      statusBadge: { width: 'wrap', height: 'wrap', end: ['art', 'end', 8], bottom: ['art', 'bottom', 8], alpha: 0 },
-                     playPause: { width: 72, height: 72, start: ['parent', 'start'], end: ['parent', 'end'], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
+                     playPause: { width: 68, height: 68, start: ['parent', 'start'], end: ['parent', 'end'], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
                      next: { width: 48, height: 48, start: ['playPause', 'end', 12], top: ['playbackControls', 'top'], bottom: ['playbackControls', 'bottom'] },
                      miniProgress: { width: 'spread', height: 2, start: ['parent', 'start'], end: ['parent', 'end'], top: ['parent', 'top'], alpha: 0 },
-                     sliderControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 20], end: ['parent', 'end', 20], top: ['titles', 'bottom', 10], alpha: 1 },
-                     playbackControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 12], end: ['parent', 'end', 12], top: ['sliderControls', 'bottom', 8], alpha: 1 },
-                     reactionRow: { width: 'spread', height: 'wrap', start: ['parent', 'start', 72], end: ['parent', 'end', 72], top: ['playbackControls', 'bottom', 8], alpha: 1 },
+                     sliderControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', $PLAYER_CONTENT_MARGIN_DP], end: ['parent', 'end', $PLAYER_CONTENT_MARGIN_DP], top: ['titles', 'bottom', 6], alpha: 1 },
+                     playbackControls: { width: 'spread', height: 'wrap', start: ['parent', 'start', 12], end: ['parent', 'end', 12], top: ['sliderControls', 'bottom', 4], alpha: 1 },
+                     reactionRow: { width: 'spread', height: 'wrap', start: ['parent', 'start', 72], end: ['parent', 'end', 72], top: ['playbackControls', 'bottom', 4], bottom: ['upNextRow', 'top', 8], alpha: 1 },
                      upNextRow: { width: 'spread', height: 'wrap', start: ['parent', 'start', 16], end: ['parent', 'end', 16], bottom: ['parent', 'bottom', 24], alpha: 1 }
                  }
              },
@@ -274,94 +375,137 @@ fun PlayerScreen(
             }
         }
 
+        val onModeSelected: (PlaybackMode) -> Unit = { mode ->
+            when (val decision = modeUiState.selectionDecision(mode)) {
+                ModeSelectionDecision.Ignore -> Unit
+                is ModeSelectionDecision.Apply -> viewModel.selectThemeMode(decision.mode)
+                is ModeSelectionDecision.Confirm -> {
+                    npState.currentEntry?.queueId?.let { queueId ->
+                        pendingModeConfirmation = queueId to decision
+                    }
+                }
+            }
+        }
+
         val cornerProps = motionProperties(id = "art")
         val cornerRadius = cornerProps.value.int("corner") ?: 8
-        BoxWithConstraints(
-            modifier = Modifier.layoutId("art").shadow(if (isExpandedThreshold) 24.dp else 0.dp, RoundedCornerShape(cornerRadius.dp)).clip(RoundedCornerShape(cornerRadius.dp)).then(if (isExpandedThreshold) Modifier.background(Ink800, RoundedCornerShape(cornerRadius.dp)).border(1.dp, Mist200.copy(alpha=0.15f), RoundedCornerShape(cornerRadius.dp)) else Modifier),
+        val artSize = dpLerp(44.dp, expandedArtworkSize, progress.coerceIn(0f, 1f))
+        // Build the pager queue: exclude disliked tracks entirely so the user
+        // never sees them while swiping. This mirrors shouldIncludeInPlayer()
+        // in MediaControllerManager, keeping the pager and media player in sync.
+        val playableQueue = remember(npState.nowPlayingEntries, dislikedThemeIds, npState.unskippedEntryIds, npState.currentIndex) {
+            npState.nowPlayingEntries.mapIndexedNotNull { index, entry ->
+                val isCurrent = index == npState.currentIndex
+                val isUnskipped = entry.queueId in npState.unskippedEntryIds
+                val isNotDisliked = entry.themeOrNull?.id !in dislikedThemeIds
+
+                if (isCurrent || isUnskipped || isNotDisliked) {
+                    index to entry
+                } else {
+                    null
+                }
+            }
+        }
+
+        val currentPageIndex = playableQueue.indexOfFirst { it.first == npState.currentIndex }.coerceAtLeast(0)
+
+        val pagerState = androidx.compose.foundation.pager.rememberPagerState(
+            initialPage = currentPageIndex,
+            pageCount = { playableQueue.size }
+        )
+
+        var lastQueueVersion by remember { androidx.compose.runtime.mutableLongStateOf(npState.queueVersion) }
+
+        LaunchedEffect(currentPageIndex, npState.queueVersion) {
+            if (npState.queueVersion != lastQueueVersion) {
+                pagerState.scrollToPage(currentPageIndex)
+                lastQueueVersion = npState.queueVersion
+            } else if (pagerState.currentPage != currentPageIndex && !pagerState.isScrollInProgress) {
+                pagerState.animateScrollToPage(currentPageIndex)
+            }
+        }
+
+        LaunchedEffect(pagerState.isScrollInProgress) {
+            if (!pagerState.isScrollInProgress) {
+                if (pagerState.currentPage != currentPageIndex) {
+                    val targetItem = playableQueue.getOrNull(pagerState.currentPage)
+                    if (targetItem != null && targetItem.first != npState.currentIndex) {
+                        // Always navigate by exact queue index rather than using
+                        // seekToNext/seekToPrevious, which can rewind the current
+                        // track instead of changing it (ExoPlayer's default behaviour
+                        // when played past a few seconds).
+                        nowPlayingManager.skipTo(targetItem.first)
+                    }
+
+                    // Always force snap exactly to center to fix the 5% peeking issue
+                    if (kotlin.math.abs(pagerState.currentPageOffsetFraction) > 0.001f) {
+                        pagerState.animateScrollToPage(pagerState.currentPage)
+                    }
+                }
+            }
+        }
+
+        Box(
+            modifier = Modifier.layoutId("art"),
             contentAlignment = Alignment.Center
         ) {
-            val artSize = dpLerp(44.dp, maxWidth, progress.coerceIn(0f, 1f))
-            Box(
-                modifier = Modifier.size(artSize),
-                contentAlignment = Alignment.Center
-            ) {
-                // Build the pager queue: exclude disliked tracks entirely so the user
-                // never sees them while swiping. This mirrors shouldIncludeInPlayer()
-                // in MediaControllerManager, keeping the pager and media player in sync.
-                val playableQueue = remember(npState.nowPlaying, dislikedThemeIds, npState.unskippedIndices, npState.currentIndex) {
-                    npState.nowPlaying.mapIndexedNotNull { index, theme ->
-                        val isCurrent = index == npState.currentIndex
-                        val isUnskipped = npState.unskippedIndices.contains(index)
-                        val isNotDisliked = !dislikedThemeIds.contains(theme.id)
-
-                        if (isCurrent || isUnskipped || isNotDisliked) {
-                            index to theme
-                        } else {
-                            null
-                        }
-                    }
-                }
-
-                val currentPageIndex = playableQueue.indexOfFirst { it.first == npState.currentIndex }.coerceAtLeast(0)
-
-                val pagerState = androidx.compose.foundation.pager.rememberPagerState(
-                    initialPage = currentPageIndex,
-                    pageCount = { playableQueue.size }
-                )
-
-                var lastQueueVersion by remember { androidx.compose.runtime.mutableLongStateOf(npState.queueVersion) }
-
-                LaunchedEffect(currentPageIndex, npState.queueVersion) {
-                    if (npState.queueVersion != lastQueueVersion) {
-                        pagerState.scrollToPage(currentPageIndex)
-                        lastQueueVersion = npState.queueVersion
-                    } else if (pagerState.currentPage != currentPageIndex && !pagerState.isScrollInProgress) {
-                        pagerState.animateScrollToPage(currentPageIndex)
-                    }
-                }
-
-                LaunchedEffect(pagerState.isScrollInProgress) {
-                    if (!pagerState.isScrollInProgress) {
-                        if (pagerState.currentPage != currentPageIndex) {
-                            val targetItem = playableQueue.getOrNull(pagerState.currentPage)
-                            if (targetItem != null && targetItem.first != npState.currentIndex) {
-                                // Always navigate by exact queue index rather than using
-                                // seekToNext/seekToPrevious, which can rewind the current
-                                // track instead of changing it (ExoPlayer's default behaviour
-                                // when played past a few seconds).
-                                nowPlayingManager.skipTo(targetItem.first)
-                            }
-
-                            // Always force snap exactly to center to fix the 5% peeking issue
-                            if (kotlin.math.abs(pagerState.currentPageOffsetFraction) > 0.001f) {
-                                pagerState.animateScrollToPage(pagerState.currentPage)
-                            }
-                        }
-                    }
-                }
-
-                androidx.compose.foundation.pager.HorizontalPager(
+            androidx.compose.foundation.pager.HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                pageSpacing = if (modeUiState.isVideo) 0.dp else 16.dp,
+                userScrollEnabled = isSlightlyExpanded,
+                flingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(
                     state = pagerState,
-                    modifier = Modifier.fillMaxSize(),
-                    pageSpacing = 16.dp,
-                    userScrollEnabled = isSlightlyExpanded,
-                    flingBehavior = androidx.compose.foundation.pager.PagerDefaults.flingBehavior(
-                        state = pagerState,
-                        snapPositionalThreshold = 0.8f
-                    )
-                ) { page ->
-                    val theme = playableQueue.getOrNull(page)?.second
-                    val anime = theme?.animeId?.let { npState.animeMap[it] }
-                    val pageArtUrls = anime?.primaryArtworkUrls() ?: emptyList()
-                    val pageTitle = theme?.displayInfo(anime)?.primaryText ?: title
-                    if (pageArtUrls.isNotEmpty()) {
-                        FallbackAsyncImage(
-                            urls = pageArtUrls,
-                            contentDescription = pageTitle,
-                            modifier = Modifier.fillMaxSize(),
-                            loadOriginalSize = playerArtworkLoadsOriginalSize(progress),
-                            crossfade = true
+                    snapPositionalThreshold = 0.8f
+                )
+            ) { page ->
+                if (modeUiState.isVideo) {
+                    if (fullscreenVideo) {
+                        Box(Modifier.fillMaxSize().background(Color.Black))
+                    } else if (page == pagerState.currentPage) {
+                        PlayerVideoSurface(
+                            controller = mediaController,
+                            modifier = Modifier.fillMaxSize()
                         )
+                    } else {
+                        Box(Modifier.fillMaxSize().background(Color.Black))
+                    }
+                } else {
+                    val entry = playableQueue.getOrNull(page)?.second
+                    val item = entry?.item
+                    val theme = entry?.themeOrNull
+                    val anime = item?.anime ?: theme?.animeId?.let { npState.animeMap[it] }
+                    val pageArtUrls = buildList {
+                        item?.display?.artworkUrl?.let(::add)
+                        addAll(anime?.primaryArtworkUrls().orEmpty())
+                    }.distinct()
+                    val pageTitle = item?.display?.title ?: title
+                    // A pager page lays its content out top-start by default. Without this the
+                    // artwork hugs the left edge of its page whenever it is narrower than the
+                    // page — which is any time the size cap binds — and reads as off-centre.
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(artSize)
+                                .shadow(if (isExpandedThreshold) 24.dp else 0.dp, RoundedCornerShape(cornerRadius.dp))
+                                .clip(RoundedCornerShape(cornerRadius.dp))
+                                .background(Ink800, RoundedCornerShape(cornerRadius.dp))
+                                .border(1.dp, Mist200.copy(alpha = 0.15f), RoundedCornerShape(cornerRadius.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (pageArtUrls.isNotEmpty()) {
+                                FallbackAsyncImage(
+                                    urls = pageArtUrls,
+                                    contentDescription = pageTitle,
+                                    modifier = Modifier.fillMaxSize(),
+                                    loadOriginalSize = playerArtworkLoadsOriginalSize(progress),
+                                    crossfade = true
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -378,7 +522,8 @@ fun PlayerScreen(
             horizontalAlignment = if (isExpandedThreshold) Alignment.CenterHorizontally else Alignment.Start
         ) {
             if (isExpandedThreshold) {
-                if (eyebrowAnimeName != null || eyebrowThemeTag != null) {
+                val showsModeChip = modeUiState.showsModeChip()
+                if (eyebrowAnimeName != null || eyebrowThemeTag != null || showsModeChip) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -387,6 +532,9 @@ fun PlayerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (eyebrowAnimeName != null) {
+                            // Only the anime name flexes. The theme tag and the
+                            // mode chip keep their intrinsic width so a long
+                            // title marquees rather than squeezing them out.
                             MarqueeText(
                                 text = eyebrowAnimeName,
                                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
@@ -410,6 +558,17 @@ fun PlayerScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
+                        if (showsModeChip && (eyebrowAnimeName != null || eyebrowThemeTag != null)) {
+                            Text(
+                                text = "  \u00B7  ",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = Mist200
+                            )
+                        }
+                        PlayerModeChip(
+                            state = modeUiState,
+                            onModeSelected = onModeSelected
+                        )
                     }
                 }
                 MarqueeText(
@@ -546,22 +705,75 @@ fun PlayerScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
          ) {
-             IconButton(onClick = { currentTheme?.id?.let { viewModel.toggleDislike(it) } }) {
-                 Icon(
-                     Icons.Rounded.ThumbDown,
-                     "Dislike",
-                     tint = if (currentPreference?.isDisliked == true) Rose500 else Mist200,
-                     modifier = Modifier.size(26.dp)
-                 )
+             if (currentTheme != null) {
+                 IconButton(onClick = {
+                     if (currentPreference?.isDisliked == true) {
+                         viewModel.toggleDislike(currentTheme.id)
+                     } else {
+                         scopedDislikeThemeId = currentTheme.id
+                         viewModel.toggleDislike(currentTheme.id)
+                     }
+                 }) {
+                     Icon(
+                         Icons.Rounded.ThumbDown,
+                         if (currentPreference?.isDisliked == true) {
+                             "Remove dislike"
+                         } else {
+                             "Dislike all versions, or choose one version only"
+                         },
+                         tint = if (currentPreference?.isDisliked == true) Rose500 else Mist200,
+                         modifier = Modifier.size(26.dp)
+                     )
+                 }
+             } else {
+                 IconButton(onClick = { currentSong?.id?.let(viewModel::toggleSongDislike) }) {
+                     Icon(
+                         Icons.Rounded.ThumbDown,
+                         if (currentSongPreference?.isDisliked == true) "Remove Dislike" else "Dislike",
+                         tint = if (currentSongPreference?.isDisliked == true) Rose500 else Mist200,
+                         modifier = Modifier.size(26.dp)
+                     )
+                 }
+                 Spacer(Modifier.size(48.dp))
              }
-             IconButton(onClick = { currentTheme?.id?.let { viewModel.toggleLike(it) } }) {
+             IconButton(onClick = {
+                 currentTheme?.id?.let(viewModel::toggleLike)
+                     ?: currentSong?.id?.let(viewModel::toggleSongLike)
+             }) {
                  Icon(
                      Icons.Rounded.ThumbUp,
-                     "Like",
-                     tint = if (currentPreference?.isLiked == true) Rose500 else Mist200,
+                     if (currentPreference?.isLiked == true || currentSongPreference?.isLiked == true) "Remove Like" else "Like",
+                     tint = if (currentPreference?.isLiked == true || currentSongPreference?.isLiked == true) Rose500 else Mist200,
                      modifier = Modifier.size(26.dp)
                  )
             }
+        }
+
+        scopedDislikeThemeId?.let { themeId ->
+            AlertDialog(
+                onDismissRequest = { scopedDislikeThemeId = null },
+                title = { Text("Dislike this theme") },
+                text = { Text("All versions are now hidden. Choose one option to keep the other version visible instead.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.setOnlyModeDislike(themeId, fullSize = true)
+                        scopedDislikeThemeId = null
+                    }) {
+                        Text("Full Size only")
+                    }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(onClick = {
+                            viewModel.setOnlyModeDislike(themeId, fullSize = false)
+                            scopedDislikeThemeId = null
+                        }) {
+                            Text("TV Size only")
+                        }
+                        TextButton(onClick = { scopedDislikeThemeId = null }) { Text("Cancel") }
+                    }
+                }
+            )
         }
 
         Row(
@@ -632,6 +844,27 @@ fun PlayerScreen(
             )
         }
     }
+
+    if (fullscreenVideo) {
+        LandscapeVideoOverlay(
+            controller = mediaController,
+            isPlaying = pbState.isPlaying,
+            isLiked = currentPreference?.isLiked == true || currentSongPreference?.isLiked == true,
+            isDisliked = currentPreference?.isDisliked == true || currentSongPreference?.isDisliked == true,
+            onToggleLike = {
+                currentTheme?.id?.let(viewModel::toggleLike)
+                    ?: currentSong?.id?.let(viewModel::toggleSongLike)
+            },
+            onToggleDislike = {
+                currentTheme?.id?.let(viewModel::toggleDislike)
+                    ?: currentSong?.id?.let(viewModel::toggleSongDislike)
+            },
+            onPrevious = controllerManager::seekToPrevious,
+            onPlayPause = { if (pbState.isPlaying) controllerManager.pause() else controllerManager.play() },
+            onNext = controllerManager::seekToNext,
+            modifier = Modifier.fillMaxSize()
+        )
+    }
 }
 
 /**
@@ -640,6 +873,42 @@ fun PlayerScreen(
  * mini-player decode cannot remain stretched across the full player.
  */
 internal fun playerArtworkLoadsOriginalSize(progress: Float): Boolean = progress > 0.1f
+
+/**
+ * The horizontal margin shared by the expanded player's artwork and its seek bar, so the
+ * two edges line up and cannot drift apart. Artwork is allowed to grow until it hits this
+ * margin, which is the tightest the expanded player ever gets.
+ */
+internal const val PLAYER_CONTENT_MARGIN_DP = 20
+
+/**
+ * Vertical space the expanded player's control stack needs below the artwork: the title block,
+ * seek bar, transport row, reaction row and the Up Next card, plus comfortable gaps between
+ * them. Artwork yields to this rather than the other way round, so the reaction row never gets
+ * squeezed down against Up Next.
+ */
+internal const val PLAYER_STACK_BELOW_ART_DP = 545
+
+/** Never shrink the artwork past this, even on a very short window. */
+internal const val PLAYER_ARTWORK_MIN_DP = 200
+
+/** Never grow past this, so a tablet does not turn a square image into a control-stack blocker. */
+internal const val PLAYER_ARTWORK_MAX_DP = 400
+
+/**
+ * Artwork is the flexible element of the expanded player. It grows until either its margins
+ * match the seek bar's or the control stack below it would start to crowd, whichever binds
+ * first, so everything fits on screen with even spacing.
+ */
+internal fun expandedPlayerArtworkSize(
+    screenWidth: androidx.compose.ui.unit.Dp,
+    availableHeight: androidx.compose.ui.unit.Dp
+): androidx.compose.ui.unit.Dp {
+    val widthBound = (screenWidth - (PLAYER_CONTENT_MARGIN_DP * 2).dp).coerceAtLeast(0.dp)
+    val heightBound = availableHeight - PLAYER_STACK_BELOW_ART_DP.dp
+    return minOf(widthBound, heightBound)
+        .coerceIn(PLAYER_ARTWORK_MIN_DP.dp, PLAYER_ARTWORK_MAX_DP.dp)
+}
 
 @Composable
 fun PlayerBackgroundArt(imageUrl: String?) {

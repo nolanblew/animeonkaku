@@ -5,7 +5,9 @@ services:
         required: false
     environment:
       MEDIA_ROOT: /data/media
+      AMF_LIBRARY_ROOT: /mnt/amf-library
     volumes:
+      - ${AMF_LIBRARY_HOST_PATH:-/data/anime-fetcher/library}:/mnt/amf-library:ro
       - ${ONGAKU_DATA_ROOT:-/data/animeongaku}/media:/data/media
     networks:
       - default

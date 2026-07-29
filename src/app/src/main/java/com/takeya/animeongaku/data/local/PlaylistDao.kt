@@ -12,10 +12,10 @@ import kotlinx.coroutines.flow.Flow
 interface PlaylistDao {
     @Query(
         """
-        SELECT p.*, COUNT(t.id) AS trackCount
+        SELECT p.*, COUNT(pe.entryId) AS trackCount
         FROM playlists p
         LEFT JOIN playlist_entries pe ON p.id = pe.playlistId
-        LEFT JOIN themes t ON t.id = pe.themeId
+        LEFT JOIN themes t ON pe.itemType = 'THEME' AND t.id = pe.itemId
         WHERE p.deletedAt IS NULL
         GROUP BY p.id
         ORDER BY p.createdAt DESC
@@ -30,7 +30,7 @@ interface PlaylistDao {
         """
         SELECT t.*, pe.orderIndex AS orderIndex
         FROM playlist_entries pe
-        JOIN themes t ON t.id = pe.themeId
+        JOIN themes t ON pe.itemType = 'THEME' AND t.id = pe.itemId
         JOIN playlists p ON p.id = pe.playlistId
         WHERE pe.playlistId = :playlistId
           AND p.deletedAt IS NULL
@@ -39,14 +39,29 @@ interface PlaylistDao {
     )
     fun observePlaylistTracks(playlistId: Long): Flow<List<PlaylistTrack>>
 
+    @Query("SELECT * FROM playlist_entries WHERE playlistId = :playlistId ORDER BY orderIndex ASC")
+    fun observePlaylistEntries(playlistId: Long): Flow<List<PlaylistEntryEntity>>
+
+    @Query("SELECT * FROM playlist_entries WHERE playlistId = :playlistId ORDER BY orderIndex ASC")
+    suspend fun getPlaylistEntries(playlistId: Long): List<PlaylistEntryEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPlaylist(playlist: PlaylistEntity): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEntries(entries: List<PlaylistEntryEntity>)
 
-    @Query("DELETE FROM playlist_entries WHERE playlistId = :playlistId AND themeId = :themeId")
+    @Query("DELETE FROM playlist_entries WHERE playlistId = :playlistId AND itemType = 'THEME' AND itemId = :themeId")
     suspend fun deleteEntry(playlistId: Long, themeId: Long)
+
+    @Query("DELETE FROM playlist_entries WHERE playlistId = :playlistId AND entryId = :entryId")
+    suspend fun deleteEntryById(playlistId: Long, entryId: Long)
+
+    @Query("UPDATE playlist_entries SET modeOverride = :modeOverride WHERE playlistId = :playlistId AND entryId = :entryId")
+    suspend fun updateEntryMode(playlistId: Long, entryId: Long, modeOverride: String?)
+
+    @Query("UPDATE playlists SET defaultMode = :defaultMode, updatedAt = :updatedAt WHERE id = :playlistId")
+    suspend fun updateDefaultMode(playlistId: Long, defaultMode: String, updatedAt: Long)
 
     @Query("SELECT COUNT(*) FROM playlist_entries WHERE playlistId = :playlistId")
     suspend fun countEntries(playlistId: Long): Int
@@ -78,7 +93,7 @@ interface PlaylistDao {
     @Query("SELECT * FROM playlists WHERE id IN (:playlistIds)")
     suspend fun getPlaylistsByIdsIncludingDeleted(playlistIds: List<Long>): List<PlaylistEntity>
 
-    @Query("SELECT themeId FROM playlist_entries WHERE playlistId = :playlistId ORDER BY orderIndex ASC")
+    @Query("SELECT itemId FROM playlist_entries WHERE playlistId = :playlistId AND itemType = 'THEME' ORDER BY orderIndex ASC")
     suspend fun getThemeIdsInPlaylist(playlistId: Long): List<Long>
 
     @Query("SELECT id FROM playlists WHERE name = :name AND deletedAt IS NULL LIMIT 1")
@@ -100,7 +115,7 @@ interface PlaylistDao {
         SELECT a.coverUrl, a.thumbnailUrl
         FROM playlist_entries pe
         JOIN playlists p ON p.id = pe.playlistId
-        JOIN themes t ON t.id = pe.themeId
+        JOIN themes t ON pe.itemType = 'THEME' AND t.id = pe.itemId
         JOIN anime a ON a.animeThemesId = t.animeId
         WHERE pe.playlistId = :playlistId
           AND p.deletedAt IS NULL
@@ -115,7 +130,7 @@ interface PlaylistDao {
         SELECT a.coverUrl, a.thumbnailUrl
         FROM playlist_entries pe
         JOIN playlists p ON p.id = pe.playlistId
-        JOIN themes t ON t.id = pe.themeId
+        JOIN themes t ON pe.itemType = 'THEME' AND t.id = pe.itemId
         JOIN anime a ON a.animeThemesId = t.animeId
         WHERE pe.playlistId = :playlistId
           AND p.deletedAt IS NULL
@@ -130,7 +145,7 @@ interface PlaylistDao {
         SELECT pe.playlistId, a.coverUrl, a.thumbnailUrl
         FROM playlist_entries pe
         JOIN playlists p ON p.id = pe.playlistId
-        JOIN themes t ON t.id = pe.themeId
+        JOIN themes t ON pe.itemType = 'THEME' AND t.id = pe.itemId
         JOIN anime a ON a.animeThemesId = t.animeId
         WHERE (NULLIF(a.coverUrl, '') IS NOT NULL OR NULLIF(a.thumbnailUrl, '') IS NOT NULL)
           AND p.deletedAt IS NULL
@@ -140,10 +155,10 @@ interface PlaylistDao {
     fun observeAllPlaylistCoverUrls(): Flow<List<PlaylistCoverRow>>
 
     @Query("""
-        SELECT p.*, COUNT(t.id) AS trackCount
+        SELECT p.*, COUNT(pe.entryId) AS trackCount
         FROM playlists p
         LEFT JOIN playlist_entries pe ON p.id = pe.playlistId
-        LEFT JOIN themes t ON t.id = pe.themeId
+        LEFT JOIN themes t ON pe.itemType = 'THEME' AND t.id = pe.itemId
         WHERE p.name LIKE '%' || :query || '%'
           AND p.deletedAt IS NULL
         GROUP BY p.id

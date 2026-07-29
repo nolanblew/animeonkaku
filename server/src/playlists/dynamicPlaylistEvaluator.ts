@@ -212,16 +212,32 @@ export class DrizzleDynamicPlaylistEvaluator {
   }
 
   private async saveEntries(playlistId: number, themeIds: number[], db: DbOrTx): Promise<void> {
-    await db.delete(playlistEntries).where(eq(playlistEntries.playlistId, playlistId));
-    if (themeIds.length > 0) {
+    const existing = await db
+      .select({ itemType: playlistEntries.itemType, itemId: playlistEntries.itemId, modeOverride: playlistEntries.modeOverride })
+      .from(playlistEntries)
+      .where(eq(playlistEntries.playlistId, playlistId))
+      .orderBy(asc(playlistEntries.orderIndex));
+    const unchanged = existing.length === themeIds.length && existing.every((item, index) =>
+      item.itemType === "THEME" && item.itemId === themeIds[index] && item.modeOverride === null);
+    if (!unchanged) {
+      await db.delete(playlistEntries).where(eq(playlistEntries.playlistId, playlistId));
+    }
+    if (!unchanged && themeIds.length > 0) {
       await db.insert(playlistEntries).values(
-        themeIds.map((themeId, orderIndex) => ({ playlistId, themeId, orderIndex })),
+        themeIds.map((themeId, orderIndex) => ({
+          playlistId,
+          itemType: "THEME" as const,
+          itemId: themeId,
+          orderIndex,
+        })),
       );
     }
-    await db
-      .update(playlists)
-      .set({ updatedAt: this.now() })
-      .where(eq(playlists.id, playlistId));
+    if (!unchanged) {
+      await db
+        .update(playlists)
+        .set({ updatedAt: this.now() })
+        .where(eq(playlists.id, playlistId));
+    }
   }
 }
 

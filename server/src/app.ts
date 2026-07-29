@@ -5,6 +5,7 @@ import {
   validatorCompiler,
 } from "fastify-type-provider-zod";
 import { registerAuthRoutes } from "./api/authRoutes.js";
+import { registerAdminRoutes, type AdminDashboardApi, type MusicSearchSettingsApi } from "./admin/routes.js";
 import { registerClientRoutes, type ClientApiService } from "./api/clientRoutes.js";
 import { ApiError, errorEnvelope } from "./api/errors.js";
 import { registerHealthRoutes, type HealthDeps } from "./api/healthRoutes.js";
@@ -15,6 +16,8 @@ import { KitsuAuthError, type UserRecord } from "./auth/types.js";
 import { registerJobAdminRoutes, type JobAdminService } from "./jobs/adminRoutes.js";
 import type { LegacyLibraryImportService } from "./legacyLibraryImport.js";
 import { registerSyncRoutes, type SyncApiService } from "./api/syncRoutes.js";
+import { registerMusicRequestRoutes, type MusicRequestService } from "./music/requests/index.js";
+import { registerMusicOperatorRoutes, type MusicOperatorApiService } from "./music/operator/index.js";
 
 export interface AppDeps {
   authService: AuthService;
@@ -25,6 +28,11 @@ export interface AppDeps {
   syncApi?: SyncApiService;
   proxyApi?: ProxyApiService;
   legacyLibraryImport?: LegacyLibraryImportService;
+  musicRequests?: MusicRequestService;
+  musicOperator?: MusicOperatorApiService;
+  musicSearchSettings?: MusicSearchSettingsApi;
+  adminDashboard?: AdminDashboardApi;
+  adminPassword?: string;
   onLogin?: (result: LoginResult) => Promise<void>;
   /**
    * Fires after every request that carried a valid session (post-response, so
@@ -79,6 +87,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
 
   registerHealthRoutes(app, deps.health);
+  if (deps.musicSearchSettings) {
+    registerAdminRoutes(app, deps.musicSearchSettings, deps.adminPassword ?? "Password123", deps.adminDashboard);
+  }
   registerApiRoutes(app, deps);
   app.register(
     (api, _opts, done) => {
@@ -111,4 +122,8 @@ function registerApiRoutes(app: FastifyInstance, deps: AppDeps): void {
   if (deps.jobs) {
     registerJobAdminRoutes(app, deps.authService, deps.jobs);
   }
+  if (deps.musicRequests) {
+    registerMusicRequestRoutes(app, deps.authService, deps.musicRequests);
+  }
+  if (deps.musicOperator) registerMusicOperatorRoutes(app, deps.authService, deps.musicOperator);
 }

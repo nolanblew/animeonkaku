@@ -83,6 +83,7 @@ export class DrizzleAutoPlaylistRefresher {
         isAuto: playlists.isAuto,
         autoKind: playlists.autoKind,
         gradientSeed: playlists.gradientSeed,
+        defaultMode: playlists.defaultMode,
         deletedAt: playlists.deletedAt,
       })
       .from(playlists)
@@ -106,14 +107,17 @@ export class DrizzleAutoPlaylistRefresher {
       )[0]!.id;
 
     const existingRow = existing[0] ?? null;
-    const existingThemeIds = existingRow ? await this.autoPlaylistThemeIds(playlistId) : [];
+    const existingEntries = existingRow ? await this.autoPlaylistEntries(playlistId) : [];
+    const existingThemeIds = existingEntries.flatMap((entry) => entry.itemType === "THEME" ? [entry.itemId] : []);
     const metadataChanged =
       existingRow === null ||
       !existingRow.isAuto ||
       existingRow.autoKind !== spec.kind ||
       existingRow.gradientSeed !== gradient ||
+      existingRow.defaultMode !== "TV_SIZE" ||
       existingRow.deletedAt !== null;
-    const entriesChanged = !orderedThemeIdsMatch(existingThemeIds, nextThemeIds);
+    const entriesChanged = existingEntries.some((entry) => entry.itemType !== "THEME" || entry.modeOverride !== null)
+      || !orderedThemeIdsMatch(existingThemeIds, nextThemeIds);
     if (!metadataChanged && !entriesChanged) {
       return;
     }
@@ -124,6 +128,7 @@ export class DrizzleAutoPlaylistRefresher {
         isAuto: true,
         autoKind: spec.kind,
         gradientSeed: gradient,
+        defaultMode: "TV_SIZE",
         deletedAt: null,
         updatedAt: new Date(),
       })
@@ -133,7 +138,8 @@ export class DrizzleAutoPlaylistRefresher {
       await this.db.delete(playlistEntries).where(eq(playlistEntries.playlistId, playlistId));
       const entries = nextThemeIds.map((themeId, index) => ({
         playlistId,
-        themeId,
+        itemType: "THEME" as const,
+        itemId: themeId,
         orderIndex: index,
       }));
       if (entries.length > 0) {
@@ -142,13 +148,13 @@ export class DrizzleAutoPlaylistRefresher {
     }
   }
 
-  private async autoPlaylistThemeIds(playlistId: number): Promise<number[]> {
+  private async autoPlaylistEntries(playlistId: number) {
     const rows = await this.db
-      .select({ themeId: playlistEntries.themeId })
+      .select({ itemType: playlistEntries.itemType, itemId: playlistEntries.itemId, modeOverride: playlistEntries.modeOverride })
       .from(playlistEntries)
       .where(eq(playlistEntries.playlistId, playlistId))
       .orderBy(asc(playlistEntries.orderIndex));
-    return rows.map((row) => row.themeId);
+    return rows;
   }
 }
 

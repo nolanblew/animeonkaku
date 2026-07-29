@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,10 +19,17 @@ import { FakeJobRepository } from "./helpers/fakeJobRepository.js";
 
 class FakeMediaRepo implements MediaApiRepository {
   audio = new Map<number, Awaited<ReturnType<MediaApiRepository["findAudio"]>>>();
+  songs = new Map<number, Awaited<ReturnType<MediaApiRepository["findSongAudio"]>>>();
   images = new Map<string, Awaited<ReturnType<MediaApiRepository["findImage"]>>>();
+  songLookups = 0;
 
   async findAudio(themeId: number) {
     return this.audio.get(themeId) ?? null;
+  }
+
+  async findSongAudio(songId: number) {
+    this.songLookups++;
+    return this.songs.get(songId) ?? null;
   }
 
   async findImage(kind: "ANIME_POSTER" | "ANIME_COVER" | "ARTIST_IMAGE", refId: string) {
@@ -38,6 +45,7 @@ let mediaRoot: string;
 let fetchCalls: Array<{ input: RequestInfo | URL; init?: RequestInit }>;
 let mediaFetch: NonNullable<MediaStreamingServiceDeps["fetch"]>;
 let logs: Array<{ data: unknown; message: string }>;
+let extraRoots: string[];
 
 beforeEach(async () => {
   mediaRoot = mkdtempSync(join(tmpdir(), "ongaku-media-api-"));
@@ -47,6 +55,7 @@ beforeEach(async () => {
   queue = new JobQueue(jobs);
   fetchCalls = [];
   logs = [];
+  extraRoots = [];
   mediaFetch = async (input, init) => {
     fetchCalls.push({ input, init });
     return new Response(Buffer.from("jpeg-bytes"), {
@@ -65,6 +74,7 @@ beforeEach(async () => {
       logger: {
         info: (data, message) => logs.push({ data, message }),
       },
+      musicCatalogEnabled: true,
     }),
   });
 });
@@ -72,6 +82,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await app.close();
   await rm(mediaRoot, { recursive: true, force: true });
+  await Promise.all(extraRoots.map((root) => rm(root, { recursive: true, force: true })));
 });
 
 async function bearer(prefix = "") {
@@ -85,6 +96,183 @@ async function bearer(prefix = "") {
 }
 
 describe("media API routes", () => {
+  it.each(["GET", "HEAD"] as const)("requires bearer auth for catalog-song %s", async (method) => {
+    const res = await app.inject({ method, url: "/v1/media/songs/77/audio" });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("hides catalog-song audio behind MUSIC_CATALOG_ENABLED without querying storage", async () => {
+    await app.close();
+    app = buildApp({
+      authService: new AuthService(new FakeAuthRepo(), new StubKitsuAuthClient()),
+      health: { pingDb: async () => {}, mediaRoot },
+      mediaApi: new MediaStreamingService({
+        repo,
+        queue,
+        mediaRoot,
+        fetch: (input, init) => mediaFetch(input, init),
+        musicCatalogEnabled: false,
+      }),
+    });
+    const token = await bearer();
+
+    const [res, head] = await Promise.all([
+      app.inject({
+        method: "GET",
+        url: "/v1/media/songs/77/audio",
+        headers: { authorization: `Bearer ${token}` },
+      }),
+      app.inject({
+        method: "HEAD",
+        url: "/v1/media/songs/77/audio",
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    ]);
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ error: { code: "MUSIC_NOT_FOUND" } });
+    expect(head.statusCode).toBe(404);
+    expect(repo.songLookups).toBe(0);
+  });
+
+  it.each([
+    ["mp3", "audio/mpeg"],
+    ["flac", "audio/flac"],
+  ])("serves READY catalog-song .%s audio with its persisted content type and ranges", async (extension, contentType) => {
+    const contents = Buffer.from("0123456789abcdef");
+    const filePath = `audio/songs/77/original.${extension}`;
+    await mkdir(join(mediaRoot, "audio", "songs", "77"), { recursive: true });
+    writeFileSync(join(mediaRoot, filePath), contents);
+    repo.songs.set(77, {
+      songId: 77,
+      state: "READY",
+      filePath,
+      byteSize: contents.length,
+      sha256: "abc123",
+      contentType,
+      sourceFileName: `Theme Song.${extension}`,
+    });
+    const token = await bearer();
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/media/songs/77/audio",
+      headers: { authorization: `Bearer ${token}`, range: "bytes=2-5" },
+    });
+
+    expect(res.statusCode).toBe(206);
+    expect(res.headers["content-type"]).toBe(contentType);
+    expect(res.headers["content-range"]).toBe("bytes 2-5/16");
+    expect(res.headers.etag).toBe('"abc123"');
+    expect(res.headers["content-disposition"]).toBe(
+      `inline; filename*=UTF-8''Theme%20Song.${extension}`,
+    );
+    expect(res.body).toBe("2345");
+    expect(fetchCalls).toHaveLength(0);
+  });
+
+  it("returns HEAD metadata and rejects invalid catalog-song ranges", async () => {
+    const contents = Buffer.from("0123456789abcdef");
+    const filePath = "audio/songs/77/original.flac";
+    await mkdir(join(mediaRoot, "audio", "songs", "77"), { recursive: true });
+    writeFileSync(join(mediaRoot, filePath), contents);
+    repo.songs.set(77, {
+      songId: 77,
+      state: "READY",
+      filePath,
+      byteSize: contents.length,
+      sha256: "abc123",
+      contentType: "audio/flac",
+      sourceFileName: "Theme Song.flac",
+    });
+    const token = await bearer();
+
+    const head = await app.inject({
+      method: "HEAD",
+      url: "/v1/media/songs/77/audio",
+      headers: { authorization: `Bearer ${token}`, range: "bytes=2-5" },
+    });
+    const invalid = await app.inject({
+      method: "GET",
+      url: "/v1/media/songs/77/audio",
+      headers: { authorization: `Bearer ${token}`, range: "bytes=99-100" },
+    });
+
+    expect(head.statusCode).toBe(200);
+    expect(head.headers["content-type"]).toBe("audio/flac");
+    expect(head.headers["content-length"]).toBe(String(contents.length));
+    expect(head.headers["content-range"]).toBeUndefined();
+    expect(head.body).toBe("");
+    expect(invalid.statusCode).toBe(416);
+    expect(invalid.headers["content-range"]).toBe("bytes */16");
+  });
+
+  it("exposes only READY catalog-song media and reports a missing READY file", async () => {
+    repo.songs.set(77, {
+      songId: 77,
+      state: "DOWNLOADING",
+      filePath: null,
+      byteSize: null,
+      sha256: null,
+      contentType: null,
+      sourceFileName: null,
+    });
+    repo.songs.set(78, {
+      songId: 78,
+      state: "READY",
+      filePath: "audio/songs/78/original.mp3",
+      byteSize: 10,
+      sha256: "missing",
+      contentType: "audio/mpeg",
+      sourceFileName: "Missing.mp3",
+    });
+    const token = await bearer();
+
+    const hidden = await app.inject({
+      method: "GET",
+      url: "/v1/media/songs/77/audio",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const unavailable = await app.inject({
+      method: "GET",
+      url: "/v1/media/songs/78/audio",
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(hidden.statusCode).toBe(404);
+    expect(hidden.json()).toMatchObject({ error: { code: "MUSIC_NOT_FOUND" } });
+    expect(unavailable.statusCode).toBe(503);
+    expect(unavailable.json()).toMatchObject({ error: { code: "MUSIC_MEDIA_UNAVAILABLE" } });
+  });
+
+  it("refuses to stream a READY path redirected outside MEDIA_ROOT by a junction", async () => {
+    const escapedDirectory = mkdtempSync(join(tmpdir(), "ongaku-media-escape-"));
+    extraRoots.push(escapedDirectory);
+    writeFileSync(join(escapedDirectory, "original.mp3"), "must-not-stream");
+    await mkdir(join(mediaRoot, "audio", "songs"), { recursive: true });
+    symlinkSync(escapedDirectory, join(mediaRoot, "audio", "songs", "77"), "junction");
+    repo.songs.set(77, {
+      songId: 77,
+      state: "READY",
+      filePath: "audio/songs/77/original.mp3",
+      byteSize: 15,
+      sha256: "outside",
+      contentType: "audio/mpeg",
+      sourceFileName: "Outside.mp3",
+    });
+    const token = await bearer();
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/media/songs/77/audio",
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toMatchObject({ error: { code: "INTERNAL" } });
+    expect(res.body).not.toContain("must-not-stream");
+  });
+
   it("requires bearer auth for audio playback", async () => {
     const res = await app.inject({
       method: "GET",

@@ -1,12 +1,25 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, exists, isNull, or } from "drizzle-orm";
 import type { Db } from "../db/client.js";
-import { artists, kitsuAnime, mediaFiles, themes } from "../db/schema.js";
+import {
+  animeMusicReleases,
+  artists,
+  kitsuAnime,
+  mediaFiles,
+  musicAcquisitions,
+  musicReleases,
+  releaseTracks,
+  songs,
+  themeFullSongs,
+  themes,
+} from "../db/schema.js";
+import { catalogSongMediaDescriptor } from "../media/mediaLayout.js";
 import { CANONICAL_AUDIO, IMAGE_VARIANT, type MediaState } from "../media/types.js";
 import type {
   ImageRouteKind,
   MediaApiRepository,
   MediaAudioRecord,
   MediaImageRecord,
+  MediaSongAudioRecord,
 } from "./mediaRoutes.js";
 
 export class DrizzleMediaApiRepository implements MediaApiRepository {
@@ -44,6 +57,83 @@ export class DrizzleMediaApiRepository implements MediaApiRepository {
       byteSize: row.byteSize,
       sha256: row.sha256,
       videoFallback: row.videoFallback ?? false,
+    };
+  }
+
+  async findSongAudio(songId: number): Promise<MediaSongAudioRecord | null> {
+    const descriptor = catalogSongMediaDescriptor(songId);
+    const publishedFull = this.db
+      .select({ songId: themeFullSongs.songId })
+      .from(themeFullSongs)
+      .innerJoin(songs, and(eq(songs.id, themeFullSongs.songId), isNull(songs.deletedAt)))
+      .innerJoin(themes, and(eq(themes.id, themeFullSongs.themeId), isNull(themes.deletedAt)))
+      .innerJoin(
+        musicReleases,
+        and(eq(musicReleases.id, themeFullSongs.sourceReleaseId), isNull(musicReleases.deletedAt)),
+      )
+      .innerJoin(
+        musicAcquisitions,
+        and(
+          eq(musicAcquisitions.purpose, "FULL_SIZE"),
+          eq(musicAcquisitions.state, "READY"),
+          eq(musicAcquisitions.themeId, themeFullSongs.themeId),
+          eq(musicAcquisitions.songId, themeFullSongs.songId),
+          eq(musicAcquisitions.releaseId, themeFullSongs.sourceReleaseId),
+        ),
+      )
+      .where(eq(themeFullSongs.songId, songId));
+    const publishedRelated = this.db
+      .select({ songId: releaseTracks.songId })
+      .from(releaseTracks)
+      .innerJoin(songs, and(eq(songs.id, releaseTracks.songId), isNull(songs.deletedAt)))
+      .innerJoin(
+        musicReleases,
+        and(eq(musicReleases.id, releaseTracks.releaseId), isNull(musicReleases.deletedAt)),
+      )
+      .innerJoin(
+        animeMusicReleases,
+        eq(animeMusicReleases.releaseId, releaseTracks.releaseId),
+      )
+      .innerJoin(
+        musicAcquisitions,
+        and(
+          eq(musicAcquisitions.purpose, "RELATED_RELEASE"),
+          eq(musicAcquisitions.state, "READY"),
+          eq(musicAcquisitions.releaseId, animeMusicReleases.releaseId),
+          eq(musicAcquisitions.animethemesAnimeId, animeMusicReleases.animethemesAnimeId),
+        ),
+      )
+      .where(eq(releaseTracks.songId, songId));
+    const rows = await this.db
+      .select({
+        state: mediaFiles.state,
+        filePath: mediaFiles.filePath,
+        byteSize: mediaFiles.byteSize,
+        sha256: mediaFiles.sha256,
+        contentType: mediaFiles.contentType,
+        sourceFileName: mediaFiles.sourceFileName,
+      })
+      .from(mediaFiles)
+      .where(
+        and(
+          eq(mediaFiles.kind, descriptor.kind),
+          eq(mediaFiles.refId, descriptor.refId),
+          eq(mediaFiles.variant, descriptor.variant),
+          eq(mediaFiles.state, "READY"),
+          or(exists(publishedFull), exists(publishedRelated)),
+        ),
+      )
+      .limit(1);
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      songId,
+      state: mediaState(row.state),
+      filePath: row.filePath,
+      byteSize: row.byteSize,
+      sha256: row.sha256,
+      contentType: row.contentType,
+      sourceFileName: row.sourceFileName,
     };
   }
 

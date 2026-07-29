@@ -157,6 +157,9 @@ interface DownloadDao {
     @Query("SELECT * FROM download_group WHERE groupType = :type AND groupId = :groupId LIMIT 1")
     suspend fun findGroup(type: String, groupId: String): DownloadGroupEntity?
 
+    @Query("SELECT * FROM download_group WHERE groupType = :type AND groupId = :groupId ORDER BY id")
+    suspend fun findGroups(type: String, groupId: String): List<DownloadGroupEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertGroup(group: DownloadGroupEntity): Long
 
@@ -232,7 +235,7 @@ interface DownloadDao {
 
     @Query("""
         SELECT DISTINCT pe.playlistId FROM playlist_entries pe
-        INNER JOIN download_request dr ON pe.themeId = dr.themeId
+        INNER JOIN download_request dr ON pe.itemType = 'THEME' AND pe.itemId = dr.themeId
         WHERE dr.status = '${DownloadRequestEntity.STATUS_COMPLETED}'
     """)
     fun observePlaylistIdsWithDownloads(): Flow<List<Long>>
@@ -246,7 +249,7 @@ interface DownloadDao {
 
     @Query("""
         SELECT dr.themeId FROM download_request dr
-        INNER JOIN playlist_entries pe ON dr.themeId = pe.themeId
+        INNER JOIN playlist_entries pe ON pe.itemType = 'THEME' AND dr.themeId = pe.itemId
         WHERE pe.playlistId = :playlistId AND dr.status = '${DownloadRequestEntity.STATUS_COMPLETED}'
     """)
     fun observeDownloadedThemeIdsForPlaylist(playlistId: Long): Flow<List<Long>>

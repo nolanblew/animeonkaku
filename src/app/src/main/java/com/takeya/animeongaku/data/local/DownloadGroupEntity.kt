@@ -15,6 +15,7 @@ data class DownloadGroupEntity(
         const val TYPE_ANIME = "anime"
         const val TYPE_PLAYLIST = "playlist"
         const val TYPE_SINGLE = "single"
+        const val TYPE_ALBUM = "album"
     }
 }
 

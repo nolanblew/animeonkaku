@@ -20,7 +20,9 @@ import {
   kitsuAnime,
   libraryEntries,
   mediaFiles,
+  songs,
   themeArtists,
+  themeVideoSources,
   themes,
   users,
 } from "../db/schema.js";
@@ -272,6 +274,7 @@ export class DrizzleSyncRepository implements SyncRepository {
           name: anime.animeName,
           nameEn: anime.animeNameEn,
           coverUrl: anime.coverUrl,
+          slug: anime.animeSlug,
           syncedAt: new Date(),
         })
         .onConflictDoUpdate({
@@ -280,6 +283,7 @@ export class DrizzleSyncRepository implements SyncRepository {
             name: anime.animeName,
             nameEn: anime.animeNameEn,
             coverUrl: anime.coverUrl,
+            slug: anime.animeSlug,
             syncedAt: new Date(),
           },
         });
@@ -290,11 +294,12 @@ export class DrizzleSyncRepository implements SyncRepository {
         .insert(themes)
         .values({
           id: theme.themeId,
+          animethemesSongId: theme.animeThemesSongId,
           animethemesAnimeId: theme.animeId,
           title: theme.title,
           themeType: theme.themeType,
           audioOriginUrl: theme.audioUrl,
-          videoOriginUrl: theme.videoUrl,
+          videoOriginUrl: legacyVideoOriginUrl(theme),
           durationSeconds: null,
           updatedAt: new Date(),
           deletedAt: null,
@@ -302,15 +307,97 @@ export class DrizzleSyncRepository implements SyncRepository {
         .onConflictDoUpdate({
           target: themes.id,
           set: {
+            animethemesSongId: theme.animeThemesSongId,
             animethemesAnimeId: theme.animeId,
             title: theme.title,
             themeType: theme.themeType,
             audioOriginUrl: theme.audioUrl,
-            videoOriginUrl: theme.videoUrl,
+            videoOriginUrl: legacyVideoOriginUrl(theme),
             updatedAt: new Date(),
             deletedAt: null,
           },
         });
+    }
+
+    // AnimeThemes song IDs are global and may be reused by several themes.
+    // Persist one canonical song row now so discovery can attach acquired full
+    // audio without duplicating the recording later.
+    for (const theme of uniqueBy(
+      cleanThemes.filter((candidate) => candidate.animeThemesSongId !== null),
+      (candidate) => candidate.animeThemesSongId!,
+    )) {
+      const artistCredit = theme.artistName?.trim() ?? "";
+      const musicbrainzRecordingId = musicBrainzRecordingId(theme);
+      const songUpdate = {
+        title: theme.title,
+        normalizedTitle: normalizeCatalogText(theme.title),
+        artistCredit,
+        normalizedArtist: normalizeCatalogText(artistCredit),
+        updatedAt: new Date(),
+        deletedAt: null,
+        ...(musicbrainzRecordingId !== null ? { musicbrainzRecordingId } : {}),
+      };
+      await this.db
+        .insert(songs)
+        .values({
+          animethemesSongId: theme.animeThemesSongId!,
+          musicbrainzRecordingId,
+          title: theme.title,
+          normalizedTitle: normalizeCatalogText(theme.title),
+          artistCredit,
+          normalizedArtist: normalizeCatalogText(artistCredit),
+          durationSeconds: null,
+          updatedAt: new Date(),
+          deletedAt: null,
+        })
+        .onConflictDoUpdate({
+          target: songs.animethemesSongId,
+          // Omitting the column when the latest AnimeThemes payload lacks the
+          // resource preserves a recording ID learned by an earlier remap.
+          set: songUpdate,
+        });
+    }
+
+    // Video remains a remote AnimeThemes descriptor. Refresh every candidate
+    // on normal remapping, remove candidates no longer returned upstream, and
+    // never create media_files rows for these links.
+    for (const theme of cleanThemes) {
+      const candidateIds = theme.videoCandidates.map((candidate) => candidate.animeThemesVideoId);
+      const staleCondition = candidateIds.length > 0
+        ? and(
+            eq(themeVideoSources.themeId, theme.themeId),
+            notInArray(themeVideoSources.animethemesVideoId, candidateIds),
+          )
+        : eq(themeVideoSources.themeId, theme.themeId);
+      await this.db.delete(themeVideoSources).where(staleCondition);
+
+      for (const candidate of theme.videoCandidates) {
+        const values = {
+          animethemesVideoId: candidate.animeThemesVideoId,
+          animethemesEntryId: candidate.animeThemesEntryId,
+          themeId: theme.themeId,
+          entryVersion: candidate.entryVersion,
+          entryOrder: candidate.entryOrder,
+          link: candidate.link,
+          mimeType: candidate.mimeType,
+          resolution: candidate.resolution,
+          source: candidate.source,
+          spoiler: candidate.spoiler,
+          nsfw: candidate.nsfw,
+          creditless: candidate.creditless,
+          subbed: candidate.subbed,
+          lyrics: candidate.lyrics,
+          preferenceRank: candidate.preferenceRank,
+          updatedAt: new Date(),
+        };
+        await this.db
+          .insert(themeVideoSources)
+          .values(values)
+          .onConflictDoUpdate({
+            target: themeVideoSources.animethemesVideoId,
+            set: values,
+          });
+      }
     }
 
     const themeIds = cleanThemes.map((theme) => theme.themeId);
@@ -661,4 +748,24 @@ function slugify(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function normalizeCatalogText(value: string): string {
+  return value
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+/** Preserve the legacy equality marker used by the audio fetcher for webm fallback. */
+function legacyVideoOriginUrl(theme: AnimeThemeEntry): string | null {
+  return theme.videoFallback ? theme.audioUrl : theme.videoUrl;
+}
+
+function musicBrainzRecordingId(theme: AnimeThemeEntry): string | null {
+  return theme.songResources.find((resource) =>
+    resource.site.trim().toLowerCase() === "musicbrainz",
+  )?.externalId.trim() || null;
 }

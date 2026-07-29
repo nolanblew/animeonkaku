@@ -41,6 +41,9 @@ interface ThemeDao {
     @Query("SELECT * FROM themes WHERE id IN (:themeIds)")
     suspend fun getByIds(themeIds: List<Long>): List<ThemeEntity>
 
+    @Query("SELECT * FROM themes WHERE id IN (:themeIds)")
+    fun observeByIds(themeIds: List<Long>): Flow<List<ThemeEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(themes: List<ThemeEntity>)
 

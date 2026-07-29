@@ -46,6 +46,22 @@ const DEFAULT_TIMEOUTS_MS: Record<JobType, number> = {
   MAP_THEMES: 4 * 60_000,
   BACKFILL_SCAN: 2 * 60_000,
   AUTO_PLAYLIST_REFRESH: 2 * 60_000,
+  MUSIC_CATALOG_SCAN: 2 * 60_000,
+  DISCOVER_ANIME_MUSIC: 10 * 60_000,
+  // Reconciliation performs one provider status request and reschedules; it
+  // never waits for a download in-process.
+  RECONCILE_MUSIC_ACQUISITION: 2 * 60_000,
+  IMPORT_MUSIC_AUDIO: 10 * 60_000,
+  SUBMIT_AMF_MUSIC_BATCH: 2 * 60_000,
+  POLL_AMF_MUSIC_BATCH: 2 * 60_000,
+  // The batch job only plans chunks and enqueues IMPORT_AMF_MUSIC_ITEM jobs
+  // now (MC-S18) — it does no file I/O, so this is a generous ceiling.
+  IMPORT_AMF_MUSIC_BATCH: 2 * 60_000,
+  // A chunk of AMF_IMPORT_CHUNK_SIZE deliveries, each read in full twice
+  // (hash verification + copy verification).
+  IMPORT_AMF_MUSIC_ITEM: 10 * 60_000,
+  OPERATE_AMF_MUSIC_BATCH: 2 * 60_000,
+  RECONCILE_MUSIC_SEARCH_POLICY: 2 * 60_000,
 };
 
 export class JobWorker {

@@ -10,6 +10,8 @@ import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.ThemeArtistCrossRef
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.local.UserPreferenceEntity
+import com.takeya.animeongaku.data.local.ThemeModeEntity
+import com.takeya.animeongaku.data.local.SongPreferenceEntity
 
 interface LibraryPullCache {
     suspend fun existingThemes(themeIds: List<Long>): Map<Long, ThemeEntity>
@@ -19,6 +21,7 @@ interface LibraryPullCache {
         deletedThemeIds: List<Long>,
         anime: List<AnimeEntity>,
         themes: List<ThemeEntity>,
+        themeModes: List<ThemeModeEntity>,
         artistRefs: List<ThemeArtistCrossRef>,
         genres: List<GenreEntity>,
         genreRefs: List<AnimeGenreCrossRef>
@@ -26,8 +29,13 @@ interface LibraryPullCache {
 
     suspend fun applyThemePrefs(
         preferences: List<UserPreferenceEntity>,
-        playCounts: List<PlayCountEntity>
+        playCounts: List<PlayCountEntity>,
+        fullSnapshot: Boolean
     )
+
+    suspend fun applySongPrefs(preferences: List<SongPreferenceEntity>, fullSnapshot: Boolean)
+
+    suspend fun replaceMusicCatalog(snapshot: MusicCatalogSnapshot)
 
     suspend fun applyAutoPlaylists(
         deletedPlaylistIds: List<Long>,

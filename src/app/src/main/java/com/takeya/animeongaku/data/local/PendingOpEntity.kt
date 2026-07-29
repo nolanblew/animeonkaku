@@ -20,7 +20,7 @@ import androidx.room.PrimaryKey
 )
 data class PendingOpEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    /** Logical entity family: [ENTITY_THEME_PREF], [ENTITY_PLAYLIST], [ENTITY_LIBRARY], [ENTITY_PLAY]. */
+    /** Logical entity family: [ENTITY_THEME_PREF], [ENTITY_SONG_PREF], [ENTITY_PLAYLIST], [ENTITY_LIBRARY], [ENTITY_PLAY]. */
     val entityType: String,
     /** Stable key within the family: themeId, local playlistId, or kitsuId. */
     val entityKey: String,
@@ -35,6 +35,7 @@ data class PendingOpEntity(
 ) {
     companion object {
         const val ENTITY_THEME_PREF = "theme_pref"
+        const val ENTITY_SONG_PREF = "song_pref"
         const val ENTITY_PLAYLIST = "playlist"
         const val ENTITY_LIBRARY = "library"
         const val ENTITY_PLAY = "play"

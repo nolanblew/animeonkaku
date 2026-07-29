@@ -41,10 +41,9 @@ describe("playlist create contract", () => {
     // Create: spec is evaluated on the server for dynamic+autoUpdate playlists.
     expect(service).toMatch(/serverEvaluated[\s\S]*?dynamicPlaylistEvaluator\.refresh\(userId, playlistId\)/);
     // Update: same authority flip after a spec/autoUpdate change.
-    expect(service).toMatch(/state\?\.isDynamic && state\.autoUpdate[\s\S]*?dynamicPlaylistEvaluator\.refresh\(userId, id\)/);
-    // The LWW check must be part of the SQL write; a read-then-write check alone
-    // lets two concurrent operations commit in the wrong timestamp order.
-    expect(service).toMatch(/updatePlaylist[\s\S]*?lte\(playlists\.mutationUpdatedAt, opDate\)[\s\S]*?returning/);
+    expect(service).toMatch(/serverEvaluated = state\?\.isDynamic === true && state\.autoUpdate[\s\S]*?dynamicPlaylistEvaluator\.refresh\(userId, id\)/);
+    // Serialize the parent mutation clock and item replacement in one transaction.
+    expect(service).toMatch(/updatePlaylist[\s\S]*?this\.db\.transaction[\s\S]*?for\("update"\)[\s\S]*?shouldApplyWrite[\s\S]*?replacePlaylistItems/);
   });
 
   it("serializes refreshes before evaluation and materializes entries atomically", async () => {

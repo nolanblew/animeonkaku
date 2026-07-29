@@ -1,7 +1,15 @@
 import { and, eq } from "drizzle-orm";
 import type { Db } from "../db/client.js";
 import { mediaFiles } from "../db/schema.js";
-import type { MediaDescriptor, MediaFileRecord, MediaFileRepo, MediaKind, MediaState, MediaVariant, SaveMediaFileInput } from "./types.js";
+import type {
+  MediaDescriptor,
+  MediaFileRecord,
+  MediaFileRepo,
+  MediaKind,
+  MediaState,
+  MediaVariant,
+  SaveMediaFileInput,
+} from "./types.js";
 
 export class DrizzleMediaFileRepo implements MediaFileRepo {
   constructor(private readonly db: Db) {}
@@ -35,6 +43,8 @@ export class DrizzleMediaFileRepo implements MediaFileRepo {
       fetchedAt: row.fetchedAt,
       updatedAt: row.updatedAt,
       videoFallback: row.videoFallback,
+      contentType: row.contentType,
+      sourceFileName: row.sourceFileName,
     };
   }
 
@@ -47,6 +57,8 @@ export class DrizzleMediaFileRepo implements MediaFileRepo {
       errorMessage: null,
       updatedAt: new Date(),
       videoFallback: input.videoFallback,
+      contentType: input.contentType ?? null,
+      sourceFileName: input.sourceFileName ?? null,
     });
   }
 
@@ -61,6 +73,8 @@ export class DrizzleMediaFileRepo implements MediaFileRepo {
       updatedAt: new Date(),
       incrementAttempts: true,
       videoFallback: input.videoFallback,
+      contentType: input.contentType ?? null,
+      sourceFileName: input.sourceFileName ?? null,
     });
   }
 

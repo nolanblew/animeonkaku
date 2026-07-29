@@ -11,15 +11,31 @@ import javax.inject.Singleton
 
 @Singleton
 class NowPlayingManager @Inject constructor(
-    private val sessionStateManager: com.takeya.animeongaku.data.auth.SessionStateManager
+    private val sessionStateManager: com.takeya.animeongaku.data.auth.SessionStateManager,
+    private val playbackPreferences: PlaybackPreferences,
+    private val offlineMediaAvailability: OfflineMediaAvailability
 ) {
+    internal constructor(
+        sessionStateManager: com.takeya.animeongaku.data.auth.SessionStateManager,
+        playbackPreferences: PlaybackPreferences
+    ) : this(sessionStateManager, playbackPreferences, OfflineMediaAvailability(emptySet()))
 
-    private val _state = MutableStateFlow(NowPlayingState())
+    private val _state = MutableStateFlow(
+        NowPlayingState(
+            playbackIntent = PlaybackIntent(
+                rememberedAudioMode = playbackPreferences.rememberedAudioMode
+            )
+        )
+    )
     val state: StateFlow<NowPlayingState> = _state.asStateFlow()
     private var nextQueueEntryId: Long = 1L
 
     fun restoreState(state: NowPlayingState) {
-        val restored = state.withUniqueHistoryEntries()
+        val restored = state.withUniqueHistoryEntries().copy(
+            playbackIntent = PlaybackIntent(
+                rememberedAudioMode = playbackPreferences.rememberedAudioMode
+            )
+        )
         nextQueueEntryId = restored.maxQueueEntryId + 1L
         _state.value = restored.copy(isFullReload = true)
     }
@@ -29,10 +45,11 @@ class NowPlayingManager @Inject constructor(
      */
     fun unskip(index: Int) {
         val current = _state.value
-        if (index < 0 || index >= current.nowPlaying.size) return
+        if (index < 0 || index >= current.nowPlayingEntries.size) return
+        val queueId = current.nowPlayingEntries[index].queueId
         
         _state.value = current.copy(
-            unskippedIndices = current.unskippedIndices + index,
+            unskippedEntryIds = current.unskippedEntryIds + queueId,
             queueVersion = current.queueVersion + 1,
             isFullReload = true
         )
@@ -56,13 +73,81 @@ class NowPlayingManager @Inject constructor(
         animeMap: Map<Long, AnimeEntity> = emptyMap(),
         suggestedFrom: Int? = null
     ) {
-        if (themes.isEmpty()) return
+        playItems(
+            contextLabel = contextLabel,
+            items = themes.map { theme -> PlayableItem.Theme(theme, theme.animeId?.let(animeMap::get)) },
+            startIndex = startIndex,
+            shuffle = shuffle,
+            animeMap = animeMap,
+            suggestedFrom = suggestedFrom
+        )
+    }
 
-        val playableWithSourceIndex = playableThemesWithSourceIndex(themes)
+    /** Single write boundary for a user's manual Theme-mode selection. */
+    fun selectThemeMode(mode: PlaybackMode) {
+        require(mode != PlaybackMode.RELATED_AUDIO) {
+            "RELATED_AUDIO is resolver-owned and cannot be selected for a Theme session"
+        }
+        if (mode == PlaybackMode.TV_SIZE || mode == PlaybackMode.FULL_SIZE) {
+            playbackPreferences.rememberAudioMode(mode)
+        }
+        val current = _state.value
+        val intent = PlaybackIntent(
+            rememberedAudioMode = playbackPreferences.rememberedAudioMode,
+            sessionOverride = mode
+        )
+        if (current.playbackIntent == intent) return
+        _state.value = current.copy(
+            playbackIntent = intent,
+            queueVersion = current.queueVersion + 1,
+            isFullReload = false
+        )
+    }
+
+    fun clearThemeSessionOverride() {
+        val current = _state.value
+        val intent = PlaybackIntent(rememberedAudioMode = playbackPreferences.rememberedAudioMode)
+        if (current.playbackIntent == intent) return
+        _state.value = current.copy(
+            playbackIntent = intent,
+            queueVersion = current.queueVersion + 1,
+            isFullReload = false
+        )
+    }
+
+    fun playItems(
+        contextLabel: String,
+        items: List<PlayableItem>,
+        startIndex: Int = 0,
+        shuffle: Boolean = false,
+        animeMap: Map<Long, AnimeEntity> = emptyMap(),
+        suggestedFrom: Int? = null,
+        baseModePolicy: BaseModePolicy = BaseModePolicy.Inherit,
+        initialSessionMode: PlaybackMode? = null,
+        baseModePolicies: List<BaseModePolicy>? = null
+    ) {
+        require(initialSessionMode != PlaybackMode.RELATED_AUDIO) {
+            "RELATED_AUDIO is resolver-owned and cannot be a Theme session override"
+        }
+        if (items.isEmpty()) return
+        require(baseModePolicies == null || baseModePolicies.size == items.size) {
+            "One base policy is required per source item"
+        }
+
+        val admissionIntent = _state.value.playbackIntent.copy(sessionOverride = initialSessionMode)
+        val playableWithSourceIndex = playableItemsWithSourceIndex(
+            items = items,
+            playbackIntent = admissionIntent
+        ) { index -> baseModePolicies?.get(index) ?: baseModePolicy }
         val playable = playableWithSourceIndex.map { it.value }
         if (playable.isEmpty()) return
 
-        val originalEntries = createQueueEntries(playable)
+        val playablePolicies = baseModePolicies?.let { policies ->
+            playableWithSourceIndex.map { policies[it.index] }
+        }
+        val originalEntries = playable.mapIndexed { index, item ->
+            QueueEntry(nextQueueEntryId++, item, playablePolicies?.get(index) ?: baseModePolicy)
+        }
         val sourceIndexes = playableWithSourceIndex.map { it.index }
         val requestedPlayableStart = sourceIndexes.indexOf(startIndex).takeIf { it >= 0 }
             ?: sourceIndexes.indexOfFirst { it > startIndex }.takeIf { it >= 0 }
@@ -113,6 +198,10 @@ class NowPlayingManager @Inject constructor(
             isShuffled = shuffle,
             contextLabel = contextLabel,
             animeMap = animeMap,
+            playbackIntent = PlaybackIntent(
+                rememberedAudioMode = _state.value.playbackIntent.rememberedAudioMode,
+                sessionOverride = initialSessionMode
+            ),
             queueVersion = _state.value.queueVersion + 1,
             isFullReload = true
         )
@@ -123,12 +212,29 @@ class NowPlayingManager @Inject constructor(
      * Clears any suggested items from the queue.
      */
     fun playNext(themes: List<ThemeEntity>, animeMap: Map<Long, AnimeEntity> = emptyMap()) {
-        if (themes.isEmpty()) return
+        playNextItems(
+            themes.map { theme -> PlayableItem.Theme(theme, theme.animeId?.let(animeMap::get)) },
+            animeMap
+        )
+    }
+
+    fun playNextItems(
+        items: List<PlayableItem>,
+        animeMap: Map<Long, AnimeEntity> = emptyMap(),
+        baseModePolicy: BaseModePolicy = BaseModePolicy.Inherit,
+        baseModePolicies: List<BaseModePolicy>? = null
+    ) {
+        if (items.isEmpty()) return
+        require(baseModePolicies == null || baseModePolicies.size == items.size)
 
         val current = _state.value
-        val playable = playableThemes(themes)
+        val playable = playableItemsWithSourceIndex(items) { index ->
+            baseModePolicies?.get(index) ?: baseModePolicy
+        }
         if (playable.isEmpty()) return
-        val insertedEntries = createQueueEntries(playable)
+        val insertedEntries = playable.map { indexed ->
+            QueueEntry(nextQueueEntryId++, indexed.value, baseModePolicies?.get(indexed.index) ?: baseModePolicy)
+        }
         if (current.nowPlayingEntries.isEmpty()) {
             _state.value = createStandaloneQueueState(
                 contextLabel = current.contextLabel.ifBlank { "Queue" },
@@ -166,12 +272,29 @@ class NowPlayingManager @Inject constructor(
      * Clears any suggested items from the queue.
      */
     fun addToQueue(themes: List<ThemeEntity>, animeMap: Map<Long, AnimeEntity> = emptyMap()) {
-        if (themes.isEmpty()) return
+        addPlayableItems(
+            themes.map { theme -> PlayableItem.Theme(theme, theme.animeId?.let(animeMap::get)) },
+            animeMap
+        )
+    }
+
+    fun addPlayableItems(
+        items: List<PlayableItem>,
+        animeMap: Map<Long, AnimeEntity> = emptyMap(),
+        baseModePolicy: BaseModePolicy = BaseModePolicy.Inherit,
+        baseModePolicies: List<BaseModePolicy>? = null
+    ) {
+        if (items.isEmpty()) return
+        require(baseModePolicies == null || baseModePolicies.size == items.size)
 
         val current = _state.value
-        val playable = playableThemes(themes)
+        val playable = playableItemsWithSourceIndex(items) { index ->
+            baseModePolicies?.get(index) ?: baseModePolicy
+        }
         if (playable.isEmpty()) return
-        val appendedEntries = createQueueEntries(playable)
+        val appendedEntries = playable.map { indexed ->
+            QueueEntry(nextQueueEntryId++, indexed.value, baseModePolicies?.get(indexed.index) ?: baseModePolicy)
+        }
         if (current.nowPlayingEntries.isEmpty()) {
             _state.value = createStandaloneQueueState(
                 contextLabel = current.contextLabel.ifBlank { "Queue" },
@@ -201,12 +324,17 @@ class NowPlayingManager @Inject constructor(
     fun addToQueue(theme: ThemeEntity, anime: AnimeEntity? = null): Unit =
         addToQueue(listOf(theme), anime?.let { a -> theme.animeId?.let { mapOf(it to a) } } ?: emptyMap())
 
-    private fun playableThemes(themes: List<ThemeEntity>): List<ThemeEntity> =
-        playableThemesWithSourceIndex(themes).map { it.value }
-
-    private fun playableThemesWithSourceIndex(themes: List<ThemeEntity>): List<IndexedValue<ThemeEntity>> =
-        themes.withIndex().filter { (_, theme) ->
-            sessionStateManager.isOnlineEnabled() || (theme.isDownloaded && !theme.localFilePath.isNullOrBlank())
+    private fun playableItemsWithSourceIndex(
+        items: List<PlayableItem>,
+        playbackIntent: PlaybackIntent = _state.value.playbackIntent,
+        policyAt: (Int) -> BaseModePolicy
+    ): List<IndexedValue<PlayableItem>> =
+        items.withIndex().filter { indexed ->
+            val entry = QueueEntry(queueId = 0L, item = indexed.value, baseModePolicy = policyAt(indexed.index))
+            val requiredKey = requiredOfflineMediaKey(entry, playbackIntent)
+            sessionStateManager.isOnlineEnabled() ||
+                isExactOfflineAvailable(entry, offlineMediaAvailability.snapshot(), playbackIntent) ||
+                (requiredKey?.value?.startsWith("THEME:") == true && !indexed.value.localFilePath.isNullOrBlank())
         }
 
     /**
@@ -219,11 +347,13 @@ class NowPlayingManager @Inject constructor(
         val updatedQueue = current.nowPlayingEntries.filterIndexed { index, entry ->
             index <= current.currentIndex || entry.queueId !in suggestedIds
         }
+        val retainedQueueIds = updatedQueue.mapTo(mutableSetOf()) { it.queueId }
 
         return current.copy(
             nowPlayingEntries = updatedQueue,
             currentIndex = current.currentIndex.coerceAtMost(updatedQueue.lastIndex.coerceAtLeast(0)),
-            suggestedEntryIds = emptyList()
+            suggestedEntryIds = emptyList(),
+            unskippedEntryIds = current.unskippedEntryIds.filterTo(mutableSetOf()) { it in retainedQueueIds }
         )
     }
 
@@ -277,12 +407,12 @@ class NowPlayingManager @Inject constructor(
         val current = _state.value
         val expectedNextIndex = current.currentIndex + 1
         val expectedEntry = current.nowPlayingEntries.getOrNull(expectedNextIndex)
-        if (expectedEntry?.theme?.id == themeId) {
+        if (expectedEntry?.themeOrNull?.id == themeId) {
             onTrackChangedByQueueId(expectedEntry.queueId)
             return
         }
 
-        val fallbackEntry = current.nowPlayingEntries.firstOrNull { it.theme.id == themeId } ?: return
+        val fallbackEntry = current.nowPlayingEntries.firstOrNull { it.themeOrNull?.id == themeId } ?: return
         onTrackChangedByQueueId(fallbackEntry.queueId)
     }
 
@@ -356,24 +486,10 @@ class NowPlayingManager @Inject constructor(
             newPlayedIndices.add(newIdx)
         }
 
-        val newUnskippedIndices = mutableSetOf<Int>()
-        for (idx in current.unskippedIndices) {
-            var newIdx = idx
-            if (idx == fromIndex) {
-                newIdx = toIndex
-            } else if (idx > fromIndex && idx <= toIndex) {
-                newIdx--
-            } else if (idx < fromIndex && idx >= toIndex) {
-                newIdx++
-            }
-            newUnskippedIndices.add(newIdx)
-        }
-
         _state.value = current.copy(
             nowPlayingEntries = updated,
             currentIndex = newCurrentIndex,
             playedIndices = newPlayedIndices,
-            unskippedIndices = newUnskippedIndices,
             queueVersion = current.queueVersion + 1,
             isFullReload = false
         )
@@ -408,13 +524,6 @@ class NowPlayingManager @Inject constructor(
             newPlayedIndices.add(newIdx)
         }
 
-        val newUnskippedIndices = mutableSetOf<Int>()
-        for (idx in current.unskippedIndices) {
-            if (idx == index) continue
-            val newIdx = if (idx > index) idx - 1 else idx
-            newUnskippedIndices.add(newIdx)
-        }
-
         _state.value = current.copy(
             nowPlayingEntries = updated,
             currentIndex = newCurrentIndex,
@@ -423,7 +532,7 @@ class NowPlayingManager @Inject constructor(
             addedToQueueEntryIds = current.addedToQueueEntryIds.filter { it != removedEntry.queueId },
             suggestedEntryIds = current.suggestedEntryIds.filter { it != removedEntry.queueId },
             playedIndices = newPlayedIndices,
-            unskippedIndices = newUnskippedIndices,
+            unskippedEntryIds = current.unskippedEntryIds - removedEntry.queueId,
             queueVersion = current.queueVersion + 1,
             isFullReload = true
         )
@@ -465,7 +574,7 @@ class NowPlayingManager @Inject constructor(
             currentIndex = 0,
             historyEntries = trimmedHistory,
             playedIndices = setOf(0),
-            unskippedIndices = emptySet(),
+            unskippedEntryIds = emptySet(),
             queueVersion = current.queueVersion + 1,
             isFullReload = true
         )
@@ -476,7 +585,7 @@ class NowPlayingManager @Inject constructor(
      */
     fun toggleShuffle() {
         val current = _state.value
-        if (current.nowPlaying.isEmpty()) return
+        if (current.nowPlayingEntries.isEmpty()) return
 
         if (current.isShuffled) {
             unshuffle(current)
@@ -536,18 +645,14 @@ class NowPlayingManager @Inject constructor(
     private fun unshuffle(current: NowPlayingState) {
         val currentEntry = current.currentEntry ?: return
 
-        // Prefer the exact queue entry; if the current item is a copy of an original song, fall back
-        // to that original slot so we can restore the remaining original context without duplicating it.
+        // Only exact occurrence identity may establish a position in the original context. An added
+        // duplicate is a distinct occurrence and must leave every original occurrence behind it.
         val originalQueueEntry = current.originalQueueEntries.firstOrNull { it.queueId == currentEntry.queueId }
-        val fallbackOriginalEntry = current.originalQueueEntries.firstOrNull { it.theme.id == currentEntry.theme.id }
 
         // Only restore songs from current onward in original order. If the current song was added to
         // the queue and was never part of the original context, keep the full original queue behind it.
         val restored = if (originalQueueEntry != null) {
             val originalIdx = current.originalQueueEntries.indexOf(originalQueueEntry)
-            current.originalQueueEntries.subList(originalIdx, current.originalQueueEntries.size)
-        } else if (fallbackOriginalEntry != null) {
-            val originalIdx = current.originalQueueEntries.indexOf(fallbackOriginalEntry)
             current.originalQueueEntries.subList(originalIdx, current.originalQueueEntries.size)
         } else {
             current.originalQueueEntries
@@ -561,7 +666,6 @@ class NowPlayingManager @Inject constructor(
 
         val restoredUpcoming = restored
             .filter { it.queueId != currentEntry.queueId }
-            .filter { it.queueId != fallbackOriginalEntry?.queueId }
             .filter { it.queueId !in playNextIds }
 
         // Add any "add to queue" items to the end, including copies of songs already in the
@@ -582,14 +686,17 @@ class NowPlayingManager @Inject constructor(
     }
 
     val currentTheme: ThemeEntity?
-        get() = _state.value.let { s -> s.nowPlaying.getOrNull(s.currentIndex) }
+        get() = _state.value.currentTheme
 
     val isActive: Boolean
         get() = _state.value.nowPlayingEntries.isNotEmpty()
 
-    private fun createQueueEntries(themes: List<ThemeEntity>): List<QueueEntry> =
-        themes.map { theme ->
-            QueueEntry(queueId = nextQueueEntryId++, theme = theme)
+    private fun createQueueEntries(
+        items: List<PlayableItem>,
+        baseModePolicy: BaseModePolicy = BaseModePolicy.Inherit
+    ): List<QueueEntry> =
+        items.map { item ->
+            QueueEntry(queueId = nextQueueEntryId++, item = item, baseModePolicy = baseModePolicy)
         }
 
     private fun createStandaloneQueueState(
@@ -608,6 +715,9 @@ class NowPlayingManager @Inject constructor(
         isShuffled = false,
         contextLabel = contextLabel,
         animeMap = animeMap,
+        playbackIntent = PlaybackIntent(
+            rememberedAudioMode = _state.value.playbackIntent.rememberedAudioMode
+        ),
         queueVersion = _state.value.queueVersion + 1,
         isFullReload = true
     )
@@ -616,8 +726,22 @@ class NowPlayingManager @Inject constructor(
 @Stable
 data class QueueEntry(
     val queueId: Long,
+    val item: PlayableItem,
+    val baseModePolicy: BaseModePolicy = BaseModePolicy.Inherit
+) {
+    constructor(
+        queueId: Long,
+        theme: ThemeEntity,
+        baseModePolicy: BaseModePolicy = BaseModePolicy.Inherit
+    ) : this(queueId, PlayableItem.Theme(theme), baseModePolicy)
+
+    val themeOrNull: ThemeEntity?
+        get() = (item as? PlayableItem.Theme)?.theme
+
+    /** Theme-only compatibility adapter. New mixed-queue code must use [item]. */
     val theme: ThemeEntity
-)
+        get() = requireNotNull(themeOrNull) { "Queue entry $queueId is ${item.key.kind}, not THEME" }
+}
 
 @Stable
 data class NowPlayingState(
@@ -634,7 +758,8 @@ data class NowPlayingState(
     val animeMap: Map<Long, AnimeEntity> = emptyMap(),
     val queueVersion: Long = 0,
     val isFullReload: Boolean = true,
-    val unskippedIndices: Set<Int> = emptySet()
+    val unskippedEntryIds: Set<Long> = emptySet(),
+    val playbackIntent: PlaybackIntent = PlaybackIntent()
 ) {
     private val entriesById: Map<Long, QueueEntry> by lazy {
         buildMap {
@@ -644,19 +769,27 @@ data class NowPlayingState(
         }
     }
 
-    val originalQueue: List<ThemeEntity> by lazy { originalQueueEntries.map { it.theme } }
-    val nowPlaying: List<ThemeEntity> by lazy { nowPlayingEntries.map { it.theme } }
-    val history: List<ThemeEntity> by lazy { historyEntries.map { it.theme } }
+    val originalItems: List<PlayableItem> by lazy { originalQueueEntries.map { it.item } }
+    val nowPlayingItems: List<PlayableItem> by lazy { nowPlayingEntries.map { it.item } }
+    val historyItems: List<PlayableItem> by lazy { historyEntries.map { it.item } }
+    val originalQueue: List<ThemeEntity> by lazy { originalQueueEntries.mapNotNull { it.themeOrNull } }
+    val nowPlaying: List<ThemeEntity> by lazy { nowPlayingEntries.mapNotNull { it.themeOrNull } }
+    val history: List<ThemeEntity> by lazy { historyEntries.mapNotNull { it.themeOrNull } }
     val playNextEntries: List<QueueEntry> by lazy { playNextEntryIds.mapNotNull(entriesById::get) }
-    val playNextItems: List<ThemeEntity> by lazy { playNextEntries.map { it.theme } }
+    val playNextPlayableItems: List<PlayableItem> by lazy { playNextEntries.map { it.item } }
+    val playNextItems: List<ThemeEntity> by lazy { playNextEntries.mapNotNull { it.themeOrNull } }
     val addedToQueueEntries: List<QueueEntry> by lazy { addedToQueueEntryIds.mapNotNull(entriesById::get) }
-    val addedToQueueItems: List<ThemeEntity> by lazy { addedToQueueEntries.map { it.theme } }
+    val addedToQueuePlayableItems: List<PlayableItem> by lazy { addedToQueueEntries.map { it.item } }
+    val addedToQueueItems: List<ThemeEntity> by lazy { addedToQueueEntries.mapNotNull { it.themeOrNull } }
     val suggestedEntries: List<QueueEntry> by lazy { suggestedEntryIds.mapNotNull(entriesById::get) }
-    val suggestedItems: List<ThemeEntity> by lazy { suggestedEntries.map { it.theme } }
+    val suggestedPlayableItems: List<PlayableItem> by lazy { suggestedEntries.map { it.item } }
+    val suggestedItems: List<ThemeEntity> by lazy { suggestedEntries.mapNotNull { it.themeOrNull } }
     val currentEntry: QueueEntry?
         get() = nowPlayingEntries.getOrNull(currentIndex)
     val currentTheme: ThemeEntity?
-        get() = currentEntry?.theme
+        get() = currentEntry?.themeOrNull
+    val currentItem: PlayableItem?
+        get() = currentEntry?.item
 
     val upcomingEntries: List<QueueEntry> by lazy {
         if (currentIndex + 1 < nowPlayingEntries.size) {
@@ -666,9 +799,17 @@ data class NowPlayingState(
         }
     }
 
+    /** Positional compatibility view derived from stable queue occurrence identity. */
+    val unskippedIndices: Set<Int> by lazy {
+        nowPlayingEntries.mapIndexedNotNull { index, entry ->
+            index.takeIf { entry.queueId in unskippedEntryIds }
+        }.toSet()
+    }
+
+    val upcomingItems: List<PlayableItem> by lazy { upcomingEntries.map { it.item } }
     val upcomingTracks: List<ThemeEntity> by lazy {
         if (currentIndex + 1 < nowPlayingEntries.size) {
-            upcomingEntries.map { it.theme }
+            upcomingEntries.mapNotNull { it.themeOrNull }
         } else {
             emptyList()
         }

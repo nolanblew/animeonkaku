@@ -1,5 +1,9 @@
 # Spike 05 — Server Data Model (PostgreSQL)
 
+> Historical baseline: the media-catalog additions and playlist-entry identity
+> changes are superseded by [13-media-catalog-tdr.md](13-media-catalog-tdr.md),
+> section 4. This document remains the contract for the original server schema.
+
 Initial Drizzle migration (drizzle-kit generates the SQL; the SQL below is the contract — the Drizzle TS schema in `server/src/db/` must produce exactly this). Naming: snake_case. All timestamps `timestamptz`. `updated_at` maintained by triggers or app code — it backs the `/library?since=` delta feed, so every user-visible table carries `updated_at` and soft-delete `deleted_at` where the client needs tombstones.
 
 ## Design decisions vs. the Room schema

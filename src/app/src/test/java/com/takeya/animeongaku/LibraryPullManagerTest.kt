@@ -18,6 +18,8 @@ import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.ThemeArtistCrossRef
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.ThemeModeEntity
+import com.takeya.animeongaku.data.local.SongPreferenceEntity
 import com.takeya.animeongaku.data.local.UserPreferenceEntity
 import com.takeya.animeongaku.data.remote.OngakuAnimeDetailResponse
 import com.takeya.animeongaku.data.remote.OngakuAnimeDto
@@ -42,10 +44,22 @@ import com.takeya.animeongaku.data.remote.OngakuThemeArtistDto
 import com.takeya.animeongaku.data.remote.OngakuThemeDto
 import com.takeya.animeongaku.data.remote.OngakuThemePrefDto
 import com.takeya.animeongaku.data.remote.OngakuThemePrefPatch
+import com.takeya.animeongaku.data.remote.OngakuThemeMediaModesDto
+import com.takeya.animeongaku.data.remote.OngakuTvSizeModeDto
+import com.takeya.animeongaku.data.remote.OngakuFullSizeModeDto
+import com.takeya.animeongaku.data.remote.OngakuVideoModeDto
+import com.takeya.animeongaku.data.remote.OngakuSongPrefDto
+import com.takeya.animeongaku.data.remote.OngakuAnimeMusicDto
+import com.takeya.animeongaku.data.remote.OngakuMusicAnimeSummaryDto
+import com.takeya.animeongaku.data.remote.OngakuMusicReleaseDto
+import com.takeya.animeongaku.data.remote.OngakuMusicTrackDto
+import com.takeya.animeongaku.data.remote.OngakuPlaylistItemDto
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.sync.LibraryPullCache
 import com.takeya.animeongaku.sync.LibraryPullManager
 import com.takeya.animeongaku.sync.LibraryPullSideEffects
+import com.takeya.animeongaku.sync.MusicCatalogSnapshot
+import com.takeya.animeongaku.sync.legacyPlaylistEntryId
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -86,6 +100,11 @@ class LibraryPullManagerTest {
                     id = 77L,
                     name = "Server Auto",
                     entries = listOf(100L),
+                    defaultMode = "FULL_SIZE",
+                    items = listOf(
+                        OngakuPlaylistItemDto(880L, "THEME", 100L, null),
+                        OngakuPlaylistItemDto(881L, "SONG", 300L, null)
+                    ),
                     isAuto = true,
                     updatedAt = 1760000000000,
                     dynamicSpecJson = null
@@ -93,7 +112,7 @@ class LibraryPullManagerTest {
                 OngakuPlaylistDto(
                     id = 88L,
                     name = "Manual Mix",
-                    entries = listOf(100L),
+                    entries = listOf(100L, 100L, 101L),
                     isAuto = false,
                     updatedAt = 1760000000001,
                     dynamicSpecJson = null
@@ -133,6 +152,33 @@ class LibraryPullManagerTest {
                     dynamicSpecJson = null,
                     deleted = true
                 )
+            ),
+            songPrefsResponse = listOf(
+                OngakuSongPrefDto(300L, liked = true, disliked = false, playCount = 3, lastPlayedAt = 9L, updatedAt = 10L),
+                OngakuSongPrefDto(301L, liked = false, disliked = false, playCount = 0, lastPlayedAt = null, updatedAt = 11L, deleted = true)
+            ),
+            musicCatalogResponse = listOf(
+                OngakuAnimeMusicDto(
+                    anime = OngakuMusicAnimeSummaryDto("1", "Bocchi"),
+                    releases = listOf(
+                        OngakuMusicReleaseDto(
+                            id = 200L,
+                            title = "OST",
+                            artistCredit = "Composer",
+                            relationshipType = "SOUNDTRACK",
+                            artworkUrl = "/v1/media/images/releases/200",
+                            tracks = listOf(
+                                OngakuMusicTrackDto(
+                                    id = 300L,
+                                    title = "Track",
+                                    artistCredit = "Composer",
+                                    audioUrl = "/v1/media/songs/300/audio",
+                                    displayOrder = 4
+                                )
+                            )
+                        )
+                    )
+                )
             )
         )
         val cache = FakeLibraryPullCache(mapOf(100L to existingDownloaded))
@@ -151,6 +197,8 @@ class LibraryPullManagerTest {
         assertEquals("http://192.168.1.5:8080/api/v1/media/audio/100", cache.upsertedThemes.single().audioUrl)
         assertTrue(cache.upsertedThemes.single().isDownloaded)
         assertEquals("/downloads/100.webm", cache.upsertedThemes.single().localFilePath)
+        assertEquals("http://192.168.1.5:8080/api/v1/media/songs/300/audio", cache.themeModes.single().fullSizeUrl)
+        assertEquals("https://v.animethemes.moe/op.webm", cache.themeModes.single().videoUrl)
         assertEquals("Kessoku Band", cache.artistRefs.single().artistName)
         assertEquals(listOf("music"), cache.genres.map { it.slug })
         assertEquals(true, cache.preferences.single().isLiked)
@@ -162,7 +210,21 @@ class LibraryPullManagerTest {
         assertEquals(false, cache.pruneMissingAutoPlaylists)
         assertEquals(listOf("Server Auto", "Manual Mix", "Smart Mix"), cache.autoPlaylists.map { it.name })
         assertEquals(listOf(true, false, true), cache.autoPlaylists.map { it.isAuto })
-        assertEquals(listOf(100L, 100L, 100L), cache.autoEntries.map { it.themeId })
+        assertEquals(listOf("THEME", "SONG", "THEME", "THEME", "THEME", "THEME"), cache.autoEntries.map { it.itemType })
+        assertEquals(listOf(880L, 881L), cache.autoEntries.filter { it.playlistId == 77L }.map { it.entryId })
+        assertEquals("FULL_SIZE", cache.autoPlaylists.single { it.id == 77L }.defaultMode)
+        assertEquals(
+            listOf(
+                legacyPlaylistEntryId(100L, 0),
+                legacyPlaylistEntryId(100L, 1),
+                legacyPlaylistEntryId(101L, 0)
+            ),
+            cache.autoEntries.filter { it.playlistId == 88L }.map { it.entryId }
+        )
+        assertEquals(listOf(300L, 301L), cache.songPreferences.map { it.songId })
+        assertEquals(11L, cache.songPreferences.single { it.songId == 301L }.deletedAt)
+        assertEquals("http://192.168.1.5:8080/api/v1/media/songs/300/audio", cache.musicCatalog!!.songs.single().audioUrl)
+        assertEquals(4, cache.musicCatalog!!.releaseTracks.single().displayOrder)
         assertEquals(99L, cache.dynamicSpecs.single().playlistId)
         assertEquals("""{"type":"liked"}""", cache.dynamicSpecs.single().filterJson)
         assertEquals("AUTO", cache.dynamicSpecs.single().mode)
@@ -193,7 +255,47 @@ class LibraryPullManagerTest {
             listOf("flush", "changes", "applyLibrary", "applyPrefs", "applyAuto", "refreshDynamic"),
             events
         )
+        assertTrue(cache.songPreferences.isEmpty())
+        assertEquals(null, cache.musicCatalog)
         assertEquals(true, cache.pruneMissingAutoPlaylists)
+    }
+
+    @Test
+    fun `full pull applies server normalized theme and song reaction snapshots`() = runBlocking {
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+            serverPullCursor = 123L
+        }
+        val api = FakeOngakuApi(
+            libraryResponse = libraryResponse(),
+            prefsResponse = listOf(
+                OngakuThemePrefDto(
+                    themeId = 100L,
+                    liked = false,
+                    disliked = false,
+                    dislikedTvSize = true,
+                    dislikedFullSize = true,
+                    playCount = 2,
+                    lastPlayedAt = 10L,
+                    updatedAt = 20L
+                )
+            ),
+            autoPlaylistResponse = emptyList(),
+            songPrefsResponse = listOf(
+                OngakuSongPrefDto(300L, liked = false, disliked = true, playCount = 4, lastPlayedAt = 11L, updatedAt = 21L)
+            )
+        )
+        val cache = FakeLibraryPullCache(emptyMap())
+        val manager = LibraryPullManager(api, settings, cache, FakeLibraryPullSideEffects(), testMoshi(), activeSessionStateManager())
+
+        manager.pullNow(forceFull = true)
+
+        assertEquals(null, api.requestedChangesSince)
+        assertTrue(cache.fullThemeSnapshot)
+        assertTrue(cache.fullSongSnapshot)
+        assertTrue(cache.preferences.single().isDislikedTvSize)
+        assertTrue(cache.preferences.single().isDislikedFullSize)
+        assertTrue(cache.songPreferences.single().isDisliked)
     }
 
     @Test
@@ -382,6 +484,11 @@ class LibraryPullManagerTest {
                 audioState = "READY",
                 durationSeconds = 90,
                 fileSize = 5_242_880,
+                mediaModes = OngakuThemeMediaModesDto(
+                    tvSize = OngakuTvSizeModeDto("/v1/media/audio/100", 90, 5_242_880),
+                    fullSize = OngakuFullSizeModeDto(300L, "/v1/media/songs/300/audio", 271, 1234, 200L),
+                    video = OngakuVideoModeDto("https://v.animethemes.moe/op.webm", "video/webm")
+                ),
                 updatedAt = 1759000000000,
                 deleted = false
             ),
@@ -412,6 +519,7 @@ private class FakeLibraryPullCache(
     var deletedThemeIds: List<Long> = emptyList()
     var upsertedAnime: List<AnimeEntity> = emptyList()
     var upsertedThemes: List<ThemeEntity> = emptyList()
+    var themeModes: List<ThemeModeEntity> = emptyList()
     var artistRefs: List<ThemeArtistCrossRef> = emptyList()
     var genres: List<GenreEntity> = emptyList()
     var genreRefs: List<AnimeGenreCrossRef> = emptyList()
@@ -422,6 +530,10 @@ private class FakeLibraryPullCache(
     var autoPlaylists: List<PlaylistEntity> = emptyList()
     var autoEntries: List<PlaylistEntryEntity> = emptyList()
     var dynamicSpecs: List<DynamicPlaylistSpecEntity> = emptyList()
+    var songPreferences: List<SongPreferenceEntity> = emptyList()
+    var musicCatalog: MusicCatalogSnapshot? = null
+    var fullThemeSnapshot: Boolean = false
+    var fullSongSnapshot: Boolean = false
 
     override suspend fun existingThemes(themeIds: List<Long>): Map<Long, ThemeEntity> =
         existing.filterKeys { it in themeIds }
@@ -431,6 +543,7 @@ private class FakeLibraryPullCache(
         deletedThemeIds: List<Long>,
         anime: List<AnimeEntity>,
         themes: List<ThemeEntity>,
+        themeModes: List<ThemeModeEntity>,
         artistRefs: List<ThemeArtistCrossRef>,
         genres: List<GenreEntity>,
         genreRefs: List<AnimeGenreCrossRef>
@@ -440,18 +553,30 @@ private class FakeLibraryPullCache(
         this.deletedThemeIds = deletedThemeIds
         this.upsertedAnime = anime
         this.upsertedThemes = themes
+        this.themeModes = themeModes
         this.artistRefs = artistRefs
         this.genres = genres
         this.genreRefs = genreRefs
     }
 
+    override suspend fun applySongPrefs(preferences: List<SongPreferenceEntity>, fullSnapshot: Boolean) {
+        songPreferences = preferences
+        fullSongSnapshot = fullSnapshot
+    }
+
+    override suspend fun replaceMusicCatalog(snapshot: MusicCatalogSnapshot) {
+        musicCatalog = snapshot
+    }
+
     override suspend fun applyThemePrefs(
         preferences: List<UserPreferenceEntity>,
-        playCounts: List<PlayCountEntity>
+        playCounts: List<PlayCountEntity>,
+        fullSnapshot: Boolean
     ) {
         events += "applyPrefs"
         this.preferences = preferences
         this.playCounts = playCounts
+        fullThemeSnapshot = fullSnapshot
     }
 
     override suspend fun applyAutoPlaylists(
@@ -536,7 +661,9 @@ private class FakeOngakuApi(
     private val libraryResponse: OngakuLibraryResponse,
     private val prefsResponse: List<OngakuThemePrefDto>,
     private val autoPlaylistResponse: List<OngakuPlaylistDto>,
-    private val events: MutableList<String> = mutableListOf()
+    private val events: MutableList<String> = mutableListOf(),
+    private val songPrefsResponse: List<OngakuSongPrefDto>? = null,
+    private val musicCatalogResponse: List<OngakuAnimeMusicDto>? = null
 ) : OngakuApi {
     var requestedSince: Long? = null
     var requestedChangesSince: Long? = null
@@ -554,7 +681,9 @@ private class FakeOngakuApi(
             anime = libraryResponse.anime,
             themes = libraryResponse.themes,
             prefs = prefsResponse,
-            playlists = autoPlaylistResponse
+            playlists = autoPlaylistResponse,
+            songPrefs = songPrefsResponse,
+            musicCatalog = musicCatalogResponse
         )
     }
 

@@ -57,6 +57,83 @@
       "when": 1781818419843,
       "tag": "0007_keen_blizzard",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784530373876,
+      "tag": "0008_silent_doctor_doom",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784581334600,
+      "tag": "0009_lively_gravity",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784581934627,
+      "tag": "0010_milky_mephistopheles",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784674539235,
+      "tag": "0011_milky_lila_cheney",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784676265640,
+      "tag": "0012_smart_vulture",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1784682000000,
+      "tag": "0013_release_track_album_order",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1784768400000,
+      "tag": "0014_amf_localized_catalog_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1784854800000,
+      "tag": "0015_animethemes_anime_slug",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1784858400000,
+      "tag": "0016_amf_poll_backoff_ladder",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1784862000000,
+      "tag": "0017_amf_provider_job_graph",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1785200400000,
+      "tag": "0018_music_search_settings",
+      "breakpoints": true
     }
   ]
 }

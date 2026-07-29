@@ -18,31 +18,60 @@ import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.PlaylistTrack
 import com.takeya.animeongaku.data.local.PlaylistWithCount
+import com.takeya.animeongaku.data.local.MusicCatalogDao
+import com.takeya.animeongaku.data.local.SongEntity
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.ThemeModeDao
+import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.data.repository.DynamicPlaylistRepository
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
+import com.takeya.animeongaku.data.repository.PlaylistWriteItem
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
+import com.takeya.animeongaku.media.BaseModePolicy
+import com.takeya.animeongaku.media.PlayableItem
+import com.takeya.animeongaku.media.PlaybackMode
+import com.takeya.animeongaku.media.ThemeModePolicy
 import com.takeya.animeongaku.network.ConnectivityMonitor
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
 import com.takeya.animeongaku.sync.PendingWriteStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+data class PlaylistItemRow(
+    val entry: PlaylistEntryEntity,
+    val theme: ThemeEntity? = null,
+    val song: SongEntity? = null
+) {
+    val title: String get() = theme?.title ?: song?.title.orEmpty()
+    val artist: String get() = theme?.artistName ?: song?.artistCredit.orEmpty()
+
+    fun playable(animeMap: Map<Long, AnimeEntity>, modes: Map<Long, ThemeModeEntity>): PlayableItem =
+        theme?.let { PlayableItem.Theme(it, it.animeId?.let(animeMap::get), modes[it.id]) }
+            ?: PlayableItem.RelatedSong(checkNotNull(song))
+}
+
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class PlaylistDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val playlistDao: PlaylistDao,
     private val themeDao: ThemeDao,
+    private val themeModeDao: ThemeModeDao,
+    private val musicCatalogDao: MusicCatalogDao,
     animeDao: AnimeDao,
     genreDao: GenreDao,
     playCountDao: PlayCountDao,
@@ -92,6 +121,28 @@ class PlaylistDetailViewModel @Inject constructor(
 
     private val rawTracks = playlistDao.observePlaylistTracks(playlistId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val rawEntries = playlistDao.observePlaylistEntries(playlistId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val entryThemes = rawEntries.flatMapLatest { entries ->
+        val ids = entries.filter { it.itemType == PlaylistEntryEntity.ITEM_TYPE_THEME }.map { it.itemId }.distinct()
+        if (ids.isEmpty()) flowOf(emptyList()) else themeDao.observeByIds(ids)
+    }
+    private val entrySongs = rawEntries.flatMapLatest { entries ->
+        val ids = entries.filter { it.itemType == PlaylistEntryEntity.ITEM_TYPE_SONG }.map { it.itemId }.distinct()
+        if (ids.isEmpty()) flowOf(emptyList()) else musicCatalogDao.observeSongs(ids)
+    }
+    val items: StateFlow<List<PlaylistItemRow>> = combine(rawEntries, entryThemes, entrySongs) { entries, themes, songs ->
+        val themesById = themes.associateBy { it.id }
+        val songsById = songs.associateBy { it.id }
+        entries.mapNotNull { entry ->
+            when (entry.itemType) {
+                PlaylistEntryEntity.ITEM_TYPE_THEME -> themesById[entry.itemId]?.let { PlaylistItemRow(entry, theme = it) }
+                PlaylistEntryEntity.ITEM_TYPE_SONG -> songsById[entry.itemId]?.let { PlaylistItemRow(entry, song = it) }
+                else -> null
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val downloadedThemeIds: StateFlow<Set<Long>> = themeDao.observeDownloadedThemeIds()
         .map { it.toSet() }
@@ -200,6 +251,14 @@ class PlaylistDetailViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val themeModesById: StateFlow<Map<Long, ThemeModeEntity>> = tracks
+        .map { list -> list.map { it.theme.id } }
+        .flatMapLatest { ids ->
+            if (ids.isEmpty()) flowOf(emptyList()) else themeModeDao.observeByThemeIds(ids)
+        }
+        .map { modes -> modes.associateBy { it.themeId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     val coverUrls: StateFlow<List<List<String>>> = playlistDao.observePlaylistCoverUrls(playlistId)
         .map { slots ->
             slots.map { slot ->
@@ -222,9 +281,17 @@ class PlaylistDetailViewModel @Inject constructor(
 
     fun addTheme(theme: ThemeEntity) {
         runPlaylistAction("Couldn't add that track. Try again when your connection is stable.") {
-            val exists = tracks.value.any { it.theme.id == theme.id }
-            if (exists) return@runPlaylistAction
             serverPlaylistWriter.addEntries(playlistId, listOf(theme.id))
+        }
+    }
+
+    fun addTheme(theme: ThemeEntity, modeOverride: String?) {
+        runPlaylistAction("Couldn't add that track. Try again when your connection is stable.") {
+            serverPlaylistWriter.addItems(playlistId, listOf(PlaylistWriteItem(
+                itemType = PlaylistEntryEntity.ITEM_TYPE_THEME,
+                itemId = theme.id,
+                modeOverride = modeOverride
+            )))
         }
     }
 
@@ -284,13 +351,124 @@ class PlaylistDetailViewModel @Inject constructor(
     }
 
     fun playAll() {
-        val list = tracks.value.map { it.theme }
-        if (list.isNotEmpty()) nowPlayingManager.play(contextLabel(), list, 0, animeMap = buildAnimeMap())
+        playPlaylistItems(0, shuffle = false)
+    }
+
+    fun removeEntry(entryId: Long) {
+        runPlaylistAction("Couldn't remove that item. Try again when your connection is stable.") {
+            playlistDao.deleteEntryById(playlistId, entryId)
+            serverPlaylistWriter.syncPlaylistItems(playlistId)
+        }
+    }
+
+    fun updateEntryMode(entryId: Long, modeOverride: String?) {
+        runPlaylistAction("Couldn't update playback version. Try again when your connection is stable.") {
+            serverPlaylistWriter.updateItemMode(playlistId, entryId, modeOverride)
+        }
+    }
+
+    fun updateDefaultMode(defaultMode: String) {
+        runPlaylistAction("Couldn't update the playlist default. Try again when your connection is stable.") {
+            serverPlaylistWriter.updateDefaultMode(playlistId, defaultMode)
+        }
+    }
+
+    fun moveEntry(entryId: Long, direction: Int) {
+        val list = items.value
+        val index = list.indexOfFirst { it.entry.entryId == entryId }
+        val target = index + direction
+        if (index !in list.indices || target !in list.indices) return
+        runPlaylistAction("Couldn't reorder playlist. Try again when your connection is stable.") {
+            val current = list[index].entry
+            val neighbor = list[target].entry
+            playlistDao.insertEntries(listOf(
+                current.copy(orderIndex = neighbor.orderIndex),
+                neighbor.copy(orderIndex = current.orderIndex)
+            ))
+            serverPlaylistWriter.syncPlaylistItems(playlistId)
+        }
+    }
+
+    fun requestPlayVideoTheme(themeId: Long): BrowseVideoStartRequest? {
+        val theme = tracks.value.firstOrNull { it.theme.id == themeId }?.theme ?: return null
+        return BrowseVideoActionPolicy.request(isOnline.value, contextLabel(), listOf(theme), themeModesById.value, buildAnimeMap())
+    }
+
+    fun requestPlayVideoAll(): BrowseVideoStartRequest? = BrowseVideoActionPolicy.request(
+        isOnline.value, contextLabel(), tracks.value.map { it.theme }, themeModesById.value, buildAnimeMap()
+    )
+
+    fun startPlayVideo(request: BrowseVideoStartRequest): Boolean {
+        val all = tracks.value.map { it.theme }
+        val currentThemes = if (request.themes.size == 1) all.filter { it.id == request.themes.single().id } else all
+        return request.startIfStillValid(
+            nowPlayingManager, isOnline.value, currentThemes, themeModesById.value,
+            contextLabel(), buildAnimeMap()
+        )
     }
 
     fun shuffleAll() {
-        val list = tracks.value.map { it.theme }
-        if (list.isNotEmpty()) nowPlayingManager.play(contextLabel(), list, 0, shuffle = true, animeMap = buildAnimeMap())
+        playPlaylistItems(0, shuffle = true)
+    }
+
+    fun playEntry(entryId: Long) {
+        val index = items.value.indexOfFirst { it.entry.entryId == entryId }
+        if (index >= 0) playPlaylistItems(index, shuffle = false)
+    }
+
+    fun playNextEntry(entryId: Long) {
+        val row = items.value.firstOrNull { it.entry.entryId == entryId } ?: return
+        val animeMap = buildAnimeMap()
+        nowPlayingManager.playNextItems(
+            listOf(row.playable(animeMap, themeModesById.value)),
+            animeMap,
+            row.baseModePolicy(playlist.value?.defaultMode)
+        )
+    }
+
+    fun addEntryToQueue(entryId: Long) {
+        val row = items.value.firstOrNull { it.entry.entryId == entryId } ?: return
+        val animeMap = buildAnimeMap()
+        nowPlayingManager.addPlayableItems(
+            listOf(row.playable(animeMap, themeModesById.value)),
+            animeMap,
+            row.baseModePolicy(playlist.value?.defaultMode)
+        )
+    }
+
+    fun playNextAll() {
+        val rows = items.value
+        if (rows.isEmpty()) return
+        val animeMap = buildAnimeMap()
+        nowPlayingManager.playNextItems(
+            items = rows.map { it.playable(animeMap, themeModesById.value) },
+            animeMap = animeMap,
+            baseModePolicies = rows.map { it.baseModePolicy(playlist.value?.defaultMode) }
+        )
+    }
+
+    fun addAllToQueue() {
+        val rows = items.value
+        if (rows.isEmpty()) return
+        val animeMap = buildAnimeMap()
+        nowPlayingManager.addPlayableItems(
+            items = rows.map { it.playable(animeMap, themeModesById.value) },
+            animeMap = animeMap,
+            baseModePolicies = rows.map { it.baseModePolicy(playlist.value?.defaultMode) }
+        )
+    }
+
+    private fun playPlaylistItems(startIndex: Int, shuffle: Boolean) {
+        val rows = items.value
+        val pl = playlist.value ?: return
+        if (rows.isEmpty()) return
+        val animeMap = buildAnimeMap()
+        val playables = rows.map { it.playable(animeMap, themeModesById.value) }
+        val policies = rows.map { it.baseModePolicy(pl.defaultMode) }
+        nowPlayingManager.playItems(
+            contextLabel = contextLabel(), items = playables, startIndex = startIndex,
+            shuffle = shuffle, animeMap = animeMap, baseModePolicies = policies
+        )
     }
 
     val playlists: StateFlow<List<PlaylistWithCount>> = playlistDao.observePlaylists()
@@ -309,9 +487,18 @@ class PlaylistDetailViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
-    fun addToOtherPlaylist(targetPlaylistId: Long, themeIds: List<Long>) {
+    fun addToOtherPlaylist(targetPlaylistId: Long, themeIds: List<Long>, modeOverride: String? = null) {
         runPlaylistAction("Couldn't save to playlist. Try again when your connection is stable.") {
-            serverPlaylistWriter.addEntries(targetPlaylistId, themeIds)
+            serverPlaylistWriter.addThemeEntries(targetPlaylistId, themeIds, modeOverride)
+        }
+    }
+
+    fun addSongToOtherPlaylist(targetPlaylistId: Long, songId: Long) {
+        runPlaylistAction("Couldn't save to playlist. Try again when your connection is stable.") {
+            serverPlaylistWriter.addItems(
+                targetPlaylistId,
+                listOf(PlaylistWriteItem(itemType = "SONG", itemId = songId))
+            )
         }
     }
 
@@ -363,9 +550,18 @@ class PlaylistDetailViewModel @Inject constructor(
         }
     }
 
-    fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
+    fun createAndAddToPlaylist(name: String, themeIds: List<Long>, modeOverride: String? = null) {
         runPlaylistAction("Couldn't create playlist. Try again when your connection is stable.") {
-            serverPlaylistWriter.createPlaylist(name, themeIds)
+            serverPlaylistWriter.createPlaylistWithThemes(name, themeIds, modeOverride)
+        }
+    }
+
+    fun createAndAddSongToPlaylist(name: String, songId: Long) {
+        runPlaylistAction("Couldn't create playlist. Try again when your connection is stable.") {
+            serverPlaylistWriter.createPlaylistWithItems(
+                name,
+                listOf(PlaylistWriteItem(itemType = "SONG", itemId = songId))
+            )
         }
     }
 
@@ -387,3 +583,13 @@ class PlaylistDetailViewModel @Inject constructor(
         }
     }
 }
+
+private fun PlaylistItemRow.baseModePolicy(defaultMode: String?): BaseModePolicy =
+    BaseModePolicy(
+        entryPolicy = when (entry.modeOverride) {
+            "FULL_SIZE" -> ThemeModePolicy.FULL_SIZE
+            "TV_SIZE" -> ThemeModePolicy.TV_SIZE
+            else -> ThemeModePolicy.INHERIT
+        },
+        playlistDefault = if (defaultMode == "FULL_SIZE") PlaybackMode.FULL_SIZE else PlaybackMode.TV_SIZE
+    )

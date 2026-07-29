@@ -6,8 +6,13 @@ import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.media.NowPlayingManager
+import com.takeya.animeongaku.media.PlaybackPreferences
 import com.takeya.animeongaku.media.NowPlayingState
+import com.takeya.animeongaku.media.BaseModePolicy
+import com.takeya.animeongaku.media.PlayableItem
+import com.takeya.animeongaku.media.PlaybackMode
 import com.takeya.animeongaku.media.QueueEntry
+import com.takeya.animeongaku.media.ThemeModePolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -46,7 +51,10 @@ class NowPlayingManagerTest {
         val tokenStore = ServerTokenStore(FakeSharedPreferences()).apply {
             save(ServerSession("tok", "uid", "n"))
         }
-        manager = NowPlayingManager(SessionStateManager(tokenStore))
+        manager = NowPlayingManager(
+            SessionStateManager(tokenStore),
+            PlaybackPreferences(FakeSharedPreferences())
+        )
     }
 
     // ─── play() ─────────────────────────────────────────────────────────
@@ -122,6 +130,45 @@ class NowPlayingManagerTest {
         val a = anime(10L)
         manager.play("ctx", listOf(theme(1, animeId = 10L)), animeMap = mapOf(10L to a))
         assertEquals(a, manager.state.value.animeMap[10L])
+    }
+
+    @Test
+    fun `playItems preserves independent playlist policies for duplicate themes`() {
+        val sameTheme = theme(44)
+        val policies = listOf(
+            BaseModePolicy(ThemeModePolicy.INHERIT, PlaybackMode.TV_SIZE),
+            BaseModePolicy(ThemeModePolicy.FULL_SIZE, PlaybackMode.TV_SIZE)
+        )
+
+        manager.playItems(
+            contextLabel = "Mixed playlist",
+            items = listOf(PlayableItem.Theme(sameTheme), PlayableItem.Theme(sameTheme)),
+            baseModePolicies = policies
+        )
+
+        val entries = manager.state.value.nowPlayingEntries
+        assertEquals(2, entries.size)
+        assertTrue(entries[0].queueId != entries[1].queueId)
+        assertEquals(policies, entries.map { it.baseModePolicy })
+    }
+
+    @Test
+    fun `mixed whole playlist queue actions preserve ordered per-entry policies`() {
+        manager.play("Current", listOf(theme(1)))
+        val policies = listOf(
+            BaseModePolicy(ThemeModePolicy.TV_SIZE, PlaybackMode.FULL_SIZE),
+            BaseModePolicy(ThemeModePolicy.FULL_SIZE, PlaybackMode.TV_SIZE)
+        )
+        val items = listOf(PlayableItem.Theme(theme(2)), PlayableItem.Theme(theme(2)))
+
+        manager.playNextItems(items, baseModePolicies = policies)
+
+        val afterPlayNext = manager.state.value.nowPlayingEntries.drop(1)
+        assertEquals(listOf(2L, 2L), afterPlayNext.map { it.themeOrNull?.id })
+        assertEquals(policies, afterPlayNext.map { it.baseModePolicy })
+
+        manager.addPlayableItems(items, baseModePolicies = policies)
+        assertEquals(policies, manager.state.value.nowPlayingEntries.takeLast(2).map { it.baseModePolicy })
     }
 
     @Test
@@ -412,7 +459,7 @@ class NowPlayingManagerTest {
     }
 
     @Test
-    fun `unshuffle from added copy of original song does not duplicate original slot`() {
+    fun `unshuffle from added copy preserves every original queue occurrence`() {
         manager.play("ctx", listOf(theme(1), theme(2), theme(3), theme(4)))
         manager.addToQueue(theme(2))
 
@@ -426,9 +473,9 @@ class NowPlayingManagerTest {
         manager.toggleShuffle()
 
         val state = manager.state.value
-        assertEquals(listOf(2L, 3L, 4L), state.nowPlaying.map { it.id })
+        assertEquals(listOf(2L, 1L, 2L, 3L, 4L), state.nowPlaying.map { it.id })
         assertEquals(copyEntryId, state.currentEntry?.queueId)
-        assertTrue(state.currentEntry?.queueId != originalEntryId)
+        assertEquals(originalEntryId, state.nowPlayingEntries[2].queueId)
     }
 
     // ─── onTrackChangedByThemeId() ────────────────────────────────────────

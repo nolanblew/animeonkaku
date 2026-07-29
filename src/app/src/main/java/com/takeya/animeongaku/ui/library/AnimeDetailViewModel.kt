@@ -13,12 +13,22 @@ import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeArtistCrossRef
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.ThemeModeDao
+import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.repository.AnimeRepository
+import com.takeya.animeongaku.data.repository.MusicRequestRepository
+import com.takeya.animeongaku.data.repository.MusicCatalogRepository
+import com.takeya.animeongaku.data.repository.RelatedRelease
+import com.takeya.animeongaku.BuildConfig
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
+import com.takeya.animeongaku.network.ConnectivityMonitor
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
+import com.takeya.animeongaku.sync.LibraryPuller
 import kotlinx.coroutines.launch
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -33,6 +43,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 private val themeTypeSequenceRegex = Regex("(\\d+)$")
 
@@ -92,20 +104,27 @@ class AnimeDetailViewModel @Inject constructor(
     private val animeDao: AnimeDao,
     private val artistDao: ArtistDao,
     private val themeDao: ThemeDao,
+    private val themeModeDao: ThemeModeDao,
     private val playlistDao: PlaylistDao,
     private val animeRepository: AnimeRepository,
     private val serverPlaylistWriter: ServerPlaylistWriter,
     val nowPlayingManager: NowPlayingManager,
     val downloadManager: DownloadManager,
     private val downloadDao: DownloadDao,
-    private val userPreferencesRepository: UserPreferencesRepository
+    private val userPreferencesRepository: UserPreferencesRepository,
+    connectivityMonitor: ConnectivityMonitor,
+    musicRequestRepository: MusicRequestRepository,
+    private val musicCatalogRepository: MusicCatalogRepository,
+    private val libraryPuller: LibraryPuller
 ) : ViewModel() {
+    val isOnline: StateFlow<Boolean> = connectivityMonitor.isOnline
     private val kitsuId: String = savedStateHandle["kitsuId"] ?: ""
 
     // In-memory online data (NOT saved to DB until explicit "Add to Library")
     private val _onlineThemes = MutableStateFlow<List<ThemeEntity>>(emptyList())
     private val _onlineAnime = MutableStateFlow<AnimeEntity?>(null)
     private val _onlineEntries = MutableStateFlow<List<AnimeThemeEntry>>(emptyList())
+    private val _onlineMusic = MutableStateFlow<List<RelatedRelease>>(emptyList())
 
     // Local DB data (reactive)
     private val localAnime: StateFlow<AnimeEntity?> = animeDao.observeByKitsuId(kitsuId)
@@ -143,6 +162,28 @@ class AnimeDetailViewModel @Inject constructor(
         if (online.isNotEmpty()) online else local
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    private val cachedMusic = anime.flatMapLatest { entity ->
+        musicCatalogRepository.observeAnimeReleases(
+            kitsuId,
+            entity?.title,
+            entity?.coverUrl ?: entity?.thumbnailUrl
+        )
+    }
+    val relatedMusic: StateFlow<List<RelatedRelease>> = combine(cachedMusic, _onlineMusic) { cached, online ->
+        if (online.isNotEmpty()) online else cached
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _musicRefreshError = MutableStateFlow<String?>(null)
+    val musicRefreshError: StateFlow<String?> = _musicRefreshError.asStateFlow()
+
+    val themeModesById: StateFlow<Map<Long, ThemeModeEntity>> = themes
+        .flatMapLatest { list ->
+            val ids = list.map { it.id }
+            if (ids.isEmpty()) flowOf(emptyList()) else themeModeDao.observeByThemeIds(ids)
+        }
+        .map { modes -> modes.associateBy { it.themeId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
@@ -150,9 +191,68 @@ class AnimeDetailViewModel @Inject constructor(
     val fetchError: StateFlow<String?> = _fetchError.asStateFlow()
 
     private var hasFetched = false
+    private val catalogRefreshMutex = Mutex()
+
+    private val musicRequestCoordinator = MusicRequestCoordinator(
+        repository = musicRequestRepository,
+        scope = viewModelScope,
+        onCatalogRefreshNeeded = { refreshAvailableCatalog(includeLibraryChanges = true) }
+    )
+    val musicRequestState: StateFlow<MusicRequestUiState> = musicRequestCoordinator.state
 
     init {
         fetchFromApiIfNeeded()
+        refreshMusic()
+        if (BuildConfig.DEBUG) {
+            musicRequestCoordinator.hydrate(kitsuId)
+        }
+    }
+
+    private fun refreshMusic() {
+        refreshAvailableCatalog(includeLibraryChanges = false)
+    }
+
+    private fun refreshAvailableCatalog(includeLibraryChanges: Boolean) {
+        viewModelScope.launch {
+            catalogRefreshMutex.withLock {
+                if (includeLibraryChanges) {
+                    runCatching { libraryPuller.pullNow(forceFull = false) }
+                    refreshOnlineThemeCatalog()
+                }
+                runCatching { musicCatalogRepository.refreshAnime(kitsuId) }
+                    .onSuccess {
+                        _onlineMusic.value = it
+                        _musicRefreshError.value = null
+                    }
+                    .onFailure {
+                        if (relatedMusic.value.isNotEmpty()) {
+                            _musicRefreshError.value = "Couldn’t refresh. Showing saved music."
+                        }
+                    }
+            }
+        }
+    }
+
+    private suspend fun refreshOnlineThemeCatalog() {
+        runCatching { animeRepository.fetchAnimeByKitsuId(kitsuId) }
+            .onSuccess { syncResult ->
+                if (syncResult.themes.isNotEmpty()) {
+                    _onlineEntries.value = syncResult.themes
+                    _onlineThemes.value = sortThemes(syncResult.themes.map(::entryToThemeEntity))
+                }
+            }
+    }
+
+    fun requestMusic() {
+        if (BuildConfig.DEBUG) {
+            musicRequestCoordinator.request(kitsuId)
+        }
+    }
+
+    fun retryMusicRequestStatus() {
+        if (BuildConfig.DEBUG) {
+            musicRequestCoordinator.retryStatus()
+        }
     }
 
     private fun fetchFromApiIfNeeded() {
@@ -289,6 +389,24 @@ class AnimeDetailViewModel @Inject constructor(
         if (list.isNotEmpty()) nowPlayingManager.play(contextLabel(), list, 0, animeMap = buildAnimeMap())
     }
 
+    fun requestPlayVideoTheme(themeId: Long): BrowseVideoStartRequest? {
+        val theme = themes.value.firstOrNull { it.id == themeId } ?: return null
+        return BrowseVideoActionPolicy.request(isOnline.value, contextLabel(), listOf(theme), themeModesById.value, buildAnimeMap())
+    }
+
+    fun requestPlayVideoAll(): BrowseVideoStartRequest? =
+        BrowseVideoActionPolicy.request(isOnline.value, contextLabel(), themes.value, themeModesById.value, buildAnimeMap())
+
+    fun startPlayVideo(request: BrowseVideoStartRequest): Boolean {
+        val currentThemes = if (request.themes.size == 1) {
+            themes.value.filter { it.id == request.themes.single().id }
+        } else themes.value
+        return request.startIfStillValid(
+            nowPlayingManager, isOnline.value, currentThemes, themeModesById.value,
+            contextLabel(), buildAnimeMap()
+        )
+    }
+
     fun shuffleAll() {
         val list = themes.value
         if (list.isNotEmpty()) nowPlayingManager.play(contextLabel(), list, 0, shuffle = true, animeMap = buildAnimeMap())
@@ -310,9 +428,9 @@ class AnimeDetailViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
-    fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {
+    fun addToPlaylist(playlistId: Long, themeIds: List<Long>, modeOverride: String? = null) {
         viewModelScope.launch {
-            serverPlaylistWriter.addEntries(playlistId, themeIds)
+            serverPlaylistWriter.addThemeEntries(playlistId, themeIds, modeOverride)
         }
     }
 
@@ -359,9 +477,9 @@ class AnimeDetailViewModel @Inject constructor(
         downloadManager.removeAnimeDownload(kitsuId)
     }
 
-    fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
+    fun createAndAddToPlaylist(name: String, themeIds: List<Long>, modeOverride: String? = null) {
         viewModelScope.launch {
-            serverPlaylistWriter.createPlaylist(name, themeIds)
+            serverPlaylistWriter.createPlaylistWithThemes(name, themeIds, modeOverride)
         }
     }
 }

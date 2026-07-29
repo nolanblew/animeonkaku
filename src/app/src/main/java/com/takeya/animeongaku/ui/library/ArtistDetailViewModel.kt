@@ -15,12 +15,20 @@ import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.ThemeArtistCrossRef
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.ThemeModeDao
+import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.repository.AnimeRepository
+import com.takeya.animeongaku.data.repository.MusicCatalogRepository
+import com.takeya.animeongaku.data.repository.RelatedTrack
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
+import com.takeya.animeongaku.media.PlayableItem
+import com.takeya.animeongaku.network.ConnectivityMonitor
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
 import kotlinx.coroutines.launch
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -29,26 +37,33 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ArtistDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val themeDao: ThemeDao,
+    private val themeModeDao: ThemeModeDao,
     private val animeDao: AnimeDao,
     private val artistDao: ArtistDao,
     artistImageDao: ArtistImageDao,
     playCountDao: PlayCountDao,
     private val playlistDao: PlaylistDao,
     private val animeRepository: AnimeRepository,
+    private val musicCatalogRepository: MusicCatalogRepository,
     private val serverPlaylistWriter: ServerPlaylistWriter,
     val nowPlayingManager: NowPlayingManager,
     val downloadManager: DownloadManager,
     private val downloadDao: DownloadDao,
-    private val userPreferencesRepository: UserPreferencesRepository
+    private val userPreferencesRepository: UserPreferencesRepository,
+    connectivityMonitor: ConnectivityMonitor
 ) : ViewModel() {
+    val isOnline: StateFlow<Boolean> = connectivityMonitor.isOnline
     val artistName: String = savedStateHandle["artistName"] ?: ""
 
     // In-memory online data (NOT saved to DB until explicit "Add to Library")
@@ -59,10 +74,21 @@ class ArtistDetailViewModel @Inject constructor(
     private val localThemes: StateFlow<List<ThemeEntity>> = artistDao.observeThemesByArtist(artistName)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val catalogTracks: StateFlow<List<RelatedTrack>> = musicCatalogRepository.observeArtistTracks(artistName)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     // Always show the full online catalog when available, fall back to local
     val themes: StateFlow<List<ThemeEntity>> = combine(_onlineThemes, localThemes) { online, local ->
         if (online.isNotEmpty()) online else local
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val themeModesById: StateFlow<Map<Long, ThemeModeEntity>> = themes
+        .flatMapLatest { list ->
+            val ids = list.map { it.id }
+            if (ids.isEmpty()) flowOf(emptyList()) else themeModeDao.observeByThemeIds(ids)
+        }
+        .map { modes -> modes.associateBy { it.themeId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     // Whether any songs are in the local library for this artist
     val isInLibrary: StateFlow<Boolean> = localThemes
@@ -198,6 +224,37 @@ class ArtistDetailViewModel @Inject constructor(
         nowPlayingManager.play(artistName, list, idx, animeMap = buildAnimeMap())
     }
 
+    fun playCatalogTrack(track: RelatedTrack) = nowPlayingManager.playItems(track.release.title, listOf(
+        PlayableItem.RelatedSong(track.song, track.release, track.asAnimeEntity(), track.relationshipType)
+    ))
+
+    fun requestPlayVideo(themeId: Long): BrowseVideoStartRequest? {
+        val theme = themes.value.firstOrNull { it.id == themeId } ?: return null
+        return BrowseVideoActionPolicy.request(
+            isOnline.value,
+            artistName,
+            listOf(theme),
+            themeModesById.value,
+            singleAnimeMap(theme)
+        )
+    }
+
+    fun startPlayVideo(request: BrowseVideoStartRequest): Boolean {
+        val themeId = request.themes.singleOrNull()?.id ?: return false
+        val currentTheme = themes.value.firstOrNull { it.id == themeId } ?: return false
+        return request.startIfStillValid(
+            nowPlayingManager,
+            isOnline.value,
+            listOf(currentTheme),
+            themeModesById.value,
+            artistName,
+            singleAnimeMap(currentTheme)
+        )
+    }
+
+    private fun singleAnimeMap(theme: ThemeEntity): Map<Long, AnimeEntity> =
+        theme.animeId?.let { id -> buildAnimeMap()[id]?.let { mapOf(id to it) } } ?: emptyMap()
+
     fun playAll() {
         val list = allSongsSorted.value.ifEmpty { themes.value }
         if (list.isNotEmpty()) nowPlayingManager.play(artistName, list, 0, animeMap = buildAnimeMap())
@@ -224,9 +281,9 @@ class ArtistDetailViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
-    fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {
+    fun addToPlaylist(playlistId: Long, themeIds: List<Long>, modeOverride: String? = null) {
         viewModelScope.launch {
-            serverPlaylistWriter.addEntries(playlistId, themeIds)
+            serverPlaylistWriter.addThemeEntries(playlistId, themeIds, modeOverride)
         }
     }
 
@@ -266,9 +323,9 @@ class ArtistDetailViewModel @Inject constructor(
         downloadManager.removeDownload(themeId)
     }
 
-    fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
+    fun createAndAddToPlaylist(name: String, themeIds: List<Long>, modeOverride: String? = null) {
         viewModelScope.launch {
-            serverPlaylistWriter.createPlaylist(name, themeIds)
+            serverPlaylistWriter.createPlaylistWithThemes(name, themeIds, modeOverride)
         }
     }
 }

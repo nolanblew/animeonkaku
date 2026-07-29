@@ -5,7 +5,7 @@ import type { AuthService } from "../auth/service.js";
 import { makeRequireAuth } from "./requireAuth.js";
 
 export interface ProxyApiService {
-  search(query: string): Promise<unknown>;
+  search(userId: string, query: string): Promise<unknown>;
   artist(slug: string): Promise<unknown>;
 }
 
@@ -16,6 +16,10 @@ export interface ProxyUpstream {
 
 export interface CachedProxyServiceOptions {
   upstream: ProxyUpstream;
+  musicSearch?: (
+    userId: string,
+    query: string,
+  ) => Promise<{ releases: unknown[]; tracks: unknown[] }>;
   ttlMs?: number;
   now?: () => number;
 }
@@ -35,8 +39,15 @@ export class CachedProxyService implements ProxyApiService {
     this.now = options.now ?? (() => Date.now());
   }
 
-  async search(query: string): Promise<unknown> {
-    return this.cached(`search:${query}`, () => this.options.upstream.search(query));
+  async search(userId: string, query: string): Promise<unknown> {
+    const [legacy, music] = await Promise.all([
+      this.cached(`search:${query}`, () => this.options.upstream.search(query)),
+      this.options.musicSearch?.(userId, query) ?? Promise.resolve({ releases: [], tracks: [] }),
+    ]);
+    return {
+      ...(isRecord(legacy) ? legacy : { legacy }),
+      music,
+    };
   }
 
   async artist(slug: string): Promise<unknown> {
@@ -74,7 +85,7 @@ export function registerProxyRoutes(
   app.get(
     "/v1/search",
     { schema: { querystring: searchQuery }, preHandler: requireAuth },
-    async (request) => service.search(request.query.q),
+    async (request) => service.search(request.auth!.user.kitsuUserId, request.query.q),
   );
 
   app.get(
@@ -82,4 +93,8 @@ export function registerProxyRoutes(
     { schema: { params: artistParams }, preHandler: requireAuth },
     async (request) => service.artist(request.params.slug),
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

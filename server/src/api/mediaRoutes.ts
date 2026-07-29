@@ -1,6 +1,6 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import { Readable } from "node:stream";
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -10,6 +10,7 @@ import type { FetchLike } from "../http/types.js";
 import { JobPriority, type JobQueue } from "../jobs/index.js";
 import type { AppLogger } from "../logging.js";
 import { safeExternalUrl } from "../logging.js";
+import { resolveManagedMediaPath } from "../media/mediaPathSafety.js";
 import type { MediaState } from "../media/types.js";
 import type { AudioState } from "./clientRoutes.js";
 import { ApiError } from "./errors.js";
@@ -28,6 +29,16 @@ export interface MediaAudioRecord {
   videoFallback?: boolean;
 }
 
+export interface MediaSongAudioRecord {
+  songId: number;
+  state: MediaState;
+  filePath: string | null;
+  byteSize: number | null;
+  sha256: string | null;
+  contentType: string | null;
+  sourceFileName: string | null;
+}
+
 export interface MediaImageRecord {
   originUrl: string;
   state: MediaState;
@@ -37,6 +48,7 @@ export interface MediaImageRecord {
 
 export interface MediaApiRepository {
   findAudio(themeId: number): Promise<MediaAudioRecord | null>;
+  findSongAudio(songId: number): Promise<MediaSongAudioRecord | null>;
   findImage(kind: ImageRouteKind, refId: string): Promise<MediaImageRecord | null>;
 }
 
@@ -44,6 +56,8 @@ export interface MediaStreamingServiceDeps {
   repo: MediaApiRepository;
   queue: JobQueue;
   mediaRoot: string;
+  /** Listener-facing catalog audio remains hidden while the catalog rollout flag is off. */
+  musicCatalogEnabled?: boolean;
   fetch?: FetchLike;
   /** Fetch used for image origins (Kitsu CDN etc.); falls back to `fetch`. */
   imageFetch?: FetchLike;
@@ -125,6 +139,38 @@ export class MediaStreamingService {
       rangeHeader,
       reply,
       log,
+    });
+  }
+
+  async sendSongAudio(
+    songId: number,
+    method: "GET" | "HEAD",
+    rangeHeader: string | undefined,
+    reply: FastifyReply,
+  ): Promise<FastifyReply> {
+    if (!this.deps.musicCatalogEnabled) {
+      throw new ApiError(404, "MUSIC_NOT_FOUND", "Song audio is not in the ready catalog.");
+    }
+    const audio = await this.deps.repo.findSongAudio(songId);
+    if (!audio || audio.state !== "READY") {
+      throw new ApiError(404, "MUSIC_NOT_FOUND", "Song audio is not in the ready catalog.");
+    }
+    const readyAudio = await this.readyMediaFile(audio.filePath);
+    if (!readyAudio) {
+      throw new ApiError(503, "MUSIC_MEDIA_UNAVAILABLE", "Catalog song audio is missing from server storage.");
+    }
+    if (!audio.contentType?.toLowerCase().startsWith("audio/")) {
+      throw new ApiError(503, "MUSIC_MEDIA_UNAVAILABLE", "Catalog song audio metadata is incomplete.");
+    }
+    return this.sendReadyFile({
+      absolutePath: readyAudio.absolutePath,
+      method,
+      rangeHeader,
+      reply,
+      totalSize: readyAudio.size,
+      etag: audio.sha256,
+      contentType: audio.contentType,
+      sourceFileName: audio.sourceFileName,
     });
   }
 
@@ -326,8 +372,12 @@ export class MediaStreamingService {
     totalSize: number;
     etag: string | null;
     contentType: string;
+    sourceFileName?: string | null;
   }): FastifyReply {
     setCacheHeaders(input.reply, input.totalSize, input.etag, input.contentType);
+    if (input.sourceFileName) {
+      input.reply.header("Content-Disposition", contentDisposition(input.sourceFileName));
+    }
 
     if (input.method === "HEAD") {
       return input.reply.code(200).send();
@@ -353,18 +403,14 @@ export class MediaStreamingService {
     return input.reply.send(createReadStream(input.absolutePath));
   }
 
-  private safeMediaPath(relativePath: string): string {
-    const absolutePath = resolve(join(this.mediaRoot, relativePath));
-    const relativeToRoot = relative(this.mediaRoot, absolutePath);
-    if (relativeToRoot.startsWith("..") || isAbsolute(relativeToRoot)) {
-      throw new ApiError(500, "INTERNAL", "Invalid media path.");
-    }
-    return absolutePath;
-  }
-
   private async readyMediaFile(relativePath: string | null): Promise<ReadyMediaFile | null> {
     if (!relativePath) return null;
-    const absolutePath = this.safeMediaPath(relativePath);
+    let absolutePath: string;
+    try {
+      absolutePath = await resolveManagedMediaPath(this.mediaRoot, relativePath);
+    } catch {
+      throw new ApiError(500, "INTERNAL", "Invalid media path.");
+    }
     const fileStat = await stat(absolutePath).catch(() => null);
     if (!fileStat?.isFile()) return null;
     return { absolutePath, size: fileStat.size };
@@ -373,6 +419,10 @@ export class MediaStreamingService {
 
 const audioParams = z.object({
   themeId: z.coerce.number().int().positive(),
+});
+
+const songAudioParams = z.object({
+  songId: z.coerce.number().int().positive(),
 });
 
 const animeImageParams = z.object({
@@ -422,6 +472,30 @@ export function registerMediaRoutes(
     "/v1/media/audio/:themeId/request",
     { schema: { params: audioParams }, preHandler: requireAuth },
     async (request) => service.requestAudio(request.params.themeId),
+  );
+
+  app.get(
+    "/v1/media/songs/:songId/audio",
+    { schema: { params: songAudioParams }, preHandler: requireAuth, exposeHeadRoute: false },
+    async (request, reply) =>
+      service.sendSongAudio(
+        request.params.songId,
+        "GET",
+        headerValue(request.headers.range),
+        reply,
+      ),
+  );
+
+  app.head(
+    "/v1/media/songs/:songId/audio",
+    { schema: { params: songAudioParams }, preHandler: requireAuth },
+    async (request, reply) =>
+      service.sendSongAudio(
+        request.params.songId,
+        "HEAD",
+        headerValue(request.headers.range),
+        reply,
+      ),
   );
 
   app.get(
@@ -492,6 +566,13 @@ function headerValue(value: string | string[] | undefined): string | undefined {
 function copyHeader(response: Response, reply: FastifyReply, source: string, target: string): void {
   const value = response.headers.get(source);
   if (value) reply.header(target, value);
+}
+
+function contentDisposition(fileName: string): string {
+  const encoded = encodeURIComponent(fileName).replace(/[!'()*]/g, (character) =>
+    `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `inline; filename*=UTF-8''${encoded}`;
 }
 
 function fallbackAudioContentType(audio: MediaAudioRecord): string {

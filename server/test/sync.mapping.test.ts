@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AnimeThemeEntry, AnimeThemesLookupResult } from "../src/animethemes/types.js";
 import { JobPriority, JobQueue } from "../src/jobs/index.js";
+import { createAnimeMappedDiscoveryHook } from "../src/music/discovery/mappingHook.js";
 import { LibrarySyncPipeline } from "../src/sync/librarySyncPipeline.js";
 import type { KitsuCatalogRecord } from "../src/sync/types.js";
 import { FakeJobRepository } from "./helpers/fakeJobRepository.js";
@@ -14,12 +15,15 @@ function theme(input: Partial<AnimeThemeEntry> & { animeId: number; themeId: num
     kitsuId: input.kitsuId ?? null,
     coverUrl: input.coverUrl ?? null,
     themeId: input.themeId,
+    animeThemesSongId: input.animeThemesSongId ?? null,
     title: input.title ?? `Song ${input.themeId}`,
     artistName: input.artistName ?? "Artist",
     audioUrl: input.audioUrl ?? `https://a.animethemes.moe/${input.themeId}.ogg`,
     videoUrl: input.videoUrl ?? `https://v.animethemes.moe/${input.themeId}.webm`,
     themeType: input.themeType ?? "OP1",
     artists: input.artists ?? [{ name: "Artist", asCharacter: null, alias: null }],
+    songResources: input.songResources ?? [],
+    videoCandidates: input.videoCandidates ?? [],
     videoFallback: input.videoFallback ?? false,
   };
 }
@@ -96,6 +100,89 @@ describe("LibrarySyncPipeline theme mapping", () => {
 
     expect(repo.mappings).toEqual(new Map([["1", 99], ["2", 99]]));
     expect(repo.savedThemes.map((saved) => saved.themeId)).toEqual([100]);
+  });
+
+  it("notifies discovery best-effort only for new AnimeThemes ids across unchanged, remapped, and duplicate-user mappings", async () => {
+    const repo = new FakeMappingRepo([catalog("1", "Season")]);
+    const queue = new JobQueue(new FakeJobRepository());
+    const ensureAnime = vi.fn()
+      .mockResolvedValueOnce([99])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([100]);
+    const onAnimeMapped = createAnimeMappedDiscoveryHook({
+      enabled: true,
+      queue,
+      repo: { ensureAnime } as never,
+    });
+    let animeThemesId = 99;
+    const pipeline = new LibrarySyncPipeline({
+      repo: repo as never,
+      kitsu: {} as never,
+      animeThemes: {
+        fetchByKitsuIds: async () => lookup({ "1": animeThemesId }, [theme({ animeId: animeThemesId, themeId: animeThemesId * 10 })]),
+      },
+      queue,
+      onAnimeMapped,
+    });
+
+    for (const userId of ["u1", "u2", "u3"]) {
+      if (userId === "u3") animeThemesId = 100;
+      await runMap(queue, pipeline, userId, ["1"]);
+    }
+
+    expect(repo.mappings).toEqual(new Map([["1", 100]]));
+    expect(ensureAnime).toHaveBeenNthCalledWith(1, [99], expect.any(Date));
+    expect(ensureAnime).toHaveBeenNthCalledWith(2, [99], expect.any(Date));
+    expect(ensureAnime).toHaveBeenNthCalledWith(3, [100], expect.any(Date));
+    expect((await queue.list()).filter((entry) => entry.type === "DISCOVER_ANIME_MUSIC").map((entry) => entry.payload))
+      .toEqual([{ animeId: 99 }, { animeId: 100 }]);
+  });
+
+  it("keeps mapping durable when discovery is disabled or its repository/enqueue fails", async () => {
+    const repo = new FakeMappingRepo([catalog("1", "Season")]);
+    const queue = new JobQueue(new FakeJobRepository());
+    const disabledEnsure = vi.fn();
+    const disabledHook = createAnimeMappedDiscoveryHook({
+      enabled: false,
+      queue,
+      repo: { ensureAnime: disabledEnsure } as never,
+    });
+    const pipeline = new LibrarySyncPipeline({
+      repo: repo as never,
+      kitsu: {} as never,
+      animeThemes: { fetchByKitsuIds: async () => lookup({ "1": 99 }, [theme({ animeId: 99, themeId: 990 })]) },
+      queue,
+      onAnimeMapped: disabledHook,
+    });
+    await runMap(queue, pipeline, "disabled", ["1"]);
+    expect(disabledEnsure).not.toHaveBeenCalled();
+
+    const failingRepoPipeline = new LibrarySyncPipeline({
+      repo: repo as never,
+      kitsu: {} as never,
+      animeThemes: { fetchByKitsuIds: async () => lookup({ "1": 100 }, [theme({ animeId: 100, themeId: 1000 })]) },
+      queue,
+      onAnimeMapped: createAnimeMappedDiscoveryHook({
+        enabled: true,
+        queue,
+        repo: { ensureAnime: vi.fn().mockRejectedValue(new Error("discovery database offline")) } as never,
+      }),
+    });
+    await expect(runMap(queue, failingRepoPipeline, "repo-failure", ["1"])).resolves.toBeUndefined();
+
+    const failingEnqueuePipeline = new LibrarySyncPipeline({
+      repo: repo as never,
+      kitsu: {} as never,
+      animeThemes: { fetchByKitsuIds: async () => lookup({ "1": 101 }, [theme({ animeId: 101, themeId: 1010 })]) },
+      queue,
+      onAnimeMapped: createAnimeMappedDiscoveryHook({
+        enabled: true,
+        queue: { enqueue: vi.fn().mockRejectedValue(new Error("discovery queue offline")) } as never,
+        repo: { ensureAnime: vi.fn().mockResolvedValue([101]) } as never,
+      }),
+    });
+    await expect(runMap(queue, failingEnqueuePipeline, "enqueue-failure", ["1"])).resolves.toBeUndefined();
+    expect(repo.mappings).toEqual(new Map([["1", 101]]));
   });
 
   it("falls back through MAL ids, strict title matches, and marks remaining anime unmatched", async () => {
@@ -291,3 +378,20 @@ describe("LibrarySyncPipeline theme mapping", () => {
     expect(repo.mappings).toEqual(new Map([["1", 1], ["2", 2], ["3", 3], ["4", 4]]));
   });
 });
+
+async function runMap(
+  queue: JobQueue,
+  pipeline: LibrarySyncPipeline,
+  userId: string,
+  kitsuIds: string[],
+): Promise<void> {
+  await queue.enqueue({
+    type: "MAP_THEMES",
+    priority: JobPriority.NORMAL,
+    payload: { kitsuIds, userId },
+    dedupeKey: `MAP_THEMES:${userId}:${kitsuIds.join(",")}`,
+  });
+  const job = (await queue.claimNext())!;
+  await pipeline.runMapThemes({ kitsuIds, userId, job });
+  await queue.complete(job.id);
+}

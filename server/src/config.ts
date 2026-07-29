@@ -8,10 +8,19 @@ export const PUBLIC_KITSU_CLIENT_SECRET =
 const blankToUndefined = (value: unknown): unknown =>
   typeof value === "string" && value.trim().length === 0 ? undefined : value;
 
+const booleanFromEnvironment = z.preprocess((value) => {
+  if (typeof value !== "string") return value;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true" || normalized === "1") return true;
+  if (normalized === "false" || normalized === "0" || normalized === "") return false;
+  return value;
+}, z.boolean());
+
 const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(8080),
   DATABASE_URL: z.string().min(1),
   MEDIA_ROOT: z.string().min(1),
+  AMF_LIBRARY_ROOT: z.preprocess(blankToUndefined, z.string().min(1).optional()),
   KITSU_CLIENT_ID: z.preprocess(blankToUndefined, z.string().default(PUBLIC_KITSU_CLIENT_ID)),
   KITSU_CLIENT_SECRET: z.preprocess(
     blankToUndefined,
@@ -29,6 +38,10 @@ const EnvSchema = z.object({
     blankToUndefined,
     z.string().url().default("https://api.animethemes.moe"),
   ),
+  // Catalog exposure and automatic discovery are independent rollout switches.
+  MUSIC_CATALOG_ENABLED: booleanFromEnvironment.default(false),
+  MUSIC_DISCOVERY_ENABLED: booleanFromEnvironment.default(false),
+  ADMIN_PASSWORD: z.string().min(1).default("Password123"),
 });
 
 export type Config = z.infer<typeof EnvSchema>;
@@ -41,5 +54,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       .join("; ");
     throw new Error(`Invalid environment configuration — ${issues}`);
   }
+
   return parsed.data;
 }

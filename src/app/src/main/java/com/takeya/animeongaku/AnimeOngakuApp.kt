@@ -61,7 +61,7 @@ class AnimeOngakuApp : Application(), Configuration.Provider, ImageLoaderFactory
         
         // Silent restore on app startup
         scope.launch {
-            if (nowPlayingManager.state.value.nowPlaying.isEmpty()) {
+            if (!nowPlayingManager.isActive) {
                 val restored = nowPlayingPersistence.restore()
                 if (restored != null) {
                     mediaControllerManager.restore(restored, autoPlay = false)

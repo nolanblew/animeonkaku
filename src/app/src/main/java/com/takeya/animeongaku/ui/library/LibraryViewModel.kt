@@ -16,6 +16,8 @@ import com.takeya.animeongaku.data.local.PendingOpDao
 import com.takeya.animeongaku.data.local.PendingOpEntity
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.ThemeModeDao
+import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.data.repository.ArtistRepository
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
@@ -23,6 +25,8 @@ import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.network.ConnectivityMonitor
 import com.takeya.animeongaku.sync.PendingWriteStatus
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -61,6 +65,7 @@ class LibraryViewModel @Inject constructor(
     private val dynamicPlaylistSpecDao: DynamicPlaylistSpecDao,
     private val animeDao: AnimeDao,
     private val themeDao: ThemeDao,
+    private val themeModeDao: ThemeModeDao,
     private val artistDao: ArtistDao,
     private val artistImageDao: ArtistImageDao,
     private val artistRepository: ArtistRepository,
@@ -121,6 +126,24 @@ class LibraryViewModel @Inject constructor(
 
     val themes = themeDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val themeModesById: StateFlow<Map<Long, ThemeModeEntity>> = themes
+        .map { list -> list.map { it.id } }
+        .flatMapLatest { ids -> if (ids.isEmpty()) flowOf(emptyList()) else themeModeDao.observeByThemeIds(ids) }
+        .map { modes -> modes.associateBy { it.themeId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    fun requestThemeVideo(themeId: Long): BrowseVideoStartRequest? {
+        val theme = themes.value.firstOrNull { it.id == themeId } ?: return null
+        val animeMap = theme.animeId?.let { id -> anime.value.firstOrNull { it.animeThemesId == id }?.let { mapOf(id to it) } }.orEmpty()
+        return BrowseVideoActionPolicy.request(isOnline.value, "Theme", listOf(theme), themeModesById.value, animeMap)
+    }
+
+    fun startThemeVideo(request: BrowseVideoStartRequest): Boolean {
+        val theme = themes.value.firstOrNull { it.id == request.themes.singleOrNull()?.id } ?: return false
+        val animeMap = theme.animeId?.let { id -> anime.value.firstOrNull { it.animeThemesId == id }?.let { mapOf(id to it) } }.orEmpty()
+        return request.startIfStillValid(nowPlayingManager, isOnline.value, listOf(theme), themeModesById.value, "Theme", animeMap)
+    }
 
     private val artistNames = artistDao.observeAllArtistNames()
         .distinctUntilChanged()
@@ -245,9 +268,9 @@ class LibraryViewModel @Inject constructor(
         )
     }
 
-    fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {
+    fun addToPlaylist(playlistId: Long, themeIds: List<Long>, modeOverride: String? = null) {
         runPlaylistAction("Couldn't save to playlist. Try again when your connection is stable.") {
-            serverPlaylistWriter.addEntries(playlistId, themeIds)
+            serverPlaylistWriter.addThemeEntries(playlistId, themeIds, modeOverride)
         }
     }
 
@@ -287,9 +310,9 @@ class LibraryViewModel @Inject constructor(
         downloadManager.removeDownload(themeId)
     }
 
-    fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
+    fun createAndAddToPlaylist(name: String, themeIds: List<Long>, modeOverride: String? = null) {
         runPlaylistAction("Couldn't create playlist. Try again when your connection is stable.") {
-            serverPlaylistWriter.createPlaylist(name, themeIds)
+            serverPlaylistWriter.createPlaylistWithThemes(name, themeIds, modeOverride)
         }
     }
 

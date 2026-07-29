@@ -28,6 +28,7 @@ import com.takeya.animeongaku.data.remote.OngakuSyncStatusResponse
 import com.takeya.animeongaku.data.remote.OngakuThemePrefDto
 import com.takeya.animeongaku.data.remote.OngakuThemePrefPatch
 import com.takeya.animeongaku.data.repository.PlaylistWriteStore
+import com.takeya.animeongaku.data.repository.PlaylistWriteItem
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.sync.SyncEngine
@@ -40,6 +41,75 @@ import org.junit.Test
 import retrofit2.Response
 
 class ServerPlaylistWriterTest {
+    @Test
+    fun `typed playlist items preserve entry identity and reject invalid song modes`() {
+        val item = PlaylistWriteItem(
+            entryId = 41L,
+            itemType = "THEME",
+            itemId = 88L,
+            modeOverride = "FULL_SIZE"
+        )
+
+        assertEquals(41L, item.toRequest().entryId)
+        assertEquals("THEME", item.toRequest().itemType)
+        assertEquals("FULL_SIZE", item.toRequest().modeOverride)
+
+        var rejected = false
+        try {
+            PlaylistWriteItem(itemType = "SONG", itemId = 99L, modeOverride = "TV_SIZE")
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue(rejected)
+        assertEquals(null, item.copy(entryId = -41L).toRequest().entryId)
+    }
+
+    @Test
+    fun `mixed create sends theme and song without local temporary entry ids`() = runBlocking {
+        val store = FakePlaylistWriteStore()
+        val api = PlaylistRecordingOngakuApi()
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+        }
+        val writer = ServerPlaylistWriter(store, settings, syncEngine(PlaylistSyncStore(store), api, settings))
+
+        writer.createPlaylistWithItems(
+            "Mixed",
+            listOf(
+                PlaylistWriteItem(itemType = "THEME", itemId = 10L, modeOverride = "FULL_SIZE"),
+                PlaylistWriteItem(itemType = "SONG", itemId = 20L)
+            ),
+            defaultMode = "FULL_SIZE"
+        )
+
+        assertEquals(listOf("THEME", "SONG"), api.createdRequest?.items?.map { it.itemType })
+        assertTrue(api.createdRequest?.items.orEmpty().all { it.entryId == null })
+        assertEquals("FULL_SIZE", api.createdRequest?.defaultMode)
+    }
+
+    @Test
+    fun `mixed add sends ordered typed items and omits new temporary ids`() = runBlocking {
+        val store = FakePlaylistWriteStore(
+            playlists = mutableMapOf(900L to PlaylistEntity(id = 900L, name = "Mix", createdAt = 1L, isAuto = false))
+        )
+        val api = PlaylistRecordingOngakuApi()
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+        }
+        val writer = ServerPlaylistWriter(store, settings, syncEngine(PlaylistSyncStore(store), api, settings))
+
+        writer.addItems(
+            900L,
+            listOf(
+                PlaylistWriteItem(itemType = "THEME", itemId = 10L),
+                PlaylistWriteItem(itemType = "SONG", itemId = 20L)
+            )
+        )
+
+        assertEquals(listOf("THEME", "SONG"), api.updatedRequest?.items?.map { it.itemType })
+        assertTrue(api.updatedRequest?.items.orEmpty().all { it.entryId == null })
+    }
+
     @Test
     fun `server mode creates playlist on server and applies returned server id locally`() = runBlocking {
         val store = FakePlaylistWriteStore()
@@ -106,9 +176,15 @@ class ServerPlaylistWriterTest {
         }
         val writer = ServerPlaylistWriter(store, settings, syncEngine(PlaylistSyncStore(store), api, settings))
 
-        writer.addEntries(77L, listOf(101L))
+        var rejected = false
+        try {
+            writer.addEntries(77L, listOf(101L))
+        } catch (_: IllegalStateException) {
+            rejected = true
+        }
 
-        assertEquals(listOf(100L, 101L), store.entries[77L])
+        assertTrue(rejected)
+        assertEquals(listOf(100L), store.entries[77L])
         assertFalse(api.updateCalled)
     }
 
@@ -156,6 +232,8 @@ private class FakePlaylistWriteStore(
     val createdLocalIds = mutableListOf<Long>()
     val appliedServerPlaylists = mutableListOf<OngakuPlaylistDto>()
     private var nextId = 1L
+    private var nextEntryId = -1L
+    private val typedEntries = mutableMapOf<Long, MutableList<PlaylistWriteItem>>()
 
     override suspend fun createLocalPlaylist(
         name: String,
@@ -186,6 +264,20 @@ private class FakePlaylistWriteStore(
     override suspend fun addEntries(playlistId: Long, themeIds: List<Long>) {
         entries.getOrPut(playlistId) { mutableListOf() }.addAll(themeIds)
     }
+
+    override suspend fun addItems(playlistId: Long, items: List<PlaylistWriteItem>) {
+        val stored = items.map { it.copy(entryId = it.entryId ?: nextEntryId--) }
+        typedEntries.getOrPut(playlistId) {
+            entries[playlistId].orEmpty().map {
+                PlaylistWriteItem(itemType = "THEME", itemId = it)
+            }.toMutableList()
+        }.addAll(stored)
+        entries.getOrPut(playlistId) { mutableListOf() }
+            .addAll(items.filter { it.itemType == "THEME" }.map { it.itemId })
+    }
+
+    override suspend fun playlistItems(playlistId: Long): List<PlaylistWriteItem> =
+        typedEntries[playlistId] ?: super<PlaylistWriteStore>.playlistItems(playlistId)
 
     override suspend fun renamePlaylist(playlistId: Long, name: String, updatedAt: Long) {
         playlists[playlistId] = playlists.getValue(playlistId).copy(name = name, updatedAt = updatedAt, deletedAt = null)
