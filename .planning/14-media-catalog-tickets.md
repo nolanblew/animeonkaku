@@ -2849,14 +2849,38 @@ reconciliation job, and zero automatic requests were verified live. Installed
 Edge visual checks passed for both the login screen and the authenticated
 responsive settings page.
 
+### MC-R11 — Show AMF album artwork on related releases
+
+| Field | Value |
+|---|---|
+| Status | ✅ Complete (2026-07-28) |
+| Area | AMF response contract, catalog import, and Android extras presentation |
+
+AMF album responses now retain their optional `{ url, media_type }` artwork
+through the sparse JSON:API projection and delivery metadata. The importer
+stores the resolved AMF image URL on OST, character-song, drama, and other
+related releases, so the existing Related Music list and album-detail hero use
+the album image and continue to fall back to the owning anime artwork when it
+is absent.
+
+Full-size OP/ED imports deliberately discard album artwork at the catalog
+boundary. Theme playback therefore continues to use the anime's artwork, even
+when AMF reports cover art for the source single or album.
+
+The live AMF OpenAPI contract was checked before implementation. The focused
+AMF client suite passed (61 tests), the full serial server suite passed (521
+passed, 32 environment-gated skipped), and TypeScript typecheck passed. The
+existing Android related-music presentation and catalog-model tests passed in
+a debug unit-test build.
+
 ## 9. Effort summary
 
 | Workstream | Tickets | Experienced effort |
 |---|---:|---:|
-| Server catalog/provider/API | 13 | approximately 50–65 days |
+| Server catalog/provider/API | 14 | approximately 50–65 days |
 | Android data/playback/UI/downloads | 11 | approximately 55–75 days |
 | Integrated acceptance and enablement | 1 | approximately 6–8 days |
-| Total sequential | 25 | approximately 111–148 focused days |
+| Total sequential | 26 | approximately 111–148 focused days |
 
 The total is not a calendar estimate. With two contributors and the dependency
 waves above, practical elapsed time can be materially shorter. The high effort
