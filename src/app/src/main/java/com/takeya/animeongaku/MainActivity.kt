@@ -2,7 +2,6 @@ package com.takeya.animeongaku
 
 import android.content.Intent
 import android.os.Bundle
-import android.os.SystemClock
 import androidx.activity.viewModels
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -26,15 +25,7 @@ import kotlinx.coroutines.Job
 import javax.inject.Inject
 import com.takeya.animeongaku.updater.AppUpdateViewModel
 
-private const val MAX_SPLASH_WAIT_MS = 1_500L
-
 internal fun activeRefreshIntervalMs(): Long = 10 * 60 * 1_000L
-
-internal fun shouldKeepSplashScreen(
-    startupReady: Boolean,
-    elapsedMs: Long,
-    maxWaitMs: Long
-): Boolean = !startupReady && elapsedMs < maxWaitMs
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -52,16 +43,7 @@ class MainActivity : ComponentActivity() {
     private var isForeground = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        val splashScreen = installSplashScreen()
-        val splashStartedAt = SystemClock.elapsedRealtime()
-        var startupReady = false
-        splashScreen.setKeepOnScreenCondition {
-            shouldKeepSplashScreen(
-                startupReady = startupReady,
-                elapsedMs = SystemClock.elapsedRealtime() - splashStartedAt,
-                maxWaitMs = MAX_SPLASH_WAIT_MS
-            )
-        }
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         pendingNavigateTo.value = intent?.getStringExtra("navigate_to")
         enableEdgeToEdge()
@@ -86,7 +68,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
-        startupReady = true
     }
 
     override fun onStart() {

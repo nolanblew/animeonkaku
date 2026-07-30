@@ -938,13 +938,15 @@ class MediaControllerManager @Inject constructor(
         val mediaItem = ctrl.currentMediaItem
         val queueId = mediaItem?.mediaId?.toLongOrNull()
         val resolved = resolvedItemsByQueueId[queueId]
-        _playbackState.value = PlaybackState(
+        _playbackState.value = mergeControllerProgressIntoPlaybackState(
+            previous = _playbackState.value,
             isPlaying = ctrl.isPlaying,
             positionMs = ctrl.currentPosition,
             durationMs = duration,
             bufferedPositionMs = ctrl.bufferedPosition,
             isBuffering = ctrl.playbackState == Player.STATE_BUFFERING,
             hasMedia = ctrl.mediaItemCount > 0,
+        ).copy(
             queueId = queueId,
             preferredMode = resolved?.preferredMode,
             actualMode = resolved?.actualMode,

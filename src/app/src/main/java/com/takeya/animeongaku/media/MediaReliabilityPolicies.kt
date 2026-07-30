@@ -45,6 +45,24 @@ internal fun shouldClearPlaybackDirtyAfterPersist(
     latestRevision: Long,
 ): Boolean = persisted && savedRevision == latestRevision
 
+/** Merges controller progress without discarding independently-updated playback state. */
+internal fun mergeControllerProgressIntoPlaybackState(
+    previous: PlaybackState,
+    isPlaying: Boolean,
+    positionMs: Long,
+    durationMs: Long,
+    bufferedPositionMs: Long,
+    isBuffering: Boolean,
+    hasMedia: Boolean,
+): PlaybackState = previous.copy(
+    isPlaying = isPlaying,
+    positionMs = positionMs,
+    durationMs = durationMs,
+    bufferedPositionMs = bufferedPositionMs,
+    isBuffering = isBuffering,
+    hasMedia = hasMedia,
+)
+
 internal fun shouldPreCacheOnNetwork(
     wifiOnly: Boolean,
     isUnmetered: Boolean,

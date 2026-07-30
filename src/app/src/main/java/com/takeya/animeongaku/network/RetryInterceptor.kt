@@ -74,7 +74,10 @@ class RetryInterceptor(
     }
 
     private fun isTransientNetworkFailure(error: IOException): Boolean = when (error) {
-        is SocketTimeoutException, is ConnectException, is SocketException ->
+        // A refused TCP connection is immediately actionable by the caller and retrying here
+        // blocks foreground playback with no useful chance of recovery.
+        is ConnectException -> false
+        is SocketTimeoutException, is SocketException ->
             !Thread.currentThread().isInterrupted && !error.isCancellationLike()
         is UnknownHostException, is InterruptedIOException -> false
         else -> false
