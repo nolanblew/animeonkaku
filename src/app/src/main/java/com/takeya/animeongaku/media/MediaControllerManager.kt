@@ -40,12 +40,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -88,6 +91,8 @@ class MediaControllerManager @Inject constructor(
     private var queueSyncPlayRequested = false
     private var lastConsumedPlayRequestGeneration = 0L
     private val playbackStateDirty = AtomicBoolean(false)
+    private val playbackStateRevision = AtomicLong(0L)
+    private val persistenceRevision = MutableStateFlow(0L)
     private val positionPollingActive = MutableStateFlow(false)
 
     private val _playbackState = MutableStateFlow(PlaybackState())
@@ -108,6 +113,16 @@ class MediaControllerManager @Inject constructor(
     private var cachedThemePreferences: Map<Long, UserPreferenceEntity> = emptyMap()
     private var cachedDislikedSongIds: Set<Long> = emptySet()
     private val artworkPreloadAheadCount = 3
+
+    /**
+     * Queue state and controller-only state (seek, pause, repeat) share one debounced persistence
+     * signal. The monotonic revision prevents an older I/O completion from clearing a newer change.
+     */
+    private fun markPlaybackStateDirty() {
+        playbackStateDirty.set(true)
+        val revision = playbackStateRevision.incrementAndGet()
+        persistenceRevision.update { current -> maxOf(current, revision) }
+    }
 
     private fun shouldIncludeInPlayer(idx: Int, entry: QueueEntry, npState: NowPlayingState): Boolean {
         if (idx == npState.currentIndex) return true
@@ -130,7 +145,7 @@ class MediaControllerManager @Inject constructor(
 
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            playbackStateDirty.set(true)
+            markPlaybackStateDirty()
             _playbackState.value = _playbackState.value.copy(isPlaying = isPlaying)
             positionPollingActive.value = isPlaying
             controller?.let(::updatePlaybackPositionFromController)
@@ -148,7 +163,7 @@ class MediaControllerManager @Inject constructor(
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             controller ?: return
-            playbackStateDirty.set(true)
+            markPlaybackStateDirty()
             val queueEntryId = mediaItem?.mediaId?.toLongOrNull()
             updatePlaybackModeState(queueEntryId, resolvedItemsByQueueId[queueEntryId])
             if (queueEntryId != null) {
@@ -165,7 +180,7 @@ class MediaControllerManager @Inject constructor(
         }
 
         override fun onRepeatModeChanged(repeatMode: Int) {
-            playbackStateDirty.set(true)
+            markPlaybackStateDirty()
             _playbackState.value = _playbackState.value.copy(repeatMode = repeatMode)
         }
 
@@ -174,7 +189,7 @@ class MediaControllerManager @Inject constructor(
             newPosition: Player.PositionInfo,
             reason: Int,
         ) {
-            playbackStateDirty.set(true)
+            markPlaybackStateDirty()
             controller?.let(::updatePlaybackPositionFromController)
         }
 
@@ -562,27 +577,49 @@ class MediaControllerManager @Inject constructor(
     private fun startStatePersistence() {
         scope.launch {
             nowPlayingManager.state.collect {
-                playbackStateDirty.set(true)
+                markPlaybackStateDirty()
             }
         }
         scope.launch {
-            // Debounce state changes by 500ms before persisting
+            // Queue and controller-only changes both increment this revision. Capturing the
+            // revision before I/O lets a newer seek/pause/repeat remain dirty until its own save.
             @OptIn(kotlinx.coroutines.FlowPreview::class)
-            nowPlayingManager.state
+            persistenceRevision
+                .filter { it > 0L }
                 .debounce(500L)
-                .collect { state ->
-                    // Only save if there's actually a queue
-                    val persisted = if (state.nowPlayingEntries.isNotEmpty()) {
-                        val pos = controller?.currentPosition ?: _playbackState.value.positionMs
-                        val rep = controller?.repeatMode ?: Player.REPEAT_MODE_OFF
-                        nowPlayingPersistence.save(state, pos, rep)
-                    } else {
-                        nowPlayingPersistence.clear()
-                    }
-                    if (persisted && state.queueVersion == nowPlayingManager.state.value.queueVersion) {
-                        playbackStateDirty.set(false)
-                    }
+                .collect { revision ->
+                    persistPlaybackState(revision)
                 }
+        }
+    }
+
+    private suspend fun persistPlaybackState(revision: Long) {
+        val state = nowPlayingManager.state.value
+        val positionMs = controller?.currentPosition ?: _playbackState.value.positionMs
+        val repeatMode = controller?.repeatMode ?: Player.REPEAT_MODE_OFF
+        persistPlaybackSnapshot(state, positionMs, repeatMode, revision)
+    }
+
+    private suspend fun persistPlaybackSnapshot(
+        state: NowPlayingState,
+        positionMs: Long,
+        repeatMode: Int,
+        revision: Long,
+    ) {
+        val persisted = if (state.nowPlayingEntries.isNotEmpty()) {
+            nowPlayingPersistence.save(state, positionMs, repeatMode)
+        } else {
+            nowPlayingPersistence.clear()
+        }
+        if (shouldClearPlaybackDirtyAfterPersist(
+                persisted = persisted,
+                savedRevision = revision,
+                latestRevision = playbackStateRevision.get(),
+            )
+        ) {
+            playbackStateDirty.set(false)
+        } else {
+            playbackStateDirty.set(true)
         }
     }
 
@@ -926,7 +963,7 @@ class MediaControllerManager @Inject constructor(
 
     fun play() {
         queueSyncPlayRequested = true
-        playbackStateDirty.set(true)
+        markPlaybackStateDirty()
         controller?.play()
     }
 
@@ -939,24 +976,24 @@ class MediaControllerManager @Inject constructor(
         lastConsumedPlayRequestGeneration = playRequestGenerationAfterPause(
             nowPlayingManager.state.value.playRequestGeneration
         )
-        playbackStateDirty.set(true)
+        markPlaybackStateDirty()
         controller?.pause()
     }
     fun seekTo(positionMs: Long) {
-        playbackStateDirty.set(true)
+        markPlaybackStateDirty()
         controller?.seekTo(positionMs)
     }
     fun seekToNext() {
-        playbackStateDirty.set(true)
+        markPlaybackStateDirty()
         controller?.seekToNext()
     }
     fun seekToPrevious() {
-        playbackStateDirty.set(true)
+        markPlaybackStateDirty()
         controller?.seekToPrevious()
     }
 
     fun seekBackTenSeconds() {
-        playbackStateDirty.set(true)
+        markPlaybackStateDirty()
         controller?.let { ctrl ->
             val newPosition = (ctrl.currentPosition - 10_000).coerceAtLeast(0L)
             ctrl.seekTo(newPosition)
@@ -964,7 +1001,7 @@ class MediaControllerManager @Inject constructor(
     }
 
     fun toggleRepeatMode() {
-        playbackStateDirty.set(true)
+        markPlaybackStateDirty()
         controller?.let { ctrl ->
             ctrl.repeatMode = when (ctrl.repeatMode) {
                 Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
@@ -985,21 +1022,13 @@ class MediaControllerManager @Inject constructor(
         if (!playbackStateDirty.compareAndSet(true, false)) return false
 
         val state = nowPlayingManager.state.value
+        val revision = playbackStateRevision.get()
         // Capture Media3 values before MediaPlaybackService releases its player/session. The
         // singleton's supervisor scope remains alive to perform only the file I/O afterward.
         val positionMs = controller?.currentPosition ?: _playbackState.value.positionMs
         val repeatMode = controller?.repeatMode ?: Player.REPEAT_MODE_OFF
         scope.launch {
-            val persisted = if (state.nowPlayingEntries.isNotEmpty()) {
-                nowPlayingPersistence.save(
-                    state = state,
-                    positionMs = positionMs,
-                    repeatMode = repeatMode
-                )
-            } else {
-                nowPlayingPersistence.clear()
-            }
-            if (!persisted) playbackStateDirty.set(true)
+            persistPlaybackSnapshot(state, positionMs, repeatMode, revision)
         }
         return true
     }

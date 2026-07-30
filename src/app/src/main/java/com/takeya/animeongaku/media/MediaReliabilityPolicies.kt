@@ -38,6 +38,13 @@ internal fun playbackPositionPollIntervalMs(isPlaying: Boolean): Long? =
 internal fun shouldSchedulePlaybackTeardownPersist(hasUnsavedState: Boolean): Boolean =
     hasUnsavedState
 
+/** A save may clear dirty state only when it completed successfully for the latest revision. */
+internal fun shouldClearPlaybackDirtyAfterPersist(
+    persisted: Boolean,
+    savedRevision: Long,
+    latestRevision: Long,
+): Boolean = persisted && savedRevision == latestRevision
+
 internal fun shouldPreCacheOnNetwork(
     wifiOnly: Boolean,
     isUnmetered: Boolean,

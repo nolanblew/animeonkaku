@@ -11,6 +11,7 @@ import com.takeya.animeongaku.media.hasUnconsumedPlayRequest
 import com.takeya.animeongaku.media.playWhenReadyAfterQueueReplacement
 import com.takeya.animeongaku.media.playRequestGenerationAfterPause
 import com.takeya.animeongaku.media.playbackPositionPollIntervalMs
+import com.takeya.animeongaku.media.shouldClearPlaybackDirtyAfterPersist
 import com.takeya.animeongaku.media.shouldPreCacheOnNetwork
 import com.takeya.animeongaku.media.shouldSchedulePlaybackTeardownPersist
 import com.takeya.animeongaku.media.writeTextAtomically
@@ -161,6 +162,35 @@ class MediaReliabilityPolicyTest {
     @Test
     fun `teardown schedules remaining state persistence without a synchronous lifecycle flush`() {
         assertTrue(shouldSchedulePlaybackTeardownPersist(hasUnsavedState = true))
+    }
+
+    @Test
+    fun `controller-only state change keeps persistence dirty when an older save finishes`() {
+        assertFalse(
+            shouldClearPlaybackDirtyAfterPersist(
+                persisted = true,
+                savedRevision = 11L,
+                latestRevision = 12L,
+            )
+        )
+    }
+
+    @Test
+    fun `latest controller-only state save clears persistence dirty only after success`() {
+        assertTrue(
+            shouldClearPlaybackDirtyAfterPersist(
+                persisted = true,
+                savedRevision = 12L,
+                latestRevision = 12L,
+            )
+        )
+        assertFalse(
+            shouldClearPlaybackDirtyAfterPersist(
+                persisted = false,
+                savedRevision = 12L,
+                latestRevision = 12L,
+            )
+        )
     }
 
     @Test
