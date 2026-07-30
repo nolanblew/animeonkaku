@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PgAdminDashboardService } from "../src/admin/service.js";
 import { RecentLogStore } from "../src/logging.js";
 
@@ -37,5 +37,23 @@ describe("admin dashboard service", () => {
     logs.add("ERROR", { safe: true }, "third");
     expect(logs.list({ level: undefined, limit: 10 }).map((entry) => entry.message)).toEqual(["third", "second"]);
     expect(logs.list({ level: "WARN", limit: 10 })[0]?.data.password).toBe("[REDACTED]");
+  });
+
+  it("queues one durable full-size re-import per anime", async () => {
+    const enqueue = vi.fn().mockResolvedValue({ id: 41 });
+    const pool = {
+      query: vi.fn().mockResolvedValue({ rows: [{ kitsu_id: "1", animethemes_anime_id: "7" }] }),
+    };
+    const service = new PgAdminDashboardService({
+      pool: pool as never, queue: { enqueue } as never, requests: {} as never, operator: {} as never,
+      mediaRoot: process.cwd(), logs: new RecentLogStore(),
+    });
+
+    await expect(service.reimportAnimeFullSize("1")).resolves.toEqual({ queued: true, jobId: 41 });
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      type: "REIMPORT_AMF_FULL_SIZE",
+      payload: { kitsuId: "1" },
+      dedupeKey: "REIMPORT_AMF_FULL_SIZE:1",
+    }));
   });
 });
