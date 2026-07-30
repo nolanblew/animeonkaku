@@ -9,10 +9,56 @@ import { runMigrations } from "../src/db/migrate.js";
 import { DrizzleMediaFileRepo } from "../src/media/pgMediaFileRepo.js";
 import { MediaStore } from "../src/media/mediaStore.js";
 import { AmfDeliveryImportService, PgAmfDeliveryRepository } from "../src/music/requests/deliveryService.js";
+import { PgFullSizeReimportCleanup } from "../src/music/requests/fullSizeReimport.js";
 
 const adminDatabaseUrl = process.env.MIGRATION_TEST_DATABASE_URL;
 
 describe.skipIf(!adminDatabaseUrl)("AMF delivery publication (PostgreSQL + filesystem)", () => {
+  it("swaps a verified full-size generation and prunes only the superseded orphan", async () => {
+    await withDatabase(async (pool) => {
+      const libraryRoot = await mkdtemp(join(tmpdir(), "ongaku-amf-reimport-library-"));
+      const mediaRoot = await mkdtemp(join(tmpdir(), "ongaku-amf-reimport-media-"));
+      await seedCatalog(pool);
+      const repo = new PgAmfDeliveryRepository(pool);
+      const mediaStore = new MediaStore({ mediaRoot, providerImportRoot: libraryRoot,
+        repo: new DrizzleMediaFileRepo(drizzle(pool)), minBytes: 1 });
+      const service = new AmfDeliveryImportService({ repo, mediaStore, libraryRoot });
+
+      const oldBytes = Buffer.alloc(4096, 31);
+      const oldSha = createHash("sha256").update(oldBytes).digest("hex");
+      const oldPath = "anime-ongaku-staging/request-full/batch-0/old.flac";
+      await stage(libraryRoot, oldPath, oldBytes);
+      await seedRequest(pool, { requestId: "request-full", batchId: "batch-old", items: [{
+        id: "item-old", index: 0, kind: "OP", number: 1, themeId: 100, fileIndex: 0,
+        relativePath: oldPath, metadata: { title: "Old Opening", artist: "Old Singer", album: "Old Single" }, sha: oldSha,
+      }] });
+      expect(await service.importBatch("batch-old")).toBe("COMPLETED");
+      const old = (await pool.query<any>("SELECT song_id,release_id FROM anime_music_request_deliveries WHERE id='item-old:0'")).rows[0];
+      const oldMedia = (await pool.query<any>("SELECT file_path FROM media_files WHERE ref_id=$1 AND variant='ORIGINAL'", [`song:${old.song_id}`])).rows[0];
+
+      const freshBytes = Buffer.alloc(4096, 47);
+      const freshSha = createHash("sha256").update(freshBytes).digest("hex");
+      const freshPath = "anime-ongaku-staging/request-related/batch-0/fresh.flac";
+      await stage(libraryRoot, freshPath, freshBytes);
+      await seedRequest(pool, { requestId: "admin-reimport-generation", batchId: "batch-fresh", source: "ADMIN_REIMPORT", items: [{
+        id: "item-fresh", index: 0, kind: "OP", number: 1, themeId: 100, fileIndex: 0,
+        relativePath: freshPath, metadata: { title: "Fresh Opening", artist: "Fresh Singer", album: "Fresh Single" }, sha: freshSha,
+      }] });
+      expect(await service.importBatch("batch-fresh")).toBe("COMPLETED");
+      const fresh = (await pool.query<any>("SELECT song_id FROM anime_music_request_deliveries WHERE id='item-fresh:0'")).rows[0];
+
+      await new PgFullSizeReimportCleanup(pool, mediaRoot).finalize("admin-reimport-generation", "k");
+
+      expect((await pool.query<any>("SELECT song_id FROM theme_full_songs WHERE theme_id=100")).rows[0].song_id).toBe(String(fresh.song_id));
+      expect((await pool.query<any>("SELECT deleted_at FROM songs WHERE id=$1", [old.song_id])).rows[0].deleted_at).not.toBeNull();
+      expect((await pool.query<any>("SELECT deleted_at FROM music_releases WHERE id=$1", [old.release_id])).rows[0].deleted_at).not.toBeNull();
+      expect((await pool.query<any>("SELECT state,file_path FROM media_files WHERE ref_id=$1 AND variant='ORIGINAL'", [`song:${old.song_id}`])).rows[0])
+        .toMatchObject({ state: "MISSING", file_path: null });
+      await expect(readFile(join(mediaRoot, oldMedia.file_path))).rejects.toThrow();
+      expect((await pool.query<any>("SELECT deleted_at FROM songs WHERE id=$1", [fresh.song_id])).rows[0].deleted_at).toBeNull();
+    });
+  });
+
   it("publishes Full/Related only after READY and reuses exact duplicate bytes across related items", async () => {
     await withDatabase(async (pool) => {
       const libraryRoot = await mkdtemp(join(tmpdir(), "ongaku-amf-pg-library-"));
@@ -152,10 +198,10 @@ async function seedCatalog(pool: Pool) {
     VALUES (100,42,'Opening','OP1','https://example.invalid/opening.ogg')`);
 }
 
-async function seedRequest(pool: Pool, input: { requestId: string; batchId: string; items: Array<any> }) {
+async function seedRequest(pool: Pool, input: { requestId: string; batchId: string; source?: string; items: Array<any> }) {
   const destination = `anime-ongaku-staging/${input.requestId === "request-full" ? "request-full" : "request-related"}/batch-0`;
   await pool.query(`INSERT INTO anime_music_requests (id,requested_by_user_id,kitsu_id,animethemes_anime_id,source)
-    VALUES ($1,'u','k',42,'DEBUG_USER')`, [input.requestId]);
+    VALUES ($1,'u','k',42,$2)`, [input.requestId, input.source ?? "DEBUG_USER"]);
   const bodyItems = input.items.map((item) => ({ kind: item.kind, number: item.number,
     ...(item.kind === "OP" || item.kind === "ED" ? { version: "FULL", song_titles: { romaji: "Opening" }, artists: ["Singer"] } : {}) }));
   await pool.query(`INSERT INTO anime_music_request_batches

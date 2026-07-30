@@ -63,6 +63,8 @@ describe("full-size re-import orchestration", () => {
     await writeFile(absolutePath, Buffer.alloc(32));
     const query = vi.fn(async (sql: string) => {
       if (sql.includes("SELECT r.animethemes_anime_id")) return { rows: [{ animethemes_anime_id: 7 }] };
+      if (sql.includes("SELECT DISTINCT d.release_id")) return { rows: [{ id: 80 }] };
+      if (sql.includes("UPDATE songs")) return { rows: [{ id: 90 }] };
       if (sql.includes("RETURNING m.id,m.file_path")) return { rows: [{ id: 9, file_path: relativePath, song_id: 90 }] };
       return { rows: [], rowCount: 0 };
     });
