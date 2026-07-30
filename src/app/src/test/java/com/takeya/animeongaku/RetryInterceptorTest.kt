@@ -225,18 +225,20 @@ class RetryInterceptorTest {
     }
 
     @Test
-    fun `connection refused is retried for a LAN server restart`() {
+    fun `connection refused fails fast without blocking the caller on backoff`() {
         val interceptor = RetryInterceptor(maxRetries = 1, baseDelayMs = 1)
         val request = getRequest("http://192.168.1.25:3000/health")
-        val (chain, callCount) = fakeChain(request) { attempt ->
-            if (attempt == 0) throw ConnectException("Connection refused")
-            fakeResponse(200, request)
+        val (chain, callCount) = fakeChain(request) {
+            throw ConnectException("Connection refused")
         }
 
-        val response = interceptor.intercept(chain)
-
-        assertEquals(200, response.code)
-        assertEquals(2, callCount())
+        try {
+            interceptor.intercept(chain)
+            fail("Expected ConnectException to be thrown")
+        } catch (error: ConnectException) {
+            assertEquals("Connection refused", error.message)
+        }
+        assertEquals(1, callCount())
     }
 
     @Test

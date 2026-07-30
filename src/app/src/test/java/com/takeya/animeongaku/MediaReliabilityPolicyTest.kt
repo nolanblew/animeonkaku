@@ -1,13 +1,16 @@
 package com.takeya.animeongaku
 
+import androidx.media3.common.Player
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.media.MediaKey
 import com.takeya.animeongaku.media.PlayableItem
+import com.takeya.animeongaku.media.PlaybackState
 import com.takeya.animeongaku.media.QueueEntry
 import com.takeya.animeongaku.media.buildPlaybackResolutionBatchRequest
 import com.takeya.animeongaku.media.controllerConnectionRetryDelayMs
 import com.takeya.animeongaku.media.hasUnconsumedPlayRequest
+import com.takeya.animeongaku.media.mergeControllerProgressIntoPlaybackState
 import com.takeya.animeongaku.media.playWhenReadyAfterQueueReplacement
 import com.takeya.animeongaku.media.playRequestGenerationAfterPause
 import com.takeya.animeongaku.media.playbackPositionPollIntervalMs
@@ -190,6 +193,42 @@ class MediaReliabilityPolicyTest {
                 savedRevision = 12L,
                 latestRevision = 12L,
             )
+        )
+    }
+
+    @Test
+    fun `controller progress merge preserves repeat mode and error while updating progress fields`() {
+        val previous = PlaybackState(
+            isPlaying = false,
+            positionMs = 4_000L,
+            durationMs = 45_000L,
+            bufferedPositionMs = 8_000L,
+            isBuffering = true,
+            hasMedia = true,
+            errorMessage = "Video unavailable · playing TV Size",
+            repeatMode = Player.REPEAT_MODE_ONE,
+        )
+
+        val merged = mergeControllerProgressIntoPlaybackState(
+            previous = previous,
+            isPlaying = true,
+            positionMs = 15_000L,
+            durationMs = 90_000L,
+            bufferedPositionMs = 30_000L,
+            isBuffering = false,
+            hasMedia = true,
+        )
+
+        assertEquals(
+            previous.copy(
+                isPlaying = true,
+                positionMs = 15_000L,
+                durationMs = 90_000L,
+                bufferedPositionMs = 30_000L,
+                isBuffering = false,
+                hasMedia = true,
+            ),
+            merged,
         )
     }
 
