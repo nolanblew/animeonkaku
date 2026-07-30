@@ -98,6 +98,18 @@ export class PgAdminDashboardService implements AdminDashboardApi {
     return { requestId: result.request.id, replayed: result.replayed };
   }
 
+  async reimportAnimeFullSize(kitsuId: string) {
+    await this.requireAnime(kitsuId);
+    const job = await this.options.queue.enqueue({
+      type: "REIMPORT_AMF_FULL_SIZE",
+      priority: JobPriority.HIGH,
+      payload: { kitsuId },
+      dedupeKey: `REIMPORT_AMF_FULL_SIZE:${kitsuId}`,
+      maxAttempts: 8,
+    });
+    return { queued: true, jobId: job.id };
+  }
+
   async refreshThemeMedia(kitsuId: string) {
     const anime = await this.requireAnime(kitsuId);
     if (!anime.animethemes_anime_id) throw new Error("Anime is not mapped to AnimeThemes.");
