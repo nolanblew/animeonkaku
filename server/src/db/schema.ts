@@ -43,7 +43,7 @@ export type MusicAcquisitionState =
   | "READY"
   | "FAILED"
   | "AMBIGUOUS";
-export type AnimeMusicRequestSource = "DEBUG_USER" | "AUTOMATIC";
+export type AnimeMusicRequestSource = "DEBUG_USER" | "AUTOMATIC" | "ADMIN_REIMPORT";
 export type AnimeMusicBatchState =
   | "QUEUED" | "SEARCHING" | "AWAITING_OPERATOR" | "DOWNLOADING" | "PROCESSING"
   | "COMPLETED" | "COMPLETED_WITH_WARNINGS" | "FAILED" | "CANCELLED";

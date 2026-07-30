@@ -42,7 +42,10 @@ export interface BuiltMusicRequestBatch {
   items: Array<{ itemIndex: number; kind: string; number: number | null; themeId: number | null }>;
 }
 
-export function buildMusicRequestBatches(input: MusicRequestMetadata): BuiltMusicRequestBatch[] {
+export function buildMusicRequestBatches(
+  input: MusicRequestMetadata,
+  options: { includeRelated?: boolean } = {},
+): BuiltMusicRequestBatch[] {
   const primary = {
     english: clean(input.titles.english) ?? clean(input.titles.animeThemesNameEn),
     japanese: clean(input.titles.japanese),
@@ -107,7 +110,7 @@ export function buildMusicRequestBatches(input: MusicRequestMetadata): BuiltMusi
     themeId: null,
     release_preference: kind === "OTHER" ? "ANY" as const : "COLLECTION" as const,
   }));
-  const items = [...numbered, ...categories];
+  const items = options.includeRelated === false ? numbered : [...numbered, ...categories];
   const animeThemesSlug = clean(input.animeThemesSlug);
   const batches: BuiltMusicRequestBatch[] = [];
   for (let offset = 0; offset < items.length; offset += 12) {

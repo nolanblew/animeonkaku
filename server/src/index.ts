@@ -33,6 +33,8 @@ import {
   AmfDeliveryImportService,
   createAmfDeliveryImportHandlers,
   PgAmfDeliveryRepository,
+  PgFullSizeReimportCleanup,
+  createFullSizeReimportHandlers,
   PgMusicOperatorRepository,
   MusicOperatorService,
   createMusicOperatorHandlers,
@@ -87,6 +89,10 @@ const musicSearchPolicyScheduler = new MusicSearchPolicyScheduler(
 );
 const MUSIC_REQUEST_RECHECK_INTERVAL_MS = 15 * 60 * 1000;
 const musicRequestHandlers = createMusicRequestHandlers({ repo: musicRequestRepo, queue: jobQueue, client: amfClient, logger: externalLogger });
+const fullSizeReimportHandlers = createFullSizeReimportHandlers({
+  requests: musicRequestService,
+  cleanup: new PgFullSizeReimportCleanup(pool, config.MEDIA_ROOT),
+});
 const amfDeliveryRepo = new PgAmfDeliveryRepository(pool);
 const syncRepo = new DrizzleSyncRepository(db);
 
@@ -229,7 +235,7 @@ const syncHandlers = createSyncJobHandlers(syncPipeline);
 // Background hydration waits until on-demand media traffic has been quiet.
 const mediaActivity = new InteractiveMediaActivity();
 const worker = new JobWorker(jobQueue, {
-  handlers: { ...fetchHandlers, ...syncHandlers, ...musicRequestHandlers, ...amfDeliveryHandlers, ...musicOperatorHandlers,
+  handlers: { ...fetchHandlers, ...syncHandlers, ...musicRequestHandlers, ...fullSizeReimportHandlers, ...amfDeliveryHandlers, ...musicOperatorHandlers,
     ...musicSearchPolicyHandlers },
   maintenanceFetchDelayMs: config.AUDIO_BACKFILL_DELAY_SECONDS * 1000,
   holdMaintenanceWork: () => !mediaActivity.isQuiet(),

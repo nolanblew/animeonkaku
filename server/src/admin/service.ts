@@ -1,4 +1,5 @@
 import { readdir, rm, stat, statfs } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { join, relative, sep } from "node:path";
 import type { Pool } from "pg";
 import { JobPriority, type JobQueue } from "../jobs/index.js";
@@ -90,20 +91,18 @@ export class PgAdminDashboardService implements AdminDashboardApi {
 
   async requestAnimeMusic(kitsuId: string) {
     await this.requireAnime(kitsuId);
-    const actor = await this.options.pool.query(`SELECT u.kitsu_user_id FROM users u
-      LEFT JOIN library_entries le ON le.user_id=u.kitsu_user_id AND le.kitsu_id=$1 AND le.deleted_at IS NULL
-      ORDER BY (le.kitsu_id IS NOT NULL) DESC,u.created_at LIMIT 1`, [kitsuId]);
-    if (!actor.rows[0]) throw new Error("A real user must exist before an admin can request music.");
-    const result = await this.options.requests.trigger(actor.rows[0].kitsu_user_id, kitsuId, "DEBUG_USER");
+    const userId = await this.requireMusicRequestActor(kitsuId);
+    const result = await this.options.requests.trigger(userId, kitsuId, "DEBUG_USER");
     return { requestId: result.request.id, replayed: result.replayed };
   }
 
   async reimportAnimeFullSize(kitsuId: string) {
     await this.requireAnime(kitsuId);
+    const userId = await this.requireMusicRequestActor(kitsuId);
     const job = await this.options.queue.enqueue({
       type: "REIMPORT_AMF_FULL_SIZE",
       priority: JobPriority.HIGH,
-      payload: { kitsuId },
+      payload: { kitsuId, userId, requestId: `admin-reimport-${randomUUID()}` },
       dedupeKey: `REIMPORT_AMF_FULL_SIZE:${kitsuId}`,
       maxAttempts: 8,
     });
@@ -184,6 +183,14 @@ export class PgAdminDashboardService implements AdminDashboardApi {
     const result = await this.options.pool.query("SELECT kitsu_id,animethemes_anime_id FROM kitsu_anime WHERE kitsu_id=$1 AND deleted_at IS NULL", [kitsuId]);
     if (!result.rows[0]) throw new Error("Anime not found.");
     return result.rows[0];
+  }
+
+  private async requireMusicRequestActor(kitsuId: string): Promise<string> {
+    const actor = await this.options.pool.query(`SELECT u.kitsu_user_id FROM users u
+      LEFT JOIN library_entries le ON le.user_id=u.kitsu_user_id AND le.kitsu_id=$1 AND le.deleted_at IS NULL
+      ORDER BY (le.kitsu_id IS NOT NULL) DESC,u.created_at LIMIT 1`, [kitsuId]);
+    if (!actor.rows[0]) throw new Error("A real user must exist before an admin can request music.");
+    return actor.rows[0].kitsu_user_id;
   }
 }
 
