@@ -236,6 +236,42 @@ describe("anime music request composition", () => {
 });
 
 describe("anime music request orchestration", () => {
+  it("persists a deterministic admin re-import as a fresh OP/ED-only request", async () => {
+    const repo = fakeRepo(storedBatch("QUEUED"));
+    vi.mocked(repo.findById).mockResolvedValue(null);
+    vi.mocked(repo.findLatest).mockResolvedValue(null);
+    vi.mocked(repo.loadMetadata).mockResolvedValue({
+      kitsuId: "42", requestId: "ignored", animeThemesAnimeId: 7,
+      titles: { romaji: "Show" },
+      themes: [{ id: 10, themeType: "OP1", title: "Opening", artists: ["Singer"] }],
+    });
+    vi.mocked(repo.createOrReplay).mockImplementation(async (input) => ({
+      created: true,
+      request: {
+        id: input.id, kitsuId: input.kitsuId, animeThemesAnimeId: input.animeThemesAnimeId,
+        createdAt: new Date(), updatedAt: new Date(), completedAt: null,
+        batches: input.batches.map((batch) => ({
+          id: batch.id, requestId: input.id, index: batch.index, state: "QUEUED" as const,
+          body: batch.body, idempotencyKey: batch.idempotencyKey, amfJobId: null, warningCount: 0,
+          pollBackoffStep: 0, pollNotBefore: null,
+          manifestEvidence: { status: null, itemResults: [], deliveries: [] },
+        })),
+      },
+    }));
+    const queue = { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue;
+
+    const result = await new MusicRequestService({ repo, queue }).startFullSizeReimport("7", "42", "admin-reimport-41");
+
+    expect(result.state).toBe("QUEUED");
+    expect(repo.createOrReplay).toHaveBeenCalledWith(expect.objectContaining({
+      id: "admin-reimport-41", source: "ADMIN_REIMPORT",
+      batches: [expect.objectContaining({ body: expect.objectContaining({ items: [expect.objectContaining({ kind: "OP" })] }) })],
+    }));
+    const input = vi.mocked(repo.createOrReplay).mock.calls[0]?.[0];
+    expect(input?.batches.flatMap((batch) => batch.body.items).map((item) => item.kind)).toEqual(["OP"]);
+    expect(queue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ type: "SUBMIT_AMF_MUSIC_BATCH" }));
+  });
+
   it("aggregates every batch exactly and never hides a hard failure", () => {
     const request = storedRequest(["COMPLETED", "COMPLETED_WITH_WARNINGS", "FAILED"]);
     expect(toSummary(request)).toMatchObject({
