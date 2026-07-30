@@ -54,7 +54,7 @@ describe("admin dashboard service", () => {
     await expect(service.reimportAnimeFullSize("1")).resolves.toEqual({ queued: true, jobId: 41 });
     expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
       type: "REIMPORT_AMF_FULL_SIZE",
-      payload: { kitsuId: "1", userId: "7" },
+      payload: { kitsuId: "1", userId: "7", requestId: expect.stringMatching(/^admin-reimport-/) },
       dedupeKey: "REIMPORT_AMF_FULL_SIZE:1",
     }));
   });

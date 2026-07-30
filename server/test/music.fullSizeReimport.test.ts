@@ -12,12 +12,12 @@ describe("full-size re-import orchestration", () => {
     const handler = createFullSizeReimportHandlers({ requests, cleanup }).REIMPORT_AMF_FULL_SIZE;
 
     const error = await handler(
-      { kitsuId: "1", userId: "7" },
+      { kitsuId: "1", userId: "7", requestId: "admin-reimport-generation-a" },
       { id: 41 } as never,
       {} as never,
     ).catch((value) => value);
 
-    expect(requests.startFullSizeReimport).toHaveBeenCalledWith("7", "1", "admin-reimport-41");
+    expect(requests.startFullSizeReimport).toHaveBeenCalledWith("7", "1", "admin-reimport-generation-a");
     expect(error).toBeInstanceOf(RetryableJobError);
     expect((error as RetryableJobError).options).toMatchObject({ incrementAttempts: false, recordError: false });
     expect(cleanup.finalize).not.toHaveBeenCalled();
@@ -28,9 +28,9 @@ describe("full-size re-import orchestration", () => {
     const cleanup = { finalize: vi.fn().mockResolvedValue({ prunedSongs: 2, prunedFiles: 2 }) };
     const handler = createFullSizeReimportHandlers({ requests, cleanup }).REIMPORT_AMF_FULL_SIZE;
 
-    await handler({ kitsuId: "1", userId: "7" }, { id: 41 } as never, {} as never);
+    await handler({ kitsuId: "1", userId: "7", requestId: "admin-reimport-generation-a" }, { id: 41 } as never, {} as never);
 
-    expect(cleanup.finalize).toHaveBeenCalledWith("admin-reimport-41", "1");
+    expect(cleanup.finalize).toHaveBeenCalledWith("admin-reimport-generation-a", "1");
   });
 
   it.each(["COMPLETED_WITH_WARNINGS", "FAILED", "CANCELLED"])(
@@ -40,7 +40,7 @@ describe("full-size re-import orchestration", () => {
       const cleanup = { finalize: vi.fn() };
       const handler = createFullSizeReimportHandlers({ requests, cleanup }).REIMPORT_AMF_FULL_SIZE;
 
-      await handler({ kitsuId: "1", userId: "7" }, { id: 41 } as never, {} as never);
+      await handler({ kitsuId: "1", userId: "7", requestId: "admin-reimport-generation-a" }, { id: 41 } as never, {} as never);
 
       expect(cleanup.finalize).not.toHaveBeenCalled();
     },
@@ -62,6 +62,7 @@ describe("full-size re-import orchestration", () => {
     await mkdir(dirname(absolutePath), { recursive: true });
     await writeFile(absolutePath, Buffer.alloc(32));
     const query = vi.fn(async (sql: string) => {
+      if (sql.includes("SELECT r.animethemes_anime_id")) return { rows: [{ animethemes_anime_id: 7 }] };
       if (sql.includes("RETURNING m.id,m.file_path")) return { rows: [{ id: 9, file_path: relativePath, song_id: 90 }] };
       return { rows: [], rowCount: 0 };
     });
@@ -72,7 +73,7 @@ describe("full-size re-import orchestration", () => {
 
     await expect(stat(absolutePath)).rejects.toThrow();
     expect(query).toHaveBeenCalledWith(expect.stringContaining("pg_advisory_xact_lock"), expect.any(Array));
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("source = 'AMF'"), expect.any(Array));
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("provider = 'AMF'"), expect.any(Array));
     expect(pool.query).toHaveBeenCalledWith(expect.stringContaining("state='MISSING'"), [9]);
     expect(result).toMatchObject({ prunedFiles: 1, prunedSongs: 1 });
   });
