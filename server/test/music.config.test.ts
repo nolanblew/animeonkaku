@@ -35,9 +35,27 @@ describe("music provider configuration", () => {
     expect(loadConfig(baseEnvironment).AMF_LIBRARY_ROOT).toBeUndefined();
   });
 
-  it("rejects the built-in admin password outside development", () => {
-    expect(() => loadConfig({ ...baseEnvironment, NODE_ENV: "production" })).toThrow(/ADMIN_PASSWORD/i);
-    expect(() => loadConfig({ ...baseEnvironment, NODE_ENV: "production", ADMIN_PASSWORD: "Password123" })).toThrow(/ADMIN_PASSWORD/i);
-    expect(loadConfig({ ...baseEnvironment, NODE_ENV: "development" }).ADMIN_PASSWORD).toBe("Password123");
+  it.each([
+    ["uppercase, lowercase, and number", "Abc123"],
+    ["uppercase, lowercase, and special", "Abc!@#"],
+    ["uppercase, number, and special", "ABC1!@"],
+    ["lowercase, number, and special", "abc1!@"],
+    ["uppercase, space, and special", "AB !@?"],
+  ])("accepts a six-character production admin password with exactly three categories: %s", (_description, password) => {
+    expect(loadConfig({ ...baseEnvironment, NODE_ENV: "production", ADMIN_PASSWORD: password }).ADMIN_PASSWORD)
+      .toBe(password);
+  });
+
+  it.each([
+    ["is shorter than six characters despite containing every category", "Ab1!"],
+    ["uses only one category", "123456"],
+    ["uses only two categories", "Abcdef"],
+  ])("rejects a production admin password that %s", (_description, password) => {
+    expect(() => loadConfig({ ...baseEnvironment, NODE_ENV: "production", ADMIN_PASSWORD: password }))
+      .toThrow(/ADMIN_PASSWORD/i);
+  });
+
+  it("retains the default admin password in the test environment", () => {
+    expect(loadConfig({ ...baseEnvironment, NODE_ENV: "test" }).ADMIN_PASSWORD).toBe("Password123");
   });
 });
