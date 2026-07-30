@@ -6,6 +6,25 @@ export const PUBLIC_KITSU_CLIENT_SECRET =
   "54d7307928f63414defd96399fc31ba847961ceaecef3a5fd93144e960c0e151";
 const DEFAULT_ADMIN_PASSWORD = "Password123";
 
+/**
+ * Production passwords need enough entropy for a small self-hosted deployment
+ * without making routine configuration unnecessarily cumbersome. A literal
+ * space satisfies the lowercase-or-space category; all whitespace is excluded
+ * from the special category so it cannot be counted twice.
+ */
+export function isValidProductionAdminPassword(password: string): boolean {
+  if (password.length < 6) return false;
+
+  const categoryCount = [
+    /[A-Z]/.test(password),
+    /[a-z ]/.test(password),
+    /[0-9]/.test(password),
+    /[^A-Za-z0-9\s]/.test(password),
+  ].filter(Boolean).length;
+
+  return categoryCount >= 3;
+}
+
 const blankToUndefined = (value: unknown): unknown =>
   typeof value === "string" && value.trim().length === 0 ? undefined : value;
 
@@ -58,8 +77,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
 
   if (parsed.data.NODE_ENV !== "development" && parsed.data.NODE_ENV !== "test"
-    && parsed.data.ADMIN_PASSWORD === DEFAULT_ADMIN_PASSWORD) {
-    throw new Error("Invalid environment configuration — ADMIN_PASSWORD must be explicitly changed outside development.");
+    && !isValidProductionAdminPassword(parsed.data.ADMIN_PASSWORD)) {
+    throw new Error(
+      "Invalid environment configuration — ADMIN_PASSWORD must be at least 6 characters and use at least 3 of uppercase, lowercase-or-space, digit, and special categories outside development/test.",
+    );
   }
   return parsed.data;
 }
