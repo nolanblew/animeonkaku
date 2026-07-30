@@ -3,7 +3,9 @@
 **Date:** 2026-07-29  
 **Branch:** `feature/server-initiative`  
 **Original audited tip:** `29fe375`  
-**Remediated tip:** `8fb1860`  
+**Initial audit-remediation tip:** `8fb1860`<br>
+**Android remediation tip:** `7fd171e`<br>
+**Final implementation tip:** `dacb980`, plus this audit-document commit<br>
 **Rollback tag:** `checkpoint/server-initiative-pre-audit-remediation-2026-07-29`  
 **Base:** `main` / `origin/main` @ `6cf1af9`  
 **Change size:** 204 commits, 710 files, +117,425 / -5,322
@@ -11,6 +13,8 @@
 ## Bottom line
 
 All 18 prioritized findings have been remediated and verified at `8fb1860`. The architecture remains a good fit for a small private deployment: the server owns upstream access and cached media; Android remains local-first for library and playback; and the remediation favors direct, low-complexity reliability fixes over unnecessary distributed-system complexity.
+
+An independent re-audit of the remediation (see **Post-remediation re-audit** below) confirms all 18 fixes against the code. It found **one new user-visible regression introduced by the finding-11 fix** — `repeatMode` is wiped from playback state every 500 ms while playing, so the repeat button resets itself in the UI (R1) — plus seven minor residual issues. The follow-up at `7fd171e` resolves R1–R3; R4–R8 are recorded below as non-blocking deferred or accepted follow-ups.
 
 The rollback point is preserved by the annotated tag above. The detailed sections below are retained as the historical rationale for the changes; they no longer describe outstanding merge blockers.
 
@@ -28,10 +32,13 @@ The rollback point is preserved by the annotated tag above. The detailed section
 |---|---|
 | Server TypeScript | `tsc -p tsconfig.json --noEmit`: green |
 | Server real-PostgreSQL suite | 571 passed, 2 skipped; 70 files passed, 1 skipped |
-| Android unit tests | 555 / 555 passed |
-| Android build checks | `lintDebug` and `assembleDebug`: green |
+| Server suite without PostgreSQL | 538 passed, 0 failed, 35 skipped (60 files passed, 11 skipped) — independently re-run |
+| Android unit tests | 555 passed, 0 failed, 0 skipped — independently re-run |
+| Android build checks | `lintDebug`: 0 errors, 112 warnings — independently re-run; `assembleDebug`: green |
 | Focused persistence regression | 17 / 17 passed |
 | Physical device | Pixel 7 Pro: QA passed with 0 crash markers |
+
+The previously intermittent `music.requests.test.ts:888` wall-clock assertion is deflaked: the test now injects a fixed `now`, and the handler additionally sets `recordError: false` so a normal non-terminal poll no longer writes `lastError`.
 
 Physical-device QA used a data-preserving `install -r` and covered cold paused restore/no autoplay, play/pause/seek/Next, TV Size/video/Related playback, downloads, offline cached playback, and duplicate queue entries. An initial paused-restore regression was found (`101452ms -> 0`) and fixed. The retest preserved the exact paused position (`160014ms -> 160014ms`) with zero drift and no `FATAL` or `ANR` markers. Full mode was unavailable for the initial reachable item; the retest exercised Uruwashi Full Size instead. Download workers queued serially through WorkManager, as expected.
 
@@ -56,9 +63,166 @@ Device evidence is retained under `artifacts/device-qa-2026-07-29`.
 | 13 | Resolved | Localized AMF backfill starts after the listener is ready |
 | 14 | Resolved | Teardown no longer blocks on synchronous persistence |
 | 15 | Resolved | One shared debounced local-search query and stale online-result suppression |
-| 16 | Resolved | Splash waits for readiness with a bounded maximum, not a fixed delay |
+| 16 | Resolved | Removed vacuous readiness scaffolding; retained the platform splash with immediate exit and no fixed delay |
 | 17 | Resolved | Related-music lambdas close over a stable non-null release |
 | 18 | Resolved | SQL-limited job listing, scoped sync status reads, and terminal-job retention |
+
+## Post-remediation re-audit (2026-07-29, tip `24bbc9b`)
+
+I re-verified all 18 remediations against the code rather than the status table. **All 18 are genuinely addressed** — the fixes are real, targeted, and in most cases better than what the audit asked for (`adoptOrphanedFinal` supersedes the `rm(finalPath)` guard; the `themeModeRevisionAt` revision cleanly solves the always-full-theme-snapshot problem the original design had deliberately chosen; the `playRequestGeneration` intent token is the right shape for finding 3).
+
+Eight residual issues remain. **R1 is a new user-visible regression introduced by the finding-11 fix** and should be corrected before merge; the rest are minor or cosmetic.
+
+| # | Issue | Tier | Severity | Effort |
+|---|---|---|---|---|
+| R1 | Position updates wipe `repeatMode` (and `errorMessage`) every 500 ms | Android | Medium | Trivial |
+| R2 | `ConnectException` is now retried instead of failing fast | Android | Low-Medium | Trivial |
+| R3 | Splash readiness gate is vacuous — `startupReady` is already true when first evaluated | Android | Low | Trivial |
+| R4 | A hung job can be re-deferred every 5 s forever with no escalation | Server | Low | Low |
+| R5 | `SimpleCache` warm-up races service startup; main thread can still block on the lazy monitor | Android | Low | Low |
+| R6 | `getMusicCatalog` now emits an entry per library anime, including zero-release ones | Server | Very low | Trivial |
+| R7 | Still no `process.on("unhandledRejection")` backstop | Server | Low | Trivial |
+| R8 | `isUnmetered` inspects any network, not the active one | Android | Low | Low |
+
+### R1. Position updates wipe `repeatMode` and `errorMessage` every 500 ms  🟠
+
+**Where:** `MediaControllerManager.kt:941-956` (the only full-constructor write to `_playbackState`), called from `:151`, `:190`, `:928`, and the restore paths.
+
+`updatePlaybackPositionFromController` constructs a **fresh** `PlaybackState(...)` rather than `copy()`-ing the current one, and omits both `repeatMode` and `errorMessage`:
+
+```kotlin
+_playbackState.value = PlaybackState(
+    isPlaying = ctrl.isPlaying,
+    positionMs = ctrl.currentPosition,
+    …                       // repeatMode and errorMessage are never passed
+)
+```
+
+`PlaybackState.repeatMode` defaults to `Player.REPEAT_MODE_OFF` (`:1093`) and `errorMessage` to `null` (`:1092`).
+
+Before remediation this function ran **once**, on initial connect, so the omission was harmless. The finding-11 fix made it the primary state-update path: it is now called from `onIsPlayingChanged`, `onPositionDiscontinuity`, and the 500 ms poll loop.
+
+**Failure scenario:** user taps repeat while a track is playing → `toggleRepeatMode()` (`:1011`) and `onRepeatModeChanged` (`:184`) both `copy(repeatMode = …)`, and `PlayerScreen.kt:695,697` renders the active tint. Within 500 ms the poll tick replaces the whole state and `repeatMode` reverts to `REPEAT_MODE_OFF` — **the repeat button visually resets itself while ExoPlayer's actual repeat mode stays set.** Repeat is unusable-looking during playback.
+
+The `errorMessage` half is currently cosmetic (nothing in the player UI reads `PlaybackState.errorMessage`), but it does silently discard `tryVideoFallback`'s "Video unavailable · playing TV Size" notice, so that message can never be surfaced later without also fixing this.
+
+No test covers it: the suite exercises `playbackPositionPollIntervalMs` in isolation, never the state merge.
+
+**Fix:** make it a merge instead of a replace — `_playbackState.value = _playbackState.value.copy(isPlaying = …, positionMs = …, …)` — or explicitly pass `repeatMode = ctrl.repeatMode` and preserve `errorMessage`. Add an assertion that a position update preserves a non-default `repeatMode`.
+
+### R2. `ConnectException` is now retried instead of failing fast  🟡
+
+**Where:** `RetryInterceptor.kt:37,71-73`
+
+The old code fast-failed on `UnknownHostException` **and** `ConnectException`. The rewrite classifies `ConnectException` as transient:
+
+```kotlin
+is SocketTimeoutException, is ConnectException, is SocketException ->
+    !Thread.currentThread().isInterrupted && !error.isCancellationLike()
+```
+
+`ConnectException` is exactly what a self-hosted server produces when it is not reachable (away from the LAN, container down) — arguably this app's most common failure state. Every GET now burns two retries plus ~300 ms + ~600 ms of backoff before surfacing the failure, so offline/unreachable UI states appear ~1 s later than they used to. `UnknownHostException` still fails fast, so the behavior is also inconsistent between the two.
+
+Also worth noting: `500` was dropped from the retryable set. That is a defensible narrowing (a genuine 500 is a bug, not transient) but it is an intentional behavior change, so flagging it explicitly.
+
+**Fix:** return `false` for `ConnectException` (restoring the fast-fail), keeping `SocketTimeoutException`/`SocketException` retryable.
+
+### R3. The splash readiness gate never actually holds  🟡
+
+**Where:** `MainActivity.kt:55-64,89`
+
+```kotlin
+var startupReady = false
+splashScreen.setKeepOnScreenCondition { shouldKeepSplashScreen(startupReady, elapsed, MAX_SPLASH_WAIT_MS) }
+super.onCreate(savedInstanceState)
+…
+setContent { … }
+startupReady = true          // ← last statement of onCreate
+```
+
+`setKeepOnScreenCondition` is evaluated by androidx's pre-draw listener, which first fires **after** `onCreate` returns — by which point `startupReady` is already `true`. So the condition never returns `true`, and `MAX_SPLASH_WAIT_MS` / `shouldKeepSplashScreen` are effectively dead code despite having tests.
+
+The performance goal is met (the artificial 1 s delay is gone, which is the outcome that mattered), so this is not a regression — but the mechanism does not do what the code and the status table claim ("splash waits for readiness with a bounded maximum"). If readiness gating is actually wanted, `startupReady` must be flipped from a real signal (first library emission / session resolution), not from the end of `onCreate`.
+
+**Fix:** either drop the readiness scaffolding and document that the splash exits immediately, or drive `startupReady` from an actual startup signal.
+
+### R4. A hung job can be re-deferred every 5 s indefinitely  🟡
+
+**Where:** `jobWorker.ts:69-72,116-122`
+
+The new module-level `activeExecutions` guard correctly prevents overlapping external effects. But when a handler ignores its `AbortSignal` and never settles, its id stays in the set forever, so every subsequent claim hits:
+
+```kotlin
+await this.queue.failRetryable(job, new RetryableJobError("Previous execution is still shutting down", {
+  incrementAttempts: false, retryAfterMs: ABORT_GRACE_MS,   // 5 s
+}), { incrementAttempts: false, … });
+```
+
+`incrementAttempts: false` means this never escalates to `FAILED` — the job is re-claimed and re-deferred every 5 s forever, one DB write per cycle. Only `fetchHandlers` and `musicRequestHandlers` were threaded with the signal; `syncHandlers`, `musicOperatorHandlers`, `amfDeliveryHandlers`, and `musicSearchPolicyHandlers` still ignore it, so the exposure is real if any of those ever hangs on a socket without its own timeout.
+
+**Fix:** cap consecutive defers (e.g. increment attempts after N, or back the delay off toward the normal ladder) so a permanently stuck execution becomes visible rather than a silent 5 s heartbeat.
+
+### R5. `SimpleCache` warm-up races service startup  🟡
+
+**Where:** `AnimeOngakuApp.kt:63-65`, `AudioCacheProvider.kt:32-43`
+
+`warmUp()` touches the `by lazy` cache on `Dispatchers.IO`, but `MediaPlaybackService.onCreate` still reaches the same lazy through `playerDataSourceFactory` on the main thread. Kotlin's default `SYNCHRONIZED` lazy means that if the service wins the race, the main thread **blocks on the lazy monitor** for the full index-open — the exact stall the fix targets, merely relocated. It helps only when warm-up starts first, which is likely but not guaranteed.
+
+**Fix:** cheap enough to leave, but if it matters, make the cache an explicitly-initialized `Deferred`/`CompletableDeferred` that the service awaits, or move `SimpleCache` construction into the service's own background init.
+
+### R6. `getMusicCatalog` emits entries for anime with no ready music  🟡
+
+**Where:** `drizzleClientApiService.ts:152-164`
+
+The old implementation returned `null` from `getAnimeMusic` for an anime with no ready releases and dropped it via `.filter(item => item !== null)`. The set-based rewrite returns `[{ anime, releases: [] }]` unconditionally for every mapped library anime.
+
+Verified harmless on the client — `toMusicCatalogSnapshot` (`LibraryPullMapper.kt:88-120`) iterates `animeMusic.releases`, so a zero-release entry contributes no rows and cannot produce a spurious "related music" affordance. The only cost is payload size, now bounded by finding 6's conditional inclusion. Noting it only because it is an unremarked behavior change.
+
+**Fix (optional):** `.filter(entry => entry.releases.length > 0)` to restore the original wire shape.
+
+### R7. No `process.on("unhandledRejection")` backstop  🟡
+
+Every floating promise identified in finding 1 is now individually contained (`loop()` has an inner try/catch, `runScheduled` catches per task, the localized backfill has a top-level catch, `recheckIncompleteMusicRequests` catches). That is the right primary fix. But the third bullet of finding 1's recommendation — a process-level handler — was not implemented, so a future `void`-ed promise reintroduces the original crash mode with no guardrail and no log. `shutdown()` is also still uncaught, though a rejection there is benign.
+
+**Fix:** ~5 lines in `index.ts` logging through `externalLogger`. Defense in depth, not a live defect.
+
+### R8. `isUnmetered` inspects every network, not the active one  🟡
+
+**Where:** `ConnectivityMonitor.kt:100-109`
+
+`getCurrentNetworkIsUnmetered()` returns true if **any** network reports `NOT_METERED`, including a connected-but-not-default Wi‑Fi while traffic actually routes over cellular. The guarded behavior (pre-caching on a metered link) is therefore still possible in that state. It also uses the deprecated `connectivityManager.allNetworks`.
+
+**Fix:** evaluate `activeNetwork`'s capabilities only, or use `NetworkCapabilities.NET_CAPABILITY_NOT_METERED` on the default network callback.
+
+### Merge assessment
+
+Fix **R1** — it is a two-line change to a control the user touches directly. **R2** and **R3** are worth the five minutes each. **R4**–**R8** are reasonable follow-ups. Nothing in this list reopens findings 1–18, and nothing else blocks merging.
+
+## Resolution update (2026-07-30; Android remediation tip `7fd171e`; final implementation tip `dacb980`, with this audit-document commit)
+
+This section closes the actionable re-audit results without rewriting the independent 2026-07-29 assessment above.
+
+| Re-audit item | Status | Resolution / rationale |
+|---|---|---|
+| R1 | Fixed | `mergeControllerProgressIntoPlaybackState` uses `previous.copy(...)` for controller progress fields, so `repeatMode`, `errorMessage`, and other independently updated state survive position polling. A regression test covers a non-default repeat mode and fallback error message. |
+| R2 | Fixed | `ConnectException` fast-fails before the broader `SocketException` case. The retryable HTTP set remains 408/429/502/503/504, while 500 remains terminal; the focused interceptor test proves one `proceed()` call. |
+| R3 | Resolved | Intentionally removed the dead `startupReady`/clock/maximum-wait scaffolding and its policy test. `installSplashScreen()` remains in place before `super.onCreate`; the platform splash exits immediately rather than claiming to wait for a real readiness signal. |
+| R4 | Deferred, non-blocking | A safe escalation policy needs lifecycle design: marking a job failed while its original external effect can still be live risks duplicate or unsafe effects. |
+| R5 | Deferred, non-blocking | The warm-up is low risk and likely wins the race in normal startup. Correct asynchronous cache initialization adds complexity disproportionate to the observed benefit. |
+| R6 | Passed / accepted | The conditional zero-release catalog entry is a harmless wire-shape change; the client contributes no rows or affordances for it. |
+| R7 | Passed / accepted | Individual promise boundaries are the safer primary containment. A process-wide `unhandledRejection` handler can hide future programmer faults instead of making them visible. |
+| R8 | Deferred, non-blocking | Active-network-only metering is a valid Wi-Fi-only policy follow-up, but is separate from the R1–R3 reliability patch. |
+
+### Verification and deployment evidence
+
+- Focused Android regressions: **34 / 34** passed (`MediaReliabilityPolicyTest` 18 / 18; `RetryInterceptorTest` 16 / 16).
+- Full Android unit suite: **554 / 554** passed. `lintDebug` and `assembleDebug` are green.
+- Server: **538 passed, 35 skipped**; `tsc -p tsconfig.json --noEmit` is green.
+- Pre-deployment backup: `/home/nolan/docker-data/anime-ongaku-server/backups/20260730T010241Z`, with **256** restore-list entries and **2,302** media hard-link files.
+- Production server verification: health and database checks passed; zero restarts; 20 migrations; counts `users=2`, `songs=4520`, `media=2303`, `releases=35`; no recent server errors.
+- Pixel 7 Pro: installed with `adb install -r`; repeat stayed visibly active through more than six poll ticks, Full Size playback succeeded, playback was left paused, and log review found zero `FATAL`/`ANR` markers.
+- Admin operations note: the default-password guard required rotating `ADMIN_PASSWORD` in the remote mode-600 `.env`. No secret is stored in this repository.
+- Deployment tooling follow-up (`dacb980`): the actual RED deployment failure was Docker Compose interpolation in `deploy-server.ps1` — the remote `.env` existed, but the script did not pass it as Compose's interpolation environment, so `ADMIN_PASSWORD` was reported missing. Both `deploy-server.ps1` and `deploy-server.sh` now define their `docker compose` and `docker-compose` invocations with `--env-file .env`; the existing missing-`.env` guard remains. PowerShell parsing and Bash syntax are green, and safe local dry-runs rendered `config`, `up`, `ps`, and `logs` through both Compose variants with `--env-file .env`.
 
 ## Historical prioritized findings
 
