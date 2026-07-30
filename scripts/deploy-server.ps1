@@ -154,9 +154,9 @@ if [ ! -f .env ] && [ "$allowDefaultEnvValue" != "1" ]; then
   exit 3
 fi
 if docker compose version >/dev/null 2>&1; then
-  dc() { docker compose "`$@"; }
+  dc() { docker compose --env-file .env "`$@"; }
 elif command -v docker-compose >/dev/null 2>&1; then
-  dc() { docker-compose "`$@"; }
+  dc() { docker-compose --env-file .env "`$@"; }
 else
   echo "Docker Compose is not installed on the remote host." >&2
   exit 4
