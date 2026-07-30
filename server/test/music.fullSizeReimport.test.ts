@@ -74,6 +74,11 @@ describe("full-size re-import orchestration", () => {
     await expect(stat(absolutePath)).rejects.toThrow();
     expect(query).toHaveBeenCalledWith(expect.stringContaining("pg_advisory_xact_lock"), expect.any(Array));
     expect(query).toHaveBeenCalledWith(expect.stringContaining("provider = 'AMF'"), expect.any(Array));
+    const statements = query.mock.calls.map(([sql]) => sql);
+    expect(statements.findIndex((sql) => sql.includes("DELETE FROM theme_full_songs")))
+      .toBeLessThan(statements.findIndex((sql) => sql.includes("DELETE FROM release_tracks")));
+    expect(statements.findIndex((sql) => sql.includes("DELETE FROM release_tracks")))
+      .toBeLessThan(statements.findIndex((sql) => sql.includes("UPDATE songs")));
     expect(pool.query).toHaveBeenCalledWith(expect.stringContaining("state='MISSING'"), [9]);
     expect(result).toMatchObject({ prunedFiles: 1, prunedSongs: 1 });
   });
