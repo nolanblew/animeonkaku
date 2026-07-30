@@ -217,6 +217,22 @@ describe("anime music request composition", () => {
       { kind: "OTHER", release_preference: "ANY" },
     ]);
   });
+
+  it("can compose an OP/ED-only snapshot for an administrative re-import", () => {
+    const batches = buildMusicRequestBatches({
+      kitsuId: "1",
+      requestId: "reimport-41",
+      titles: { romaji: "Toradora!" },
+      themes: [
+        { id: 3040, themeType: "OP1", title: "Pre-Parade", artists: ["Yui Horie"] },
+        { id: 3041, themeType: "ED1", title: "Vanilla Salt", artists: ["Yui Horie"] },
+      ],
+    }, { includeRelated: false });
+
+    expect(batches).toHaveLength(1);
+    expect(batches[0]?.body.items.map((item) => item.kind)).toEqual(["OP", "ED"]);
+    expect(batches[0]?.items.map((item) => item.themeId)).toEqual([3040, 3041]);
+  });
 });
 
 describe("anime music request orchestration", () => {
