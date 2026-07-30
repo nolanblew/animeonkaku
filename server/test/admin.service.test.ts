@@ -42,7 +42,9 @@ describe("admin dashboard service", () => {
   it("queues one durable full-size re-import per anime", async () => {
     const enqueue = vi.fn().mockResolvedValue({ id: 41 });
     const pool = {
-      query: vi.fn().mockResolvedValue({ rows: [{ kitsu_id: "1", animethemes_anime_id: "7" }] }),
+      query: vi.fn(async (sql: string) => sql.includes("SELECT u.kitsu_user_id")
+        ? { rows: [{ kitsu_user_id: "7" }] }
+        : { rows: [{ kitsu_id: "1", animethemes_anime_id: "7" }] }),
     };
     const service = new PgAdminDashboardService({
       pool: pool as never, queue: { enqueue } as never, requests: {} as never, operator: {} as never,
@@ -52,7 +54,7 @@ describe("admin dashboard service", () => {
     await expect(service.reimportAnimeFullSize("1")).resolves.toEqual({ queued: true, jobId: 41 });
     expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
       type: "REIMPORT_AMF_FULL_SIZE",
-      payload: { kitsuId: "1" },
+      payload: { kitsuId: "1", userId: "7" },
       dedupeKey: "REIMPORT_AMF_FULL_SIZE:1",
     }));
   });
