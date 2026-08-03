@@ -1,5 +1,6 @@
 package com.takeya.animeongaku.data.local
 
+import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -15,7 +16,9 @@ data class SongEntity(
     val titleEnglish: String? = null,
     val titleRomaji: String? = null,
     val titleJapanese: String? = null,
-    val artistNamesJson: String = "[]"
+    val artistNamesJson: String = "[]",
+    @Embedded(prefix = "loudness_")
+    val loudness: LoudnessProfile? = null
 )
 @Entity(tableName = "music_releases")
 data class MusicReleaseEntity(
@@ -108,7 +111,11 @@ data class ThemeModeEntity(
     val videoMimeType: String? = null,
     val videoSpoiler: Boolean = false,
     val videoNsfw: Boolean = false,
-    val videoEntryVersion: Int? = null
+    val videoEntryVersion: Int? = null,
+    @Embedded(prefix = "tvLoudness_")
+    val tvSizeLoudness: LoudnessProfile? = null,
+    @Embedded(prefix = "fullLoudness_")
+    val fullSizeLoudness: LoudnessProfile? = null
 )
 
 @Entity(tableName = "song_preferences")

@@ -178,10 +178,20 @@ data class OngakuThemeMediaModesDto(
     val video: OngakuVideoModeDto? = null
 )
 
+data class OngakuLoudnessDto(
+    val integratedLufs: Double? = null,
+    val truePeakDbtp: Double? = null,
+    val loudnessRangeLu: Double? = null,
+    val gainDb: Double? = null,
+    val policyVersion: Int? = null,
+    val state: String? = null
+)
+
 data class OngakuTvSizeModeDto(
     val url: String,
     val durationSeconds: Int? = null,
-    val fileSize: Long? = null
+    val fileSize: Long? = null,
+    val loudness: OngakuLoudnessDto? = null
 )
 
 data class OngakuFullSizeModeDto(
@@ -189,7 +199,8 @@ data class OngakuFullSizeModeDto(
     val url: String,
     val durationSeconds: Int? = null,
     val fileSize: Long? = null,
-    val sourceReleaseId: Long? = null
+    val sourceReleaseId: Long? = null,
+    val loudness: OngakuLoudnessDto? = null
 )
 
 data class OngakuVideoModeDto(
@@ -385,7 +396,8 @@ data class OngakuMusicTrackDto(
     val fileSize: Long? = null,
     val discNumber: Int = 1,
     val trackNumber: Int? = null,
-    val displayOrder: Int = 0
+    val displayOrder: Int = 0,
+    val loudness: OngakuLoudnessDto? = null
 )
 
 data class OngakuLocalizedNameDto(

@@ -128,16 +128,22 @@ class DownloadManager @Inject constructor(
     fun downloadSong(theme: ThemeEntity, anime: AnimeEntity? = null) {
         scope.launch {
             val group = ensureGroup(DownloadGroupEntity.TYPE_SINGLE, theme.id.toString(), theme.title)
-            enqueue(listOf(DownloadMediaSpec.themeTv(theme.id, theme.audioUrl)), group)
+            val descriptor = themeModeDao.getByThemeIds(listOf(theme.id)).firstOrNull()
+            enqueue(listOf(DownloadMediaSpec.themeTv(theme.id, theme.audioUrl, descriptor?.tvSizeLoudness)), group)
         }
     }
 
     fun downloadThemeFullSize(theme: ThemeEntity, anime: AnimeEntity? = null) {
         scope.launch {
             val descriptor = themeModeDao.getByThemeIds(listOf(theme.id)).firstOrNull() ?: return@launch
-            val canonicalSongUrl = descriptor.fullSizeSongId
-                ?.let { songId -> musicCatalogDao.getSong(songId)?.audioUrl }
-            val media = resolveThemeFullSizeDownload(descriptor, canonicalSongUrl) ?: return@launch
+            val canonicalSong = descriptor.fullSizeSongId?.let { songId ->
+                musicCatalogDao.getSong(songId)
+            }
+            val media = resolveThemeFullSizeDownload(
+                descriptor,
+                canonicalSong?.audioUrl,
+                canonicalSong?.loudness
+            ) ?: return@launch
             val label = listOfNotNull(anime?.title, theme.title).joinToString(" · ")
             val group = if (anime?.kitsuId != null) {
                 ensureGroup(DownloadGroupEntity.TYPE_ANIME, anime.kitsuId, anime.title ?: theme.title)
@@ -155,14 +161,14 @@ class DownloadManager @Inject constructor(
             } else {
                 ensureGroup(DownloadGroupEntity.TYPE_ALBUM, release.id.toString(), release.title)
             }
-            enqueue(listOf(DownloadMediaSpec.song(song.id, song.audioUrl)), group)
+            enqueue(listOf(DownloadMediaSpec.song(song.id, song.audioUrl, song.loudness)), group)
         }
     }
 
     fun downloadAlbum(release: MusicReleaseEntity, songs: List<SongEntity>) {
         scope.launch {
             val group = ensureGroup(DownloadGroupEntity.TYPE_ALBUM, release.id.toString(), release.title)
-            enqueue(songs.map { DownloadMediaSpec.song(it.id, it.audioUrl) }, group)
+            enqueue(songs.map { DownloadMediaSpec.song(it.id, it.audioUrl, it.loudness) }, group)
         }
     }
 
@@ -176,7 +182,10 @@ class DownloadManager @Inject constructor(
                 kitsuId,
                 anime.title ?: anime.titleEn ?: "Anime"
             )
-            enqueue(themes.map { DownloadMediaSpec.themeTv(it.id, it.audioUrl) }, group)
+            val modes = themeModeDao.getByThemeIds(themes.map { it.id }).associateBy { it.themeId }
+            enqueue(themes.map { theme ->
+                DownloadMediaSpec.themeTv(theme.id, theme.audioUrl, modes[theme.id]?.tvSizeLoudness)
+            }, group)
         }
     }
 
@@ -194,8 +203,14 @@ class DownloadManager @Inject constructor(
                 themeModeDao.getByThemeIds(themeIds).mapNotNullTo(this) { it.fullSizeSongId }
             }
             val modes = themeModeDao.getByThemeIds(themeIds).associateBy { it.themeId }
-            val songUrls = musicCatalogDao.getSongs(songIds.toList()).associate { it.id to it.audioUrl }
-            val specs = resolvePlaylistDownloadMedia(entries, playlist.defaultMode, modes, songUrls)
+            val songs = musicCatalogDao.getSongs(songIds.toList()).associateBy { it.id }
+            val specs = resolvePlaylistDownloadMedia(
+                entries,
+                playlist.defaultMode,
+                modes,
+                songs.mapValues { it.value.audioUrl },
+                songs.mapValues { it.value.loudness }
+            )
             val group = ensureGroup(DownloadGroupEntity.TYPE_PLAYLIST, playlistId.toString(), playlist.name)
             replaceGroupMembership(group, specs)
             prepare(specs)
@@ -292,7 +307,11 @@ class DownloadManager @Inject constructor(
             val existing = downloadItemDao.get(spec.mediaKey)
             val existingFileReady = existing?.status == DownloadItemEntity.STATUS_COMPLETED &&
                 existing.filePath?.let(::File)?.isFile == true
-            if (existingFileReady || existing?.status in setOf(
+            if (existingFileReady) {
+                if (existing.loudness != spec.loudness) downloadItemDao.upsert(existing.copy(loudness = spec.loudness))
+                return@forEach
+            }
+            if (existing?.status in setOf(
                     DownloadItemEntity.STATUS_PENDING, DownloadItemEntity.STATUS_DOWNLOADING,
                     DownloadItemEntity.STATUS_RETRYING, DownloadItemEntity.STATUS_PAUSED,
                     DownloadItemEntity.STATUS_WAITING_FOR_WIFI
@@ -309,7 +328,8 @@ class DownloadManager @Inject constructor(
                     imagePath = existing?.imagePath,
                     createdAt = existing?.createdAt ?: System.currentTimeMillis(),
                     updatedAt = System.currentTimeMillis(),
-                    legacyThemeId = spec.legacyThemeId
+                    legacyThemeId = spec.legacyThemeId,
+                    loudness = spec.loudness
                 )
             if (existing == null) downloadItemDao.insertIfAbsent(replacement) else downloadItemDao.upsert(replacement)
         }

@@ -10,6 +10,16 @@ export type MediaKind = "AUDIO" | "VIDEO" | "ANIME_POSTER" | "ANIME_COVER" | "AR
 export type MediaVariant = "SHORT" | "ORIGINAL" | "FULL" | "DEFAULT";
 
 export type MediaState = "MISSING" | "QUEUED" | "DOWNLOADING" | "READY" | "FAILED";
+export type LoudnessState = "PENDING" | "READY" | "FAILED";
+
+export interface LoudnessDescriptor {
+  integratedLufs: number;
+  truePeakDbtp: number;
+  loudnessRangeLu: number;
+  gainDb: number;
+  policyVersion: number;
+  state: "READY";
+}
 
 /** Variant used for image kinds, which have only one source. */
 export const IMAGE_VARIANT: MediaVariant = "DEFAULT";
@@ -48,6 +58,15 @@ export interface MediaFileRecord {
   videoFallback: boolean;
   contentType?: string | null;
   sourceFileName?: string | null;
+  loudnessState?: LoudnessState | null | undefined;
+  loudnessSha256?: string | null;
+  integratedLufs?: number | null;
+  truePeakDbtp?: number | null;
+  loudnessRangeLu?: number | null;
+  loudnessGainDb?: number | null;
+  loudnessPolicyVersion?: number | null;
+  loudnessError?: string | null;
+  loudnessAnalyzedAt?: Date | null;
 }
 
 export interface SaveMediaFileInput {

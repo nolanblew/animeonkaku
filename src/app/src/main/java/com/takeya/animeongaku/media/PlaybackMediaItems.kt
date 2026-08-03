@@ -5,7 +5,9 @@ import android.os.Bundle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.LoudnessProfile
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.dbToLinearVolume
 import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -22,13 +24,15 @@ object PlaybackMediaExtras {
     const val ACTUAL_MODE = "anime_ongaku.actual_mode"
     const val PLAYBACK_SOURCE = "anime_ongaku.playback_source"
     const val ANIME_TITLE = "anime_ongaku.anime_title"
+    const val LOUDNESS_GAIN_DB = "anime_ongaku.loudness_gain_db"
 }
 
 internal data class PlaybackMediaTag(
     val playableKey: PlayableKey,
     val preferredMode: PlaybackMode,
     val actualMode: PlaybackMode?,
-    val source: PlaybackSource?
+    val source: PlaybackSource?,
+    val loudness: LoudnessProfile? = null
 )
 
 internal data class PlaybackMediaDescriptor(
@@ -41,7 +45,8 @@ internal data class PlaybackMediaDescriptor(
     val description: String,
     val artworkUrl: String?,
     val values: Map<String, Any>,
-    val tag: PlaybackMediaTag
+    val tag: PlaybackMediaTag,
+    val loudness: LoudnessProfile?
 )
 
 internal fun ResolvedPlaybackItem.toPlaybackMediaDescriptor(
@@ -55,6 +60,7 @@ internal fun ResolvedPlaybackItem.toPlaybackMediaDescriptor(
         actualMode?.let { put(PlaybackMediaExtras.ACTUAL_MODE, it.name) }
         source?.let { put(PlaybackMediaExtras.PLAYBACK_SOURCE, it.name) }
         animeTitle?.let { put(PlaybackMediaExtras.ANIME_TITLE, it) }
+        loudness?.let { put(PlaybackMediaExtras.LOUDNESS_GAIN_DB, it.attenuationGainDb()) }
     }
     return PlaybackMediaDescriptor(
         mediaId = queueId.toString(),
@@ -68,7 +74,8 @@ internal fun ResolvedPlaybackItem.toPlaybackMediaDescriptor(
             ?.let { rewriteServerMediaUrl(it, activeServerBaseUrl) }
             ?.takeIf(String::isAbsoluteUri),
         values = values,
-        tag = PlaybackMediaTag(playableKey, preferredMode, actualMode, source)
+        tag = PlaybackMediaTag(playableKey, preferredMode, actualMode, source, loudness),
+        loudness = loudness
     )
 }
 
@@ -83,6 +90,7 @@ internal fun ResolvedPlaybackItem.toPlaybackMediaItem(
             when (value) {
                 is String -> putString(key, value)
                 is Long -> putLong(key, value)
+                is Double -> putDouble(key, value)
             }
         }
     } else null
@@ -293,4 +301,13 @@ internal fun MediaItem.withArtworkData(artworkData: ByteArray): MediaItem {
     return buildUpon()
         .setMediaMetadata(updatedMetadata)
         .build()
+}
+
+/** Safe across the MediaSession boundary because it reads the platform metadata bundle, not tag. */
+internal fun MediaItem.loudnessPlayerVolume(): Float {
+    val gainDb = mediaMetadata.extras
+        ?.takeIf { it.containsKey(PlaybackMediaExtras.LOUDNESS_GAIN_DB) }
+        ?.getDouble(PlaybackMediaExtras.LOUDNESS_GAIN_DB)
+        ?: return 1f
+    return dbToLinearVolume(gainDb)
 }

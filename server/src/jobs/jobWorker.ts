@@ -40,6 +40,7 @@ export interface JobWorkerOptions {
 const DEFAULT_TIMEOUTS_MS: Record<JobType, number> = {
   FETCH_AUDIO: 5 * 60_000,
   FETCH_IMAGE: 2 * 60_000,
+  ANALYZE_AUDIO_LOUDNESS: 10 * 60_000,
   KITSU_FULL_SYNC: 30 * 60_000,
   KITSU_DELTA_SYNC: 30 * 60_000,
   // Safety net only: the pipeline checkpoints on a ~45s wall-clock budget, so a

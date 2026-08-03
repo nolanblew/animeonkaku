@@ -12,6 +12,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.takeya.animeongaku.data.local.AppDatabase
 import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
@@ -71,7 +72,8 @@ class MediaControllerManager @Inject constructor(
     private val connectivityMonitor: ConnectivityMonitor,
     private val serverSettingsStore: ServerSettingsStore,
     private val imageLoader: ImageLoader,
-    private val playbackResolutionCoordinator: PlaybackResolutionCoordinator
+    private val playbackResolutionCoordinator: PlaybackResolutionCoordinator,
+    private val database: AppDatabase
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val artworkDataCache = ArtworkDataCache()
@@ -444,6 +446,21 @@ class MediaControllerManager @Inject constructor(
                                 }
                             }
                         }
+                    }
+                    launch {
+                        // Loudness arrives asynchronously after a cached/imported file is analyzed.
+                        // Rebuild the active queue when the next library delta writes its profile,
+                        // including a same-queue-id TV/Full replacement, without waiting for a
+                        // user queue mutation or an app restart.
+                        database.invalidationTracker
+                            .createFlow("theme_modes", "songs")
+                            .collectLatest {
+                                val ctrl = controller ?: return@collectLatest
+                                val npState = nowPlayingManager.state.value
+                                if (npState.nowPlayingEntries.isNotEmpty()) {
+                                    forceSyncQueue(ctrl, npState)
+                                }
+                            }
                     }
                     nowPlayingManager.state
                         .distinctUntilChangedBy { it.queueVersion }

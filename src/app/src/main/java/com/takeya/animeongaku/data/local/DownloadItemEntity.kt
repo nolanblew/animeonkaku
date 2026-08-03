@@ -1,5 +1,6 @@
 package com.takeya.animeongaku.data.local
 
+import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.Index
 
@@ -21,7 +22,9 @@ data class DownloadItemEntity(
     val createdAt: Long,
     val updatedAt: Long,
     val workManagerId: String? = null,
-    val legacyThemeId: Long? = null
+    val legacyThemeId: Long? = null,
+    @Embedded(prefix = "loudness_")
+    val loudness: LoudnessProfile? = null
 ) {
     companion object {
         const val STATUS_PENDING = "pending"

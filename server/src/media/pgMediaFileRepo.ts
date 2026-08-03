@@ -45,6 +45,15 @@ export class DrizzleMediaFileRepo implements MediaFileRepo {
       videoFallback: row.videoFallback,
       contentType: row.contentType,
       sourceFileName: row.sourceFileName,
+      loudnessState: (row.loudnessState ?? null) as MediaFileRecord["loudnessState"],
+      loudnessSha256: row.loudnessSha256 ?? null,
+      integratedLufs: row.integratedLufs ?? null,
+      truePeakDbtp: row.truePeakDbtp ?? null,
+      loudnessRangeLu: row.loudnessRangeLu ?? null,
+      loudnessGainDb: row.loudnessGainDb ?? null,
+      loudnessPolicyVersion: row.loudnessPolicyVersion ?? null,
+      loudnessError: row.loudnessError ?? null,
+      loudnessAnalyzedAt: row.loudnessAnalyzedAt ?? null,
     };
   }
 
@@ -53,7 +62,6 @@ export class DrizzleMediaFileRepo implements MediaFileRepo {
       state: "DOWNLOADING",
       filePath: null,
       byteSize: null,
-      sha256: null,
       errorMessage: null,
       updatedAt: new Date(),
       videoFallback: input.videoFallback,
@@ -63,6 +71,10 @@ export class DrizzleMediaFileRepo implements MediaFileRepo {
   }
 
   async markReady(input: SaveMediaFileInput & { byteSize: number; sha256: string }): Promise<void> {
+    const existing = await this.find({ kind: input.kind, refId: input.refId, variant: input.variant });
+    // Re-importing identical source bytes keeps the analysis associated with
+    // that SHA. A changed artifact starts PENDING and can never inherit gain.
+    const invalidateLoudness = input.kind === "AUDIO" && existing?.sha256 !== input.sha256;
     await this.upsert(input, {
       state: "READY",
       filePath: input.filePath,
@@ -75,6 +87,15 @@ export class DrizzleMediaFileRepo implements MediaFileRepo {
       videoFallback: input.videoFallback,
       contentType: input.contentType ?? null,
       sourceFileName: input.sourceFileName ?? null,
+      ...(invalidateLoudness ? {
+        loudnessState: "PENDING", loudnessSha256: null, integratedLufs: null,
+        truePeakDbtp: null, loudnessRangeLu: null, loudnessGainDb: null,
+        loudnessPolicyVersion: null, loudnessError: null, loudnessAnalyzedAt: null,
+      } : input.kind !== "AUDIO" ? {
+        loudnessState: null, loudnessSha256: null, integratedLufs: null,
+        truePeakDbtp: null, loudnessRangeLu: null, loudnessGainDb: null,
+        loudnessPolicyVersion: null, loudnessError: null, loudnessAnalyzedAt: null,
+      } : {}),
     });
   }
 
@@ -88,6 +109,15 @@ export class DrizzleMediaFileRepo implements MediaFileRepo {
       updatedAt: new Date(),
       incrementAttempts: true,
       videoFallback: input.videoFallback,
+      loudnessState: null,
+      loudnessSha256: null,
+      integratedLufs: null,
+      truePeakDbtp: null,
+      loudnessRangeLu: null,
+      loudnessGainDb: null,
+      loudnessPolicyVersion: null,
+      loudnessError: null,
+      loudnessAnalyzedAt: null,
     });
   }
 
