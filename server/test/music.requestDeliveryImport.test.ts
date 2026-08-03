@@ -87,6 +87,39 @@ describe("AMF delivery staging validation", () => {
 });
 
 describe("AMF delivery import orchestration", () => {
+  it("imports only the canonical vocal file when a full-size item also contains an instrumental", async () => {
+    const repo = fakeDeliveryRepo();
+    vi.mocked(repo.loadBatch).mockResolvedValue({ id: "batch", animeId: 1448, destination: "safe", warningCount: 0,
+      items: [{ id: "op1", index: 0, kind: "OP", number: 1, themeId: 8629, resultStatus: "delivered", importState: "PENDING",
+        deliveries: [
+          { id: "instrumental", fileIndex: 0, relativePath: "03 Song (Instrumental).flac", byteSize: 1, sha256: "a", metadata: { title: "Song (Instrumental)" }, importState: "PENDING" },
+          { id: "vocal", fileIndex: 3, relativePath: "01 Song.flac", byteSize: 1, sha256: "b", metadata: { title: "Song", artist: "Yuiko Ohara" }, importState: "PENDING" },
+        ] }] });
+    vi.mocked(repo.finishBatch).mockResolvedValue("PROCESSING");
+
+    const plan = await new AmfDeliveryImportService({ repo, mediaStore: {} as MediaStore, libraryRoot: "safe" }).planImport("batch");
+
+    expect(plan?.chunks).toEqual([{ itemId: "op1", deliveryIds: ["vocal"] }]);
+    expect(repo.ignoreFullSizeVariants).toHaveBeenCalledWith("op1", "vocal", ["instrumental"], expect.stringMatching(/instrumental/i));
+  });
+
+  it("requires operator review when multiple full-size files remain canonical", async () => {
+    const repo = fakeDeliveryRepo();
+    vi.mocked(repo.loadBatch).mockResolvedValue({ id: "batch", animeId: 1448, destination: "safe", warningCount: 0,
+      items: [{ id: "op1", index: 0, kind: "OP", number: 1, themeId: 8629, resultStatus: "delivered", importState: "PENDING",
+        deliveries: [
+          { id: "first", fileIndex: 0, relativePath: "01 Song.flac", byteSize: 1, sha256: "a", metadata: {}, importState: "PENDING" },
+          { id: "second", fileIndex: 1, relativePath: "02 Song.flac", byteSize: 1, sha256: "b", metadata: {}, importState: "PENDING" },
+        ] }] });
+    vi.mocked(repo.finishBatch).mockResolvedValue("AWAITING_OPERATOR");
+
+    const plan = await new AmfDeliveryImportService({ repo, mediaStore: {} as MediaStore, libraryRoot: "safe" }).planImport("batch");
+
+    expect(plan?.chunks).toEqual([]);
+    expect(repo.markAttention).toHaveBeenCalledWith(null, "op1", expect.stringMatching(/ambiguous/i));
+    expect(repo.ignoreFullSizeVariants).not.toHaveBeenCalled();
+  });
+
   it("holds the content lock across reservation, verified copy, and publication", async () => {
     const root = await mkdtemp(join(tmpdir(), "ongaku-amf-library-"));
     const relativePath = "anime-ongaku-staging/request-a/batch-0/song.flac";
@@ -312,7 +345,7 @@ describe("AMF delivery import job splitting (F7)", () => {
 });
 
 function fakeDeliveryRepo(): AmfDeliveryRepository {
-  return { loadBatch: vi.fn(), reserveCatalog: vi.fn(), publishDelivery: vi.fn(), markAttention: vi.fn(),
+  return { loadBatch: vi.fn(), reserveCatalog: vi.fn(), publishDelivery: vi.fn(), markAttention: vi.fn(), ignoreFullSizeVariants: vi.fn(),
     markUnsupportedFormat: vi.fn(), finishBatch: vi.fn(), listRecoverableBatchIds: vi.fn(), withContentLock: vi.fn(),
     markOperationalExhausted: vi.fn(), markItemOperationalExhausted: vi.fn() } as unknown as AmfDeliveryRepository;
 }
@@ -455,6 +488,7 @@ function createFakeDeliveryRepo(seed: { batchId: string; destination: string; wa
       const item = items.get(itemId);
       if (item && item.importState !== "READY") { item.importState = "ATTENTION"; item.importError = error; }
     },
+    async ignoreFullSizeVariants(_itemId, _selectedDeliveryId, _ignoredDeliveryIds, _reason) {},
     async markUnsupportedFormat(deliveryId, itemId, extension) {
       const message = unsupportedFormatImportError(extension);
       const found = findDelivery(deliveryId);

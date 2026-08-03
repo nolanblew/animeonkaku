@@ -232,11 +232,13 @@ for (const batchId of await amfDeliveryRepo.listRecoverableBatchIds()) {
     dedupeKey: `IMPORT_AMF_MUSIC_BATCH:${batchId}`, maxAttempts: 8 });
 }
 const syncHandlers = createSyncJobHandlers(syncPipeline);
+const jobHandlers = { ...fetchHandlers, ...syncHandlers, ...musicRequestHandlers,
+  ...fullSizeReimportHandlers, ...amfDeliveryHandlers, ...musicOperatorHandlers,
+  ...musicSearchPolicyHandlers };
 // Background hydration waits until on-demand media traffic has been quiet.
 const mediaActivity = new InteractiveMediaActivity();
 const worker = new JobWorker(jobQueue, {
-  handlers: { ...fetchHandlers, ...syncHandlers, ...musicRequestHandlers, ...fullSizeReimportHandlers, ...amfDeliveryHandlers, ...musicOperatorHandlers,
-    ...musicSearchPolicyHandlers },
+  handlers: jobHandlers,
   maintenanceFetchDelayMs: config.AUDIO_BACKFILL_DELAY_SECONDS * 1000,
   holdMaintenanceWork: () => !mediaActivity.isQuiet(),
   onError: (error, context) => externalLogger.error({ err: error, context }, "background job worker recovered from an error"),
@@ -245,7 +247,11 @@ worker.start();
 // A second worker restricted to urgent/high jobs so a client-facing fetch is
 // never queued behind a long-running background download on the main worker.
 const interactiveWorker = new JobWorker(jobQueue, {
-  handlers: { ...fetchHandlers, ...syncHandlers },
+  // A priority ceiling does not filter by job type. Every HIGH-priority job
+  // can be claimed here, including admin re-imports, so this worker must have
+  // the complete handler registry even though it never claims normal or
+  // maintenance work.
+  handlers: jobHandlers,
   maxPriority: JobPriority.HIGH,
   onError: (error, context) => externalLogger.error({ err: error, context }, "interactive job worker recovered from an error"),
 });

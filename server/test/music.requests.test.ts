@@ -272,6 +272,29 @@ describe("anime music request orchestration", () => {
     expect(queue.enqueue).toHaveBeenCalledWith(expect.objectContaining({ type: "SUBMIT_AMF_MUSIC_BATCH" }));
   });
 
+  it("allows an admin re-import to supersede a request awaiting operator action", async () => {
+    const repo = fakeRepo(storedBatch("AWAITING_OPERATOR"));
+    vi.mocked(repo.findById).mockResolvedValue(null);
+    vi.mocked(repo.findLatest).mockResolvedValue(storedRequest(["AWAITING_OPERATOR"]));
+    vi.mocked(repo.loadMetadata).mockResolvedValue({
+      kitsuId: "42", requestId: "ignored", animeThemesAnimeId: 7, titles: { romaji: "Show" },
+      themes: [{ id: 10, themeType: "OP1", title: "Opening", artists: ["Singer"] }],
+    });
+    vi.mocked(repo.createOrReplay).mockImplementation(async (input) => ({
+      created: true,
+      request: { id: input.id, kitsuId: input.kitsuId, animeThemesAnimeId: input.animeThemesAnimeId,
+        createdAt: new Date(), updatedAt: new Date(), completedAt: null,
+        batches: input.batches.map((batch) => ({ id: batch.id, requestId: input.id, index: batch.index,
+          state: "QUEUED" as const, body: batch.body, idempotencyKey: batch.idempotencyKey, amfJobId: null,
+          warningCount: 0, pollBackoffStep: 0, pollNotBefore: null,
+          manifestEvidence: { status: null, itemResults: [], deliveries: [] } })) },
+    }));
+    const queue = { enqueue: vi.fn().mockResolvedValue({}) } as unknown as JobQueue;
+
+    await expect(new MusicRequestService({ repo, queue }).startFullSizeReimport("7", "42", "admin-reimport-42"))
+      .resolves.toMatchObject({ id: "admin-reimport-42", state: "QUEUED" });
+  });
+
   it("aggregates every batch exactly and never hides a hard failure", () => {
     const request = storedRequest(["COMPLETED", "COMPLETED_WITH_WARNINGS", "FAILED"]);
     expect(toSummary(request)).toMatchObject({

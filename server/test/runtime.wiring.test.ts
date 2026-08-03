@@ -26,7 +26,8 @@ describe("server runtime wiring", () => {
     expect(source).not.toContain("createMusicImportHandlers");
     expect(source).not.toContain("listRecoverableAcquisitionIds");
     expect(source).not.toContain("listRecoverableImportIds");
-    expect(source).toMatch(/handlers: \{ \.\.\.fetchHandlers, \.\.\.syncHandlers, \.\.\.musicRequestHandlers, \.\.\.fullSizeReimportHandlers, \.\.\.amfDeliveryHandlers, \.\.\.musicOperatorHandlers,[\s\S]*\.\.\.musicSearchPolicyHandlers \}/);
+    expect(source).toMatch(/const jobHandlers = \{ \.\.\.fetchHandlers, \.\.\.syncHandlers, \.\.\.musicRequestHandlers,[\s\S]*\.\.\.fullSizeReimportHandlers,[\s\S]*\.\.\.musicSearchPolicyHandlers \}/);
+    expect(source.match(/handlers: jobHandlers/g)).toHaveLength(2);
     expect(source).toContain("musicOperator: musicOperatorService");
     expect(source).toContain("musicSearchSettings: musicSearchPolicy");
     expect(source).toContain("musicSearchPolicyScheduler.start()");

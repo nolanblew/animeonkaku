@@ -13,6 +13,7 @@ import type { JobHandler } from "../../jobs/types.js";
 import { JobPriority } from "../../jobs/types.js";
 import type { JobQueue } from "../../jobs/jobQueue.js";
 import { AMF_API_BASE_URL } from "../animeMusicFetcher/client.js";
+import { fullSizeExclusionLabel } from "../matching/resolver.js";
 
 /**
  * How many not-yet-READY deliveries go into a single `IMPORT_AMF_MUSIC_ITEM`
@@ -30,6 +31,7 @@ export const AMF_IMPORT_CHUNK_SIZE = 10;
  * re-reading (or even re-checking the existence of) the source file. */
 export const AMF_DELIVERY_CLASSIFICATION_KEY = "amfClassification";
 export const AMF_DELIVERY_CLASSIFICATION_UNSUPPORTED_FORMAT = "UNSUPPORTED_FORMAT";
+export const AMF_IGNORED_FULL_SIZE_VARIANT_ERROR_PREFIX = "AMF_IGNORED_FULL_SIZE_VARIANT:";
 
 export interface DeliveryRecord {
   id: string; fileIndex: number; relativePath: string; byteSize: number | null; sha256: string | null;
@@ -49,6 +51,7 @@ export interface AmfDeliveryRepository {
   reserveCatalog(deliveryId: string, verified: { byteSize: number; sha256: string }): Promise<DeliveryCatalogReservation>;
   publishDelivery(deliveryId: string): Promise<void>;
   markAttention(deliveryId: string | null, itemId: string, error: string): Promise<void>;
+  ignoreFullSizeVariants(itemId: string, selectedDeliveryId: string, ignoredDeliveryIds: string[], reason: string): Promise<void>;
   /**
    * Classifies a delivery (and, unless the item already needs genuine
    * operator review, the item) as rejected solely for an unsupported audio
@@ -99,7 +102,22 @@ export class AmfDeliveryImportService {
     for (const item of batch.items) {
       if (item.importState === "READY") continue;
       if (item.resultStatus !== "delivered" || item.deliveries.length === 0) continue;
-      const pendingDeliveryIds = item.deliveries.filter((delivery) => delivery.importState !== "READY").map((delivery) => delivery.id);
+      let candidateDeliveries = item.deliveries;
+      if ((item.kind === "OP" || item.kind === "ED") && item.deliveries.length > 1) {
+        const eligible = item.deliveries.filter((delivery) => !fullSizeExclusionLabel(
+          `${delivery.relativePath} ${JSON.stringify(delivery.metadata ?? {})}`));
+        if (eligible.length !== 1) {
+          await this.deps.repo.markAttention(null, item.id,
+            `AMF full-size delivery is ambiguous: expected one canonical file after variant filtering, found ${eligible.length}.`);
+          continue;
+        }
+        const selected = eligible[0]!;
+        const ignored = item.deliveries.filter((delivery) => delivery.id !== selected.id);
+        await this.deps.repo.ignoreFullSizeVariants(item.id, selected.id, ignored.map((delivery) => delivery.id),
+          `${AMF_IGNORED_FULL_SIZE_VARIANT_ERROR_PREFIX} excluded ${ignored.map((delivery) => fullSizeExclusionLabel(`${delivery.relativePath} ${JSON.stringify(delivery.metadata ?? {})}`) ?? "alternate").join(", ")}`);
+        candidateDeliveries = [selected];
+      }
+      const pendingDeliveryIds = candidateDeliveries.filter((delivery) => delivery.importState !== "READY").map((delivery) => delivery.id);
       for (let offset = 0; offset < pendingDeliveryIds.length; offset += chunkSize) {
         chunks.push({ itemId: item.id, deliveryIds: pendingDeliveryIds.slice(offset, offset + chunkSize) });
       }
@@ -426,6 +444,21 @@ export class PgAmfDeliveryRepository implements AmfDeliveryRepository {
   async markAttention(deliveryId: string | null, itemId: string, error: string): Promise<void> {
     if (deliveryId) await this.pool.query("UPDATE anime_music_request_deliveries SET import_state='ATTENTION',import_error=$2,updated_at=now() WHERE id=$1 AND import_state<>'READY'", [deliveryId, error]);
     await this.pool.query("UPDATE anime_music_request_items SET import_state='ATTENTION',import_error=$2 WHERE id=$1 AND import_state<>'READY'", [itemId, error]);
+  }
+
+  async ignoreFullSizeVariants(itemId: string, selectedDeliveryId: string, ignoredDeliveryIds: string[], reason: string): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT id FROM anime_music_request_items WHERE id=$1 FOR UPDATE", [itemId]);
+      if (ignoredDeliveryIds.length > 0) {
+        await client.query(`UPDATE anime_music_request_deliveries SET active=false,import_state='ATTENTION',import_error=$3,updated_at=now()
+          WHERE item_id=$1 AND id=ANY($2::text[]) AND import_state<>'READY'`, [itemId, ignoredDeliveryIds, reason]);
+      }
+      await client.query("UPDATE anime_music_request_deliveries SET active=true WHERE item_id=$1 AND id=$2", [itemId, selectedDeliveryId]);
+      await client.query("COMMIT");
+    } catch (error) { await client.query("ROLLBACK"); throw error; }
+    finally { client.release(); }
   }
 
   async markUnsupportedFormat(deliveryId: string, itemId: string, extension: string): Promise<void> {

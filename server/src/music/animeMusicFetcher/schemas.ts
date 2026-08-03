@@ -120,7 +120,10 @@ export const amfItemMatchResultSchema = z.object({
   label: z.string(),
   kind: amfMusicKindSchema,
   number: z.number().int().nullable().optional(),
-  status: z.enum(["pending", "found", "possible", "not_found", "delivered", "delegated"]),
+  // AMF marks a delegated item archived when an operator explicitly finishes
+  // review without selecting a replacement. Preserve that evidence instead
+  // of rejecting the entire job document and losing already-delivered items.
+  status: z.enum(["pending", "found", "possible", "not_found", "delivered", "delegated", "archived"]),
   candidate_indexes: z.array(z.number().int()).default([]),
   selected_release_indexes: z.array(z.number().int()).default([]),
   matched_releases: z.array(z.string().transform(redactAmfText)).default([]),

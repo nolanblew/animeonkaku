@@ -5,6 +5,7 @@ import { normalizeMusicText } from "../matching/normalize.js";
 import type { AppLogger } from "../../logging.js";
 import { AMF_PROVIDER_JOB_FILE_INDEX_STRIDE } from "./providerGraph.js";
 import type { MusicRequestRepository, NewMusicRequest, ProviderEvidenceScope, StoredMusicBatch, StoredProviderJobLink, StoredMusicRequest, MusicBatchState } from "./types.js";
+import { AMF_IGNORED_FULL_SIZE_VARIANT_ERROR_PREFIX } from "./deliveryService.js";
 
 const TERMINAL = new Set<MusicBatchState>(["COMPLETED", "COMPLETED_WITH_WARNINGS", "FAILED", "CANCELLED"]);
 
@@ -66,9 +67,23 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`anime-music-request:${input.animeThemesAnimeId}`]);
       const active = await client.query<{ id: string }>("SELECT id FROM anime_music_requests WHERE animethemes_anime_id=$1 AND completed_at IS NULL", [input.animeThemesAnimeId]);
       if (active.rows[0]) {
+        if (input.source === "ADMIN_REIMPORT") {
+          const blocking = await client.query(`SELECT 1 FROM anime_music_request_batches
+            WHERE request_id=$1 AND state<>'AWAITING_OPERATOR' LIMIT 1`, [active.rows[0].id]);
+          if (!blocking.rows[0]) {
+            await client.query(`UPDATE anime_music_request_batches SET state='CANCELLED',completed_at=COALESCE(completed_at,now()),updated_at=now()
+              WHERE request_id=$1 AND state='AWAITING_OPERATOR'`, [active.rows[0].id]);
+            await client.query("UPDATE anime_music_requests SET completed_at=now(),updated_at=now() WHERE id=$1", [active.rows[0].id]);
+          } else {
+            const request = await this.hydrate(active.rows[0].id, client);
+            await client.query("COMMIT");
+            return { request: request!, created: false };
+          }
+        } else {
         const request = await this.hydrate(active.rows[0].id, client);
         await client.query("COMMIT");
         return { request: request!, created: false };
+        }
       }
       await client.query(`INSERT INTO anime_music_requests
         (id, requested_by_user_id, kitsu_id, animethemes_anime_id, source) VALUES ($1,$2,$3,$4,$5)`,
@@ -314,10 +329,11 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
             await client.query("UPDATE anime_music_request_deliveries SET import_state='ATTENTION',import_error='AMF delivery evidence changed during reprocessing',updated_at=$3 WHERE item_id=$1 AND file_index=$2 AND import_state<>'READY'", [itemId, file.file_index, now]);
             await client.query("UPDATE anime_music_request_items SET import_state='ATTENTION',import_error='AMF delivery evidence changed during reprocessing' WHERE id=$1 AND import_state<>'READY'", [itemId]);
           } else {
-            await client.query(`UPDATE anime_music_request_deliveries SET active=true,
+            await client.query(`UPDATE anime_music_request_deliveries SET active=CASE
+                WHEN import_state='ATTENTION' AND import_error LIKE $4 THEN false ELSE true END,
               import_state=CASE WHEN import_state IN ('READY','ATTENTION') THEN import_state ELSE 'PENDING' END,
               import_error=CASE WHEN import_state IN ('READY','ATTENTION') THEN import_error ELSE NULL END,updated_at=$3
-              WHERE item_id=$1 AND file_index=$2`, [itemId, file.file_index, now]);
+              WHERE item_id=$1 AND file_index=$2`, [itemId, file.file_index, now, `${AMF_IGNORED_FULL_SIZE_VARIANT_ERROR_PREFIX}%`]);
           }
         }
       }

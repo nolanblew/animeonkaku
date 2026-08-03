@@ -34,7 +34,7 @@ export class MusicRequestService {
     const metadata = await this.deps.repo.loadMetadata(kitsuId);
     if (!metadata) throw new MusicRequestNotMappedError();
     const active = await this.deps.repo.findLatest(metadata.animeThemesAnimeId);
-    if (active && active.completedAt === null) {
+    if (active && active.completedAt === null && active.batches.some((batch) => batch.state !== "AWAITING_OPERATOR")) {
       throw new Error("Another music request for this anime is still active.");
     }
     const uuid = this.deps.uuid ?? randomUUID;

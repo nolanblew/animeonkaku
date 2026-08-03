@@ -135,7 +135,7 @@ function scoreFullTrack(
   const reasons: MusicCatalogResolutionReason[] = [];
   const targetRecording = cleanIdentity(target.musicbrainzRecordingId);
   const candidateRecording = cleanIdentity(track.musicbrainzRecordingId);
-  const exclusion = exclusionLabel(`${track.title} ${release.title}`);
+  const exclusion = fullSizeExclusionLabel(`${track.title} ${release.title}`);
   const metadataConflicts = new Set(track.metadataConflicts ?? []);
 
   if (targetRecording && candidateRecording && targetRecording !== candidateRecording) {
@@ -287,7 +287,7 @@ function classifyReleaseType(value: string): MusicReleaseType {
   return RELEASE_TYPES.find(({ patterns }) => patterns.some((pattern) => pattern.test(normalized)))?.releaseType ?? "OTHER";
 }
 
-function exclusionLabel(value: string): string | undefined {
+export function fullSizeExclusionLabel(value: string): string | undefined {
   const normalized = normalizeMusicText(value);
   return EXCLUSION_PATTERNS.find(({ pattern }) => pattern.test(normalized))?.label;
 }
