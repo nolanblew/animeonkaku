@@ -27,6 +27,8 @@ export interface MediaAudioRecord {
   sha256: string | null;
   /** True when the stored file is a webm video track served as audio (doc 08 #11). */
   videoFallback?: boolean;
+  loudnessState?: string | null;
+  loudnessSha256?: string | null;
 }
 
 export interface MediaSongAudioRecord {
@@ -37,6 +39,8 @@ export interface MediaSongAudioRecord {
   sha256: string | null;
   contentType: string | null;
   sourceFileName: string | null;
+  loudnessState?: string | null;
+  loudnessSha256?: string | null;
 }
 
 export interface MediaImageRecord {
@@ -58,6 +62,9 @@ export interface MediaStreamingServiceDeps {
   mediaRoot: string;
   /** Listener-facing catalog audio remains hidden while the catalog rollout flag is off. */
   musicCatalogEnabled?: boolean;
+  /** When enabled, an uncached AnimeThemes file is never raw-proxied: cache
+   * analysis must establish its playback descriptor first. */
+  loudnessPlaybackGainEnabled?: boolean;
   fetch?: FetchLike;
   /** Fetch used for image origins (Kitsu CDN etc.); falls back to `fetch`. */
   imageFetch?: FetchLike;
@@ -98,6 +105,12 @@ export class MediaStreamingService {
     if (!audio) throw new ApiError(404, "NOT_FOUND", "Theme not found.");
 
     const readyAudio = audio.state === "READY" ? await this.readyMediaFile(audio.filePath) : null;
+    if (this.deps.loudnessPlaybackGainEnabled
+      && (audio.loudnessState !== "READY" || audio.loudnessSha256 !== audio.sha256)) {
+      this.deps.activity?.markMiss();
+      if (method === "GET") await this.enqueueFetch(themeId, JobPriority.URGENT);
+      throw new ApiError(503, "AUDIO_PREPARING", "Audio is being loudness-analyzed. Retry shortly.");
+    }
     if (readyAudio) {
       const logger = this.deps.logger ?? log;
       logger?.info(
@@ -133,6 +146,9 @@ export class MediaStreamingService {
     if (method === "GET") {
       await this.enqueueFetch(themeId, JobPriority.URGENT);
     }
+    if (this.deps.loudnessPlaybackGainEnabled) {
+      throw new ApiError(503, "AUDIO_PREPARING", "Audio is being cached and loudness-analyzed. Retry shortly.");
+    }
     return this.proxyAudio({
       audio,
       method,
@@ -154,6 +170,10 @@ export class MediaStreamingService {
     const audio = await this.deps.repo.findSongAudio(songId);
     if (!audio || audio.state !== "READY") {
       throw new ApiError(404, "MUSIC_NOT_FOUND", "Song audio is not in the ready catalog.");
+    }
+    if (this.deps.loudnessPlaybackGainEnabled
+      && (audio.loudnessState !== "READY" || audio.loudnessSha256 !== audio.sha256)) {
+      throw new ApiError(503, "MUSIC_AUDIO_PREPARING", "Song audio is being loudness-analyzed. Retry shortly.");
     }
     const readyAudio = await this.readyMediaFile(audio.filePath);
     if (!readyAudio) {

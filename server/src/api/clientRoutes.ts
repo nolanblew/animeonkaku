@@ -6,6 +6,10 @@ import { ApiError } from "./errors.js";
 import { makeRequireAuth } from "./requireAuth.js";
 
 export type AudioState = "READY" | "PENDING" | "FAILED" | "MISSING";
+export type LoudnessDto = {
+  integratedLufs: number; truePeakDbtp: number; loudnessRangeLu: number;
+  gainDb: number; policyVersion: number; state: "READY";
+} | { state: "PENDING" | "FAILED" };
 
 export interface MusicTrackDto {
   id: number;
@@ -21,6 +25,7 @@ export interface MusicTrackDto {
   discNumber: number;
   trackNumber: number | null;
   displayOrder: number;
+  loudness?: LoudnessDto | undefined;
 }
 
 export interface MusicReleaseDto {
@@ -52,8 +57,8 @@ export interface AnimeMusicDto {
 }
 
 export interface ThemeMediaModesDto {
-  tvSize: { url: string; durationSeconds: number | null; fileSize: number | null };
-  fullSize: { songId: number; url: string; durationSeconds: number | null; fileSize: number | null; sourceReleaseId: number | null } | null;
+  tvSize: { url: string; durationSeconds: number | null; fileSize: number | null; loudness?: LoudnessDto | undefined };
+  fullSize: { songId: number; url: string; durationSeconds: number | null; fileSize: number | null; sourceReleaseId: number | null; loudness?: LoudnessDto | undefined } | null;
   video: { url: string; mimeType: string | null; spoiler: boolean; nsfw: boolean; entryVersion: number | null } | null;
 }
 

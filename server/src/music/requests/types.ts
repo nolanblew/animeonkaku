@@ -4,7 +4,7 @@ import type { MusicRequestMetadata } from "./builder.js";
 
 export const MUSIC_BATCH_STATES = ["QUEUED", "SEARCHING", "AWAITING_OPERATOR", "DOWNLOADING", "PROCESSING", "COMPLETED", "COMPLETED_WITH_WARNINGS", "FAILED", "CANCELLED"] as const;
 export type MusicBatchState = typeof MUSIC_BATCH_STATES[number];
-export type MusicRequestSource = "DEBUG_USER" | "AUTOMATIC";
+export type MusicRequestSource = "DEBUG_USER" | "AUTOMATIC" | "ADMIN_REIMPORT";
 /**
  * The slice of the last-observed AMF manifest that decides whether the poll
  * backoff ladder should reset. Deliberately narrower than the full evidence

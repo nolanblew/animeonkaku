@@ -34,6 +34,8 @@ export class DrizzleMediaApiRepository implements MediaApiRepository {
         filePath: mediaFiles.filePath,
         byteSize: mediaFiles.byteSize,
         sha256: mediaFiles.sha256,
+        loudnessState: mediaFiles.loudnessState,
+        loudnessSha256: mediaFiles.loudnessSha256,
         videoFallback: mediaFiles.videoFallback,
       })
       .from(themes)
@@ -57,6 +59,8 @@ export class DrizzleMediaApiRepository implements MediaApiRepository {
       byteSize: row.byteSize,
       sha256: row.sha256,
       videoFallback: row.videoFallback ?? false,
+      loudnessState: row.loudnessState,
+      loudnessSha256: row.loudnessSha256,
     };
   }
 
@@ -112,6 +116,8 @@ export class DrizzleMediaApiRepository implements MediaApiRepository {
         sha256: mediaFiles.sha256,
         contentType: mediaFiles.contentType,
         sourceFileName: mediaFiles.sourceFileName,
+        loudnessState: mediaFiles.loudnessState,
+        loudnessSha256: mediaFiles.loudnessSha256,
       })
       .from(mediaFiles)
       .where(
@@ -134,6 +140,8 @@ export class DrizzleMediaApiRepository implements MediaApiRepository {
       sha256: row.sha256,
       contentType: row.contentType,
       sourceFileName: row.sourceFileName,
+      loudnessState: row.loudnessState,
+      loudnessSha256: row.loudnessSha256,
     };
   }
 

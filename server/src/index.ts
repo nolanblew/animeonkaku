@@ -33,6 +33,8 @@ import {
   AmfDeliveryImportService,
   createAmfDeliveryImportHandlers,
   PgAmfDeliveryRepository,
+  PgFullSizeReimportCleanup,
+  createFullSizeReimportHandlers,
   PgMusicOperatorRepository,
   MusicOperatorService,
   createMusicOperatorHandlers,
@@ -45,8 +47,12 @@ import {
   createFetchMediaHandlers,
   DrizzleMediaCatalogLookup,
   DrizzleMediaFileRepo,
+  DrizzleLoudnessRepository,
   InteractiveMediaActivity,
+  LoudnessBackfillService,
   MediaStore,
+  createLoudnessHandlers,
+  enqueueLoudnessAnalysis,
 } from "./media/index.js";
 import {
   createSyncJobHandlers,
@@ -87,6 +93,10 @@ const musicSearchPolicyScheduler = new MusicSearchPolicyScheduler(
 );
 const MUSIC_REQUEST_RECHECK_INTERVAL_MS = 15 * 60 * 1000;
 const musicRequestHandlers = createMusicRequestHandlers({ repo: musicRequestRepo, queue: jobQueue, client: amfClient, logger: externalLogger });
+const fullSizeReimportHandlers = createFullSizeReimportHandlers({
+  requests: musicRequestService,
+  cleanup: new PgFullSizeReimportCleanup(pool, config.MEDIA_ROOT),
+});
 const amfDeliveryRepo = new PgAmfDeliveryRepository(pool);
 const syncRepo = new DrizzleSyncRepository(db);
 
@@ -185,6 +195,8 @@ const syncPipeline = new LibrarySyncPipeline({
   animeThemes: animeThemesBackgroundClient,
   queue: jobQueue,
 });
+const loudnessRepository = new DrizzleLoudnessRepository(db);
+const loudnessBackfill = new LoudnessBackfillService(loudnessRepository, jobQueue);
 const mediaStore = new MediaStore({
   mediaRoot: config.MEDIA_ROOT,
   ...(config.AMF_LIBRARY_ROOT ? { providerImportRoot: config.AMF_LIBRARY_ROOT } : {}),
@@ -192,6 +204,7 @@ const mediaStore = new MediaStore({
   fetch: animeThemesBackgroundFetch,
   imageFetch: imagesBackgroundFetch,
   logger: externalLogger,
+  onAudioReady: (media) => enqueueLoudnessAnalysis(jobQueue, media),
 });
 const amfDeliveryService = new AmfDeliveryImportService({ repo: amfDeliveryRepo, mediaStore,
   ...(config.AMF_LIBRARY_ROOT ? { libraryRoot: config.AMF_LIBRARY_ROOT } : {}) });
@@ -226,11 +239,18 @@ for (const batchId of await amfDeliveryRepo.listRecoverableBatchIds()) {
     dedupeKey: `IMPORT_AMF_MUSIC_BATCH:${batchId}`, maxAttempts: 8 });
 }
 const syncHandlers = createSyncJobHandlers(syncPipeline);
+const loudnessHandlers = createLoudnessHandlers({ repo: loudnessRepository, mediaRoot: config.MEDIA_ROOT });
+const jobHandlers = { ...fetchHandlers, ...syncHandlers, ...musicRequestHandlers,
+  ...fullSizeReimportHandlers, ...amfDeliveryHandlers, ...musicOperatorHandlers,
+  ...musicSearchPolicyHandlers, ...loudnessHandlers };
+if (config.LOUDNESS_BACKFILL_ON_STARTUP) {
+  const queued = await loudnessBackfill.enqueue({ limit: config.LOUDNESS_BACKFILL_LIMIT });
+  externalLogger.info({ queued, limit: config.LOUDNESS_BACKFILL_LIMIT }, "queued bounded loudness analysis backfill");
+}
 // Background hydration waits until on-demand media traffic has been quiet.
 const mediaActivity = new InteractiveMediaActivity();
 const worker = new JobWorker(jobQueue, {
-  handlers: { ...fetchHandlers, ...syncHandlers, ...musicRequestHandlers, ...amfDeliveryHandlers, ...musicOperatorHandlers,
-    ...musicSearchPolicyHandlers },
+  handlers: jobHandlers,
   maintenanceFetchDelayMs: config.AUDIO_BACKFILL_DELAY_SECONDS * 1000,
   holdMaintenanceWork: () => !mediaActivity.isQuiet(),
   onError: (error, context) => externalLogger.error({ err: error, context }, "background job worker recovered from an error"),
@@ -239,7 +259,11 @@ worker.start();
 // A second worker restricted to urgent/high jobs so a client-facing fetch is
 // never queued behind a long-running background download on the main worker.
 const interactiveWorker = new JobWorker(jobQueue, {
-  handlers: { ...fetchHandlers, ...syncHandlers },
+  // A priority ceiling does not filter by job type. Every HIGH-priority job
+  // can be claimed here, including admin re-imports, so this worker must have
+  // the complete handler registry even though it never claims normal or
+  // maintenance work.
+  handlers: jobHandlers,
   maxPriority: JobPriority.HIGH,
   onError: (error, context) => externalLogger.error({ err: error, context }, "interactive job worker recovered from an error"),
 });
@@ -262,6 +286,7 @@ const clientApi = new DrizzleClientApiService(
   undefined,
   externalLogger,
   config.MUSIC_CATALOG_ENABLED,
+  config.LOUDNESS_PLAYBACK_GAIN_ENABLED,
 );
 const deviceActivitySync = new DeviceActivitySyncTrigger({ queue: jobQueue });
 
@@ -300,6 +325,7 @@ const app = buildApp({
     logger: externalLogger,
     activity: mediaActivity,
     musicCatalogEnabled: config.MUSIC_CATALOG_ENABLED,
+    loudnessPlaybackGainEnabled: config.LOUDNESS_PLAYBACK_GAIN_ENABLED,
   }),
   syncApi: new JobSyncApiService(jobQueue),
   proxyApi: new CachedProxyService({

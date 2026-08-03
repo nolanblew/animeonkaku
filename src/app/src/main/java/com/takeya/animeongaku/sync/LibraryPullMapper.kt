@@ -10,9 +10,11 @@ import com.takeya.animeongaku.data.local.SongEntity
 import com.takeya.animeongaku.data.local.MusicReleaseEntity
 import com.takeya.animeongaku.data.local.ReleaseTrackEntity
 import com.takeya.animeongaku.data.local.AnimeMusicReleaseEntity
+import com.takeya.animeongaku.data.local.LoudnessProfile
 import com.takeya.animeongaku.data.remote.OngakuAnimeDto
 import com.takeya.animeongaku.data.remote.OngakuAnimeMusicDto
 import com.takeya.animeongaku.data.remote.OngakuThemeDto
+import com.takeya.animeongaku.data.remote.OngakuLoudnessDto
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 fun OngakuAnimeDto.toAnimeEntity(serverBaseUrl: String): AnimeEntity = AnimeEntity(
@@ -74,7 +76,9 @@ fun OngakuThemeDto.toThemeModeEntity(serverBaseUrl: String): ThemeModeEntity {
         videoMimeType = video?.mimeType,
         videoSpoiler = video?.spoiler ?: false,
         videoNsfw = video?.nsfw ?: false,
-        videoEntryVersion = video?.entryVersion
+        videoEntryVersion = video?.entryVersion,
+        tvSizeLoudness = tvSize?.loudness?.toLoudnessProfile(),
+        fullSizeLoudness = fullSize?.loudness?.toLoudnessProfile()
     )
 }
 
@@ -113,7 +117,8 @@ fun List<OngakuAnimeMusicDto>.toMusicCatalogSnapshot(serverBaseUrl: String): Mus
                     artistCredit = track.artistCredit,
                     durationSeconds = track.durationSeconds,
                     audioUrl = resolveServerUrl(serverBaseUrl, track.audioUrl).orEmpty(),
-                    fileSize = track.fileSize
+                    fileSize = track.fileSize,
+                    loudness = track.loudness?.toLoudnessProfile()
                 )
                 releaseTracks += ReleaseTrackEntity(
                     releaseId = release.id,
@@ -133,6 +138,15 @@ fun List<OngakuAnimeMusicDto>.toMusicCatalogSnapshot(serverBaseUrl: String): Mus
         animeReleases = animeReleases.distinctBy { it.kitsuAnimeId to it.releaseId }
     )
 }
+
+fun OngakuLoudnessDto.toLoudnessProfile(): LoudnessProfile = LoudnessProfile(
+    integratedLufs = integratedLufs,
+    truePeakDbtp = truePeakDbtp,
+    loudnessRangeLu = loudnessRangeLu,
+    gainDb = gainDb,
+    policyVersion = policyVersion,
+    state = state
+)
 
 fun OngakuThemeDto.toArtistCrossRefs(): List<ThemeArtistCrossRef> =
     artists.map { artist ->

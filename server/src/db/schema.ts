@@ -43,7 +43,7 @@ export type MusicAcquisitionState =
   | "READY"
   | "FAILED"
   | "AMBIGUOUS";
-export type AnimeMusicRequestSource = "DEBUG_USER" | "AUTOMATIC";
+export type AnimeMusicRequestSource = "DEBUG_USER" | "AUTOMATIC" | "ADMIN_REIMPORT";
 export type AnimeMusicBatchState =
   | "QUEUED" | "SEARCHING" | "AWAITING_OPERATOR" | "DOWNLOADING" | "PROCESSING"
   | "COMPLETED" | "COMPLETED_WITH_WARNINGS" | "FAILED" | "CANCELLED";
@@ -653,6 +653,17 @@ export const mediaFiles = pgTable(
     videoFallback: boolean("video_fallback").notNull().default(false),
     contentType: text("content_type"),
     sourceFileName: text("source_file_name"),
+    // Analysis is deliberately keyed to the immutable source bytes. A new
+    // import/cache SHA invalidates the result without rewriting the media.
+    loudnessState: text("loudness_state"), // PENDING | READY | FAILED | null for non-audio
+    loudnessSha256: text("loudness_sha256"),
+    integratedLufs: doublePrecision("integrated_lufs"),
+    truePeakDbtp: doublePrecision("true_peak_dbtp"),
+    loudnessRangeLu: doublePrecision("loudness_range_lu"),
+    loudnessGainDb: doublePrecision("loudness_gain_db"),
+    loudnessPolicyVersion: integer("loudness_policy_version"),
+    loudnessError: text("loudness_error"),
+    loudnessAnalyzedAt: timestamp("loudness_analyzed_at", { withTimezone: true }),
   },
   (t) => [unique("media_files_kind_ref_id_variant_unique").on(t.kind, t.refId, t.variant)],
 );

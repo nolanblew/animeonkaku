@@ -1,0 +1,1621 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 25,
+    "identityHash": "22b16789a7e639ddb4ddbde06ec5ba63",
+    "entities": [
+      {
+        "tableName": "themes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `animeId` INTEGER, `title` TEXT NOT NULL, `artistName` TEXT, `audioUrl` TEXT NOT NULL, `videoUrl` TEXT, `isDownloaded` INTEGER NOT NULL, `localFilePath` TEXT, `themeType` TEXT, `source` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "animeId",
+            "columnName": "animeId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "artistName",
+            "columnName": "artistName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "audioUrl",
+            "columnName": "audioUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "videoUrl",
+            "columnName": "videoUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isDownloaded",
+            "columnName": "isDownloaded",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localFilePath",
+            "columnName": "localFilePath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "themeType",
+            "columnName": "themeType",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "anime",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`kitsuId` TEXT NOT NULL, `animeThemesId` INTEGER, `title` TEXT, `titleEn` TEXT, `titleRomaji` TEXT, `titleJa` TEXT, `thumbnailUrl` TEXT, `thumbnailUrlLarge` TEXT, `coverUrl` TEXT, `coverUrlLarge` TEXT, `syncedAt` INTEGER NOT NULL, `isManuallyAdded` INTEGER NOT NULL, `watchingStatus` TEXT, `subtype` TEXT, `startDate` TEXT, `endDate` TEXT, `episodeCount` INTEGER, `ageRating` TEXT, `averageRating` REAL, `userRating` REAL, `libraryUpdatedAt` INTEGER, `slug` TEXT, PRIMARY KEY(`kitsuId`))",
+        "fields": [
+          {
+            "fieldPath": "kitsuId",
+            "columnName": "kitsuId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "animeThemesId",
+            "columnName": "animeThemesId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "titleEn",
+            "columnName": "titleEn",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "titleRomaji",
+            "columnName": "titleRomaji",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "titleJa",
+            "columnName": "titleJa",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "thumbnailUrl",
+            "columnName": "thumbnailUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "thumbnailUrlLarge",
+            "columnName": "thumbnailUrlLarge",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "coverUrl",
+            "columnName": "coverUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "coverUrlLarge",
+            "columnName": "coverUrlLarge",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "syncedAt",
+            "columnName": "syncedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isManuallyAdded",
+            "columnName": "isManuallyAdded",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "watchingStatus",
+            "columnName": "watchingStatus",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "subtype",
+            "columnName": "subtype",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "startDate",
+            "columnName": "startDate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "endDate",
+            "columnName": "endDate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "episodeCount",
+            "columnName": "episodeCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "ageRating",
+            "columnName": "ageRating",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "averageRating",
+            "columnName": "averageRating",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "userRating",
+            "columnName": "userRating",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "libraryUpdatedAt",
+            "columnName": "libraryUpdatedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "slug",
+            "columnName": "slug",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "kitsuId"
+          ]
+        }
+      },
+      {
+        "tableName": "playlists",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `isAuto` INTEGER NOT NULL, `gradientSeed` INTEGER NOT NULL, `defaultMode` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, `deletedAt` INTEGER)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isAuto",
+            "columnName": "isAuto",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gradientSeed",
+            "columnName": "gradientSeed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "defaultMode",
+            "columnName": "defaultMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deletedAt",
+            "columnName": "deletedAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "playlist_entries",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`playlistId` INTEGER NOT NULL, `themeId` INTEGER, `orderIndex` INTEGER NOT NULL, `entryId` INTEGER NOT NULL, `itemType` TEXT NOT NULL, `itemId` INTEGER NOT NULL, `modeOverride` TEXT, PRIMARY KEY(`playlistId`, `entryId`))",
+        "fields": [
+          {
+            "fieldPath": "playlistId",
+            "columnName": "playlistId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "themeId",
+            "columnName": "themeId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "orderIndex",
+            "columnName": "orderIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entryId",
+            "columnName": "entryId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemType",
+            "columnName": "itemType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemId",
+            "columnName": "itemId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modeOverride",
+            "columnName": "modeOverride",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "playlistId",
+            "entryId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_playlist_entries_itemType_itemId",
+            "unique": false,
+            "columnNames": [
+              "itemType",
+              "itemId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_playlist_entries_itemType_itemId` ON `${TABLE_NAME}` (`itemType`, `itemId`)"
+          },
+          {
+            "name": "index_playlist_entries_themeId",
+            "unique": false,
+            "columnNames": [
+              "themeId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_playlist_entries_themeId` ON `${TABLE_NAME}` (`themeId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "artist_images",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`name` TEXT NOT NULL, `imageUrl` TEXT, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`name`))",
+        "fields": [
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "imageUrl",
+            "columnName": "imageUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "name"
+          ]
+        }
+      },
+      {
+        "tableName": "theme_artist",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`themeId` INTEGER NOT NULL, `artistName` TEXT NOT NULL, `asCharacter` TEXT, `alias` TEXT, PRIMARY KEY(`themeId`, `artistName`))",
+        "fields": [
+          {
+            "fieldPath": "themeId",
+            "columnName": "themeId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "artistName",
+            "columnName": "artistName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "asCharacter",
+            "columnName": "asCharacter",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "alias",
+            "columnName": "alias",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "themeId",
+            "artistName"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_theme_artist_artistName",
+            "unique": false,
+            "columnNames": [
+              "artistName"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_theme_artist_artistName` ON `${TABLE_NAME}` (`artistName`)"
+          }
+        ]
+      },
+      {
+        "tableName": "play_count",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`themeId` INTEGER NOT NULL, `playCount` INTEGER NOT NULL, `lastPlayedAt` INTEGER NOT NULL, PRIMARY KEY(`themeId`))",
+        "fields": [
+          {
+            "fieldPath": "themeId",
+            "columnName": "themeId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "playCount",
+            "columnName": "playCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastPlayedAt",
+            "columnName": "lastPlayedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "themeId"
+          ]
+        }
+      },
+      {
+        "tableName": "download_request",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`themeId` INTEGER NOT NULL, `status` TEXT NOT NULL, `progress` INTEGER NOT NULL, `filePath` TEXT, `imagePath` TEXT, `fileSize` INTEGER NOT NULL, `errorMessage` TEXT, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `workManagerId` TEXT, PRIMARY KEY(`themeId`))",
+        "fields": [
+          {
+            "fieldPath": "themeId",
+            "columnName": "themeId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "progress",
+            "columnName": "progress",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "filePath",
+            "columnName": "filePath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "imagePath",
+            "columnName": "imagePath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "fileSize",
+            "columnName": "fileSize",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "errorMessage",
+            "columnName": "errorMessage",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workManagerId",
+            "columnName": "workManagerId",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "themeId"
+          ]
+        }
+      },
+      {
+        "tableName": "download_group",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `groupType` TEXT NOT NULL, `groupId` TEXT NOT NULL, `label` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "groupType",
+            "columnName": "groupType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "groupId",
+            "columnName": "groupId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "label",
+            "columnName": "label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "download_group_theme",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`groupId` INTEGER NOT NULL, `themeId` INTEGER NOT NULL, PRIMARY KEY(`groupId`, `themeId`))",
+        "fields": [
+          {
+            "fieldPath": "groupId",
+            "columnName": "groupId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "themeId",
+            "columnName": "themeId",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "groupId",
+            "themeId"
+          ]
+        }
+      },
+      {
+        "tableName": "user_preferences",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`themeId` INTEGER NOT NULL, `isLiked` INTEGER NOT NULL, `isDisliked` INTEGER NOT NULL, `isDislikedTvSize` INTEGER NOT NULL, `isDislikedFullSize` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `deletedAt` INTEGER, PRIMARY KEY(`themeId`))",
+        "fields": [
+          {
+            "fieldPath": "themeId",
+            "columnName": "themeId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isLiked",
+            "columnName": "isLiked",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isDisliked",
+            "columnName": "isDisliked",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isDislikedTvSize",
+            "columnName": "isDislikedTvSize",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isDislikedFullSize",
+            "columnName": "isDislikedFullSize",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deletedAt",
+            "columnName": "deletedAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "themeId"
+          ]
+        }
+      },
+      {
+        "tableName": "genres",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`slug` TEXT NOT NULL, `displayName` TEXT NOT NULL, `source` TEXT NOT NULL, PRIMARY KEY(`slug`))",
+        "fields": [
+          {
+            "fieldPath": "slug",
+            "columnName": "slug",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayName",
+            "columnName": "displayName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "slug"
+          ]
+        }
+      },
+      {
+        "tableName": "anime_genres",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`kitsuId` TEXT NOT NULL, `slug` TEXT NOT NULL, PRIMARY KEY(`kitsuId`, `slug`), FOREIGN KEY(`kitsuId`) REFERENCES `anime`(`kitsuId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "kitsuId",
+            "columnName": "kitsuId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "slug",
+            "columnName": "slug",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "kitsuId",
+            "slug"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_anime_genres_slug",
+            "unique": false,
+            "columnNames": [
+              "slug"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_anime_genres_slug` ON `${TABLE_NAME}` (`slug`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "anime",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "kitsuId"
+            ],
+            "referencedColumns": [
+              "kitsuId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "dynamic_playlist_spec",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`playlistId` INTEGER NOT NULL, `filterJson` TEXT NOT NULL, `mode` TEXT NOT NULL, `createdMode` TEXT NOT NULL, `lastEvaluatedAt` INTEGER NOT NULL, `lastResultCount` INTEGER NOT NULL, `schemaVersion` INTEGER NOT NULL, `sortJson` TEXT, `simpleStateJson` TEXT, `serverManaged` INTEGER NOT NULL, PRIMARY KEY(`playlistId`), FOREIGN KEY(`playlistId`) REFERENCES `playlists`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "playlistId",
+            "columnName": "playlistId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "filterJson",
+            "columnName": "filterJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mode",
+            "columnName": "mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdMode",
+            "columnName": "createdMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastEvaluatedAt",
+            "columnName": "lastEvaluatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastResultCount",
+            "columnName": "lastResultCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "schemaVersion",
+            "columnName": "schemaVersion",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortJson",
+            "columnName": "sortJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "simpleStateJson",
+            "columnName": "simpleStateJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "serverManaged",
+            "columnName": "serverManaged",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "playlistId"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "playlists",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "playlistId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "pending_plays",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `themeId` INTEGER NOT NULL, `playedAt` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `clientEventId` TEXT, `itemType` TEXT NOT NULL, `itemId` INTEGER NOT NULL, `actualMode` TEXT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "themeId",
+            "columnName": "themeId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "playedAt",
+            "columnName": "playedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "clientEventId",
+            "columnName": "clientEventId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "itemType",
+            "columnName": "itemType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemId",
+            "columnName": "itemId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actualMode",
+            "columnName": "actualMode",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_pending_plays_themeId",
+            "unique": false,
+            "columnNames": [
+              "themeId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_pending_plays_themeId` ON `${TABLE_NAME}` (`themeId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "pending_ops",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `entityType` TEXT NOT NULL, `entityKey` TEXT NOT NULL, `opType` TEXT NOT NULL, `payloadJson` TEXT NOT NULL, `opTs` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `attempts` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityType",
+            "columnName": "entityType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityKey",
+            "columnName": "entityKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "opType",
+            "columnName": "opType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payloadJson",
+            "columnName": "payloadJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "opTs",
+            "columnName": "opTs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attempts",
+            "columnName": "attempts",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_pending_ops_createdAt",
+            "unique": false,
+            "columnNames": [
+              "createdAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_pending_ops_createdAt` ON `${TABLE_NAME}` (`createdAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "songs",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `title` TEXT NOT NULL, `artistCredit` TEXT NOT NULL, `durationSeconds` INTEGER, `audioUrl` TEXT NOT NULL, `fileSize` INTEGER, `titleEnglish` TEXT, `titleRomaji` TEXT, `titleJapanese` TEXT, `artistNamesJson` TEXT NOT NULL, `loudness_integratedLufs` REAL, `loudness_truePeakDbtp` REAL, `loudness_loudnessRangeLu` REAL, `loudness_gainDb` REAL, `loudness_policyVersion` INTEGER, `loudness_state` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "artistCredit",
+            "columnName": "artistCredit",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "durationSeconds",
+            "columnName": "durationSeconds",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "audioUrl",
+            "columnName": "audioUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileSize",
+            "columnName": "fileSize",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "titleEnglish",
+            "columnName": "titleEnglish",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "titleRomaji",
+            "columnName": "titleRomaji",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "titleJapanese",
+            "columnName": "titleJapanese",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "artistNamesJson",
+            "columnName": "artistNamesJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "loudness.integratedLufs",
+            "columnName": "loudness_integratedLufs",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "loudness.truePeakDbtp",
+            "columnName": "loudness_truePeakDbtp",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "loudness.loudnessRangeLu",
+            "columnName": "loudness_loudnessRangeLu",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "loudness.gainDb",
+            "columnName": "loudness_gainDb",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "loudness.policyVersion",
+            "columnName": "loudness_policyVersion",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "loudness.state",
+            "columnName": "loudness_state",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "music_releases",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `title` TEXT NOT NULL, `artistCredit` TEXT NOT NULL, `releaseDate` TEXT, `year` INTEGER, `artworkUrl` TEXT, `titleEnglish` TEXT, `titleRomaji` TEXT, `titleJapanese` TEXT, `artistNamesJson` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "artistCredit",
+            "columnName": "artistCredit",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "releaseDate",
+            "columnName": "releaseDate",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "year",
+            "columnName": "year",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "artworkUrl",
+            "columnName": "artworkUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "titleEnglish",
+            "columnName": "titleEnglish",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "titleRomaji",
+            "columnName": "titleRomaji",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "titleJapanese",
+            "columnName": "titleJapanese",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "artistNamesJson",
+            "columnName": "artistNamesJson",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "release_tracks",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`releaseId` INTEGER NOT NULL, `songId` INTEGER NOT NULL, `discNumber` INTEGER NOT NULL, `trackNumber` INTEGER, `displayOrder` INTEGER NOT NULL, PRIMARY KEY(`releaseId`, `songId`), FOREIGN KEY(`releaseId`) REFERENCES `music_releases`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`songId`) REFERENCES `songs`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "releaseId",
+            "columnName": "releaseId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "songId",
+            "columnName": "songId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "discNumber",
+            "columnName": "discNumber",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "trackNumber",
+            "columnName": "trackNumber",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "displayOrder",
+            "columnName": "displayOrder",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "releaseId",
+            "songId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_release_tracks_songId",
+            "unique": false,
+            "columnNames": [
+              "songId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_release_tracks_songId` ON `${TABLE_NAME}` (`songId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "music_releases",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "releaseId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "songs",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "songId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "anime_music_releases",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`kitsuAnimeId` TEXT NOT NULL, `releaseId` INTEGER NOT NULL, `relationshipType` TEXT NOT NULL, PRIMARY KEY(`kitsuAnimeId`, `releaseId`), FOREIGN KEY(`kitsuAnimeId`) REFERENCES `anime`(`kitsuId`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`releaseId`) REFERENCES `music_releases`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "kitsuAnimeId",
+            "columnName": "kitsuAnimeId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "releaseId",
+            "columnName": "releaseId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "relationshipType",
+            "columnName": "relationshipType",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "kitsuAnimeId",
+            "releaseId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_anime_music_releases_releaseId",
+            "unique": false,
+            "columnNames": [
+              "releaseId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_anime_music_releases_releaseId` ON `${TABLE_NAME}` (`releaseId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "anime",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "kitsuAnimeId"
+            ],
+            "referencedColumns": [
+              "kitsuId"
+            ]
+          },
+          {
+            "table": "music_releases",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "releaseId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "theme_modes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`themeId` INTEGER NOT NULL, `tvSizeUrl` TEXT NOT NULL, `tvSizeDurationSeconds` INTEGER, `tvSizeFileSize` INTEGER, `fullSizeSongId` INTEGER, `fullSizeUrl` TEXT, `fullSizeDurationSeconds` INTEGER, `fullSizeFileSize` INTEGER, `fullSizeSourceReleaseId` INTEGER, `videoUrl` TEXT, `videoMimeType` TEXT, `videoSpoiler` INTEGER NOT NULL, `videoNsfw` INTEGER NOT NULL, `videoEntryVersion` INTEGER, `tvLoudness_integratedLufs` REAL, `tvLoudness_truePeakDbtp` REAL, `tvLoudness_loudnessRangeLu` REAL, `tvLoudness_gainDb` REAL, `tvLoudness_policyVersion` INTEGER, `tvLoudness_state` TEXT, `fullLoudness_integratedLufs` REAL, `fullLoudness_truePeakDbtp` REAL, `fullLoudness_loudnessRangeLu` REAL, `fullLoudness_gainDb` REAL, `fullLoudness_policyVersion` INTEGER, `fullLoudness_state` TEXT, PRIMARY KEY(`themeId`), FOREIGN KEY(`themeId`) REFERENCES `themes`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "themeId",
+            "columnName": "themeId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tvSizeUrl",
+            "columnName": "tvSizeUrl",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tvSizeDurationSeconds",
+            "columnName": "tvSizeDurationSeconds",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "tvSizeFileSize",
+            "columnName": "tvSizeFileSize",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "fullSizeSongId",
+            "columnName": "fullSizeSongId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "fullSizeUrl",
+            "columnName": "fullSizeUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "fullSizeDurationSeconds",
+            "columnName": "fullSizeDurationSeconds",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "fullSizeFileSize",
+            "columnName": "fullSizeFileSize",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "fullSizeSourceReleaseId",
+            "columnName": "fullSizeSourceReleaseId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "videoUrl",
+            "columnName": "videoUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "videoMimeType",
+            "columnName": "videoMimeType",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "videoSpoiler",
+            "columnName": "videoSpoiler",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "videoNsfw",
+            "columnName": "videoNsfw",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "videoEntryVersion",
+            "columnName": "videoEntryVersion",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "tvSizeLoudness.integratedLufs",
+            "columnName": "tvLoudness_integratedLufs",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "tvSizeLoudness.truePeakDbtp",
+            "columnName": "tvLoudness_truePeakDbtp",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "tvSizeLoudness.loudnessRangeLu",
+            "columnName": "tvLoudness_loudnessRangeLu",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "tvSizeLoudness.gainDb",
+            "columnName": "tvLoudness_gainDb",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "tvSizeLoudness.policyVersion",
+            "columnName": "tvLoudness_policyVersion",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "tvSizeLoudness.state",
+            "columnName": "tvLoudness_state",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "fullSizeLoudness.integratedLufs",
+            "columnName": "fullLoudness_integratedLufs",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "fullSizeLoudness.truePeakDbtp",
+            "columnName": "fullLoudness_truePeakDbtp",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "fullSizeLoudness.loudnessRangeLu",
+            "columnName": "fullLoudness_loudnessRangeLu",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "fullSizeLoudness.gainDb",
+            "columnName": "fullLoudness_gainDb",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "fullSizeLoudness.policyVersion",
+            "columnName": "fullLoudness_policyVersion",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "fullSizeLoudness.state",
+            "columnName": "fullLoudness_state",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "themeId"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "themes",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "themeId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "song_preferences",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`songId` INTEGER NOT NULL, `isLiked` INTEGER NOT NULL, `isDisliked` INTEGER NOT NULL, `playCount` INTEGER NOT NULL, `lastPlayedAt` INTEGER, `updatedAt` INTEGER NOT NULL, `deletedAt` INTEGER, PRIMARY KEY(`songId`))",
+        "fields": [
+          {
+            "fieldPath": "songId",
+            "columnName": "songId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isLiked",
+            "columnName": "isLiked",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isDisliked",
+            "columnName": "isDisliked",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "playCount",
+            "columnName": "playCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastPlayedAt",
+            "columnName": "lastPlayedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deletedAt",
+            "columnName": "deletedAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "songId"
+          ]
+        }
+      },
+      {
+        "tableName": "download_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`mediaKey` TEXT NOT NULL, `itemType` TEXT NOT NULL, `itemId` INTEGER NOT NULL, `mode` TEXT NOT NULL, `status` TEXT NOT NULL, `progress` INTEGER NOT NULL, `filePath` TEXT, `imagePath` TEXT, `fileSize` INTEGER NOT NULL, `errorMessage` TEXT, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `workManagerId` TEXT, `legacyThemeId` INTEGER, `loudness_integratedLufs` REAL, `loudness_truePeakDbtp` REAL, `loudness_loudnessRangeLu` REAL, `loudness_gainDb` REAL, `loudness_policyVersion` INTEGER, `loudness_state` TEXT, PRIMARY KEY(`mediaKey`))",
+        "fields": [
+          {
+            "fieldPath": "mediaKey",
+            "columnName": "mediaKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemType",
+            "columnName": "itemType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemId",
+            "columnName": "itemId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mode",
+            "columnName": "mode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "progress",
+            "columnName": "progress",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "filePath",
+            "columnName": "filePath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "imagePath",
+            "columnName": "imagePath",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "fileSize",
+            "columnName": "fileSize",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "errorMessage",
+            "columnName": "errorMessage",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "workManagerId",
+            "columnName": "workManagerId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "legacyThemeId",
+            "columnName": "legacyThemeId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "loudness.integratedLufs",
+            "columnName": "loudness_integratedLufs",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "loudness.truePeakDbtp",
+            "columnName": "loudness_truePeakDbtp",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "loudness.loudnessRangeLu",
+            "columnName": "loudness_loudnessRangeLu",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "loudness.gainDb",
+            "columnName": "loudness_gainDb",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "loudness.policyVersion",
+            "columnName": "loudness_policyVersion",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "loudness.state",
+            "columnName": "loudness_state",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "mediaKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_download_items_itemType_itemId_mode",
+            "unique": true,
+            "columnNames": [
+              "itemType",
+              "itemId",
+              "mode"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_download_items_itemType_itemId_mode` ON `${TABLE_NAME}` (`itemType`, `itemId`, `mode`)"
+          }
+        ]
+      },
+      {
+        "tableName": "download_group_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`groupId` INTEGER NOT NULL, `mediaKey` TEXT NOT NULL, PRIMARY KEY(`groupId`, `mediaKey`))",
+        "fields": [
+          {
+            "fieldPath": "groupId",
+            "columnName": "groupId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mediaKey",
+            "columnName": "mediaKey",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "groupId",
+            "mediaKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_download_group_items_mediaKey",
+            "unique": false,
+            "columnNames": [
+              "mediaKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_download_group_items_mediaKey` ON `${TABLE_NAME}` (`mediaKey`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '22b16789a7e639ddb4ddbde06ec5ba63')"
+    ]
+  }
+}

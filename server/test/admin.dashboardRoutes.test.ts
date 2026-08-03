@@ -23,6 +23,7 @@ describe("comprehensive admin dashboard", () => {
     revokeUserSessions: vi.fn(),
     refreshAnime: vi.fn(),
     requestAnimeMusic: vi.fn(),
+    reimportAnimeFullSize: vi.fn(),
     refreshThemeMedia: vi.fn(),
     removeThemeMedia: vi.fn(),
     removeMedia: vi.fn(),
@@ -48,6 +49,7 @@ describe("comprehensive admin dashboard", () => {
     dashboard.revokeUserSessions.mockResolvedValue({ revoked: 2 });
     dashboard.refreshAnime.mockResolvedValue({ queued: true });
     dashboard.requestAnimeMusic.mockResolvedValue({ requestId: "request-1", replayed: false });
+    dashboard.reimportAnimeFullSize.mockResolvedValue({ queued: true, jobId: 41 });
     dashboard.refreshThemeMedia.mockResolvedValue({ queued: 3 });
     dashboard.removeThemeMedia.mockResolvedValue({ removedFiles: 3, removedBytes: 1500 });
     dashboard.removeMedia.mockResolvedValue({ removedFiles: 1, removedBytes: 500 });
@@ -77,6 +79,8 @@ describe("comprehensive admin dashboard", () => {
     for (const label of ["Overview", "Users", "Anime", "Songs", "Requests", "Jobs", "Logs", "Storage & cache"]) {
       expect(response.body).toContain(label);
     }
+    expect(response.body).toContain("Re-import full size");
+    expect(response.body).toContain("/full-size/reimport");
   });
 
   it("protects and serves dashboard projections", async () => {
@@ -110,6 +114,7 @@ describe("comprehensive admin dashboard", () => {
       ["DELETE", "/api/v1/admin/users/7/sessions", undefined, "revokeUserSessions"],
       ["POST", "/api/v1/admin/anime/1/refresh", undefined, "refreshAnime"],
       ["POST", "/api/v1/admin/anime/1/music-requests", undefined, "requestAnimeMusic"],
+      ["POST", "/api/v1/admin/anime/1/full-size/reimport", undefined, "reimportAnimeFullSize"],
       ["POST", "/api/v1/admin/anime/1/tv-media/refresh", undefined, "refreshThemeMedia"],
       ["DELETE", "/api/v1/admin/anime/1/tv-media", undefined, "removeThemeMedia"],
       ["DELETE", "/api/v1/admin/media/AUDIO/9/ORIGINAL", undefined, "removeMedia"],

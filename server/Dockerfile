@@ -11,6 +11,7 @@ RUN npm run build && npm prune --omit=dev
 FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
+RUN apk add --no-cache ffmpeg
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY drizzle ./drizzle

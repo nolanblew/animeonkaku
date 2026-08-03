@@ -7,6 +7,7 @@ import com.takeya.animeongaku.data.remote.OngakuThemeDto
 import com.takeya.animeongaku.data.remote.OngakuThemeMediaModesDto
 import com.takeya.animeongaku.data.remote.OngakuTvSizeModeDto
 import com.takeya.animeongaku.data.remote.OngakuFullSizeModeDto
+import com.takeya.animeongaku.data.remote.OngakuLoudnessDto
 import com.takeya.animeongaku.data.remote.OngakuVideoModeDto
 import com.takeya.animeongaku.data.remote.OngakuAnimeMusicDto
 import com.takeya.animeongaku.data.remote.OngakuMusicAnimeSummaryDto
@@ -85,8 +86,14 @@ class LibraryPullMapperTest {
     fun `maps theme modes by rebasing server audio but preserving direct video origin`() {
         val mode = themeDto().copy(
             mediaModes = OngakuThemeMediaModesDto(
-                tvSize = OngakuTvSizeModeDto("/v1/media/audio/100", 90, 5_242_880),
-                fullSize = OngakuFullSizeModeDto(300, "/v1/media/songs/300/audio", 271, 1234, 200),
+                tvSize = OngakuTvSizeModeDto(
+                    "/v1/media/audio/100", 90, 5_242_880,
+                    loudness = OngakuLoudnessDto(-16.0, -1.1, 5.0, -1.5, 1, "READY")
+                ),
+                fullSize = OngakuFullSizeModeDto(
+                    300, "/v1/media/songs/300/audio", 271, 1234, 200,
+                    loudness = OngakuLoudnessDto(-8.0, -0.2, 6.0, -8.0, 1, "READY")
+                ),
                 video = OngakuVideoModeDto(
                     "https://v.animethemes.moe/op.webm",
                     "video/webm",
@@ -100,6 +107,8 @@ class LibraryPullMapperTest {
         assertEquals("http://192.168.1.5:8080/api/v1/media/audio/100", mode.tvSizeUrl)
         assertEquals("http://192.168.1.5:8080/api/v1/media/songs/300/audio", mode.fullSizeUrl)
         assertEquals("https://v.animethemes.moe/op.webm", mode.videoUrl)
+        assertEquals(-1.5, mode.tvSizeLoudness?.gainDb)
+        assertEquals(-8.0, mode.fullSizeLoudness?.gainDb)
     }
 
     @Test

@@ -463,6 +463,27 @@ describe("AnimeMusicFetcherClient job lifecycle", () => {
     expect(job.deliveries[0]?.files[0]).toMatchObject({ relative_path: "anime-ongaku-staging/request/archived.flac" });
   });
 
+  it("tolerates an archived unresolved item without discarding sibling deliveries", async () => {
+    const fixture = {
+      ...jobFixture("completed_with_warnings"),
+      item_results: [
+        {
+          requested_item_index: 0, label: "OP1", kind: "OP", number: 1, status: "delivered",
+          candidate_indexes: [], selected_release_indexes: [0], matched_releases: [], delivered_files: [], file_count: 1,
+        },
+        {
+          requested_item_index: 1, label: "ED1", kind: "ED", number: 1, status: "archived",
+          candidate_indexes: [], selected_release_indexes: [], matched_releases: [], delivered_files: [], file_count: 0,
+        },
+      ],
+    };
+    const { client } = clientFor([{ status: 200, body: JSON.stringify(fixture) }]);
+
+    const job = await client.getJob("amf-job-1");
+
+    expect(job.item_results.map((item) => item.status)).toEqual(["delivered", "archived"]);
+  });
+
   it("parses successive polling transitions without collapsing intervention states", async () => {
     const { client } = clientFor([
       { status: 200, body: JSON.stringify(jobFixture("queued")) },

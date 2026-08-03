@@ -35,6 +35,7 @@ export interface MediaStoreOptions {
   imageFetch?: FetchLike;
   logger?: AppLogger;
   minBytes?: number;
+  onAudioReady?: (media: MediaFileRecord) => Promise<void>;
 }
 
 export class MediaStore {
@@ -50,7 +51,10 @@ export class MediaStore {
 
   async fetchToMediaFile(input: SaveMediaFileInput, options: { signal?: AbortSignal } = {}): Promise<MediaFileRecord> {
     const cached = await this.findReadyCached(input);
-    if (cached) return cached;
+    if (cached) {
+      await this.notifyAudioReady(cached);
+      return cached;
+    }
 
     const finalPath = join(this.options.mediaRoot, input.filePath);
     const tmpDir = join(this.options.mediaRoot, "audio", "tmp");
@@ -58,7 +62,10 @@ export class MediaStore {
     await mkdir(dirname(finalPath), { recursive: true });
     await mkdir(tmpDir, { recursive: true });
     const recovered = await this.adoptOrphanedFinal(input, finalPath);
-    if (recovered) return recovered;
+    if (recovered) {
+      await this.notifyAudioReady(recovered);
+      return recovered;
+    }
     await this.options.repo.markDownloading(input);
 
     const logData = {
@@ -99,6 +106,7 @@ export class MediaStore {
       const raced = await this.adoptOrphanedFinal(input, finalPath);
       if (raced) {
         await rm(tmpPath, { force: true });
+        await this.notifyAudioReady(raced);
         return raced;
       }
       await rename(tmpPath, finalPath);
@@ -113,7 +121,7 @@ export class MediaStore {
         },
         "external media download saved",
       );
-      return {
+      const ready: MediaFileRecord = {
         id: 0,
         kind: input.kind,
         refId: input.refId,
@@ -129,6 +137,8 @@ export class MediaStore {
         updatedAt: new Date(),
         videoFallback: input.videoFallback,
       };
+      await this.notifyAudioReady(ready);
+      return ready;
     } catch (error) {
       await rm(tmpPath, { force: true });
       const err = error instanceof Error ? error : new Error(String(error));
@@ -157,7 +167,7 @@ export class MediaStore {
     const sha256 = await hashFile(finalPath);
     await this.options.repo.markReady({ ...input, byteSize: existing.size, sha256 });
     const now = new Date();
-    return {
+    const ready: MediaFileRecord = {
       id: 0,
       kind: input.kind,
       refId: input.refId,
@@ -173,6 +183,8 @@ export class MediaStore {
       updatedAt: now,
       videoFallback: input.videoFallback,
     };
+    await this.notifyAudioReady(ready);
+    return ready;
   }
 
   async importLocalSongFile(input: ImportLocalSongFileInput): Promise<MediaFileRecord> {
@@ -199,7 +211,10 @@ export class MediaStore {
     const descriptor = { kind: mediaInput.kind, refId: mediaInput.refId, variant: mediaInput.variant };
     const previous = await this.options.repo.find?.(descriptor) ?? null;
     const cached = await this.findReadyImported(previous, input.songId, input.expectedByteSize, input.expectedSha256);
-    if (cached) return cached;
+    if (cached) {
+      await this.notifyAudioReady(cached);
+      return cached;
+    }
 
     const tmpRelativePath = `audio/tmp/song-${input.songId}-${randomUUID()}.tmp`;
     let finalPath: string;
@@ -220,7 +235,10 @@ export class MediaStore {
     }
     const recovered = await this.recoverOrphanedImported(mediaInput, previous, finalPath, sourcePath,
       input.expectedByteSize, input.expectedSha256);
-    if (recovered) return recovered;
+    if (recovered) {
+      await this.notifyAudioReady(recovered);
+      return recovered;
+    }
     await this.options.repo.markDownloading(mediaInput);
 
     try {
@@ -246,7 +264,9 @@ export class MediaStore {
         },
         "local provider media imported",
       );
-      return readyRecord(mediaInput, saved.size, sha256);
+      const ready = readyRecord(mediaInput, saved.size, sha256);
+      await this.notifyAudioReady(ready);
+      return ready;
     } catch (error) {
       await rm(tmpPath, { force: true });
       const err = error instanceof Error ? error : new Error(String(error));
@@ -367,7 +387,18 @@ export class MediaStore {
       throw error;
     }
     await this.options.repo.markReady({ ...input, byteSize: saved.size, sha256 });
-    return readyRecord(input, saved.size, sha256);
+    const ready = readyRecord(input, saved.size, sha256);
+    await this.notifyAudioReady(ready);
+    return ready;
+  }
+
+  private async notifyAudioReady(media: MediaFileRecord): Promise<void> {
+    if (media.kind !== "AUDIO" || !this.options.onAudioReady) return;
+    try {
+      await this.options.onAudioReady(media);
+    } catch (error) {
+      this.options.logger?.warn?.({ err: error, refId: media.refId }, "unable to queue media loudness analysis");
+    }
   }
 }
 

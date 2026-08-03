@@ -46,6 +46,7 @@ import type {
 } from "../legacyLibraryImport.js";
 import type { AppLogger } from "../logging.js";
 import { CANONICAL_AUDIO } from "../media/types.js";
+import { playbackLoudness } from "../media/loudness.js";
 import { normalizeMusicText } from "../music/matching/normalize.js";
 import { DrizzleDynamicPlaylistEvaluator } from "../playlists/dynamicPlaylistEvaluator.js";
 import { DrizzleAutoPlaylistRefresher } from "../sync/autoPlaylistRefresher.js";
@@ -90,6 +91,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     private readonly now: () => Date = () => new Date(),
     private readonly logger?: AppLogger,
     private readonly musicCatalogEnabled = false,
+    private readonly loudnessPlaybackGainEnabled = false,
   ) {
     this.autoPlaylistRefresher = new DrizzleAutoPlaylistRefresher(db);
     this.dynamicPlaylistEvaluator = new DrizzleDynamicPlaylistEvaluator(db, now);
@@ -126,7 +128,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
   async getMusicRelease(_userId: string, releaseId: number): Promise<MusicReleaseDto | null> {
     if (!this.musicCatalogEnabled) return null;
     const rows = await this.readyMusicRows(undefined, releaseId);
-    const release = musicReleasesFromRows(rows)[0];
+    const release = musicReleasesFromRows(rows, this.loudnessPlaybackGainEnabled)[0];
     if (!release) return null;
     release.anime = uniqueAnimeSummaries(rows);
     return release;
@@ -159,7 +161,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
           titleEn: anime.titleEn,
           posterUrl: anime.posterUrl || anime.posterUrlLarge ? `/v1/media/images/anime/${anime.kitsuId}/poster` : null,
         },
-        releases: musicReleasesFromRows(rows),
+        releases: musicReleasesFromRows(rows, this.loudnessPlaybackGainEnabled),
       }];
     });
   }
@@ -181,9 +183,9 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       relationshipType: row.relationshipType,
       releaseId: row.releaseId,
       releaseTitle: row.releaseTitle,
-      track: musicTrackDto(row),
+      track: musicTrackDto(row, this.loudnessPlaybackGainEnabled),
     }));
-    const selectedReleases = musicReleasesFromRows(releaseRows).slice(0, 25);
+    const selectedReleases = musicReleasesFromRows(releaseRows, this.loudnessPlaybackGainEnabled).slice(0, 25);
     // A release can be shared by several anime. The text match may have come
     // from only one owner (for example an anime title), so hydrate every owner
     // for the selected release ids in one bounded IN query before projecting.
@@ -192,7 +194,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       ? []
       : await this.readyMusicRows(undefined, undefined, { releaseIds: selectedReleaseIds });
     const hydratedReleases = new Map(
-      musicReleasesFromRows(ownershipRows).map((release) => [release.id, release]),
+      musicReleasesFromRows(ownershipRows, this.loudnessPlaybackGainEnabled).map((release) => [release.id, release]),
     );
     const releases = selectedReleases
       .flatMap((release) => {
@@ -1209,7 +1211,8 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
         durationSeconds: row.durationSeconds,
         fileSize: audio?.byteSize ?? null,
         mediaModes: {
-          tvSize: { url: `/v1/media/audio/${row.id}`, durationSeconds: row.durationSeconds, fileSize: audio?.byteSize ?? null },
+          tvSize: { url: `/v1/media/audio/${row.id}`, durationSeconds: row.durationSeconds, fileSize: audio?.byteSize ?? null,
+            ...(audio ? { loudness: playbackLoudness(audio, this.loudnessPlaybackGainEnabled) } : {}) },
           fullSize: row.deletedAt === null ? catalogModes.full.get(row.id) ?? null : null,
           video: row.deletedAt === null ? catalogModes.video.get(row.id) ?? null : null,
         },
@@ -1326,12 +1329,20 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
   }
 
   private async audioMediaMap(themeIds: number[]) {
-    if (themeIds.length === 0) return new Map<number, { state: string; byteSize: number | null }>();
+    if (themeIds.length === 0) return new Map<number, any>();
     const rows = await this.db
       .select({
         refId: mediaFiles.refId,
         state: mediaFiles.state,
         byteSize: mediaFiles.byteSize,
+        sha256: mediaFiles.sha256,
+        loudnessState: mediaFiles.loudnessState,
+        loudnessSha256: mediaFiles.loudnessSha256,
+        integratedLufs: mediaFiles.integratedLufs,
+        truePeakDbtp: mediaFiles.truePeakDbtp,
+        loudnessRangeLu: mediaFiles.loudnessRangeLu,
+        loudnessGainDb: mediaFiles.loudnessGainDb,
+        loudnessPolicyVersion: mediaFiles.loudnessPolicyVersion,
       })
       .from(mediaFiles)
       .where(
@@ -1343,7 +1354,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       );
     return new Map(
       rows
-        .map((row) => [Number(row.refId), { state: row.state, byteSize: row.byteSize }] as const)
+        .map((row) => [Number(row.refId), row] as const)
         .filter(([themeId]) => Number.isInteger(themeId)),
     );
   }
@@ -1707,7 +1718,8 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
         durationSeconds: row.durationSeconds,
         fileSize: audio?.byteSize ?? null,
         mediaModes: {
-          tvSize: { url: `/v1/media/audio/${row.id}`, durationSeconds: row.durationSeconds, fileSize: audio?.byteSize ?? null },
+          tvSize: { url: `/v1/media/audio/${row.id}`, durationSeconds: row.durationSeconds, fileSize: audio?.byteSize ?? null,
+            ...(audio ? { loudness: playbackLoudness(audio, this.loudnessPlaybackGainEnabled) } : {}) },
           fullSize: catalogModes.full.get(row.id) ?? null,
           video: catalogModes.video.get(row.id) ?? null,
         },
@@ -1765,11 +1777,11 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
 
   private async readyMusicReleases(animeThemesIds?: number[], releaseId?: number): Promise<MusicReleaseDto[]> {
     const rows = await this.readyMusicRows(animeThemesIds, releaseId);
-    return musicReleasesFromRows(rows);
+    return musicReleasesFromRows(rows, this.loudnessPlaybackGainEnabled);
   }
 
   private async themeCatalogModes(themeIds: number[]) {
-    const full = new Map<number, { songId: number; url: string; durationSeconds: number | null; fileSize: number | null; sourceReleaseId: number | null }>();
+    const full = new Map<number, { songId: number; url: string; durationSeconds: number | null; fileSize: number | null; sourceReleaseId: number | null; loudness?: ReturnType<typeof playbackLoudness> }>();
     const video = new Map<number, { url: string; mimeType: string | null; spoiler: boolean; nsfw: boolean; entryVersion: number | null }>();
     if (!this.musicCatalogEnabled || themeIds.length === 0) return { full, video };
 
@@ -1780,6 +1792,14 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
         sourceReleaseId: themeFullSongs.sourceReleaseId,
         durationSeconds: songs.durationSeconds,
         fileSize: mediaFiles.byteSize,
+        sha256: mediaFiles.sha256,
+        loudnessState: mediaFiles.loudnessState,
+        loudnessSha256: mediaFiles.loudnessSha256,
+        integratedLufs: mediaFiles.integratedLufs,
+        truePeakDbtp: mediaFiles.truePeakDbtp,
+        loudnessRangeLu: mediaFiles.loudnessRangeLu,
+        loudnessGainDb: mediaFiles.loudnessGainDb,
+        loudnessPolicyVersion: mediaFiles.loudnessPolicyVersion,
       })
       .from(themeFullSongs)
       .innerJoin(songs, and(eq(songs.id, themeFullSongs.songId), isNull(songs.deletedAt)))
@@ -1810,6 +1830,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
           durationSeconds: row.durationSeconds,
           fileSize: row.fileSize,
           sourceReleaseId: row.sourceReleaseId,
+          loudness: playbackLoudness(row, this.loudnessPlaybackGainEnabled),
         });
       }
     }
@@ -1881,6 +1902,14 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
         songArtistNames: songs.artistNames,
         durationSeconds: songs.durationSeconds,
         fileSize: mediaFiles.byteSize,
+        sha256: mediaFiles.sha256,
+        loudnessState: mediaFiles.loudnessState,
+        loudnessSha256: mediaFiles.loudnessSha256,
+        integratedLufs: mediaFiles.integratedLufs,
+        truePeakDbtp: mediaFiles.truePeakDbtp,
+        loudnessRangeLu: mediaFiles.loudnessRangeLu,
+        loudnessGainDb: mediaFiles.loudnessGainDb,
+        loudnessPolicyVersion: mediaFiles.loudnessPolicyVersion,
         discNumber: releaseTracks.discNumber,
         trackNumber: releaseTracks.trackNumber,
         displayOrder: releaseTracks.displayOrder,
@@ -1913,7 +1942,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
 
 type ReadyMusicRow = Awaited<ReturnType<DrizzleClientApiService["readyMusicRows"]>>[number];
 
-function musicReleasesFromRows(rows: ReadyMusicRow[]): MusicReleaseDto[] {
+function musicReleasesFromRows(rows: ReadyMusicRow[], loudnessEnabled: boolean): MusicReleaseDto[] {
   const releases = new Map<number, MusicReleaseDto>();
   const seenSongs = new Map<number, Set<number>>();
   for (const row of rows) {
@@ -1937,14 +1966,14 @@ function musicReleasesFromRows(rows: ReadyMusicRow[]): MusicReleaseDto[] {
       seenSongs.set(row.releaseId, new Set());
     }
     if (!seenSongs.get(row.releaseId)!.has(row.songId)) {
-      release.tracks.push(musicTrackDto(row));
+      release.tracks.push(musicTrackDto(row, loudnessEnabled));
       seenSongs.get(row.releaseId)!.add(row.songId);
     }
   }
   return [...releases.values()];
 }
 
-function musicTrackDto(row: ReadyMusicRow) {
+function musicTrackDto(row: ReadyMusicRow, loudnessEnabled: boolean) {
   return {
     id: row.songId,
     title: row.songTitle,
@@ -1959,6 +1988,7 @@ function musicTrackDto(row: ReadyMusicRow) {
     discNumber: row.discNumber,
     trackNumber: row.trackNumber,
     displayOrder: row.displayOrder,
+    loudness: playbackLoudness(row, loudnessEnabled),
   };
 }
 

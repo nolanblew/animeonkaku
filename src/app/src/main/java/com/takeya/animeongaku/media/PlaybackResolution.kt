@@ -2,6 +2,8 @@ package com.takeya.animeongaku.media
 
 import com.takeya.animeongaku.data.local.DownloadItemDao
 import com.takeya.animeongaku.data.local.DownloadItemEntity
+import com.takeya.animeongaku.data.local.LoudnessProfile
+import com.takeya.animeongaku.data.local.MusicCatalogDao
 import com.takeya.animeongaku.data.local.ThemeModeDao
 import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.network.ConnectivityMonitor
@@ -38,7 +40,8 @@ value class MediaKey(val value: String) {
 
 data class LocalMediaFile(
     val mediaKey: MediaKey,
-    val filePath: String
+    val filePath: String,
+    val loudness: LoudnessProfile? = null
 )
 
 enum class PlaybackSource { LOCAL, SERVER_AUDIO, DIRECT_VIDEO }
@@ -65,7 +68,8 @@ data class ResolvedPlaybackItem(
     val albumTitle: String? = null,
     val animeTitle: String? = null,
     val videoSpoiler: Boolean = false,
-    val videoNsfw: Boolean = false
+    val videoNsfw: Boolean = false,
+    val loudness: LoudnessProfile? = null
 ) {
     val isPlayable: Boolean get() = actualMode != null && uri != null
     val modeState: PlaybackModeState
@@ -190,6 +194,11 @@ class PlaybackResolver @Inject constructor() {
             actual != null -> PlaybackSource.SERVER_AUDIO
             else -> null
         }
+        val loudness = local?.loudness ?: when (actual) {
+            PlaybackMode.TV_SIZE -> descriptor?.tvSizeLoudness
+            PlaybackMode.FULL_SIZE -> descriptor?.fullSizeLoudness
+            else -> null
+        }
         val retainedReason = when {
             !isOnline && actual == null -> RetainedIntentReason.EXACT_OFFLINE_MEDIA_MISSING
             actual != preferred -> RetainedIntentReason.PREFERRED_MODE_UNAVAILABLE
@@ -213,7 +222,8 @@ class PlaybackResolver @Inject constructor() {
             albumTitle = item.display.album,
             animeTitle = item.display.animeTitle,
             videoSpoiler = descriptor?.videoSpoiler == true,
-            videoNsfw = descriptor?.videoNsfw == true
+            videoNsfw = descriptor?.videoNsfw == true,
+            loudness = loudness
         )
     }
 
@@ -249,7 +259,8 @@ class PlaybackResolver @Inject constructor() {
             animeOrRelease = item.display.animeTitle ?: item.display.album,
             artworkUrl = item.display.artworkUrl,
             albumTitle = item.display.album,
-            animeTitle = item.display.animeTitle
+            animeTitle = item.display.animeTitle,
+            loudness = local?.loudness ?: item.song.loudness
         )
     }
 }
@@ -273,7 +284,8 @@ class PlaybackResolutionCoordinator @Inject constructor(
     private val resolver: PlaybackResolver,
     private val connectivityMonitor: ConnectivityMonitor,
     private val downloadItemDao: DownloadItemDao,
-    private val themeModeDao: ThemeModeDao
+    private val themeModeDao: ThemeModeDao,
+    private val musicCatalogDao: MusicCatalogDao
 ) {
     suspend fun resolve(entry: QueueEntry, intent: PlaybackIntent): ResolvedPlaybackItem {
         val snapshot = snapshots(listOf(entry)).single()
@@ -309,15 +321,21 @@ class PlaybackResolutionCoordinator @Inject constructor(
 
     private suspend fun snapshots(entries: List<QueueEntry>): List<ResolutionSnapshot> =
         withContext(Dispatchers.IO) {
-            val missingDescriptorThemeIds = entries.mapNotNull { entry ->
+            val themeIds = entries.mapNotNull { entry ->
                 val theme = entry.item as? PlayableItem.Theme ?: return@mapNotNull null
-                theme.theme.id.takeIf { theme.modeDescriptor == null }
+                theme.theme.id
             }.distinct()
-            val descriptorsByThemeId = if (missingDescriptorThemeIds.isEmpty()) emptyMap() else {
-                themeModeDao.getByThemeIds(missingDescriptorThemeIds).associateBy { it.themeId }
+            val songIds = entries.mapNotNull { entry ->
+                (entry.item as? PlayableItem.RelatedSong)?.song?.id
+            }.distinct()
+            val descriptorsByThemeId = if (themeIds.isEmpty()) emptyMap() else {
+                themeModeDao.getByThemeIds(themeIds).associateBy { it.themeId }
+            }
+            val songsById = if (songIds.isEmpty()) emptyMap() else {
+                musicCatalogDao.getSongs(songIds).associateBy { it.id }
             }
             val hydratedEntries = entries.map { entry ->
-                entry.withModeDescriptor(descriptorsByThemeId)
+                entry.withLatestMediaMetadata(descriptorsByThemeId, songsById)
             }
             val request = buildPlaybackResolutionBatchRequest(hydratedEntries)
             val downloads = if (request.mediaKeys.isEmpty()) emptyList() else {
@@ -342,13 +360,19 @@ private data class ResolutionSnapshot(
     val localMedia: Map<MediaKey, LocalMediaFile>
 )
 
-private fun QueueEntry.withModeDescriptor(
+internal fun QueueEntry.withLatestMediaMetadata(
     descriptorsByThemeId: Map<Long, ThemeModeEntity>,
+    songsById: Map<Long, com.takeya.animeongaku.data.local.SongEntity>,
 ): QueueEntry {
-    val themeItem = item as? PlayableItem.Theme ?: return this
-    if (themeItem.modeDescriptor != null) return this
-    val descriptor = descriptorsByThemeId[themeItem.theme.id]
-    return copy(item = themeItem.copy(modeDescriptor = descriptor))
+    val refreshedItem = when (val playable = item) {
+        is PlayableItem.Theme -> playable.copy(
+            modeDescriptor = descriptorsByThemeId[playable.theme.id]
+        )
+        is PlayableItem.RelatedSong -> playable.copy(
+            song = songsById[playable.song.id] ?: playable.song
+        )
+    }
+    return copy(item = refreshedItem)
 }
 
 internal fun completedLocalMedia(downloads: List<DownloadItemEntity>): Map<MediaKey, LocalMediaFile> =
@@ -357,7 +381,7 @@ internal fun completedLocalMedia(downloads: List<DownloadItemEntity>): Map<Media
         if (!download.status.equals("completed", ignoreCase = true)) return@mapNotNull null
         if (!path.contains("://") && !java.io.File(path).isFile) return@mapNotNull null
         val key = MediaKey(download.mediaKey)
-        key to LocalMediaFile(key, path)
+        key to LocalMediaFile(key, path, download.loudness)
     }.toMap()
 
 internal fun QueueEntry.possibleMediaKeys(): Set<MediaKey> = when (val playable = item) {

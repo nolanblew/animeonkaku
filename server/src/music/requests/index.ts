@@ -1,6 +1,7 @@
 export * from "./builder.js";
 export * from "./deliveryImporter.js";
 export * from "./deliveryService.js";
+export * from "./fullSizeReimport.js";
 export * from "./handlers.js";
 export * from "./localizedCatalogBackfill.js";
 export * from "./providerGraph.js";

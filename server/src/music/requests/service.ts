@@ -28,6 +28,34 @@ export class MusicRequestService {
     return { request: toSummary(persisted.request), replayed: !persisted.created };
   }
 
+  async startFullSizeReimport(userId: string, kitsuId: string, requestId: string) {
+    const existing = await this.deps.repo.findById(requestId);
+    if (existing) return toSummary(existing);
+    const metadata = await this.deps.repo.loadMetadata(kitsuId);
+    if (!metadata) throw new MusicRequestNotMappedError();
+    const active = await this.deps.repo.findLatest(metadata.animeThemesAnimeId);
+    if (active && active.completedAt === null && active.batches.some((batch) => batch.state !== "AWAITING_OPERATOR")) {
+      throw new Error("Another music request for this anime is still active.");
+    }
+    const uuid = this.deps.uuid ?? randomUUID;
+    const built = buildMusicRequestBatches({ ...metadata, requestId }, { includeRelated: false });
+    if (built.length === 0) throw new Error("Anime has no unambiguous opening or ending themes to re-import.");
+    const persisted = await this.deps.repo.createOrReplay({
+      id: requestId, requestedByUserId: userId, kitsuId,
+      animeThemesAnimeId: metadata.animeThemesAnimeId, source: "ADMIN_REIMPORT",
+      batches: built.map((batch) => ({
+        id: uuid(), index: batch.index, body: batch.body,
+        idempotencyKey: `anime-ongaku:${requestId}:${batch.index}`,
+        items: batch.items.map((item) => ({ id: uuid(), ...item })),
+      })),
+    });
+    if (persisted.request.id !== requestId) {
+      throw new Error("Another music request for this anime became active.");
+    }
+    await Promise.all(persisted.request.batches.map((batch) => this.enqueueBatch(batch.id, Boolean(batch.amfJobId))));
+    return toSummary(persisted.request);
+  }
+
   async get(_userId: string, id: string) {
     const request = await this.deps.repo.findById(id);
     if (!request) throw new MusicRequestNotFoundError();

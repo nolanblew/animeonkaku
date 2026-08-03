@@ -62,6 +62,11 @@ const EnvSchema = z.object({
   // Catalog exposure and automatic discovery are independent rollout switches.
   MUSIC_CATALOG_ENABLED: booleanFromEnvironment.default(false),
   MUSIC_DISCOVERY_ENABLED: booleanFromEnvironment.default(false),
+  // Analysis preserves source bytes; gain application is an independent,
+  // explicitly enabled rollout switch after device verification.
+  LOUDNESS_PLAYBACK_GAIN_ENABLED: booleanFromEnvironment.default(false),
+  LOUDNESS_BACKFILL_ON_STARTUP: booleanFromEnvironment.default(false),
+  LOUDNESS_BACKFILL_LIMIT: z.coerce.number().int().positive().max(10_000).default(25),
   ADMIN_PASSWORD: z.string().min(1).default(DEFAULT_ADMIN_PASSWORD),
 });
 

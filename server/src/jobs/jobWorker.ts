@@ -40,6 +40,7 @@ export interface JobWorkerOptions {
 const DEFAULT_TIMEOUTS_MS: Record<JobType, number> = {
   FETCH_AUDIO: 5 * 60_000,
   FETCH_IMAGE: 2 * 60_000,
+  ANALYZE_AUDIO_LOUDNESS: 10 * 60_000,
   KITSU_FULL_SYNC: 30 * 60_000,
   KITSU_DELTA_SYNC: 30 * 60_000,
   // Safety net only: the pipeline checkpoints on a ~45s wall-clock budget, so a
@@ -62,6 +63,7 @@ const DEFAULT_TIMEOUTS_MS: Record<JobType, number> = {
   // A chunk of AMF_IMPORT_CHUNK_SIZE deliveries, each read in full twice
   // (hash verification + copy verification).
   IMPORT_AMF_MUSIC_ITEM: 10 * 60_000,
+  REIMPORT_AMF_FULL_SIZE: 2 * 60_000,
   OPERATE_AMF_MUSIC_BATCH: 2 * 60_000,
   RECONCILE_MUSIC_SEARCH_POLICY: 2 * 60_000,
 };

@@ -1,6 +1,7 @@
 package com.takeya.animeongaku.download
 
 import com.takeya.animeongaku.data.local.DownloadItemEntity
+import com.takeya.animeongaku.data.local.LoudnessProfile
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.ThemeModeEntity
 import java.io.File
@@ -22,7 +23,8 @@ data class DownloadMediaSpec(
     val itemId: Long,
     val mode: String,
     val sourceUrl: String,
-    val legacyThemeId: Long? = null
+    val legacyThemeId: Long? = null,
+    val loudness: LoudnessProfile? = null
 ) {
     init {
         require(itemType == TYPE_THEME || itemType == TYPE_SONG)
@@ -41,25 +43,26 @@ data class DownloadMediaSpec(
         const val MODE_TV_SIZE = "TV_SIZE"
         const val MODE_AUDIO = "AUDIO"
 
-        fun themeTv(themeId: Long, url: String) = DownloadMediaSpec(
-            DownloadItemEntity.tvSizeMediaKey(themeId), TYPE_THEME, themeId, MODE_TV_SIZE, url, themeId
+        fun themeTv(themeId: Long, url: String, loudness: LoudnessProfile? = null) = DownloadMediaSpec(
+            DownloadItemEntity.tvSizeMediaKey(themeId), TYPE_THEME, themeId, MODE_TV_SIZE, url, themeId, loudness
         )
 
-        fun song(songId: Long, url: String) = DownloadMediaSpec(
-            DownloadItemEntity.songMediaKey(songId), TYPE_SONG, songId, MODE_AUDIO, url
+        fun song(songId: Long, url: String, loudness: LoudnessProfile? = null) = DownloadMediaSpec(
+            DownloadItemEntity.songMediaKey(songId), TYPE_SONG, songId, MODE_AUDIO, url, loudness = loudness
         )
     }
 }
 
 internal fun resolveThemeFullSizeDownload(
     descriptor: ThemeModeEntity?,
-    canonicalSongUrl: String?
+    canonicalSongUrl: String?,
+    canonicalSongLoudness: LoudnessProfile? = null
 ): DownloadMediaSpec? {
     val songId = descriptor?.fullSizeSongId ?: return null
     val sourceUrl = canonicalSongUrl?.takeIf(String::isNotBlank)
         ?: descriptor.fullSizeUrl?.takeIf(String::isNotBlank)
         ?: return null
-    return DownloadMediaSpec.song(songId, sourceUrl)
+    return DownloadMediaSpec.song(songId, sourceUrl, canonicalSongLoudness ?: descriptor.fullSizeLoudness)
 }
 
 /** Resolves persisted playlist policy only; it never applies online playback fallbacks. */
@@ -67,22 +70,24 @@ internal fun resolvePlaylistDownloadMedia(
     entries: List<PlaylistEntryEntity>,
     playlistDefaultMode: String,
     themeModes: Map<Long, ThemeModeEntity>,
-    songUrls: Map<Long, String>
+    songUrls: Map<Long, String>,
+    songLoudness: Map<Long, LoudnessProfile?> = emptyMap()
 ): List<DownloadMediaSpec> = entries.mapNotNull { entry ->
     when (entry.itemType) {
         PlaylistEntryEntity.ITEM_TYPE_SONG -> songUrls[entry.itemId]
             ?.takeIf(String::isNotBlank)
-            ?.let { DownloadMediaSpec.song(entry.itemId, it) }
+            ?.let { DownloadMediaSpec.song(entry.itemId, it, songLoudness[entry.itemId]) }
 
         PlaylistEntryEntity.ITEM_TYPE_THEME -> {
             val mode = entry.modeOverride ?: playlistDefaultMode
             val descriptor = themeModes[entry.itemId]
             when (mode) {
                 "TV_SIZE" -> descriptor?.tvSizeUrl?.takeIf(String::isNotBlank)
-                    ?.let { DownloadMediaSpec.themeTv(entry.itemId, it) }
+                    ?.let { DownloadMediaSpec.themeTv(entry.itemId, it, descriptor?.tvSizeLoudness) }
                 "FULL_SIZE" -> resolveThemeFullSizeDownload(
                     descriptor,
-                    descriptor?.fullSizeSongId?.let(songUrls::get)
+                    descriptor?.fullSizeSongId?.let(songUrls::get),
+                    descriptor?.fullSizeSongId?.let(songLoudness::get)
                 )
                 else -> null
             }

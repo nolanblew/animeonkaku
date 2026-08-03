@@ -32,7 +32,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DownloadItemEntity::class,
         DownloadGroupItemEntity::class
     ],
-    version = 24,
+    version = 25,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -423,6 +423,24 @@ abstract class AppDatabase : RoomDatabase() {
                     db.execSQL("ALTER TABLE `$table` ADD COLUMN `artistNamesJson` TEXT NOT NULL DEFAULT '[]'")
                 }
             }
+        }
+
+        val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                addLoudnessColumns(db, "songs", "loudness_")
+                addLoudnessColumns(db, "theme_modes", "tvLoudness_")
+                addLoudnessColumns(db, "theme_modes", "fullLoudness_")
+                addLoudnessColumns(db, "download_items", "loudness_")
+            }
+        }
+
+        private fun addLoudnessColumns(db: SupportSQLiteDatabase, table: String, prefix: String) {
+            db.execSQL("ALTER TABLE `$table` ADD COLUMN `${prefix}integratedLufs` REAL")
+            db.execSQL("ALTER TABLE `$table` ADD COLUMN `${prefix}truePeakDbtp` REAL")
+            db.execSQL("ALTER TABLE `$table` ADD COLUMN `${prefix}loudnessRangeLu` REAL")
+            db.execSQL("ALTER TABLE `$table` ADD COLUMN `${prefix}gainDb` REAL")
+            db.execSQL("ALTER TABLE `$table` ADD COLUMN `${prefix}policyVersion` INTEGER")
+            db.execSQL("ALTER TABLE `$table` ADD COLUMN `${prefix}state` TEXT")
         }
     }
 }

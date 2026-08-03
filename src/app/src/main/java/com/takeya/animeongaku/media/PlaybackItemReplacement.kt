@@ -82,9 +82,15 @@ internal fun replaceModeChangedPlaybackItems(
     val changed = desiredItems.indices.filter { index ->
         controller.items[index].playbackFingerprint() != desiredItems[index].playbackFingerprint()
     }
-    changed.forEach { index -> controller.replaceMediaItem(index, desiredItems[index]) }
+    // A completed analysis can arrive while this item is playing. Keep its gain fixed until the
+    // next item boundary; replacing only an updated gain would cause a mid-song level step.
+    val replaceNow = changed.filter { index ->
+        index != currentIndex ||
+            controller.items[index].contentFingerprint() != desiredItems[index].contentFingerprint()
+    }
+    replaceNow.forEach { index -> controller.replaceMediaItem(index, desiredItems[index]) }
 
-    if (currentIndex in changed) {
+    if (currentIndex in replaceNow) {
         val previousMode = oldCurrent?.tag?.actualMode
         val desiredMode = desiredItems[currentIndex].tag.actualMode
         if (
@@ -100,6 +106,11 @@ internal fun replaceModeChangedPlaybackItems(
 }
 
 private fun PlaybackMediaDescriptor.playbackFingerprint(): List<String?> = listOf(
+    *contentFingerprint().toTypedArray(),
+    tag.loudness?.attenuationGainDb()?.toString()
+)
+
+private fun PlaybackMediaDescriptor.contentFingerprint(): List<String?> = listOf(
     uri,
     tag.playableKey.toString(),
     tag.preferredMode.name,

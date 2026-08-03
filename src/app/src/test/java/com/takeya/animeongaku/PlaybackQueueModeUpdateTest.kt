@@ -18,6 +18,7 @@ import com.takeya.animeongaku.media.replaceModeChangedPlaybackItems
 import com.takeya.animeongaku.media.descriptorsAfterStructuralDiff
 import com.takeya.animeongaku.media.resolveForCurrentPlaybackSnapshot
 import com.takeya.animeongaku.media.toPlaybackMediaDescriptor
+import com.takeya.animeongaku.data.local.LoudnessProfile
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
@@ -28,6 +29,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlaybackQueueModeUpdateTest {
+    @Test
+    fun `analyzed gain updates queued entries but never steps the current song`() {
+        val old = listOf(
+            resolved(10, PlaybackMode.TV_SIZE, "https://server/tv/10").toPlaybackMediaDescriptor(),
+            resolved(11, PlaybackMode.TV_SIZE, "https://server/tv/11").toPlaybackMediaDescriptor()
+        )
+        val analyzed = LoudnessProfile(gainDb = -7.0, state = "READY")
+        val desired = listOf(
+            resolved(10, PlaybackMode.TV_SIZE, "https://server/tv/10").copy(loudness = analyzed).toPlaybackMediaDescriptor(),
+            resolved(11, PlaybackMode.TV_SIZE, "https://server/tv/11").copy(loudness = analyzed).toPlaybackMediaDescriptor()
+        )
+        val player = FakePlaybackItemController(old, currentIndex = 0, playWhenReady = true)
+
+        replaceModeChangedPlaybackItems(player, desired)
+
+        assertEquals(listOf(1), player.replacedIndexes)
+        assertEquals(0, player.prepareCalls)
+        assertTrue(player.playWhenReady)
+    }
+
     @Test
     fun `Full mode rebuild keeps ids and index starts at zero while paused`() {
         val old = listOf(

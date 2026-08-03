@@ -10,6 +10,25 @@ import type { AmfJob } from "../src/music/animeMusicFetcher/schemas.js";
 const adminDatabaseUrl = process.env.MIGRATION_TEST_DATABASE_URL;
 
 describe.skipIf(!adminDatabaseUrl)("anime music requests (PostgreSQL)", () => {
+  it("atomically supersedes an awaiting-operator request for an admin re-import", async () => {
+    await withDatabase(async (pool) => {
+      await pool.query("INSERT INTO users (kitsu_user_id,username) VALUES ('u1','one')");
+      await pool.query("INSERT INTO animethemes_anime (id,name) VALUES (42,'Show')");
+      await pool.query("INSERT INTO kitsu_anime (kitsu_id,animethemes_anime_id,title,mapping_state) VALUES ('k1',42,'Show','MAPPED')");
+      const repo = new PgMusicRequestRepository(pool);
+      await repo.createOrReplay(newRequest("old-request", "old-batch", "old-item", "u1", "k1"));
+      await repo.recordProviderState("old-batch", { state: "AWAITING_OPERATOR", amfJobId: "old-amf" }, new Date());
+
+      const fresh = await repo.createOrReplay({
+        ...newRequest("admin-reimport", "new-batch", "new-item", "u1", "k1"), source: "ADMIN_REIMPORT",
+      });
+
+      expect(fresh).toMatchObject({ created: true, request: { id: "admin-reimport" } });
+      expect((await pool.query("SELECT state FROM anime_music_request_batches WHERE id='old-batch'")).rows[0]?.state).toBe("CANCELLED");
+      expect((await pool.query("SELECT completed_at FROM anime_music_requests WHERE id='old-request'")).rows[0]?.completed_at).not.toBeNull();
+    });
+  });
+
   it("serializes cross-user creation, replays the active request, and recovers committed batches", async () => {
     await withDatabase(async (pool) => {
       await pool.query("INSERT INTO users (kitsu_user_id,username) VALUES ('u1','one'),('u2','two')");
