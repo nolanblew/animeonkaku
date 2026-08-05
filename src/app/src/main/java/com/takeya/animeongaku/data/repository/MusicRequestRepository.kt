@@ -43,6 +43,7 @@ data class MusicRequest(
     val kitsuId: String,
     val state: MusicRequestState,
     val batchCount: Int,
+    val fullThemeCount: Int = 0,
     val counts: MusicRequestBatchCounts,
     val requiresOperatorAction: Boolean,
     val lastUpdatedAt: String,
@@ -74,6 +75,7 @@ fun OngakuMusicRequestSummaryDto.toDomain(): MusicRequest = MusicRequest(
     kitsuId = kitsuId,
     state = MusicRequestState.fromWire(state),
     batchCount = batchCount.coerceAtLeast(0),
+    fullThemeCount = fullThemeCount.coerceAtLeast(0),
     counts = MusicRequestBatchCounts(
         queued = counts.queued.coerceAtLeast(0),
         searching = counts.searching.coerceAtLeast(0),
