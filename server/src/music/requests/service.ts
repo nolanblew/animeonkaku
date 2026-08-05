@@ -100,6 +100,10 @@ export class MusicRequestService {
 
 export function toSummary(request: StoredMusicRequest): MusicRequestSummary {
   const counts: MusicRequestSummary["counts"] = { queued: 0, searching: 0, awaitingOperator: 0, downloading: 0, processing: 0, completed: 0, completedWithWarnings: 0, failed: 0, cancelled: 0 };
+  const fullThemeCount = request.batches.reduce(
+    (count, batch) => count + batch.body.items.filter((item) => item.kind === "OP" || item.kind === "ED").length,
+    0,
+  );
   for (const batch of request.batches) {
     switch (batch.state) {
       case "QUEUED": counts.queued++; break;
@@ -116,7 +120,7 @@ export function toSummary(request: StoredMusicRequest): MusicRequestSummary {
   }
   const state = aggregate(counts, request.batches.length);
   const active = !["COMPLETED", "COMPLETED_WITH_WARNINGS", "FAILED", "CANCELLED"].includes(state);
-  return { id: request.id, kitsuId: request.kitsuId, state, batchCount: request.batches.length, counts,
+  return { id: request.id, kitsuId: request.kitsuId, state, batchCount: request.batches.length, fullThemeCount, counts,
     requiresOperatorAction: counts.awaitingOperator > 0,
     lastUpdatedAt: request.updatedAt.toISOString(), ...(active ? { pollAfterSeconds: 5 } : {}) };
 }

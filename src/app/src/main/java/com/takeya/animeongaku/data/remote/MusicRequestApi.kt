@@ -25,6 +25,7 @@ data class OngakuMusicRequestSummaryDto(
     val kitsuId: String,
     val state: String,
     val batchCount: Int,
+    val fullThemeCount: Int = 0,
     val counts: OngakuMusicRequestBatchCountsDto,
     val requiresOperatorAction: Boolean,
     val lastUpdatedAt: String,

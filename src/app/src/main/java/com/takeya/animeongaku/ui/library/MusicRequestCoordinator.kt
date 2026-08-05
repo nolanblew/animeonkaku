@@ -16,14 +16,14 @@ sealed interface MusicRequestUiState {
     data object Hydrating : MusicRequestUiState
     data object Idle : MusicRequestUiState
     data object Submitting : MusicRequestUiState
-    data class Queued(val batchCount: Int) : MusicRequestUiState
-    data class Searching(val batchCount: Int) : MusicRequestUiState
-    data class Downloading(val batchCount: Int) : MusicRequestUiState
-    data class Processing(val batchCount: Int) : MusicRequestUiState
-    data class AwaitingOperator(val batchCount: Int) : MusicRequestUiState
-    data class Completed(val batchCount: Int) : MusicRequestUiState
-    data class CompletedWithWarnings(val batchCount: Int) : MusicRequestUiState
-    data class TerminalAttention(val batchCount: Int) : MusicRequestUiState
+    data class Queued(val batchCount: Int, val fullThemeCount: Int = 0) : MusicRequestUiState
+    data class Searching(val batchCount: Int, val fullThemeCount: Int = 0) : MusicRequestUiState
+    data class Downloading(val batchCount: Int, val fullThemeCount: Int = 0) : MusicRequestUiState
+    data class Processing(val batchCount: Int, val fullThemeCount: Int = 0) : MusicRequestUiState
+    data class AwaitingOperator(val batchCount: Int, val fullThemeCount: Int = 0) : MusicRequestUiState
+    data class Completed(val batchCount: Int, val fullThemeCount: Int = 0) : MusicRequestUiState
+    data class CompletedWithWarnings(val batchCount: Int, val fullThemeCount: Int = 0) : MusicRequestUiState
+    data class TerminalAttention(val batchCount: Int, val fullThemeCount: Int = 0) : MusicRequestUiState
     data class SubmissionError(val message: String) : MusicRequestUiState
     data class StatusError(val message: String) : MusicRequestUiState
 }
@@ -145,16 +145,16 @@ private val MusicRequestState.mayPublishCatalog: Boolean
     get() = this == MusicRequestState.PROCESSING || this == MusicRequestState.AWAITING_OPERATOR || isTerminal
 
 private fun MusicRequest.toUiState(): MusicRequestUiState = when (state) {
-    MusicRequestState.QUEUED -> MusicRequestUiState.Queued(batchCount)
-    MusicRequestState.SEARCHING -> MusicRequestUiState.Searching(batchCount)
-    MusicRequestState.AWAITING_OPERATOR -> MusicRequestUiState.AwaitingOperator(batchCount)
-    MusicRequestState.DOWNLOADING -> MusicRequestUiState.Downloading(batchCount)
-    MusicRequestState.PROCESSING -> MusicRequestUiState.Processing(batchCount)
-    MusicRequestState.COMPLETED -> MusicRequestUiState.Completed(batchCount)
-    MusicRequestState.COMPLETED_WITH_WARNINGS -> MusicRequestUiState.CompletedWithWarnings(batchCount)
+    MusicRequestState.QUEUED -> MusicRequestUiState.Queued(batchCount, fullThemeCount)
+    MusicRequestState.SEARCHING -> MusicRequestUiState.Searching(batchCount, fullThemeCount)
+    MusicRequestState.AWAITING_OPERATOR -> MusicRequestUiState.AwaitingOperator(batchCount, fullThemeCount)
+    MusicRequestState.DOWNLOADING -> MusicRequestUiState.Downloading(batchCount, fullThemeCount)
+    MusicRequestState.PROCESSING -> MusicRequestUiState.Processing(batchCount, fullThemeCount)
+    MusicRequestState.COMPLETED -> MusicRequestUiState.Completed(batchCount, fullThemeCount)
+    MusicRequestState.COMPLETED_WITH_WARNINGS -> MusicRequestUiState.CompletedWithWarnings(batchCount, fullThemeCount)
     MusicRequestState.FAILED,
     MusicRequestState.CANCELLED,
-    MusicRequestState.UNKNOWN -> MusicRequestUiState.TerminalAttention(batchCount)
+    MusicRequestState.UNKNOWN -> MusicRequestUiState.TerminalAttention(batchCount, fullThemeCount)
 }
 
 data class MusicRequestActionPresentation(
@@ -209,20 +209,25 @@ private fun readyMusicPresentation(state: MusicRequestUiState): MusicRequestActi
 }
 
 private fun MusicRequestUiState.presentation(label: String, statusDescription: String): MusicRequestActionPresentation {
-    val batchCount = when (this) {
-        is MusicRequestUiState.Queued -> batchCount
-        is MusicRequestUiState.Searching -> batchCount
-        is MusicRequestUiState.Downloading -> batchCount
-        is MusicRequestUiState.Processing -> batchCount
-        is MusicRequestUiState.AwaitingOperator -> batchCount
-        is MusicRequestUiState.Completed -> batchCount
-        is MusicRequestUiState.CompletedWithWarnings -> batchCount
-        is MusicRequestUiState.TerminalAttention -> batchCount
-        else -> 0
+    val batchCountAndFullThemeCount = when (this) {
+        is MusicRequestUiState.Queued -> batchCount to fullThemeCount
+        is MusicRequestUiState.Searching -> batchCount to fullThemeCount
+        is MusicRequestUiState.Downloading -> batchCount to fullThemeCount
+        is MusicRequestUiState.Processing -> batchCount to fullThemeCount
+        is MusicRequestUiState.AwaitingOperator -> batchCount to fullThemeCount
+        is MusicRequestUiState.Completed -> batchCount to fullThemeCount
+        is MusicRequestUiState.CompletedWithWarnings -> batchCount to fullThemeCount
+        is MusicRequestUiState.TerminalAttention -> batchCount to fullThemeCount
+        else -> 0 to 0
     }
+    val (batchCount, fullThemeCount) = batchCountAndFullThemeCount
     return MusicRequestActionPresentation(
         label = label,
-        supportingText = "$batchCount ${if (batchCount == 1) "batch" else "batches"} requested",
+        supportingText = if (fullThemeCount > 0) {
+            "$fullThemeCount full songs requested across $batchCount ${if (batchCount == 1) "batch" else "batches"}"
+        } else {
+            "$batchCount ${if (batchCount == 1) "batch" else "batches"} requested"
+        },
         statusDescription = statusDescription,
         enabled = false
     )

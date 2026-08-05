@@ -105,7 +105,7 @@ export interface MusicRequestRepository {
 
 export type MusicRequestState = MusicBatchState;
 export interface MusicRequestSummary {
-  id: string; kitsuId: string; state: MusicRequestState; batchCount: number;
+  id: string; kitsuId: string; state: MusicRequestState; batchCount: number; fullThemeCount: number;
   counts: Record<"queued" | "searching" | "awaitingOperator" | "downloading" | "processing" | "completed" | "completedWithWarnings" | "failed" | "cancelled", number>;
   requiresOperatorAction: boolean; lastUpdatedAt: string; pollAfterSeconds?: number;
 }
