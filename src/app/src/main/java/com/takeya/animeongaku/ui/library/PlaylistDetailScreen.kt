@@ -78,6 +78,8 @@ import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.preferredModeForThemeAction
+import com.takeya.animeongaku.ui.common.themeModePreferenceAction
 import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
 import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
 import com.takeya.animeongaku.ui.common.BrowseVideoWarningDialog
@@ -206,7 +208,10 @@ fun PlaylistDetailScreen(
                 animeName = sheetAnime?.title,
                 showPlayVideo = theme != null && BrowseVideoActionPolicy.singleTheme(isOnline, themeModesById[theme.id]),
                 showDelete = playlist?.isAuto != true,
-                deleteLabel = "Remove from playlist"
+                deleteLabel = "Remove from playlist",
+                customActions = listOfNotNull(themeModePreferenceAction(
+                    theme?.let { themeModesById[it.id]?.fullSizeUrl?.isNotBlank() }, preference?.preferredMode
+                ))
             ),
             onDismiss = { sheetRow = null },
             onPlayNext = { viewModel.playNextEntry(row.entry.entryId) },
@@ -222,7 +227,11 @@ fun PlaylistDetailScreen(
             onRemoveDownload = { theme?.id?.let(viewModel::removeDownload) },
             onLike = { theme?.id?.let(viewModel::toggleLike) },
             onRemoveDislike = { theme?.id?.let(viewModel::toggleDislike) },
-            onDelete = { viewModel.removeEntry(row.entry.entryId) }
+            onDelete = { viewModel.removeEntry(row.entry.entryId) },
+            onCustomAction = { key ->
+                val mode = preferredModeForThemeAction(key)
+                if (theme != null && mode != null) viewModel.setPreferredMode(theme.id, mode)
+            }
         )
     }
 

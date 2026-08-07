@@ -68,6 +68,8 @@ import com.takeya.animeongaku.data.repository.RelatedRelease
 import com.takeya.animeongaku.data.repository.RelatedTrack
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.preferredModeForThemeAction
+import com.takeya.animeongaku.ui.common.themeModePreferenceAction
 import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
 import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
 import com.takeya.animeongaku.ui.common.BrowseVideoWarningDialog
@@ -174,7 +176,10 @@ fun SearchScreen(
                     themeModesById[theme.id]
                 ),
                 artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
-                animeName = sheetAnime?.title
+                animeName = sheetAnime?.title,
+                customActions = listOfNotNull(themeModePreferenceAction(
+                    themeModesById[theme.id]?.fullSizeUrl?.isNotBlank(), preference?.preferredMode
+                ))
             ),
             onDismiss = { sheetTheme = null },
             onPlayNext = { viewModel.nowPlayingManager.playNext(theme, sheetAnime) },
@@ -192,7 +197,10 @@ fun SearchScreen(
             onDownload = { viewModel.downloadSong(theme) },
             onRemoveDownload = { viewModel.removeDownload(theme.id) },
             onLike = { viewModel.toggleLike(theme.id) },
-            onRemoveDislike = { viewModel.toggleDislike(theme.id) }
+            onRemoveDislike = { viewModel.toggleDislike(theme.id) },
+            onCustomAction = { key ->
+                preferredModeForThemeAction(key)?.let { viewModel.setPreferredMode(theme.id, it) }
+            }
         )
     }
 
@@ -219,7 +227,10 @@ fun SearchScreen(
                 isLiked = preference?.isLiked == true,
                 showRemoveDislike = preference?.isDisliked == true,
                 artistName = entry.artist?.split(",")?.firstOrNull()?.trim(),
-                animeName = entry.animeNameEn ?: entry.animeName
+                animeName = entry.animeNameEn ?: entry.animeName,
+                customActions = listOfNotNull(themeModePreferenceAction(
+                    themeId?.let { themeModesById[it]?.fullSizeUrl?.isNotBlank() }, preference?.preferredMode
+                ))
             ),
             onDismiss = { sheetOnlineEntry = null },
             onPlayNext = {
@@ -248,7 +259,11 @@ fun SearchScreen(
                 entry.kitsuId?.let { onOpenAnime(it) }
             },
             onLike = { themeId?.let { viewModel.toggleLike(it) } },
-            onRemoveDislike = { themeId?.let { viewModel.toggleDislike(it) } }
+            onRemoveDislike = { themeId?.let { viewModel.toggleDislike(it) } },
+            onCustomAction = { key ->
+                val mode = preferredModeForThemeAction(key)
+                if (themeId != null && mode != null) viewModel.setPreferredMode(themeId, mode)
+            }
         )
     }
 

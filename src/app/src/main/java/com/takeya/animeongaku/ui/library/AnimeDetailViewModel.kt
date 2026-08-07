@@ -455,6 +455,10 @@ class AnimeDetailViewModel @Inject constructor(
         viewModelScope.launch { userPreferencesRepository.toggleDislike(themeId) }
     }
 
+    fun setPreferredMode(themeId: Long, mode: String) {
+        viewModelScope.launch { userPreferencesRepository.setPreferredMode(themeId, mode) }
+    }
+
     fun downloadSong(theme: ThemeEntity) {
         downloadManager.downloadSong(theme, anime.value)
     }

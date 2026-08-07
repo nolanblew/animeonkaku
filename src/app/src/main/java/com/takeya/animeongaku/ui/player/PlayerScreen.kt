@@ -94,6 +94,8 @@ import com.takeya.animeongaku.media.NowPlayingState
 import com.takeya.animeongaku.media.PlaybackState
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.preferredModeForThemeAction
+import com.takeya.animeongaku.ui.common.themeModePreferenceAction
 import com.takeya.animeongaku.ui.common.MarqueeText
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
 import com.takeya.animeongaku.ui.theme.Ember400
@@ -204,7 +206,13 @@ fun PlayerScreen(
                         isOnline, queuedThemeModesById[theme.id]
                     ),
                     artistName = item.display.artist?.split(",")?.firstOrNull()?.trim(),
-                    animeName = animeEntity?.title
+                    animeName = animeEntity?.title,
+                    customActions = if (theme == null) emptyList() else listOfNotNull(
+                        themeModePreferenceAction(
+                            queuedThemeModesById[theme.id]?.fullSizeUrl?.isNotBlank(),
+                            currentPreference?.preferredMode
+                        )
+                    )
                 ),
                 onDismiss = { showPlayerSheet = false },
                 onPlayVideo = {
@@ -218,7 +226,11 @@ fun PlayerScreen(
                 onGoToAnime = { animeEntity?.kitsuId?.let { onOpenAnime(it) } },
                 onRelatedMusic = { animeEntity?.kitsuId?.let { onOpenRelatedMusic(it) } },
                 onAddToLibrary = { theme?.let { viewModel.saveSongToLibrary(it, animeEntity) } },
-                onDownload = { viewModel.downloadCurrent(item, modeUiState.actualMode) }
+                onDownload = { viewModel.downloadCurrent(item, modeUiState.actualMode) },
+                onCustomAction = { key ->
+                    val mode = preferredModeForThemeAction(key)
+                    if (theme != null && mode != null) viewModel.setPreferredMode(theme.id, mode)
+                }
             )
         }
     }

@@ -84,7 +84,8 @@ class SyncEngine @Inject constructor(
                 "liked" to preference.isLiked,
                 "disliked" to preference.isDisliked,
                 "dislikedTvSize" to preference.isDislikedTvSize,
-                "dislikedFullSize" to preference.isDislikedFullSize
+                "dislikedFullSize" to preference.isDislikedFullSize,
+                "preferredMode" to preference.preferredMode
             ),
             opTs = opTs
         )
@@ -326,6 +327,7 @@ class SyncEngine @Inject constructor(
                 disliked = payload["disliked"] as? Boolean,
                 dislikedTvSize = payload["dislikedTvSize"] as? Boolean,
                 dislikedFullSize = payload["dislikedFullSize"] as? Boolean,
+                preferredMode = payload["preferredMode"] as? String,
                 opTs = op.opTs
             )
         )

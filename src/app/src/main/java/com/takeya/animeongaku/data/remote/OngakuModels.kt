@@ -223,6 +223,7 @@ data class OngakuThemePrefDto(
     val disliked: Boolean,
     val dislikedTvSize: Boolean = false,
     val dislikedFullSize: Boolean = false,
+    val preferredMode: String? = null,
     val playCount: Int,
     val lastPlayedAt: Long?,
     val updatedAt: Long = 0L,
@@ -234,6 +235,7 @@ data class OngakuThemePrefPatch(
     val disliked: Boolean? = null,
     val dislikedTvSize: Boolean? = null,
     val dislikedFullSize: Boolean? = null,
+    val preferredMode: String? = null,
     // Client op-timestamp (epoch ms) of when the user toggled; drives server last-write-wins.
     val opTs: Long? = null
 )

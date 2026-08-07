@@ -143,6 +143,9 @@ class PlayerViewModel @Inject constructor(
         if (themeId != null) userPreferencesRepository.observePreference(themeId) else kotlinx.coroutines.flow.flowOf(null)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    fun observePreference(themeId: Long?) =
+        themeId?.let(userPreferencesRepository::observePreference) ?: kotlinx.coroutines.flow.flowOf(null)
+
     val currentSongPreference: StateFlow<SongPreferenceEntity?> = nowPlayingState.flatMapLatest { state ->
         val songId = (state.currentItem as? PlayableItem.RelatedSong)?.song?.id
         if (songId != null) userPreferencesRepository.observeSongPreference(songId) else kotlinx.coroutines.flow.flowOf(null)
@@ -156,6 +159,10 @@ class PlayerViewModel @Inject constructor(
 
     fun toggleDislike(themeId: Long) {
         viewModelScope.launch { userPreferencesRepository.toggleDislike(themeId) }
+    }
+
+    fun setPreferredMode(themeId: Long, mode: String) {
+        viewModelScope.launch { userPreferencesRepository.setPreferredMode(themeId, mode) }
     }
 
     fun toggleModeDislike(themeId: Long, fullSize: Boolean) {

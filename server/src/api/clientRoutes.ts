@@ -116,6 +116,7 @@ export interface ThemePrefDto {
   disliked: boolean;
   dislikedTvSize: boolean;
   dislikedFullSize: boolean;
+  preferredMode: PlaylistPlaybackMode | null;
   playCount: number;
   lastPlayedAt: number | null;
   updatedAt: number;
@@ -127,6 +128,7 @@ export interface ThemePrefPatch {
   disliked?: boolean | undefined;
   dislikedTvSize?: boolean | undefined;
   dislikedFullSize?: boolean | undefined;
+  preferredMode?: PlaylistPlaybackMode | null | undefined;
   // Client op-timestamp (epoch ms) of when the user made this change; drives last-write-wins.
   opTs?: number | undefined;
 }
@@ -279,9 +281,10 @@ const prefPatchBody = z
     disliked: z.boolean().optional(),
     dislikedTvSize: z.boolean().optional(),
     dislikedFullSize: z.boolean().optional(),
+    preferredMode: z.enum(["TV_SIZE", "FULL_SIZE"]).nullable().optional(),
     opTs: z.number().int().nonnegative().optional(),
   })
-  .refine((value) => value.liked !== undefined || value.disliked !== undefined || value.dislikedTvSize !== undefined || value.dislikedFullSize !== undefined, {
+  .refine((value) => value.liked !== undefined || value.disliked !== undefined || value.dislikedTvSize !== undefined || value.dislikedFullSize !== undefined || value.preferredMode !== undefined, {
     message: "At least one preference field is required",
   });
 

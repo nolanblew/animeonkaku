@@ -296,6 +296,10 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch { userPreferencesRepository.toggleDislike(themeId) }
     }
 
+    fun setPreferredMode(themeId: Long, mode: String) {
+        viewModelScope.launch { userPreferencesRepository.setPreferredMode(themeId, mode) }
+    }
+
     fun addSongToPlaylist(playlistId: Long, songId: Long) {
         viewModelScope.launch {
             serverPlaylistWriter.addItems(playlistId, listOf(PlaylistWriteItem(

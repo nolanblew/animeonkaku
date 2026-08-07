@@ -57,6 +57,8 @@ import com.takeya.animeongaku.data.repository.RelatedRelease
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.preferredModeForThemeAction
+import com.takeya.animeongaku.ui.common.themeModePreferenceAction
 import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
 import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
 import com.takeya.animeongaku.ui.common.BrowseVideoWarningDialog
@@ -153,7 +155,9 @@ fun AnimeDetailScreen(
                 isLiked = preference?.isLiked == true,
                 showRemoveDislike = preference?.isDisliked == true,
                 showPlayVideo = BrowseVideoActionPolicy.singleTheme(isOnline, themeModesById[theme.id]),
-                customActions = musicRequestActions
+                customActions = musicRequestActions + listOfNotNull(themeModePreferenceAction(
+                    themeModesById[theme.id]?.fullSizeUrl?.isNotBlank(), preference?.preferredMode
+                ))
             ),
             onDismiss = { sheetTheme = null },
             onPlayNext = { viewModel.nowPlayingManager.playNext(theme, anime) },
@@ -170,7 +174,10 @@ fun AnimeDetailScreen(
             onRemoveDownload = { viewModel.removeDownload(theme.id) },
             onLike = { viewModel.toggleLike(theme.id) },
             onRemoveDislike = { viewModel.toggleDislike(theme.id) },
-            onCustomAction = ::handleMusicRequestAction
+            onCustomAction = { key ->
+                preferredModeForThemeAction(key)?.let { viewModel.setPreferredMode(theme.id, it) }
+                    ?: handleMusicRequestAction(key)
+            }
         )
     }
 

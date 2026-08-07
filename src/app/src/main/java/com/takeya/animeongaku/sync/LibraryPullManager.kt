@@ -87,6 +87,7 @@ class LibraryPullManager @Inject constructor(
                     isDisliked = it.disliked,
                     isDislikedTvSize = it.dislikedTvSize,
                     isDislikedFullSize = it.dislikedFullSize,
+                    preferredMode = it.preferredMode,
                     updatedAt = it.updatedAt,
                     deletedAt = it.updatedAt.takeIf { _ -> it.deleted }
                 )

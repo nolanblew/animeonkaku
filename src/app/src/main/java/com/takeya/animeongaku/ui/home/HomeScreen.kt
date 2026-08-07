@@ -46,6 +46,8 @@ import com.takeya.animeongaku.media.PlayableItem
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.preferredModeForThemeAction
+import com.takeya.animeongaku.ui.common.themeModePreferenceAction
 import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
 import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
 import com.takeya.animeongaku.ui.common.BrowseVideoWarningDialog
@@ -132,7 +134,10 @@ fun HomeScreen(
                     themeModesById[theme.id]
                 ),
                 artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
-                animeName = sheetAnime?.title
+                animeName = sheetAnime?.title,
+                customActions = listOfNotNull(themeModePreferenceAction(
+                    themeModesById[theme.id]?.fullSizeUrl?.isNotBlank(), preference?.preferredMode
+                ))
             ),
             onDismiss = { sheetTheme = null },
             onPlayNext = { viewModel.nowPlayingManager.playNext(theme, sheetAnime) },
@@ -145,7 +150,10 @@ fun HomeScreen(
             onDownload = { viewModel.downloadSong(theme) },
             onRemoveDownload = { viewModel.removeDownload(theme.id) },
             onLike = { viewModel.toggleLike(theme.id) },
-            onRemoveDislike = { viewModel.toggleDislike(theme.id) }
+            onRemoveDislike = { viewModel.toggleDislike(theme.id) },
+            onCustomAction = { key ->
+                preferredModeForThemeAction(key)?.let { viewModel.setPreferredMode(theme.id, it) }
+            }
         )
     }
 

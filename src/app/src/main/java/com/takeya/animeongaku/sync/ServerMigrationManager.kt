@@ -121,7 +121,8 @@ class ServerMigrationManager @Inject constructor(
                 preference.themeId,
                 OngakuThemePrefPatch(
                     liked = preference.isLiked,
-                    disliked = preference.isDisliked
+                    disliked = preference.isDisliked,
+                    preferredMode = preference.preferredMode
                 )
             )
         }

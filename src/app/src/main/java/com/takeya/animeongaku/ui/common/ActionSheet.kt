@@ -98,6 +98,27 @@ data class ActionSheetAction(
     val enabled: Boolean = true
 )
 
+const val PREFER_FULL_SIZE_ACTION = "prefer_full_size"
+const val PREFER_TV_SIZE_ACTION = "prefer_tv_size"
+
+fun themeModePreferenceAction(
+    fullSizeAvailable: Boolean?,
+    preferredMode: String?
+): ActionSheetAction? {
+    if (fullSizeAvailable != true) return null
+    return if (preferredMode == "FULL_SIZE") {
+        ActionSheetAction(PREFER_TV_SIZE_ACTION, "Prefer TV Size")
+    } else {
+        ActionSheetAction(PREFER_FULL_SIZE_ACTION, "Prefer Full Size")
+    }
+}
+
+fun preferredModeForThemeAction(key: String): String? = when (key) {
+    PREFER_FULL_SIZE_ACTION -> "FULL_SIZE"
+    PREFER_TV_SIZE_ACTION -> "TV_SIZE"
+    else -> null
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ActionSheet(

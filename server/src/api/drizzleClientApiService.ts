@@ -495,6 +495,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
         disliked: themePrefs.disliked,
         dislikedTvSize: themePrefs.dislikedTvSize,
         dislikedFullSize: themePrefs.dislikedFullSize,
+        preferredMode: themePrefs.preferredMode,
         playCount: themePrefs.playCount,
         lastPlayedAt: themePrefs.lastPlayedAt,
         updatedAt: themePrefs.updatedAt,
@@ -509,6 +510,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       disliked: row.disliked,
       dislikedTvSize: row.dislikedTvSize,
       dislikedFullSize: row.dislikedFullSize,
+      preferredMode: row.preferredMode,
       playCount: row.playCount,
       lastPlayedAt: dateMillis(row.lastPlayedAt),
       updatedAt: Math.max(dateMillis(row.updatedAt) ?? 0, dateMillis(row.deletedAt) ?? 0),
@@ -524,6 +526,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
         disliked: themePrefs.disliked,
         dislikedTvSize: themePrefs.dislikedTvSize,
         dislikedFullSize: themePrefs.dislikedFullSize,
+        preferredMode: themePrefs.preferredMode,
         playCount: themePrefs.playCount,
         lastPlayedAt: themePrefs.lastPlayedAt,
         updatedAt: themePrefs.updatedAt,
@@ -540,6 +543,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       disliked: row.disliked,
       dislikedTvSize: row.dislikedTvSize,
       dislikedFullSize: row.dislikedFullSize,
+      preferredMode: row.preferredMode,
       playCount: row.playCount,
       lastPlayedAt: dateMillis(row.lastPlayedAt),
       updatedAt: Math.max(dateMillis(row.updatedAt) ?? 0, dateMillis(row.deletedAt) ?? 0),
@@ -588,6 +592,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       disliked: set.disliked ?? false,
       dislikedTvSize: set.dislikedTvSize ?? false,
       dislikedFullSize: set.dislikedFullSize ?? false,
+      preferredMode: set.preferredMode ?? null,
       playCount: 0,
       likedUpdatedAt: opDate,
       updatedAt: now,
@@ -2186,6 +2191,7 @@ function normalizedPrefPatch(patch: ThemePrefPatch, now: Date): Partial<typeof t
     set.dislikedFullSize = patch.dislikedFullSize;
     if (patch.dislikedFullSize) { set.liked = false; set.disliked = false; }
   }
+  if (patch.preferredMode !== undefined) set.preferredMode = patch.preferredMode;
   return set;
 }
 

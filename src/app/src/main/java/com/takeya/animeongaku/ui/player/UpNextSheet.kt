@@ -74,6 +74,8 @@ import com.takeya.animeongaku.media.PlayableItem
 import com.takeya.animeongaku.ui.common.MarqueeText
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.preferredModeForThemeAction
+import com.takeya.animeongaku.ui.common.themeModePreferenceAction
 import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
 import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
 import com.takeya.animeongaku.ui.common.BrowseVideoWarningDialog
@@ -280,6 +282,9 @@ private fun UpNextContent(
                 addAll(anime?.primaryArtworkUrls().orEmpty())
             }.distinct()
             val isDisliked = theme?.id in dislikedThemeIds
+            val preference by remember(theme?.id) {
+                viewModel.observePreference(theme?.id)
+            }.collectAsStateWithLifecycle(initialValue = null)
             ActionSheet(
                 config = ActionSheetConfig(
                     title = item.display.title,
@@ -292,7 +297,12 @@ private fun UpNextContent(
                     showRemoveFromQueue = npIdx >= 0 && npIdx != npState.currentIndex,
                     showRemoveDislike = isDisliked,
                     showUnskip = isDisliked,
-                    showPlayVideo = theme != null && BrowseVideoActionPolicy.singleTheme(!isOffline, queuedModes[theme.id])
+                    showPlayVideo = theme != null && BrowseVideoActionPolicy.singleTheme(!isOffline, queuedModes[theme.id]),
+                    customActions = if (theme == null) emptyList() else listOfNotNull(
+                        themeModePreferenceAction(
+                            queuedModes[theme.id]?.fullSizeUrl?.isNotBlank(), preference?.preferredMode
+                        )
+                    )
                 ),
                 onDismiss = { selectedActionEntry = null },
                 onPlayNext = { if (npIdx >= 0) nowPlayingManager.moveToPlayNext(npIdx) },
@@ -303,6 +313,10 @@ private fun UpNextContent(
                     val request = viewModel.requestQueuedThemeVideo(entry.queueId) ?: return@ActionSheet
                     if (request.warning != null) pendingVideo = entry.queueId to request
                     else if (viewModel.startQueuedThemeVideo(entry.queueId, request)) onDismiss()
+                },
+                onCustomAction = { key ->
+                    val mode = preferredModeForThemeAction(key)
+                    if (theme != null && mode != null) viewModel.setPreferredMode(theme.id, mode)
                 }
             )
         }

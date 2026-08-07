@@ -32,7 +32,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         DownloadItemEntity::class,
         DownloadGroupItemEntity::class
     ],
-    version = 25,
+    version = 26,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -431,6 +431,12 @@ abstract class AppDatabase : RoomDatabase() {
                 addLoudnessColumns(db, "theme_modes", "tvLoudness_")
                 addLoudnessColumns(db, "theme_modes", "fullLoudness_")
                 addLoudnessColumns(db, "download_items", "loudness_")
+            }
+        }
+
+        val MIGRATION_25_26 = object : Migration(25, 26) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `user_preferences` ADD COLUMN `preferredMode` TEXT")
             }
         }
 

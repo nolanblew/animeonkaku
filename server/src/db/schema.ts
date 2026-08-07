@@ -3,6 +3,7 @@ import {
   bigint,
   bigserial,
   boolean,
+  check,
   date,
   doublePrecision,
   index,
@@ -390,6 +391,7 @@ export const themePrefs = pgTable(
     disliked: boolean("disliked").notNull().default(false),
     dislikedTvSize: boolean("disliked_tv_size").notNull().default(false),
     dislikedFullSize: boolean("disliked_full_size").notNull().default(false),
+    preferredMode: text("preferred_mode").$type<PlaylistPlaybackMode>(),
     playCount: integer("play_count").notNull().default(0),
     lastPlayedAt: timestamp("last_played_at", { withTimezone: true }),
     // Dedicated last-write-wins clock for the liked/disliked pair. Kept separate from
@@ -406,6 +408,10 @@ export const themePrefs = pgTable(
     index("theme_prefs_user_liked_active_idx")
       .on(t.userId, t.liked, t.themeId)
       .where(sql`${t.deletedAt} is null`),
+    check(
+      "theme_prefs_preferred_mode_check",
+      sql`${t.preferredMode} is null or ${t.preferredMode} in ('TV_SIZE', 'FULL_SIZE')`,
+    ),
   ],
 );
 
