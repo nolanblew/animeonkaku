@@ -44,6 +44,7 @@ export type MusicAcquisitionState =
   | "FAILED"
   | "AMBIGUOUS";
 export type AnimeMusicRequestSource = "DEBUG_USER" | "AUTOMATIC" | "ADMIN_REIMPORT";
+export type AnimeMusicRequestScope = "FULL_SONGS" | "EXTRA_MUSIC" | "LEGACY_ALL";
 export type AnimeMusicBatchState =
   | "QUEUED" | "SEARCHING" | "AWAITING_OPERATOR" | "DOWNLOADING" | "PROCESSING"
   | "COMPLETED" | "COMPLETED_WITH_WARNINGS" | "FAILED" | "CANCELLED";
@@ -475,12 +476,13 @@ export const animeMusicRequests = pgTable("anime_music_requests", {
   animethemesAnimeId: bigint("animethemes_anime_id", { mode: "number" }).notNull()
     .references(() => animethemesAnime.id),
   source: text("source").$type<AnimeMusicRequestSource>().notNull(),
+  scope: text("scope").$type<AnimeMusicRequestScope>().notNull().default("LEGACY_ALL"),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 }, (t) => [
-  uniqueIndex("anime_music_requests_one_active_anime_unique")
-    .on(t.animethemesAnimeId).where(sql`${t.completedAt} is null`),
+  uniqueIndex("anime_music_requests_one_active_scope_unique")
+    .on(t.animethemesAnimeId, t.scope).where(sql`${t.completedAt} is null`),
   index("anime_music_requests_anime_latest_idx").on(t.animethemesAnimeId, t.createdAt),
 ]);
 
