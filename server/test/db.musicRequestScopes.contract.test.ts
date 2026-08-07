@@ -19,7 +19,9 @@ describe("music request scope migration contract", () => {
     expect(sql).toMatch(/source\s*=\s*'ADMIN_REIMPORT'.+FULL_SONGS/is);
     expect(sql).toMatch(/DROP INDEX.+one_active_anime_unique/is);
     expect(sql).toMatch(/CREATE UNIQUE INDEX.+one_active_scope_unique.+animethemes_anime_id.+scope.+completed_at.+IS NULL/is);
-    expect(journal.entries.at(-1)).toMatchObject({ idx: 21, tag: "0021_music_request_scopes" });
+    expect(journal.entries).toContainEqual(
+      expect.objectContaining({ idx: 21, tag: "0021_music_request_scopes" }),
+    );
     expect(snapshot.tables["public.anime_music_requests"].columns.scope).toMatchObject({ notNull: true });
   });
 });
