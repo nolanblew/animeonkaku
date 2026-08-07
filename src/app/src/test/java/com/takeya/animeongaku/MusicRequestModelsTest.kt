@@ -70,6 +70,24 @@ class MusicRequestModelsTest {
     }
 
     @Test
+    fun `legacy request status retains the enclosing extra music scope`() {
+        val adapter = moshi.adapter(OngakuMusicRequestStatusDto::class.java)
+        val status = adapter.fromJson(
+            """{
+              "kitsuId": "123",
+              "scopes": [
+                {"scope":"EXTRA_MUSIC","active":true,"eligibleCount":2,"availableCount":0,"missingCount":2,
+                 "latest":{"id":"legacy-1","kitsuId":"123","scope":"LEGACY_ALL","state":"SEARCHING",
+                   "active":true,"batchCount":2,"fullThemeCount":1,"counts":{"searching":2},
+                   "requiresOperatorAction":false,"lastUpdatedAt":"2026-08-07T20:00:00.000Z"}}
+              ]
+            }""".trimIndent()
+        )!!.toDomain()
+
+        assertEquals(MusicRequestScope.EXTRA_MUSIC, status[MusicRequestScope.EXTRA_MUSIC].latest!!.scope)
+    }
+
+    @Test
     fun `latest response supports explicit no request`() {
         val adapter = moshi.adapter(OngakuMusicRequestEnvelope::class.java)
         assertNull(adapter.fromJson("""{"request":null}""")!!.request)

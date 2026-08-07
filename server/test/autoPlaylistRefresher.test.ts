@@ -30,4 +30,15 @@ describe("DrizzleAutoPlaylistRefresher helpers", () => {
       17, 18,     // null update time is last, still OP before ED
     ]);
   });
+
+  it("treats unnumbered OP and ED as sequence one with deterministic ties", () => {
+    expect(currentlyWatchingThemeIds([
+      { themeId: 26, animeThemesId: 50, libraryUpdatedAt: 300, themeType: "ED2" },
+      { themeId: 25, animeThemesId: 50, libraryUpdatedAt: 300, themeType: "ED1" },
+      { themeId: 24, animeThemesId: 50, libraryUpdatedAt: 300, themeType: "ED" },
+      { themeId: 23, animeThemesId: 50, libraryUpdatedAt: 300, themeType: "OP2" },
+      { themeId: 22, animeThemesId: 50, libraryUpdatedAt: 300, themeType: "OP1" },
+      { themeId: 21, animeThemesId: 50, libraryUpdatedAt: 300, themeType: "OP" },
+    ])).toEqual([21, 22, 23, 24, 25, 26]);
+  });
 });

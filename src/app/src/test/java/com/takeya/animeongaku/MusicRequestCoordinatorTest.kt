@@ -118,6 +118,37 @@ class MusicRequestCoordinatorTest {
     }
 
     @Test
+    fun `legacy request shown for extra music keeps polling and progress under extra music`() = runTest {
+        val legacyActive = request("legacy-1", MusicRequestScope.FULL_SONGS, MusicRequestState.SEARCHING, active = true, pollSeconds = 1)
+        val legacyDone = request("legacy-1", MusicRequestScope.FULL_SONGS, MusicRequestState.COMPLETED, active = false)
+        val repository = FakeMusicRequestRepository(
+            statuses = ArrayDeque(
+                listOf(
+                    status(
+                        scopeStatus(MusicRequestScope.FULL_SONGS, eligible = 4, missing = 0),
+                        scopeStatus(MusicRequestScope.EXTRA_MUSIC, eligible = 2, missing = 2, latest = legacyActive)
+                    ),
+                    status(
+                        scopeStatus(MusicRequestScope.FULL_SONGS, eligible = 4, missing = 0),
+                        scopeStatus(MusicRequestScope.EXTRA_MUSIC, eligible = 2, missing = 0, latest = legacyDone)
+                    )
+                )
+            ),
+            polled = mutableMapOf("legacy-1" to legacyDone)
+        )
+        val coordinator = MusicRequestCoordinator(repository, this, defaultPollDelayMillis = 1_000)
+
+        coordinator.hydrate("123")
+        runCurrent()
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertTrue(coordinator.state.value[MusicRequestScope.EXTRA_MUSIC].progress is MusicRequestUiState.Completed)
+        assertTrue(coordinator.state.value[MusicRequestScope.FULL_SONGS].progress is MusicRequestUiState.Idle)
+        coordinator.cancel()
+    }
+
+    @Test
     fun `rehydration does not create duplicate polling loops`() = runTest {
         val active = request("full-1", MusicRequestScope.FULL_SONGS, MusicRequestState.SEARCHING, active = true, pollSeconds = 1)
         val done = request("full-1", MusicRequestScope.FULL_SONGS, MusicRequestState.COMPLETED, active = false)

@@ -167,6 +167,24 @@ class FilterEvaluatorSortTest {
     }
 
     @Test
+    fun `unnumbered OP and ED are sequence one with deterministic grouped and interleaved ties`() {
+        val op = theme(21, themeType = "OP")
+        val op1 = theme(22, themeType = "OP1")
+        val op2 = theme(23, themeType = "OP2")
+        val ed = theme(24, themeType = "ED")
+        val ed1 = theme(25, themeType = "ED1")
+        val ed2 = theme(26, themeType = "ED2")
+        val input = listOf(ed2, op2, ed1, op1, ed, op)
+        val context = ctx(input)
+
+        val grouped = SortSpec(listOf(SortKey(SortAttribute.THEME_ORDER_GROUPED)))
+        val interleaved = SortSpec(listOf(SortKey(SortAttribute.THEME_ORDER_INTERLEAVED)))
+
+        assertEquals(listOf(21L, 22L, 23L, 24L, 25L, 26L), input.sortedBy(grouped, context))
+        assertEquals(listOf(21L, 22L, 24L, 25L, 23L, 26L), input.sortedBy(interleaved, context))
+    }
+
+    @Test
     fun `multi key tiebreaking uses later keys only for equal earlier values`() {
         val animeA = anime("a", 10L, libraryUpdatedAt = 500L)
         val animeB = anime("b", 20L, libraryUpdatedAt = 500L)
