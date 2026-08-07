@@ -34,6 +34,7 @@ import com.takeya.animeongaku.sync.SyncEngineStore
 import com.takeya.animeongaku.sync.remappedDynamicSpec
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -41,18 +42,23 @@ import retrofit2.Response
 
 class SyncEngineTest {
     @Test
-    fun `pending preference payload preserves nullable preferred mode`() = runBlocking {
+    fun `pending preference payload preserves nullable preferred mode without merging reaction writes`() = runBlocking {
         val store = FakeSyncEngineStore()
         val api = SyncRecordingOngakuApi()
         val engine = syncEngine(store, api)
 
+        engine.enqueueThemePreferredMode(themeId = 100L, preferredMode = null, opTs = 20L)
         engine.enqueueThemePreference(
-            UserPreferenceEntity(themeId = 100L, isLiked = true, preferredMode = "FULL_SIZE", updatedAt = 20L)
+            UserPreferenceEntity(themeId = 100L, isLiked = true, preferredMode = "FULL_SIZE", updatedAt = 21L)
         )
         engine.pushPendingWrites()
 
-        assertEquals("FULL_SIZE", api.prefWrites.single().second.preferredMode)
-        assertEquals(true, api.prefWrites.single().second.liked)
+        assertEquals(2, api.prefWrites.size)
+        assertTrue(api.prefWrites[0].second.includePreferredMode)
+        assertNull(api.prefWrites[0].second.preferredMode)
+        assertFalse(api.prefWrites[1].second.includePreferredMode)
+        assertEquals(true, api.prefWrites[1].second.liked)
+        assertNull(api.prefWrites[1].second.preferredMode)
     }
 
     @Test

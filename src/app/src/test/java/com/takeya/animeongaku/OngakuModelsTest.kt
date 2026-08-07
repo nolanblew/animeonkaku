@@ -11,6 +11,7 @@ import com.takeya.animeongaku.data.remote.OngakuChangesResponse
 import com.takeya.animeongaku.data.remote.OngakuSyncStatusResponse
 import com.takeya.animeongaku.data.remote.OngakuThemePrefDto
 import com.takeya.animeongaku.data.remote.OngakuThemePrefPatch
+import com.takeya.animeongaku.data.remote.OngakuThemePrefPatchJsonAdapter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -33,6 +34,23 @@ class OngakuModelsTest {
 
         assertEquals("FULL_SIZE", dto.preferredMode)
         assertTrue(patchJson.contains("\"preferredMode\":\"TV_SIZE\""))
+    }
+
+    @Test
+    fun `theme preference patch distinguishes explicit inherit from an omitted field`() {
+        val adapter = Moshi.Builder()
+            .add(OngakuThemePrefPatch::class.java, OngakuThemePrefPatchJsonAdapter())
+            .add(KotlinJsonAdapterFactory())
+            .build()
+            .adapter(OngakuThemePrefPatch::class.java)
+
+        val inheritJson = adapter.toJson(
+            OngakuThemePrefPatch(preferredMode = null, includePreferredMode = true)
+        )
+        val reactionJson = adapter.toJson(OngakuThemePrefPatch(liked = true))
+
+        assertTrue(inheritJson.contains("\"preferredMode\":null"))
+        assertFalse(reactionJson.contains("preferredMode"))
     }
 
     @Test
