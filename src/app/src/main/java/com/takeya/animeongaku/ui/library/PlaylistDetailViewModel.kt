@@ -229,23 +229,8 @@ class PlaylistDetailViewModel @Inject constructor(
             )
             return@combine applyDynamicDeviceOverlay(trackList, filter, sort, context)
         }
-        if (pl?.isAuto == true && trackList.isNotEmpty()) {
-            val animeMap = animeList.mapNotNull { a -> a.animeThemesId?.let { it to a } }.toMap()
-            trackList.sortedWith(compareBy<PlaylistTrack> { track ->
-                val a = track.theme.animeId?.let { animeMap[it] }
-                a?.title?.lowercase() ?: "\uFFFF"
-            }.thenBy { track ->
-                val type = track.theme.themeType?.uppercase() ?: ""
-                when {
-                    type.startsWith("OP") -> 0
-                    type.startsWith("ED") -> 1
-                    else -> 2
-                }
-            }.thenBy { track ->
-                val type = track.theme.themeType ?: ""
-                val num = type.filter { it.isDigit() }
-                num.toIntOrNull() ?: 0
-            })
+        if (pl?.isAuto == true) {
+            preserveMaterializedPlaylistOrder(trackList)
         } else {
             trackList
         }
@@ -583,6 +568,9 @@ class PlaylistDetailViewModel @Inject constructor(
         }
     }
 }
+
+/** Auto playlist order is materialized by the server and already sorted by PlaylistDao. */
+internal fun preserveMaterializedPlaylistOrder(tracks: List<PlaylistTrack>): List<PlaylistTrack> = tracks
 
 private fun PlaylistItemRow.baseModePolicy(defaultMode: String?): BaseModePolicy =
     BaseModePolicy(

@@ -29,20 +29,18 @@ export class DrizzleAutoPlaylistRefresher {
     await this.saveAutoPlaylist(
       userId,
       "CURRENTLY_WATCHING",
-      await this.libraryThemeIds(userId, "current"),
+      await this.currentlyWatchingThemeIds(userId),
     );
     await this.saveAutoPlaylist(userId, "LIKED_SONGS", await this.likedThemeIds(userId));
   }
 
-  private async libraryThemeIds(userId: string, status?: string): Promise<number[]> {
+  private async libraryThemeIds(userId: string): Promise<number[]> {
     const conditions = [
       eq(libraryEntries.userId, userId),
       isNull(libraryEntries.deletedAt),
       isNull(themes.deletedAt),
       isNotNull(kitsuAnime.animethemesAnimeId),
     ];
-    if (status !== undefined) conditions.push(eq(libraryEntries.watchingStatus, status));
-
     const rows = await this.db
       .select({ themeId: themes.id })
       .from(libraryEntries)
@@ -51,6 +49,33 @@ export class DrizzleAutoPlaylistRefresher {
       .where(and(...conditions))
       .orderBy(asc(themes.id));
     return uniqueNumbers(rows.map((row) => row.themeId));
+  }
+
+  private async currentlyWatchingThemeIds(userId: string): Promise<number[]> {
+    const rows = await this.db
+      .select({
+        themeId: themes.id,
+        animeThemesId: kitsuAnime.animethemesAnimeId,
+        libraryUpdatedAt: libraryEntries.libraryUpdatedAt,
+        themeType: themes.themeType,
+      })
+      .from(libraryEntries)
+      .innerJoin(kitsuAnime, eq(libraryEntries.kitsuId, kitsuAnime.kitsuId))
+      .innerJoin(themes, eq(kitsuAnime.animethemesAnimeId, themes.animethemesAnimeId))
+      .where(and(
+        eq(libraryEntries.userId, userId),
+        eq(libraryEntries.watchingStatus, "current"),
+        isNull(libraryEntries.deletedAt),
+        isNull(themes.deletedAt),
+        isNotNull(kitsuAnime.animethemesAnimeId),
+      ))
+      .orderBy(asc(themes.id));
+    return currentlyWatchingThemeIds(rows.map((row) => ({
+      themeId: row.themeId,
+      animeThemesId: row.animeThemesId!,
+      libraryUpdatedAt: row.libraryUpdatedAt?.getTime() ?? null,
+      themeType: row.themeType,
+    })));
   }
 
   private async likedThemeIds(userId: string): Promise<number[]> {
@@ -165,6 +190,67 @@ function uniqueNumbers(items: number[]): number[] {
 export function orderedThemeIdsMatch(current: number[], next: number[]): boolean {
   if (current.length !== next.length) return false;
   return current.every((themeId, index) => themeId === next[index]);
+}
+
+export interface CurrentlyWatchingThemeRow {
+  themeId: number;
+  animeThemesId: number;
+  libraryUpdatedAt: number | null;
+  themeType: string | null;
+}
+
+/** The persisted Current Watching order: newest anime first, then OPs, EDs, and remaining themes. */
+export function currentlyWatchingThemeIds(rows: CurrentlyWatchingThemeRow[]): number[] {
+  return uniqueNumbers(
+    [...rows]
+      .filter((row) => Number.isInteger(row.animeThemesId) && row.animeThemesId > 0)
+      .sort(compareCurrentlyWatchingThemes)
+      .map((row) => row.themeId),
+  );
+}
+
+function compareCurrentlyWatchingThemes(a: CurrentlyWatchingThemeRow, b: CurrentlyWatchingThemeRow): number {
+  const updateCmp = compareNullableDescending(a.libraryUpdatedAt, b.libraryUpdatedAt);
+  if (updateCmp !== 0) return updateCmp;
+  if (a.animeThemesId !== b.animeThemesId) return a.animeThemesId - b.animeThemesId;
+
+  const themeCmp = compareGroupedNaturalThemeType(a.themeType, b.themeType);
+  if (themeCmp !== 0) return themeCmp;
+  return a.themeId - b.themeId;
+}
+
+function compareNullableDescending(a: number | null, b: number | null): number {
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return b - a;
+}
+
+function compareGroupedNaturalThemeType(a: string | null, b: string | null): number {
+  const aParts = naturalThemeTypeParts(a);
+  const bParts = naturalThemeTypeParts(b);
+  if (aParts.group !== bParts.group) return aParts.group - bParts.group;
+  if (aParts.sequence !== bParts.sequence) return aParts.sequence - bParts.sequence;
+  return compareCaseInsensitive(aParts.normalized, bParts.normalized);
+}
+
+function naturalThemeTypeParts(themeType: string | null): {
+  group: number;
+  sequence: number;
+  normalized: string;
+} {
+  const normalized = themeType?.toUpperCase() ?? "";
+  const group = normalized.startsWith("OP") ? 0 : normalized.startsWith("ED") ? 1 : 2;
+  const digits = normalized.replace(/\D/g, "");
+  return {
+    group,
+    sequence: digits.length > 0 ? Number.parseInt(digits, 10) : Number.MAX_SAFE_INTEGER,
+    normalized,
+  };
+}
+
+function compareCaseInsensitive(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 function gradientSeed(kind: AutoPlaylistKind): number {

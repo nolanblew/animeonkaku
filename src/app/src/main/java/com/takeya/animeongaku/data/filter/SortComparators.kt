@@ -55,6 +55,8 @@ private fun comparatorForKey(
                     theme.themeType?.filter { ch -> ch.isDigit() }?.toIntOrNull() ?: 0
                 }
         }
+        SortAttribute.THEME_ORDER_GROUPED -> groupedNaturalThemeOrder()
+        SortAttribute.THEME_ORDER_INTERLEAVED -> interleavedNaturalThemeOrder()
         SortAttribute.WATCHING_STATUS -> {
             val order = key.categoricalOrder ?: SortKey.defaultCategoricalOrder(SortAttribute.WATCHING_STATUS)
             Comparator.comparingInt<ThemeEntity> { categoricalRank(animeFor(it, ctx)?.watchingStatus, order) }
@@ -95,6 +97,55 @@ private fun comparatorForKey(
             booleanComparator(descending) { it.id in ctx.downloadedThemeIds }
         SortAttribute.RANDOM -> Comparator { _, _ -> 0 } // handled above, never reached
     }
+}
+
+private data class NaturalThemeParts(
+    val group: Int,
+    val sequence: Int,
+    val normalized: String
+)
+
+private fun naturalThemeParts(themeType: String?): NaturalThemeParts {
+    val normalized = themeType?.uppercase().orEmpty()
+    val digits = normalized.filter(Char::isDigit)
+    return NaturalThemeParts(
+        group = when {
+            normalized.startsWith("OP") -> 0
+            normalized.startsWith("ED") -> 1
+            else -> 2
+        },
+        sequence = digits.toIntOrNull() ?: Int.MAX_VALUE,
+        normalized = normalized
+    )
+}
+
+private fun groupedNaturalThemeOrder(): Comparator<ThemeEntity> = Comparator { a, b ->
+    val aParts = naturalThemeParts(a.themeType)
+    val bParts = naturalThemeParts(b.themeType)
+    when {
+        aParts.group != bParts.group -> aParts.group.compareTo(bParts.group)
+        aParts.sequence != bParts.sequence -> aParts.sequence.compareTo(bParts.sequence)
+        else -> String.CASE_INSENSITIVE_ORDER.compare(aParts.normalized, bParts.normalized)
+    }
+}
+
+private fun interleavedNaturalThemeOrder(): Comparator<ThemeEntity> = Comparator { a, b ->
+    val aParts = naturalThemeParts(a.themeType)
+    val bParts = naturalThemeParts(b.themeType)
+    val aPhase = interleavedPhase(aParts)
+    val bPhase = interleavedPhase(bParts)
+    when {
+        aPhase != bPhase -> aPhase.compareTo(bPhase)
+        aParts.sequence != bParts.sequence -> aParts.sequence.compareTo(bParts.sequence)
+        aParts.group != bParts.group -> aParts.group.compareTo(bParts.group)
+        else -> String.CASE_INSENSITIVE_ORDER.compare(aParts.normalized, bParts.normalized)
+    }
+}
+
+private fun interleavedPhase(parts: NaturalThemeParts): Int = when {
+    parts.sequence == Int.MAX_VALUE -> 2
+    parts.group < 2 -> 0
+    else -> 1
 }
 
 private inline fun nullableStringComparator(
@@ -192,7 +243,8 @@ private fun themeDefaultOrder(ctx: EvaluationContext): Comparator<ThemeEntity> =
         if (typeRankA != typeRankB) return@Comparator typeRankA - typeRankB
         val seqA = a.themeType?.filter { it.isDigit() }?.toIntOrNull() ?: 0
         val seqB = b.themeType?.filter { it.isDigit() }?.toIntOrNull() ?: 0
-        seqA - seqB
+        val sequenceCmp = seqA.compareTo(seqB)
+        if (sequenceCmp != 0) sequenceCmp else a.id.compareTo(b.id)
     }
 
 /**

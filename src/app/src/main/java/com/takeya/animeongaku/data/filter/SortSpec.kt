@@ -10,6 +10,8 @@ enum class SortAttribute(val valueKind: SortValueKind) {
     ARTIST(SortValueKind.STRING),
     ANIME_TITLE(SortValueKind.STRING),
     THEME_TYPE(SortValueKind.CATEGORICAL),
+    THEME_ORDER_GROUPED(SortValueKind.FIXED_ORDER),
+    THEME_ORDER_INTERLEAVED(SortValueKind.FIXED_ORDER),
     AIRED_DATE(SortValueKind.DATE),
     WATCHED_DATE(SortValueKind.DATE),
     AVERAGE_RATING(SortValueKind.NUMBER),
@@ -32,6 +34,8 @@ enum class SortValueKind {
     BOOLEAN,
     /** Fixed-value set; direction is replaced by a custom drag-reorder list. */
     CATEGORICAL,
+    /** A domain-specific natural order that cannot be reversed or customized. */
+    FIXED_ORDER,
     /** Deterministic shuffle; direction is ignored. */
     RANDOM
 }
