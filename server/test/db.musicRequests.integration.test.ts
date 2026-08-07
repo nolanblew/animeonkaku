@@ -10,6 +10,29 @@ import type { AmfJob } from "../src/music/animeMusicFetcher/schemas.js";
 const adminDatabaseUrl = process.env.MIGRATION_TEST_DATABASE_URL;
 
 describe.skipIf(!adminDatabaseUrl)("anime music requests (PostgreSQL)", () => {
+  it("runs FULL_SONGS and EXTRA_MUSIC independently while replaying the matching active scope", async () => {
+    await withDatabase(async (pool) => {
+      await seedAnime(pool);
+      const repo = new PgMusicRequestRepository(pool);
+      const full = scopedRequest("full-request", "full-batch", "full-item", "FULL_SONGS", "OP");
+      const extra = scopedRequest("extra-request", "extra-batch", "extra-item", "EXTRA_MUSIC", "OST");
+
+      const [createdFull, createdExtra] = await Promise.all([
+        repo.createOrReplay(full),
+        repo.createOrReplay(extra),
+      ]);
+      const replayedFull = await repo.createOrReplay(scopedRequest("full-replay", "full-replay-batch", "full-replay-item", "FULL_SONGS", "ED"));
+
+      expect(createdFull).toMatchObject({ created: true, request: { id: "full-request", scope: "FULL_SONGS" } });
+      expect(createdExtra).toMatchObject({ created: true, request: { id: "extra-request", scope: "EXTRA_MUSIC" } });
+      expect(replayedFull).toMatchObject({ created: false, request: { id: "full-request", scope: "FULL_SONGS" } });
+      expect((await pool.query("SELECT scope FROM anime_music_requests ORDER BY scope")).rows)
+        .toEqual([{ scope: "EXTRA_MUSIC" }, { scope: "FULL_SONGS" }]);
+      await expect(repo.findLatest(42, "FULL_SONGS")).resolves.toMatchObject({ id: "full-request" });
+      await expect(repo.findLatest(42, "EXTRA_MUSIC")).resolves.toMatchObject({ id: "extra-request" });
+    });
+  });
+
   it("atomically supersedes an awaiting-operator request for an admin re-import", async () => {
     await withDatabase(async (pool) => {
       await pool.query("INSERT INTO users (kitsu_user_id,username) VALUES ('u1','one')");
@@ -351,10 +374,19 @@ function completedJob(): AmfJob {
 }
 
 function newRequest(id: string, batchId: string, itemId: string, userId: string, kitsuId: string): NewMusicRequest {
-  return { id, requestedByUserId: userId, kitsuId, animeThemesAnimeId: 42, source: "DEBUG_USER", batches: [{
+  return { id, requestedByUserId: userId, kitsuId, animeThemesAnimeId: 42, source: "DEBUG_USER", scope: "LEGACY_ALL", batches: [{
     id: batchId, index: 0, idempotencyKey: `anime-ongaku:${id}:0`,
     body: { titles: { romaji: "Show" }, items: [{ kind: "OST" }], destination: `anime-ongaku-staging/request-${id}/batch-0` },
     items: [{ id: itemId, itemIndex: 0, kind: "OST", number: null, themeId: null }],
+  }] };
+}
+
+function scopedRequest(id: string, batchId: string, itemId: string, scope: "FULL_SONGS" | "EXTRA_MUSIC", kind: "OP" | "ED" | "OST"): NewMusicRequest {
+  const numbered = kind === "OP" || kind === "ED";
+  return { id, requestedByUserId: "u1", kitsuId: "k1", animeThemesAnimeId: 42, source: "DEBUG_USER", scope, batches: [{
+    id: batchId, index: 0, idempotencyKey: `anime-ongaku:${id}:0`,
+    body: { titles: { romaji: "Show" }, items: [{ kind, ...(numbered ? { number: 1, version: "FULL" as const, release_preference: "INDIVIDUAL" as const } : {}) }], destination: `anime-ongaku-staging/request-${id}/batch-0` },
+    items: [{ id: itemId, itemIndex: 0, kind, number: numbered ? 1 : null, themeId: numbered ? 1 : null }],
   }] };
 }
 
