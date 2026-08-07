@@ -1,0 +1,113 @@
+import type { CircuitBreaker } from "./circuitBreaker.js";
+import { fetchWithRetry, type RetryOptions } from "./retry.js";
+import type { TokenBucket, UpstreamLane } from "./tokenBucket.js";
+import { realSleep, type FetchLike, type Sleep } from "./types.js";
+import type { AppLogger } from "../logging.js";
+import { safeExternalUrl } from "../logging.js";
+
+export class CircuitOpenError extends Error {
+  constructor(name: string) {
+    super(`Upstream "${name}" is temporarily unavailable (circuit open).`);
+    this.name = "CircuitOpenError";
+  }
+}
+
+export interface UpstreamHttpOptions {
+  fetch?: FetchLike;
+  bucket?: TokenBucket;
+  breaker?: CircuitBreaker;
+  sleep?: Sleep;
+  name?: string;
+  logger?: AppLogger;
+  maxRetries?: number;
+  /**
+   * Which token-bucket lane this instance's requests use. "interactive"
+   * (default) is for request/response paths a client is actively waiting on;
+   * "background" is for job-queue work that must yield the shared per-host
+   * budget to interactive traffic.
+   */
+  lane?: UpstreamLane;
+  /**
+   * Non-5xx response statuses that should additionally count as breaker
+   * failures. Used for hosts that hard-block with a non-retryable status —
+   * e.g. AnimeThemes behind Cloudflare returns 403, which would otherwise be
+   * recorded as a success and let the queue hammer a blocked origin forever.
+   */
+  breakerStatuses?: number[];
+}
+
+/**
+ * Composes the politeness stack for one upstream host (doc 06):
+ * circuit breaker (checked once per logical request) → token bucket
+ * (one token per physical attempt) → retry with Retry-After support.
+ * 5xx and network errors feed the breaker; 4xx (incl. 429) do not, unless a
+ * status is listed in `breakerStatuses` (e.g. a Cloudflare 403 block).
+ */
+export class UpstreamHttp {
+  private readonly fetchImpl: FetchLike;
+  private readonly bucket: TokenBucket | undefined;
+  private readonly breaker: CircuitBreaker | undefined;
+  private readonly sleep: Sleep;
+  private readonly name: string;
+  private readonly logger: AppLogger | undefined;
+  private readonly retryOptions: RetryOptions;
+  private readonly breakerStatuses: Set<number>;
+  private readonly lane: UpstreamLane;
+
+  constructor(options: UpstreamHttpOptions = {}) {
+    this.lane = options.lane ?? "interactive";
+    this.fetchImpl = options.fetch ?? ((url, init) => fetch(url, init));
+    this.bucket = options.bucket;
+    this.breaker = options.breaker;
+    this.sleep = options.sleep ?? realSleep;
+    this.name = options.name ?? "upstream";
+    this.logger = options.logger;
+    this.breakerStatuses = new Set(options.breakerStatuses ?? []);
+    this.retryOptions = {
+      sleep: this.sleep,
+      ...(options.maxRetries !== undefined ? { maxRetries: options.maxRetries } : {}),
+    };
+  }
+
+  async request(url: string, init?: RequestInit): Promise<Response> {
+    const method = init?.method ?? "GET";
+    const logData = {
+      upstream: this.name,
+      method,
+      url: safeExternalUrl(url),
+      externalHit: true,
+    };
+
+    if (this.breaker && !this.breaker.canRequest()) {
+      this.logger?.warn?.(logData, "external upstream circuit open");
+      throw new CircuitOpenError(this.name);
+    }
+
+    const limitedFetch: FetchLike = async (u, i) => {
+      await this.bucket?.acquire(this.lane);
+      return this.fetchImpl(u, i);
+    };
+
+    try {
+      this.logger?.info(logData, "external upstream request");
+      const response = await fetchWithRetry(limitedFetch, url, init, this.retryOptions);
+      this.logger?.info({ ...logData, status: response.status }, "external upstream response");
+      if (response.status >= 500 || this.breakerStatuses.has(response.status)) {
+        this.breaker?.recordFailure();
+      } else {
+        this.breaker?.recordSuccess();
+      }
+      return response;
+    } catch (error) {
+      this.breaker?.recordFailure();
+      this.logger?.warn?.(
+        {
+          ...logData,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "external upstream request failed",
+      );
+      throw error;
+    }
+  }
+}

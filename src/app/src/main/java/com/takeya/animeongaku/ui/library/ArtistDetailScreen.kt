@@ -53,12 +53,15 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.AnimeEntity
-import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.repository.RelatedTrack
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
+import com.takeya.animeongaku.ui.common.BrowseVideoWarningDialog
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
 import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.theme.Ember400
@@ -78,6 +81,7 @@ fun ArtistDetailScreen(
     viewModel: ArtistDetailViewModel = hiltViewModel()
 ) {
     val themes by viewModel.themes.collectAsStateWithLifecycle()
+    val catalogTracks by viewModel.catalogTracks.collectAsStateWithLifecycle()
     val topSongs by viewModel.topSongs.collectAsStateWithLifecycle()
     val allSongsSorted by viewModel.allSongsSorted.collectAsStateWithLifecycle()
     val anime by viewModel.anime.collectAsStateWithLifecycle()
@@ -90,8 +94,8 @@ fun ArtistDetailScreen(
     val libraryThemeIds by viewModel.libraryThemeIds.collectAsStateWithLifecycle()
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
     val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
-    val likedThemeIds by viewModel.likedThemeIds.collectAsStateWithLifecycle()
-    val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+    val themeModesById by viewModel.themeModesById.collectAsStateWithLifecycle()
     val artistName = viewModel.artistName
     val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
 
@@ -103,18 +107,37 @@ fun ArtistDetailScreen(
     var showArtistSheet by remember { mutableStateOf(false) }
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
     var showAllSongs by remember { mutableStateOf(false) }
+    var pendingVideoRequest by remember { mutableStateOf<BrowseVideoStartRequest?>(null) }
+
+    fun handleVideoRequest(request: BrowseVideoStartRequest?) {
+        if (request == null) return
+        if (request.warning != null) pendingVideoRequest = request
+        else if (viewModel.startPlayVideo(request)) onPlayTheme()
+    }
+
+    pendingVideoRequest?.let { request ->
+        BrowseVideoWarningDialog(request, { pendingVideoRequest = null }) {
+            pendingVideoRequest = null
+            if (viewModel.startPlayVideo(request)) onPlayTheme()
+        }
+    }
 
     sheetTheme?.let { theme ->
         val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
+        val sheetAnimeImageUrls = sheetAnime?.primaryArtworkUrls() ?: emptyList()
         val info = theme.displayInfo(sheetAnime)
         val songInLibrary = theme.id in libraryThemeIds
         val isDownloaded = theme.id in downloadedThemeIds
         val isDownloading = theme.id in downloadingThemeIds
+        val preference by remember(theme.id) {
+            viewModel.observePreference(theme.id)
+        }.collectAsStateWithLifecycle(initialValue = null)
         ActionSheet(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.primaryArtworkUrl(),
+                imageUrl = sheetAnimeImageUrls.firstOrNull(),
+                imageUrls = sheetAnimeImageUrls,
                 showGoToAnime = sheetAnime?.kitsuId != null,
                 animeName = sheetAnime?.title,
                 showAddToLibrary = !songInLibrary,
@@ -122,13 +145,18 @@ fun ArtistDetailScreen(
                 showDownloading = isDownloading,
                 showRemoveDownload = isDownloaded,
                 showLike = true,
-                isLiked = theme.id in likedThemeIds,
-                showRemoveDislike = theme.id in dislikedThemeIds
+                isLiked = preference?.isLiked == true,
+                showRemoveDislike = preference?.isDisliked == true,
+                showPlayVideo = BrowseVideoActionPolicy.singleTheme(
+                    isOnline,
+                    themeModesById[theme.id]
+                )
             ),
             onDismiss = { sheetTheme = null },
             onPlayNext = { viewModel.nowPlayingManager.playNext(theme, sheetAnime) },
             onAddToQueue = { viewModel.nowPlayingManager.addToQueue(theme, sheetAnime) },
             onReplaceQueue = { viewModel.nowPlayingManager.play("Now Playing", listOf(theme), 0, animeMap = sheetAnime?.let { a -> theme.animeId?.let { mapOf(it to a) } } ?: emptyMap()) },
+            onPlayVideo = { handleVideoRequest(viewModel.requestPlayVideo(theme.id)) },
             onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) },
             onGoToAnime = { sheetAnime?.kitsuId?.let { onOpenAnime(it) } },
             onAddToLibrary = { viewModel.saveSongToLibrary(theme.id) },
@@ -165,6 +193,15 @@ fun ArtistDetailScreen(
             },
             onCreatePlaylist = { name ->
                 viewModel.createAndAddToPlaylist(name, ids)
+                pickerThemeIds = null
+            },
+            showThemeModeChoice = true,
+            onSelectPlaylistWithMode = { playlistId, modeOverride ->
+                viewModel.addToPlaylist(playlistId, ids, modeOverride)
+                pickerThemeIds = null
+            },
+            onCreatePlaylistWithMode = { name, modeOverride ->
+                viewModel.createAndAddToPlaylist(name, ids, modeOverride)
                 pickerThemeIds = null
             }
         )
@@ -259,7 +296,7 @@ fun ArtistDetailScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "${themes.size} songs · ${artistAnime.size} anime",
+                            text = "${themes.size + catalogTracks.size} songs · ${artistAnime.size} anime",
                             style = MaterialTheme.typography.labelMedium,
                             color = Mist200
                         )
@@ -379,6 +416,19 @@ fun ArtistDetailScreen(
                 }
             }
 
+            if (catalogTracks.isNotEmpty()) {
+                item {
+                    Text("Full songs & albums", style = MaterialTheme.typography.titleMedium, color = Mist100,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
+                }
+                itemsIndexed(catalogTracks, key = { _, track -> "catalog-${track.song.id}-${track.release.id}" }) { index, track ->
+                    ArtistCatalogTrackRow(index + 1, track) {
+                        viewModel.playCatalogTrack(track)
+                        onPlayTheme()
+                    }
+                }
+            }
+
             // Anime section
             if (artistAnime.isNotEmpty()) {
                 item {
@@ -402,6 +452,18 @@ fun ArtistDetailScreen(
                 Spacer(modifier = Modifier.height(90.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun ArtistCatalogTrackRow(index: Int, track: RelatedTrack, onPlay: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onPlay).padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(index.toString(), color = Mist200, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(30.dp))
+        Column(Modifier.weight(1f)) {
+            Text(track.song.title, color = Mist100, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(track.release.title, color = Mist200, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Icon(Icons.Rounded.PlayArrow, contentDescription = "Play ${track.song.title}", tint = Mist200, modifier = Modifier.size(20.dp))
     }
 }
 

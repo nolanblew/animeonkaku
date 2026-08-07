@@ -6,13 +6,13 @@
 
 ## What It Does
 
-Anime Ongaku is a native Android music player designed for anime opening and ending themes. By connecting to your Kitsu account, it can sync your anime library and fetch matching music tracks from AnimeThemes.
+Anime Ongaku is a native Android music player designed for anime opening and ending themes. It connects to a self-hosted Anime Ongaku server, which signs in to Kitsu and syncs matching tracks from AnimeThemes.
 
 Features include:
 
-- **Library sync**: Connect your Kitsu account to import watched and currently watching anime.
+- **Library sync**: Configure your Anime Ongaku server and sign in with your Kitsu username/email and password to import watched and currently watching anime.
 - **Auto-playlists**: Automatically generate and update playlists from shows you are currently watching.
-- **Offline playback**: Download tracks for offline listening, with an optional Wi-Fi-only download setting.
+- **Offline playback**: Download tracks for offline listening, with an optional Wi-Fi-only download setting. Existing downloaded files keep playing even without server access.
 - **Background playback and media controls**: Support Android media sessions, lock-screen controls, background playback, and Android Auto through Media3/ExoPlayer.
 - **Smart queueing**: YouTube Music-style up-next queue with shuffle, repeat, and suggested autoplay behavior.
 - **Custom playlists**: Create, manage, and add tracks to custom playlists.
@@ -22,7 +22,98 @@ Features include:
 - **UI architecture**: Jetpack Compose, Material 3, ViewModels, and StateFlow.
 - **Media engine**: AndroidX Media3/ExoPlayer with a foreground playback service.
 - **Data layer**: Room Database for local caching, plus Kotlin Coroutines and Flows for reactive UI updates.
-- **APIs**: Kitsu API for user library sync and AnimeThemes API for song metadata, artist information, and audio streaming URLs.
+- **APIs**: Android talks to the Anime Ongaku server for auth, sync, search, media URLs, preferences, plays, and playlists. The Android app no longer calls Kitsu or AnimeThemes directly; the server owns those tokens, rate limits, media fetches, and caches.
+
+## Server Requirement
+
+Network sync, search, and playback of non-downloaded tracks use the configured Anime Ongaku server URL. Normal builds default to the published server at `https://ongaku-api.takeya.ninja/`. The server authenticates against Kitsu using either a Kitsu username or email plus password, then exposes stable `/v1/media/audio/{themeId}` URLs to the app.
+
+Already-downloaded files remain playable offline because the Android app keeps its Room cache and downloaded audio files on device.
+
+### Run the Server Locally
+
+The quickest local server path is Docker Compose from `server/`:
+
+```powershell
+cd .\server
+Copy-Item .env.example .env
+# Edit .env. Use KITSU_AUTH_MODE=real for real Kitsu login, or stub for local smoke tests.
+docker compose up -d --build
+Invoke-RestMethod http://localhost:48668/healthz
+```
+
+The compose stack starts the API on `http://localhost:48668` and Postgres in a sibling container. Database and media data use Docker named volumes (`pgdata` and `media`) so they survive container rebuilds. Migrations run automatically when the API starts.
+
+Postgres only applies `POSTGRES_PASSWORD` when the database volume is first initialized. If `.env` later changes `DB_PASSWORD`, the API will fail with `password authentication failed for user "ongaku"` and the DB health check will stay unhealthy. For disposable local data, run `docker compose down -v` from `server/` and then start the stack again. To preserve data, put the original password back in `.env`, start the DB, rotate the `ongaku` password inside Postgres, then update `.env` to the new value.
+
+For local Node development against the compose database:
+
+```powershell
+cd .\server
+docker compose up -d db
+npm install
+$env:DATABASE_URL = "postgres://ongaku:ongaku-dev@localhost:5432/ongaku"
+$env:MEDIA_ROOT = ".\.media"
+$env:KITSU_AUTH_MODE = "stub"
+npm run dev
+```
+
+For an Android emulator, `http://10.0.2.2:48668/` reaches the host server. For a physical device, either use the computer's LAN IP, such as `http://192.168.68.85:48668/`, or use ADB reverse for USB testing:
+
+```powershell
+adb reverse tcp:48668 tcp:48668
+```
+
+### Build-Time Server URL
+
+Gradle compiles `BuildConfig.ONGAKU_SERVER_BASE_URL` into the APK. By default this is `https://ongaku-api.takeya.ninja/`. Debug builds allow local `http://` overrides; release builds require HTTPS so credentials and session tokens cannot be sent in cleartext. For local development, override the URL before running Gradle with either an environment variable, a Gradle property, or an ignored `src/local.properties` entry:
+
+```powershell
+cd .\src
+$env:ONGAKU_SERVER_BASE_URL = 'http://10.0.2.2:48668/'
+.\gradlew.bat assembleDebug
+```
+
+```powershell
+cd .\src
+.\gradlew.bat assembleDebug -PongakuServerBaseUrl='http://192.168.68.85:48668/'
+```
+
+Or copy `src/local.properties.example` values into `src/local.properties`:
+
+```properties
+ongaku.serverBaseUrl=http://10.0.2.2:48668/
+```
+
+The compiled value is visible to anyone who can inspect the APK, so treat it as convenience configuration rather than secret storage.
+
+### Deploy the Server to a LAN Host
+
+The deploy scripts target this host layout:
+
+- `~/dockers/anime-ongaku-server`: Docker Compose files and server source used to build the image.
+- `~/docker-data/anime-ongaku-server`: persistent Postgres and media data.
+- Port `48668` on the host maps to container port `8080`.
+
+PowerShell from Windows:
+
+```powershell
+.\scripts\deploy-server.ps1 -SshTarget nolan@192.168.68.68 -EnvFile .\server\.env.production
+```
+
+Bash from Linux, macOS, or Git Bash:
+
+```bash
+scripts/deploy-server.sh --host nolan@192.168.68.68 --env-file server/.env.production
+```
+
+The scripts sync only server build inputs. They exclude `node_modules`, tests, artifacts, build output, and `.env` files, preferring `rsync` when available and otherwise uploading a small tarball. On the remote host they create the `~/docker-data/anime-ongaku-server` folders, preserve the remote `.env`, run:
+
+```bash
+docker compose -p anime-ongaku-server -f docker-compose.yml -f docker-compose.lan.yml up -d --build
+```
+
+and wait for `http://127.0.0.1:48668/healthz`. After the first deploy creates `~/dockers/anime-ongaku-server/.env`, future deploys can omit `-EnvFile` / `--env-file`. Use `-HostPort <port>` or `--host-port <port>` if `48668` is already taken.
 
 ## Local Development
 
@@ -54,6 +145,23 @@ Useful local checks:
 ```powershell
 .\gradlew.bat testDebugUnitTest
 .\gradlew.bat lint
+```
+
+On this Windows workspace, PATH can be unreliable. These direct verification commands worked:
+
+```powershell
+$env:ANDROID_HOME = 'F:\Program Files (x86)\Microsoft Visual Studio\Shared\Android\android-sdk'
+$env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
+$env:JAVA_HOME = 'F:\Program Files (x86)\Microsoft Visual Studio\Shared\Android\openjdk\jdk-21.0.8'
+$env:Path = "$env:JAVA_HOME\bin;$env:ANDROID_HOME\platform-tools;C:\Windows\System32;$env:Path"
+.\gradlew.bat --no-daemon test
+```
+
+Server checks run from `server/`:
+
+```powershell
+& 'E:\Users\Nolan\npm\node.exe' '.\node_modules\vitest\vitest.mjs' run
+& 'E:\Users\Nolan\npm\node.exe' '.\node_modules\typescript\bin\tsc' -p tsconfig.json --noEmit
 ```
 
 ## Signing and Upgrade Compatibility

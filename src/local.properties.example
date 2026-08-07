@@ -1,0 +1,8 @@
+## Optional local development overrides.
+## Copy these values into local.properties; do not commit local.properties.
+
+## Android emulator talking to a server on this computer:
+# ongaku.serverBaseUrl=http://10.0.2.2:48668/
+
+## Physical device talking to a server on this computer's LAN IP:
+# ongaku.serverBaseUrl=http://192.168.68.85:48668/

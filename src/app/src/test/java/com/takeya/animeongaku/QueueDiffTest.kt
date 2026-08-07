@@ -1,12 +1,26 @@
 package com.takeya.animeongaku
 
+import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.media.QueueOp
+import com.takeya.animeongaku.media.QueueEntry
 import com.takeya.animeongaku.media.computeQueueOps
+import com.takeya.animeongaku.media.computeQueueEntryOps
+import com.takeya.animeongaku.media.computeQueueOpsPreservingCurrent
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class QueueDiffTest {
+
+    @Test
+    fun `typed queue diff uses occurrence ids not playable ids`() {
+        val duplicate = ThemeEntity(1, null, "Same", null, "same.mp3", null, false, null)
+        val old = listOf(QueueEntry(10, duplicate), QueueEntry(11, duplicate))
+        val new = listOf(old[1], old[0])
+
+        assertEquals(listOf(QueueOp.Move(0, 1)), computeQueueEntryOps(old, new))
+    }
 
     private fun ids(vararg values: String): List<String> = values.toList()
 
@@ -30,6 +44,27 @@ class QueueDiffTest {
             }
         }
         return list
+    }
+
+    private fun removedIds(start: List<String>, ops: List<QueueOp>): List<String> {
+        val list = start.toMutableList()
+        val removed = mutableListOf<String>()
+        for (op in ops) {
+            when (op) {
+                is QueueOp.Add -> list.addAll(op.position, op.mediaIds)
+                is QueueOp.Remove -> {
+                    for (i in op.toIndex - 1 downTo op.fromIndex) {
+                        removed += list.removeAt(i)
+                    }
+                }
+                is QueueOp.Move -> {
+                    val item = list.removeAt(op.fromIndex)
+                    list.add(op.toIndex, item)
+                }
+                is QueueOp.Replace -> list[op.position] = op.mediaId
+            }
+        }
+        return removed
     }
 
     // ─── identity ─────────────────────────────────────────────────────────────────
@@ -223,6 +258,25 @@ class QueueDiffTest {
         assertTrue("Remove.toIndex should be <= 101", remove.toIndex <= 101)
         assertTrue("Remove range should be non-empty", remove.fromIndex < remove.toIndex)
         assertEquals(new, apply(old, ops))
+    }
+
+    @Test
+    fun `shuffle from advanced current item does not remove current media item`() {
+        val old = ids("q1", "q2", "q3", "q4", "q5", "q6")
+        val new = ids("q4", "q6", "q2", "q5", "q3")
+
+        val ops = computeQueueOpsPreservingCurrent(
+            old = old,
+            new = new,
+            currentMediaId = "q4",
+            desiredCurrentIndex = 0
+        )
+
+        assertEquals(new, apply(old, ops))
+        assertFalse(
+            "Queue diff must preserve the playing item so shuffle does not restart it",
+            removedIds(old, ops).contains("q4")
+        )
     }
 
     @Test

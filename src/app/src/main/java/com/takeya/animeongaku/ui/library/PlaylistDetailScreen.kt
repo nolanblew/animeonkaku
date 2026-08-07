@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FilterList
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
@@ -39,9 +40,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
@@ -72,12 +73,15 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.PlaylistTrack
-import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
+import com.takeya.animeongaku.ui.common.BrowseVideoWarningDialog
+import com.takeya.animeongaku.ui.common.PendingSyncBanner
 import com.takeya.animeongaku.ui.common.PlaylistCoverArt
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
 import com.takeya.animeongaku.ui.common.displayInfo
@@ -99,27 +103,44 @@ fun PlaylistDetailScreen(
 ) {
     val playlist by viewModel.playlist.collectAsStateWithLifecycle()
     val tracks by viewModel.tracks.collectAsStateWithLifecycle()
+    val playlistItems by viewModel.items.collectAsStateWithLifecycle()
     val coverUrls by viewModel.coverUrls.collectAsStateWithLifecycle()
     val allThemes by viewModel.allThemes.collectAsStateWithLifecycle()
     val anime by viewModel.animeList.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     var showAddDialog by remember { mutableStateOf(false) }
-    var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }
+    var sheetRow by remember { mutableStateOf<PlaylistItemRow?>(null) }
     var showPlaylistSheet by remember { mutableStateOf(false) }
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
+    var pickerSongId by remember { mutableStateOf<Long?>(null) }
     val allPlaylists by viewModel.playlists.collectAsStateWithLifecycle()
     val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
     val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
-    val likedThemeIds by viewModel.likedThemeIds.collectAsStateWithLifecycle()
-    val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+    val themeModesById by viewModel.themeModesById.collectAsStateWithLifecycle()
     val dynamicSpec by viewModel.dynamicSpec.collectAsStateWithLifecycle()
     val isDynamic by viewModel.isDynamic.collectAsStateWithLifecycle()
-    var showOverflowMenu by remember { mutableStateOf(false) }
+    val pendingPlaylistWriteStatus by viewModel.pendingPlaylistWriteStatus.collectAsStateWithLifecycle()
+    val playlistActionMessage by viewModel.playlistActionMessage.collectAsStateWithLifecycle()
+    val playlistSyncMessage = playlistActionMessage ?: pendingPlaylistWriteStatus.message
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var pendingVideoRequest by remember { mutableStateOf<BrowseVideoStartRequest?>(null) }
     val animeByThemesId = remember(anime) {
         anime.mapNotNull { entry -> entry.animeThemesId?.let { id -> id to entry } }.toMap()
+    }
+
+    fun handleVideoRequest(request: BrowseVideoStartRequest?) {
+        if (request == null) return
+        if (request.warning != null) pendingVideoRequest = request
+        else if (viewModel.startPlayVideo(request)) onPlayTheme()
+    }
+
+    pendingVideoRequest?.let { request ->
+        BrowseVideoWarningDialog(request, { pendingVideoRequest = null }) {
+            pendingVideoRequest = null
+            if (viewModel.startPlayVideo(request)) onPlayTheme()
+        }
     }
 
     if (showPlaylistSheet) {
@@ -128,58 +149,80 @@ fun PlaylistDetailScreen(
         ActionSheet(
             config = ActionSheetConfig(
                 title = playlist?.name ?: "Playlist",
-                subtitle = "${tracks.size} tracks",
+                subtitle = "${playlistItems.size} tracks",
+                showPlayNext = playlistItems.isNotEmpty(),
+                showAddToQueue = playlistItems.isNotEmpty(),
+                showSaveToPlaylist = false,
                 showDownload = !allDownloaded && !anyDownloading && tracks.isNotEmpty(),
                 showDownloading = anyDownloading && !allDownloaded,
-                showRemoveDownload = allDownloaded
+                showRemoveDownload = allDownloaded,
+                showEditFilters = isDynamic,
+                showRefresh = isDynamic && dynamicSpec?.mode == "SNAPSHOT",
+                showDelete = isDynamic || playlist?.isAuto != true,
+                deleteLabel = "Delete playlist",
+                showPlayVideo = BrowseVideoActionPolicy.context(
+                    isOnline,
+                    tracks.mapNotNull { themeModesById[it.theme.id] }
+                )
             ),
             onDismiss = { showPlaylistSheet = false },
-            onPlayNext = {
-                val themes = tracks.map { it.theme }
-                viewModel.nowPlayingManager.playNext(themes, animeByThemesId)
-            },
-            onAddToQueue = {
-                val themes = tracks.map { it.theme }
-                viewModel.nowPlayingManager.addToQueue(themes, animeByThemesId)
-            },
+            onPlayNext = viewModel::playNextAll,
+            onAddToQueue = viewModel::addAllToQueue,
             onReplaceQueue = { viewModel.playAll(); onPlayTheme() },
+            onPlayVideo = { handleVideoRequest(viewModel.requestPlayVideoAll()) },
             onDownload = { viewModel.downloadPlaylist() },
-            onRemoveDownload = { viewModel.removePlaylistDownload() }
+            onRemoveDownload = { viewModel.removePlaylistDownload() },
+            onEditFilters = { playlist?.id?.let { onEditFilters(it) } },
+            onRefresh = { viewModel.refreshDynamic() },
+            onDelete = { showDeleteConfirm = true }
         )
     }
 
-    sheetTheme?.let { theme ->
-        val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
-        val info = theme.displayInfo(sheetAnime)
-        val isDownloaded = theme.id in downloadedThemeIds
-        val isDownloading = theme.id in downloadingThemeIds
+    sheetRow?.let { row ->
+        val theme = row.theme
+        val sheetAnime = theme?.animeId?.let { animeByThemesId[it] }
+        val sheetAnimeImageUrls = sheetAnime?.primaryArtworkUrls() ?: emptyList()
+        val info = theme?.displayInfo(sheetAnime)
+        val isDownloaded = theme?.id in downloadedThemeIds
+        val isDownloading = theme?.id in downloadingThemeIds
+        val preference by remember(theme?.id) {
+            viewModel.observePreference(theme?.id)
+        }.collectAsStateWithLifecycle(initialValue = null)
         ActionSheet(
             config = ActionSheetConfig(
-                title = info.primaryText,
-                subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.primaryArtworkUrl(),
-                showGoToArtist = !theme.artistName.isNullOrBlank(),
+                title = info?.primaryText ?: row.title,
+                subtitle = info?.secondaryText ?: row.artist,
+                imageUrl = sheetAnimeImageUrls.firstOrNull(),
+                imageUrls = sheetAnimeImageUrls,
+                showGoToArtist = !theme?.artistName.isNullOrBlank(),
                 showGoToAnime = sheetAnime?.kitsuId != null,
-                showDownload = !isDownloaded && !isDownloading,
-                showDownloading = isDownloading,
-                showRemoveDownload = isDownloaded,
-                showLike = true,
-                isLiked = theme.id in likedThemeIds,
-                showRemoveDislike = theme.id in dislikedThemeIds,
-                artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
-                animeName = sheetAnime?.title
+                showDownload = theme != null && !isDownloaded && !isDownloading,
+                showDownloading = theme != null && isDownloading,
+                showRemoveDownload = theme != null && isDownloaded,
+                showLike = theme != null,
+                isLiked = preference?.isLiked == true,
+                showRemoveDislike = preference?.isDisliked == true,
+                artistName = theme?.artistName?.split(",")?.firstOrNull()?.trim(),
+                animeName = sheetAnime?.title,
+                showPlayVideo = theme != null && BrowseVideoActionPolicy.singleTheme(isOnline, themeModesById[theme.id]),
+                showDelete = playlist?.isAuto != true,
+                deleteLabel = "Remove from playlist"
             ),
-            onDismiss = { sheetTheme = null },
-            onPlayNext = { viewModel.nowPlayingManager.playNext(theme, sheetAnime) },
-            onAddToQueue = { viewModel.nowPlayingManager.addToQueue(theme, sheetAnime) },
-            onReplaceQueue = { viewModel.nowPlayingManager.play("Now Playing", listOf(theme), 0, animeMap = sheetAnime?.let { a -> theme.animeId?.let { mapOf(it to a) } } ?: emptyMap()) },
-            onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) },
-            onGoToArtist = { theme.artistName?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
+            onDismiss = { sheetRow = null },
+            onPlayNext = { viewModel.playNextEntry(row.entry.entryId) },
+            onAddToQueue = { viewModel.addEntryToQueue(row.entry.entryId) },
+            onReplaceQueue = { viewModel.playEntry(row.entry.entryId); onPlayTheme() },
+            onPlayVideo = { theme?.id?.let { handleVideoRequest(viewModel.requestPlayVideoTheme(it)) } },
+            onSaveToPlaylist = {
+                if (theme != null) pickerThemeIds = listOf(theme.id) else pickerSongId = row.song?.id
+            },
+            onGoToArtist = { theme?.artistName?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
             onGoToAnime = { sheetAnime?.kitsuId?.let { onOpenAnime(it) } },
-            onDownload = { viewModel.downloadSong(theme) },
-            onRemoveDownload = { viewModel.removeDownload(theme.id) },
-            onLike = { viewModel.toggleLike(theme.id) },
-            onRemoveDislike = { viewModel.toggleDislike(theme.id) }
+            onDownload = { theme?.let(viewModel::downloadSong) },
+            onRemoveDownload = { theme?.id?.let(viewModel::removeDownload) },
+            onLike = { theme?.id?.let(viewModel::toggleLike) },
+            onRemoveDislike = { theme?.id?.let(viewModel::toggleDislike) },
+            onDelete = { viewModel.removeEntry(row.entry.entryId) }
         )
     }
 
@@ -195,6 +238,31 @@ fun PlaylistDetailScreen(
             onCreatePlaylist = { name ->
                 viewModel.createAndAddToPlaylist(name, ids)
                 pickerThemeIds = null
+            },
+            showThemeModeChoice = true,
+            onSelectPlaylistWithMode = { playlistId, modeOverride ->
+                viewModel.addToOtherPlaylist(playlistId, ids, modeOverride)
+                pickerThemeIds = null
+            },
+            onCreatePlaylistWithMode = { name, modeOverride ->
+                viewModel.createAndAddToPlaylist(name, ids, modeOverride)
+                pickerThemeIds = null
+            }
+        )
+    }
+
+    pickerSongId?.let { songId ->
+        PlaylistPickerSheet(
+            playlists = allPlaylists,
+            coverUrls = playlistCoverUrls,
+            onDismiss = { pickerSongId = null },
+            onSelectPlaylist = { playlistId ->
+                viewModel.addSongToOtherPlaylist(playlistId, songId)
+                pickerSongId = null
+            },
+            onCreatePlaylist = { name ->
+                viewModel.createAndAddSongToPlaylist(name, songId)
+                pickerSongId = null
             }
         )
     }
@@ -285,59 +353,18 @@ fun PlaylistDetailScreen(
                             Icon(Icons.Rounded.Add, contentDescription = "Add tracks", tint = Mist100)
                         }
                     }
-                    Box {
-                        IconButton(onClick = { showOverflowMenu = true }) {
-                            Icon(Icons.Rounded.MoreVert, contentDescription = "More options", tint = Mist100)
-                        }
-                        DropdownMenu(
-                            expanded = showOverflowMenu,
-                            onDismissRequest = { showOverflowMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Playlist options") },
-                                onClick = {
-                                    showOverflowMenu = false
-                                    showPlaylistSheet = true
-                                }
-                            )
-                            if (isDynamic) {
-                                DropdownMenuItem(
-                                    leadingIcon = {
-                                        Icon(Icons.Rounded.FilterList, contentDescription = null)
-                                    },
-                                    text = { Text("Edit filters") },
-                                    onClick = {
-                                        showOverflowMenu = false
-                                        playlist?.id?.let { onEditFilters(it) }
-                                    }
-                                )
-                            }
-                            if (isDynamic && dynamicSpec?.mode == "SNAPSHOT") {
-                                DropdownMenuItem(
-                                    leadingIcon = {
-                                        Icon(Icons.Rounded.Refresh, contentDescription = null)
-                                    },
-                                    text = { Text("Refresh now") },
-                                    onClick = {
-                                        showOverflowMenu = false
-                                        viewModel.refreshDynamic()
-                                    }
-                                )
-                            }
-                            if (isDynamic || playlist?.isAuto != true) {
-                                DropdownMenuItem(
-                                    leadingIcon = {
-                                        Icon(Icons.Rounded.Delete, contentDescription = null, tint = Rose500)
-                                    },
-                                    text = { Text("Delete playlist", color = Rose500) },
-                                    onClick = {
-                                        showOverflowMenu = false
-                                        showDeleteConfirm = true
-                                    }
-                                )
-                            }
-                        }
+                    IconButton(onClick = { showPlaylistSheet = true }) {
+                        Icon(Icons.Rounded.MoreVert, contentDescription = "More options", tint = Mist100)
                     }
+                }
+            }
+
+            playlistSyncMessage?.let { message ->
+                item {
+                    PendingSyncBanner(
+                        message = message,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                    )
                 }
             }
 
@@ -357,7 +384,7 @@ fun PlaylistDetailScreen(
                         modifier = Modifier.padding(bottom = 16.dp)
                     )
                     Text(
-                        text = "${tracks.size} tracks",
+                        text = "${playlistItems.size} tracks",
                         style = MaterialTheme.typography.labelMedium,
                         color = Mist200
                     )
@@ -383,6 +410,24 @@ fun PlaylistDetailScreen(
                             style = MaterialTheme.typography.labelSmall,
                             color = Rose500
                         )
+                    }
+                    if (playlist?.isAuto != true) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("Default version", style = MaterialTheme.typography.labelMedium, color = Mist100)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("TV_SIZE" to "TV Size", "FULL_SIZE" to "Full Size").forEach { (mode, label) ->
+                                Text(
+                                    label,
+                                    color = if (playlist?.defaultMode == mode) Color.White else Mist200,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(if (playlist?.defaultMode == mode) Rose500 else Ink700)
+                                        .clickable { viewModel.updateDefaultMode(mode) }
+                                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                                )
+                            }
+                        }
+                        Text("Used when a theme has no override", style = MaterialTheme.typography.labelSmall, color = Mist200)
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -417,7 +462,7 @@ fun PlaylistDetailScreen(
                 }
             }
 
-            if (tracks.isEmpty()) {
+            if (playlistItems.isEmpty()) {
                 item {
                     Column(
                         modifier = Modifier
@@ -429,26 +474,37 @@ fun PlaylistDetailScreen(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text("No tracks yet", style = MaterialTheme.typography.bodyMedium, color = Mist100)
-                        Text("Tap + to add themes from your library.", style = MaterialTheme.typography.labelSmall, color = Mist200)
+                        Text("Tap + to add music from your library.", style = MaterialTheme.typography.labelSmall, color = Mist200)
                     }
                 }
             } else {
-                itemsIndexed(tracks) { _, track ->
-                    val animeEntry = track.theme.animeId?.let { animeByThemesId[it] }
+                itemsIndexed(playlistItems, key = { _, row -> row.entry.entryId }) { index, row ->
+                    val theme = row.theme
+                    val animeEntry = theme?.animeId?.let { animeByThemesId[it] }
                     val imageUrls = animeEntry?.primaryArtworkUrls() ?: emptyList()
-                    val info = track.theme.displayInfo(animeEntry)
-                    val tdl = track.theme.id in downloadedThemeIds
-                    val tding = track.theme.id in downloadingThemeIds
+                    val info = theme?.displayInfo(animeEntry)
+                    val tdl = theme?.id in downloadedThemeIds
+                    val tding = theme?.id in downloadingThemeIds
+                    val wantsFull = row.entry.modeOverride == "FULL_SIZE" ||
+                        (row.entry.modeOverride == null && playlist?.defaultMode == "FULL_SIZE")
+                    val fullUnavailable = theme != null && wantsFull && themeModesById[theme.id]?.fullSizeUrl.isNullOrBlank()
                     CompactTrackRow(
-                        title = info.primaryText,
-                        artist = info.secondaryText,
+                        title = info?.primaryText ?: row.title,
+                        artist = if (fullUnavailable) "${info?.secondaryText ?: row.artist} · Full Size unavailable; TV Size will play" else info?.secondaryText ?: row.artist,
                         imageUrls = imageUrls,
                         isDownloaded = tdl,
                         isDownloading = tding,
                         isUnavailableOffline = !isOnline && !tdl,
-                        onPlay = { viewModel.playTheme(track.theme.id); onPlayTheme() },
-                        onRemove = if (playlist?.isAuto == true) null else {{ viewModel.removeTheme(track.theme.id) }},
-                        onMoreOptions = { sheetTheme = track.theme }
+                        onPlay = { viewModel.playEntry(row.entry.entryId); onPlayTheme() },
+                        onRemove = if (playlist?.isAuto == true) null else {{ viewModel.removeEntry(row.entry.entryId) }},
+                        modeOverride = row.entry.modeOverride,
+                        canEditMode = playlist?.isAuto != true && theme != null,
+                        onModeChange = { viewModel.updateEntryMode(row.entry.entryId, it) },
+                        onMoreOptions = { sheetRow = row },
+                        canMoveUp = playlist?.isAuto != true && index > 0,
+                        canMoveDown = playlist?.isAuto != true && index < playlistItems.lastIndex,
+                        onMoveUp = { viewModel.moveEntry(row.entry.entryId, -1) },
+                        onMoveDown = { viewModel.moveEntry(row.entry.entryId, 1) }
                     )
                 }
             }
@@ -477,9 +533,16 @@ private fun CompactTrackRow(
     isUnavailableOffline: Boolean = false,
     onPlay: () -> Unit,
     onRemove: (() -> Unit)? = null,
-    onMoreOptions: (() -> Unit)? = null
+    onMoreOptions: (() -> Unit)? = null,
+    modeOverride: String? = null,
+    canEditMode: Boolean = false,
+    onModeChange: (String?) -> Unit = {},
+    canMoveUp: Boolean = false,
+    canMoveDown: Boolean = false,
+    onMoveUp: () -> Unit = {},
+    onMoveDown: () -> Unit = {}
 ) {
-    var showMenu by remember { mutableStateOf(false) }
+    var showEntryMenu by remember { mutableStateOf(false) }
     val rowAlpha = if (isUnavailableOffline) 0.4f else 1f
 
     Row(
@@ -540,24 +603,44 @@ private fun CompactTrackRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-        }
-        Box {
-            IconButton(
-                onClick = { if (onMoreOptions != null) onMoreOptions() else showMenu = true },
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(Icons.Rounded.MoreVert, contentDescription = "More", tint = Mist200, modifier = Modifier.size(20.dp))
-            }
-            DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                DropdownMenuItem(
-                    text = { Text("Play") },
-                    onClick = { showMenu = false; onPlay() }
+            if (modeOverride != null) {
+                Text(
+                    text = if (modeOverride == "FULL_SIZE") "Full Size override" else "TV Size override",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Rose500
                 )
-                if (onRemove != null) {
-                    DropdownMenuItem(
-                        text = { Text("Remove from playlist", color = Rose500) },
-                        onClick = { showMenu = false; onRemove() }
-                    )
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (canEditMode || onRemove != null || canMoveUp || canMoveDown) {
+                Box {
+                    IconButton(onClick = { showEntryMenu = true }, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Rounded.Edit, contentDescription = "Edit playlist entry", tint = Mist200, modifier = Modifier.size(18.dp))
+                    }
+                    DropdownMenu(expanded = showEntryMenu, onDismissRequest = { showEntryMenu = false }) {
+                        if (canEditMode) {
+                            DropdownMenuItem(text = { Text("Use playlist default") }, onClick = { showEntryMenu = false; onModeChange(null) })
+                            DropdownMenuItem(text = { Text("TV Size") }, onClick = { showEntryMenu = false; onModeChange("TV_SIZE") })
+                            DropdownMenuItem(text = { Text("Full Size") }, onClick = { showEntryMenu = false; onModeChange("FULL_SIZE") })
+                        }
+                        if (canMoveUp) {
+                            DropdownMenuItem(text = { Text("Move up") }, onClick = { showEntryMenu = false; onMoveUp() })
+                        }
+                        if (canMoveDown) {
+                            DropdownMenuItem(text = { Text("Move down") }, onClick = { showEntryMenu = false; onMoveDown() })
+                        }
+                        if (onRemove != null) {
+                            DropdownMenuItem(
+                                text = { Text("Remove from playlist", color = Rose500) },
+                                onClick = { showEntryMenu = false; onRemove() }
+                            )
+                        }
+                    }
+                }
+            }
+            if (onMoreOptions != null) {
+                IconButton(onClick = onMoreOptions, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Rounded.MoreVert, contentDescription = "More", tint = Mist200, modifier = Modifier.size(20.dp))
                 }
             }
         }
@@ -571,7 +654,7 @@ private fun AddTrackDialog(
     onSearchChange: (String) -> Unit,
     themes: List<ThemeEntity>,
     animeByThemesId: Map<Long, com.takeya.animeongaku.data.local.AnimeEntity>,
-    onAdd: (ThemeEntity) -> Unit,
+    onAdd: (ThemeEntity, String?) -> Unit,
     onDismiss: () -> Unit
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -591,6 +674,8 @@ private fun AddTrackDialog(
         disabledLabelColor = Mist200.copy(alpha = 0.5f),
         cursorColor = Rose500
     )
+    var addMode by remember { mutableStateOf<String?>(null) }
+    var showModeMenu by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -624,6 +709,22 @@ private fun AddTrackDialog(
                     ),
                     colors = textFieldColors
                 )
+                Box {
+                    Text(
+                        text = "Playback version: " + when (addMode) {
+                            "TV_SIZE" -> "TV Size"
+                            "FULL_SIZE" -> "Full Size"
+                            else -> "Use playlist default"
+                        },
+                        color = Mist100,
+                        modifier = Modifier.clickable { showModeMenu = true }.padding(vertical = 8.dp)
+                    )
+                    DropdownMenu(expanded = showModeMenu, onDismissRequest = { showModeMenu = false }) {
+                        DropdownMenuItem(text = { Text("Use playlist default") }, onClick = { addMode = null; showModeMenu = false })
+                        DropdownMenuItem(text = { Text("TV Size") }, onClick = { addMode = "TV_SIZE"; showModeMenu = false })
+                        DropdownMenuItem(text = { Text("Full Size") }, onClick = { addMode = "FULL_SIZE"; showModeMenu = false })
+                    }
+                }
                 if (themes.isEmpty()) {
                     Text(
                         text = "No themes available yet. Sync your library first.",
@@ -646,7 +747,7 @@ private fun AddTrackDialog(
                             val animeEntry = theme.animeId?.let { animeByThemesId[it] }
                             val imgUrls = animeEntry?.primaryArtworkUrls() ?: emptyList()
                             val info = theme.displayInfo(animeEntry)
-                            AddThemeRow(info = info, imageUrls = imgUrls, onAdd = { onAdd(theme) })
+                            AddThemeRow(info = info, imageUrls = imgUrls, onAdd = { onAdd(theme, addMode) })
                         }
                     }
                 }

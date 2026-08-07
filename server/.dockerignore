@@ -1,0 +1,7 @@
+node_modules
+dist
+.env
+test
+vitest.config.ts
+Dockerfile
+docker-compose.yml

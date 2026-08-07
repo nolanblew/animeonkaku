@@ -17,6 +17,9 @@ interface ThemeDao {
     @Query("SELECT * FROM themes WHERE animeId = :animeId ORDER BY title ASC")
     fun observeByAnimeId(animeId: Long): Flow<List<ThemeEntity>>
 
+    @Query("SELECT * FROM themes WHERE animeId = :animeId ORDER BY title ASC")
+    suspend fun getByAnimeId(animeId: Long): List<ThemeEntity>
+
     @Query("SELECT * FROM themes WHERE artistName = :artistName ORDER BY title ASC")
     fun observeByArtistName(artistName: String): Flow<List<ThemeEntity>>
 
@@ -38,6 +41,9 @@ interface ThemeDao {
     @Query("SELECT * FROM themes WHERE id IN (:themeIds)")
     suspend fun getByIds(themeIds: List<Long>): List<ThemeEntity>
 
+    @Query("SELECT * FROM themes WHERE id IN (:themeIds)")
+    fun observeByIds(themeIds: List<Long>): Flow<List<ThemeEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(themes: List<ThemeEntity>)
 
@@ -46,6 +52,9 @@ interface ThemeDao {
 
     @Query("DELETE FROM themes WHERE animeId IN (:animeIds)")
     suspend fun deleteByAnimeIds(animeIds: List<Long>)
+
+    @Query("DELETE FROM themes WHERE id IN (:themeIds)")
+    suspend fun deleteByIds(themeIds: List<Long>)
 
     @Query("SELECT id FROM themes WHERE isDownloaded = 1")
     fun observeDownloadedThemeIds(): Flow<List<Long>>

@@ -19,6 +19,11 @@ import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudDownload
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.FilterList
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.rounded.LibraryAdd
 import androidx.compose.material.icons.rounded.Movie
@@ -45,7 +50,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
 import com.takeya.animeongaku.ui.theme.Ink900
@@ -57,22 +61,31 @@ data class ActionSheetConfig(
     val title: String,
     val subtitle: String,
     val imageUrl: String? = null,
+    val imageUrls: List<String> = emptyList(),
     val isSkippedContext: Boolean = false,
     val showPlayNext: Boolean = true,
     val showAddToQueue: Boolean = true,
     val showReplaceQueue: Boolean = true,
+    val showPlayVideo: Boolean = false,
     val showSaveToPlaylist: Boolean = true,
     val showAddToLibrary: Boolean = false,
     val showGoToArtist: Boolean = false,
     val showGoToAnime: Boolean = false,
+    val showRelatedMusic: Boolean = false,
     val showDownload: Boolean = false,
     val showDownloading: Boolean = false,
     val showRemoveDownload: Boolean = false,
     val showLike: Boolean = false,
     val isLiked: Boolean = false,
+    val showDislike: Boolean = false,
+    val isDisliked: Boolean = false,
     val showRemoveDislike: Boolean = false,
     val showUnskip: Boolean = false,
     val showRemoveFromQueue: Boolean = false,
+    val showEditFilters: Boolean = false,
+    val showRefresh: Boolean = false,
+    val showDelete: Boolean = false,
+    val deleteLabel: String = "Delete",
     val artistName: String? = null,
     val animeName: String? = null
 )
@@ -85,18 +98,28 @@ fun ActionSheet(
     onPlayNext: () -> Unit = {},
     onAddToQueue: () -> Unit = {},
     onReplaceQueue: () -> Unit = {},
+    onPlayVideo: () -> Unit = {},
     onSaveToPlaylist: () -> Unit = {},
     onAddToLibrary: () -> Unit = {},
     onGoToArtist: () -> Unit = {},
     onGoToAnime: () -> Unit = {},
+    onRelatedMusic: () -> Unit = {},
     onDownload: () -> Unit = {},
     onRemoveDownload: () -> Unit = {},
     onLike: () -> Unit = {},
+    onDislike: () -> Unit = {},
     onRemoveDislike: () -> Unit = {},
     onUnskip: () -> Unit = {},
-    onRemoveFromQueue: () -> Unit = {}
+    onRemoveFromQueue: () -> Unit = {},
+    onEditFilters: () -> Unit = {},
+    onRefresh: () -> Unit = {},
+    onDelete: () -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    fun dismissThen(action: () -> Unit) {
+        onDismiss()
+        action()
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -122,9 +145,12 @@ fun ActionSheet(
                         .clip(RoundedCornerShape(8.dp))
                         .background(Ink800)
                 ) {
-                    if (!config.imageUrl.isNullOrBlank()) {
-                        AsyncImage(
-                            model = config.imageUrl,
+                    val headerImageUrls = config.imageUrls.ifEmpty {
+                        listOfNotNull(config.imageUrl?.takeIf { it.isNotBlank() })
+                    }
+                    if (headerImageUrls.isNotEmpty()) {
+                        FallbackAsyncImage(
+                            urls = headerImageUrls,
                             contentDescription = null,
                             modifier = Modifier.matchParentSize(),
                             contentScale = ContentScale.Crop
@@ -162,7 +188,7 @@ fun ActionSheet(
                         icon = { Icon(Icons.Rounded.SkipNext, contentDescription = null, tint = Mist100, modifier = Modifier.size(24.dp)) },
                         label = "Play next",
                         modifier = mod,
-                        onClick = { onPlayNext(); onDismiss() }
+                        onClick = { dismissThen(onPlayNext) }
                     )
                 }
             }
@@ -172,7 +198,7 @@ fun ActionSheet(
                         icon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = null, tint = Mist100, modifier = Modifier.size(24.dp)) },
                         label = "Save to playlist",
                         modifier = mod,
-                        onClick = { onSaveToPlaylist(); onDismiss() }
+                        onClick = { dismissThen(onSaveToPlaylist) }
                     )
                 }
             }
@@ -197,49 +223,63 @@ fun ActionSheet(
                 OptionRow(
                     icon = { Icon(if (config.isLiked) Icons.Rounded.ThumbUp else Icons.Outlined.ThumbUp, contentDescription = null, tint = Mist100) },
                     label = if (config.isLiked) "Remove Like" else "Like",
-                    onClick = { onLike(); onDismiss() }
+                    onClick = { dismissThen(onLike) }
                 )
             }
             if (config.showUnskip) {
                 OptionRow(
                     icon = { Icon(Icons.AutoMirrored.Rounded.Undo, contentDescription = null, tint = Mist100) },
                     label = "Unskip",
-                    onClick = { onUnskip(); onDismiss() }
+                    onClick = { dismissThen(onUnskip) }
                 )
             }
             if (config.showRemoveDislike) {
                 OptionRow(
                     icon = { Icon(Icons.Rounded.ThumbDown, contentDescription = null, tint = Mist100) },
                     label = if (config.isSkippedContext) "Remove Dislike" else "Remove Dislike",
-                    onClick = { onRemoveDislike(); onDismiss() }
+                    onClick = { dismissThen(onRemoveDislike) }
                 )
             }
             if (config.showAddToQueue) {
                 OptionRow(
                     icon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null, tint = Mist100) },
                     label = "Add to queue",
-                    onClick = { onAddToQueue(); onDismiss() }
+                    onClick = { dismissThen(onAddToQueue) }
                 )
             }
             if (config.showReplaceQueue) {
                 OptionRow(
                     icon = { Icon(Icons.AutoMirrored.Rounded.PlaylistPlay, contentDescription = null, tint = Mist100) },
                     label = "Replace queue",
-                    onClick = { onReplaceQueue(); onDismiss() }
+                    onClick = { dismissThen(onReplaceQueue) }
+                )
+            }
+            if (config.showDislike) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.ThumbDown, contentDescription = null, tint = Mist100) },
+                    label = if (config.isDisliked) "Remove Dislike" else "Dislike",
+                    onClick = { dismissThen(onDislike) }
+                )
+            }
+            if (config.showPlayVideo) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = Mist100) },
+                    label = "Play Video",
+                    onClick = { dismissThen(onPlayVideo) }
                 )
             }
             if (config.showRemoveFromQueue) {
                 OptionRow(
                     icon = { Icon(Icons.Rounded.Close, contentDescription = null, tint = Mist100) },
                     label = "Remove from queue",
-                    onClick = { onRemoveFromQueue(); onDismiss() }
+                    onClick = { dismissThen(onRemoveFromQueue) }
                 )
             }
             if (config.showAddToLibrary) {
                 OptionRow(
                     icon = { Icon(Icons.Rounded.LibraryAdd, contentDescription = null, tint = Mist100) },
                     label = "Add to library",
-                    onClick = { onAddToLibrary(); onDismiss() }
+                    onClick = { dismissThen(onAddToLibrary) }
                 )
             }
             if (config.showGoToArtist) {
@@ -247,7 +287,7 @@ fun ActionSheet(
                 OptionRow(
                     icon = { Icon(Icons.Rounded.Person, contentDescription = null, tint = Mist100) },
                     label = label,
-                    onClick = { onGoToArtist(); onDismiss() }
+                    onClick = { dismissThen(onGoToArtist) }
                 )
             }
             if (config.showGoToAnime) {
@@ -255,7 +295,14 @@ fun ActionSheet(
                 OptionRow(
                     icon = { Icon(Icons.Rounded.Movie, contentDescription = null, tint = Mist100) },
                     label = label,
-                    onClick = { onGoToAnime(); onDismiss() }
+                    onClick = { dismissThen(onGoToAnime) }
+                )
+            }
+            if (config.showRelatedMusic) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.Album, contentDescription = null, tint = Mist100) },
+                    label = "Related Music",
+                    onClick = { dismissThen(onRelatedMusic) }
                 )
             }
             if (config.showDownloading) {
@@ -274,14 +321,35 @@ fun ActionSheet(
                 OptionRow(
                     icon = { Icon(Icons.Rounded.CloudDownload, contentDescription = null, tint = Mist100) },
                     label = "Download",
-                    onClick = { onDownload(); onDismiss() }
+                    onClick = { dismissThen(onDownload) }
                 )
             }
             if (config.showRemoveDownload) {
                 OptionRow(
                     icon = { Icon(Icons.Rounded.CloudDone, contentDescription = null, tint = Rose500) },
                     label = "Remove download",
-                    onClick = { onRemoveDownload(); onDismiss() }
+                    onClick = { dismissThen(onRemoveDownload) }
+                )
+            }
+            if (config.showEditFilters) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.FilterList, contentDescription = null, tint = Mist100) },
+                    label = "Edit filters",
+                    onClick = { dismissThen(onEditFilters) }
+                )
+            }
+            if (config.showRefresh) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.Refresh, contentDescription = null, tint = Mist100) },
+                    label = "Refresh now",
+                    onClick = { dismissThen(onRefresh) }
+                )
+            }
+            if (config.showDelete) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = Rose500) },
+                    label = config.deleteLabel,
+                    onClick = { dismissThen(onDelete) }
                 )
             }
         }

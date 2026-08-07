@@ -4,23 +4,29 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.AnimeEntity
-import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.AnimeWithThemeCount
 import com.takeya.animeongaku.data.local.ArtistDao
 import com.takeya.animeongaku.data.local.ArtistImageDao
 import com.takeya.animeongaku.data.local.PlaylistDao
-import com.takeya.animeongaku.data.local.PlaylistEntity
-import com.takeya.animeongaku.data.local.PlaylistEntryEntity
+import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.DownloadRequestEntity
 import com.takeya.animeongaku.data.local.DynamicPlaylistSpecDao
+import com.takeya.animeongaku.data.local.PendingOpDao
+import com.takeya.animeongaku.data.local.PendingOpEntity
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.ThemeModeDao
+import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.data.repository.ArtistRepository
+import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.network.ConnectivityMonitor
+import com.takeya.animeongaku.sync.PendingWriteStatus
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -49,6 +55,9 @@ internal fun filterLibrarySongs(
 internal fun librarySongsContextLabel(showDownloadedOnly: Boolean): String =
     if (showDownloadedOnly) "Downloaded Songs" else "All Songs"
 
+internal fun animeItemCoverUrls(anime: AnimeEntity): List<String> =
+    anime.primaryArtworkUrls()
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
@@ -56,9 +65,12 @@ class LibraryViewModel @Inject constructor(
     private val dynamicPlaylistSpecDao: DynamicPlaylistSpecDao,
     private val animeDao: AnimeDao,
     private val themeDao: ThemeDao,
+    private val themeModeDao: ThemeModeDao,
     private val artistDao: ArtistDao,
     private val artistImageDao: ArtistImageDao,
     private val artistRepository: ArtistRepository,
+    private val serverPlaylistWriter: ServerPlaylistWriter,
+    private val pendingOpDao: PendingOpDao,
     val nowPlayingManager: NowPlayingManager,
     val downloadManager: DownloadManager,
     private val downloadDao: DownloadDao,
@@ -70,12 +82,27 @@ class LibraryViewModel @Inject constructor(
     private val _showDownloadedOnly = MutableStateFlow(false)
     val showDownloadedOnly: StateFlow<Boolean> = _showDownloadedOnly.asStateFlow()
 
+    private val _playlistActionMessage = MutableStateFlow<String?>(null)
+    val playlistActionMessage: StateFlow<String?> = _playlistActionMessage.asStateFlow()
+
     fun toggleDownloadedOnly() {
         _showDownloadedOnly.value = !_showDownloadedOnly.value
     }
 
     val playlists = playlistDao.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val pendingPlaylistWriteStatus: StateFlow<PendingWriteStatus> = combine(
+        pendingOpDao.observeCountForEntity(PendingOpEntity.ENTITY_PLAYLIST),
+        pendingOpDao.observeRetriedCountForEntity(PendingOpEntity.ENTITY_PLAYLIST),
+        isOnline
+    ) { pendingCount, retriedCount, online ->
+        PendingWriteStatus(
+            pendingCount = pendingCount,
+            retriedCount = retriedCount,
+            isOnline = online
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PendingWriteStatus())
 
     val dynamicPlaylistIds: StateFlow<Set<Long>> = dynamicPlaylistSpecDao.observeAll()
         .map { specs -> specs.mapTo(mutableSetOf()) { it.playlistId } }
@@ -99,6 +126,24 @@ class LibraryViewModel @Inject constructor(
 
     val themes = themeDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val themeModesById: StateFlow<Map<Long, ThemeModeEntity>> = themes
+        .map { list -> list.map { it.id } }
+        .flatMapLatest { ids -> if (ids.isEmpty()) flowOf(emptyList()) else themeModeDao.observeByThemeIds(ids) }
+        .map { modes -> modes.associateBy { it.themeId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    fun requestThemeVideo(themeId: Long): BrowseVideoStartRequest? {
+        val theme = themes.value.firstOrNull { it.id == themeId } ?: return null
+        val animeMap = theme.animeId?.let { id -> anime.value.firstOrNull { it.animeThemesId == id }?.let { mapOf(id to it) } }.orEmpty()
+        return BrowseVideoActionPolicy.request(isOnline.value, "Theme", listOf(theme), themeModesById.value, animeMap)
+    }
+
+    fun startThemeVideo(request: BrowseVideoStartRequest): Boolean {
+        val theme = themes.value.firstOrNull { it.id == request.themes.singleOrNull()?.id } ?: return false
+        val animeMap = theme.animeId?.let { id -> anime.value.firstOrNull { it.animeThemesId == id }?.let { mapOf(id to it) } }.orEmpty()
+        return request.startIfStillValid(nowPlayingManager, isOnline.value, listOf(theme), themeModesById.value, "Theme", animeMap)
+    }
 
     private val artistNames = artistDao.observeAllArtistNames()
         .distinctUntilChanged()
@@ -135,7 +180,7 @@ class LibraryViewModel @Inject constructor(
                     animeThemesId = row.anime.animeThemesId,
                     title = title,
                     trackCount = row.themeCount,
-                    coverUrl = row.anime.primaryArtworkUrl()
+                    coverUrls = animeItemCoverUrls(row.anime)
                 )
             }.sortedBy { it.title.lowercase() }
         }
@@ -158,28 +203,22 @@ class LibraryViewModel @Inject constructor(
     fun createPlaylist(name: String) {
         val trimmed = name.trim()
         if (trimmed.isBlank()) return
-        viewModelScope.launch {
-            playlistDao.insertPlaylist(
-                PlaylistEntity(
-                    name = trimmed,
-                    createdAt = System.currentTimeMillis()
-                )
-            )
+        runPlaylistAction("Couldn't create playlist. Your current library is still safe.") {
+            serverPlaylistWriter.createPlaylist(trimmed)
         }
     }
 
     fun deletePlaylist(playlistId: Long) {
-        viewModelScope.launch {
-            playlistDao.deletePlaylistEntries(playlistId)
-            playlistDao.deletePlaylist(playlistId)
+        runPlaylistAction("Couldn't delete playlist. Try again when your connection is stable.") {
+            serverPlaylistWriter.deletePlaylist(playlistId)
         }
     }
 
     fun renamePlaylist(playlistId: Long, newName: String) {
         val trimmed = newName.trim()
         if (trimmed.isBlank()) return
-        viewModelScope.launch {
-            playlistDao.renamePlaylist(playlistId, trimmed)
+        runPlaylistAction("Couldn't rename playlist. Try again when your connection is stable.") {
+            serverPlaylistWriter.renamePlaylist(playlistId, trimmed)
         }
     }
 
@@ -229,13 +268,9 @@ class LibraryViewModel @Inject constructor(
         )
     }
 
-    fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {
-        viewModelScope.launch {
-            val count = playlistDao.countEntries(playlistId)
-            val entries = themeIds.mapIndexed { i, id ->
-                PlaylistEntryEntity(playlistId = playlistId, themeId = id, orderIndex = count + i)
-            }
-            playlistDao.insertEntries(entries)
+    fun addToPlaylist(playlistId: Long, themeIds: List<Long>, modeOverride: String? = null) {
+        runPlaylistAction("Couldn't save to playlist. Try again when your connection is stable.") {
+            serverPlaylistWriter.addThemeEntries(playlistId, themeIds, modeOverride)
         }
     }
 
@@ -255,6 +290,9 @@ class LibraryViewModel @Inject constructor(
         .map { it.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
+    fun observePreference(themeId: Long?) =
+        themeId?.let { userPreferencesRepository.observePreference(it) } ?: flowOf(null)
+
     fun toggleLike(themeId: Long) {
         viewModelScope.launch { userPreferencesRepository.toggleLike(themeId) }
     }
@@ -272,15 +310,27 @@ class LibraryViewModel @Inject constructor(
         downloadManager.removeDownload(themeId)
     }
 
-    fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
+    fun createAndAddToPlaylist(name: String, themeIds: List<Long>, modeOverride: String? = null) {
+        runPlaylistAction("Couldn't create playlist. Try again when your connection is stable.") {
+            serverPlaylistWriter.createPlaylistWithThemes(name, themeIds, modeOverride)
+        }
+    }
+
+    fun clearPlaylistActionMessage() {
+        _playlistActionMessage.value = null
+    }
+
+    private fun runPlaylistAction(
+        failureMessage: String,
+        block: suspend () -> Unit
+    ) {
+        _playlistActionMessage.value = null
         viewModelScope.launch {
-            val newId = playlistDao.insertPlaylist(
-                PlaylistEntity(name = name, createdAt = System.currentTimeMillis())
-            )
-            val entries = themeIds.mapIndexed { i, id ->
-                PlaylistEntryEntity(playlistId = newId, themeId = id, orderIndex = i)
+            try {
+                block()
+            } catch (_: Exception) {
+                _playlistActionMessage.value = failureMessage
             }
-            playlistDao.insertEntries(entries)
         }
     }
 }
@@ -290,7 +340,7 @@ data class AnimeItem(
     val animeThemesId: Long?,
     val title: String,
     val trackCount: Int,
-    val coverUrl: String?
+    val coverUrls: List<String>
 )
 
 data class ArtistItem(

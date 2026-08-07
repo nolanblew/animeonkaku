@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import androidx.hilt.navigation.compose.hiltViewModel
 
 val MiniPlayerHeight = 64.dp
 
@@ -48,7 +49,9 @@ fun PlayerContainer(
     modifier: Modifier = Modifier,
     bottomPadding: Dp = 0.dp,
     onOpenAnime: (String) -> Unit = {},
-    onOpenArtist: (String) -> Unit = {}
+    onOpenRelatedMusic: (String) -> Unit = {},
+    onOpenArtist: (String) -> Unit = {},
+    viewModel: PlayerViewModel = hiltViewModel()
 ) {
     if (!showMiniPlayer && !isExpanded) return
 
@@ -71,6 +74,7 @@ fun PlayerContainer(
         var prevMaxOffset by remember { mutableStateOf(maxOffset) }
 
         LaunchedEffect(isExpanded, maxOffset) {
+            if (!isExpanded) viewModel.exitVideoMode()
             val target = if (isExpanded) minOffset else maxOffset
             val navBarChanged = prevMaxOffset != maxOffset
             prevMaxOffset = maxOffset
@@ -137,6 +141,7 @@ fun PlayerContainer(
                             onExpand()
                         } else {
                             coroutineScope.launch { offsetY.animateTo(maxOffset, initialVelocity = velocity) }
+                            viewModel.exitVideoMode()
                             onCollapse()
                         }
                     }
@@ -152,10 +157,13 @@ fun PlayerContainer(
                 },
                 onCollapse = {
                     coroutineScope.launch { offsetY.animateTo(maxOffset) }
+                    viewModel.exitVideoMode()
                     onCollapse()
                 },
                 onOpenAnime = onOpenAnime,
-                onOpenArtist = onOpenArtist
+                onOpenRelatedMusic = onOpenRelatedMusic,
+                onOpenArtist = onOpenArtist,
+                viewModel = viewModel
             )
         }
     }

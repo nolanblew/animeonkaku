@@ -1,14 +1,12 @@
 package com.takeya.animeongaku.sync
 
 import android.util.Log
-import com.takeya.animeongaku.data.auth.KitsuTokenStore
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.UserPreferenceDao
-import com.takeya.animeongaku.data.repository.UserRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -19,11 +17,9 @@ import kotlin.random.Random
 
 @Singleton
 class AutoPlaylistManager @Inject constructor(
-    private val userRepository: UserRepository,
     private val animeDao: AnimeDao,
     private val themeDao: ThemeDao,
     private val playlistDao: PlaylistDao,
-    private val tokenStore: KitsuTokenStore,
     private val userPreferenceDao: UserPreferenceDao
 ) {
     companion object {
@@ -35,7 +31,6 @@ class AutoPlaylistManager @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun refreshAutoPlaylists() {
-        val userId = tokenStore.getUserId() ?: return
         scope.launch {
             refreshAutoPlaylistsSuspend()
         }

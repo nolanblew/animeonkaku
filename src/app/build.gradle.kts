@@ -18,6 +18,14 @@ fun getDevVersion(): String {
     return "dev-$dateStr-${getGitHash()}"
 }
 
+fun String.toBuildConfigStringLiteral(): String {
+    val escaped = replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+    return "\"$escaped\""
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -34,6 +42,26 @@ val hasGoogleServicesConfig = listOf(
     file("src/release/google-services.json")
 ).any { it.exists() }
 
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use { load(it) }
+    }
+}
+val defaultOngakuServerBaseUrl = "https://ongaku-api.takeya.ninja/"
+val ongakuServerBaseUrl = providers.environmentVariable("ONGAKU_SERVER_BASE_URL")
+    .orNull
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+    ?: providers.gradleProperty("ongakuServerBaseUrl")
+        .orNull
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+    ?: localProperties.getProperty("ongaku.serverBaseUrl")
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+    ?: defaultOngakuServerBaseUrl
+
 if (hasGoogleServicesConfig) {
     apply(plugin = "com.google.gms.google-services")
     apply(plugin = "com.google.firebase.crashlytics")
@@ -47,11 +75,12 @@ android {
         applicationId = "com.takeya.animeongaku"
         minSdk = 35
         targetSdk = 36
-        versionCode = 4
-        versionName = "1.0.3"
+        versionCode = 2
+        versionName = "1.2.1"
         
         buildConfigField("String", "DISPLAY_VERSION", "\"1.0.3\"")
         buildConfigField("boolean", "UPDATER_ENABLED", "false")
+        buildConfigField("String", "ONGAKU_SERVER_BASE_URL", ongakuServerBaseUrl.toBuildConfigStringLiteral())
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -133,7 +162,9 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.session)
+    implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.datasource)
+    implementation(libs.androidx.media3.datasource.okhttp)
     implementation(libs.retrofit)
     implementation(libs.retrofit.moshi)
     implementation(libs.okhttp)
@@ -155,8 +186,10 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)

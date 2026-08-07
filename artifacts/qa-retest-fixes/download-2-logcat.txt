@@ -1,0 +1,20 @@
+06-13 14:49:09.920  1363  1363 I adbd    : adbd service requested 'shell,v2,raw:am start -n com.takeya.animeongaku/.MainActivity --es navigate_to downloadManager'
+06-13 14:49:10.174   904  7318 I Auth    : (REDACTED) [GetToken] GetToken failed for app=%s with userRecoverable status: %s 
+06-13 14:49:10.174   904  7318 W Auth    : aicp: GetToken failed with status code and recovery intent: BadAuthentication
+06-13 14:49:10.177  8142 30094 I Finsky  : [876] Completed 1 account content syncs with 0 successful.
+06-13 14:49:10.177  8142  8142 I Finsky  : [2] [ContentSync] Installation state replication failed, parameters=Id: 12-1, CT: 1781387326023, Constraints: [{ L: 15000, D: 86400000, C: CHARGING_NONE, I: IDLE_NONE, N: NET_ANY, B: BATTERY_ANY }].
+06-13 14:49:10.265 30058 30058 W FirebaseApp: Default FirebaseApp failed to initialize because no default options were found. This usually means that com.google.gms:google-services was not applied to your gradle project.
+06-13 14:49:11.073 30058 30215 I okhttp.OkHttpClient: <-- 200 OK http://127.0.0.1:8080/v1/library?since=1781386976536 (15ms, 51-byte body)
+06-13 14:49:11.674 30058 30215 I okhttp.OkHttpClient: <-- 200 OK http://127.0.0.1:8080/v1/prefs/themes (9ms, 636-byte body)
+06-13 14:49:11.775 30058 30215 I okhttp.OkHttpClient: <-- 200 OK http://127.0.0.1:8080/v1/playlists (9ms, 1215-byte body)
+06-13 14:49:12.329  1609  2469 W WindowManager: Failed looking up window session=Session{cece098 2362:u0a10220} callers=com.android.server.wm.WindowManagerService.removeClientToken:2232 com.android.server.wm.Session.remove:290 android.view.IWindowSession$Stub.onTransact:669 
+06-13 14:49:45.398   904  2737 I Auth    : (REDACTED) [GetToken] GetToken failed for app=%s with userRecoverable status: %s 
+06-13 14:49:45.398   904  2737 W Auth    : aicp: GetToken failed with status code and recovery intent: BadAuthentication
+06-13 14:49:45.403  8142 30273 I Finsky  : [883] Completed 1 account content syncs with 0 successful.
+06-13 14:49:45.403  8142  8142 I Finsky  : [2] [ContentSync] Installation state replication failed, parameters=Id: 12-1, CT: 1781387350182, Constraints: [{ L: 20000, D: 86400000, C: CHARGING_NONE, I: IDLE_NONE, N: NET_ANY, B: BATTERY_ANY }].
+06-13 14:49:46.649  1609  6717 I AppSearchIcing: icing-search-engine.cc:2502: PersistToDisk completed.
+06-13 14:49:51.583   904  2736 I Auth    : (REDACTED) [GetToken] GetToken failed for app=%s with userRecoverable status: %s 
+06-13 14:49:51.584   904  2736 W Auth    : aicp: GetToken failed with status code and recovery intent: BadAuthentication
+06-13 14:49:55.020  1363  1363 I adbd    : adbd service requested 'shell,v2,raw:uiautomator dump /sdcard/qa-download-manager-fixed2.xml'
+06-13 14:49:57.373  1363  1363 I adbd    : adbd service requested 'shell,v2,raw:screencap -p /sdcard/qa-download-manager-fixed2.png'
+06-13 14:49:57.791  1609  1671 I ActivityManager: Broadcast completed: result=0

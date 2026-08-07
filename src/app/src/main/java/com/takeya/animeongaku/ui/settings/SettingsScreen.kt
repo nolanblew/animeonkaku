@@ -21,9 +21,11 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -40,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.takeya.animeongaku.BuildConfig
+import com.takeya.animeongaku.ui.player.MiniPlayerHeight
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
 import com.takeya.animeongaku.ui.theme.Ink900
@@ -48,6 +51,7 @@ import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.theme.Rose500
 import com.takeya.animeongaku.updater.AvailableAppUpdate
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit = {},
@@ -59,9 +63,11 @@ fun SettingsScreen(
     onCheckForUpdates: () -> Unit = {},
     onDownloadUpdate: () -> Unit = {},
     onOpenReleasePage: () -> Unit = {},
+    onOpenAbout: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val wifiOnly by viewModel.wifiOnly.collectAsStateWithLifecycle()
+    val showOstsOnHome by viewModel.showOstsOnHome.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -104,6 +110,17 @@ fun SettingsScreen(
                 title = "Kitsu Sync",
                 subtitle = "Manage your Kitsu connection",
                 onClick = onOpenImport
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            SectionHeader("Home")
+            SettingsToggleRow(
+                icon = Icons.Rounded.Home,
+                title = "Show OSTs on Home",
+                subtitle = "Include soundtrack songs in Quick picks.",
+                checked = showOstsOnHome,
+                onCheckedChange = viewModel::setShowOstsOnHome
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -168,38 +185,14 @@ fun SettingsScreen(
 
             // --- About Section ---
             SectionHeader("About")
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Ink800)
-                    .padding(16.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Rounded.Info,
-                        contentDescription = null,
-                        tint = Rose500,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            "Anime Ongaku",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = Mist100,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            "Version ${BuildConfig.DISPLAY_VERSION}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Mist200
-                        )
-                    }
-                }
-            }
+            SettingsRow(
+                icon = Icons.Rounded.Info,
+                title = "Anime Ongaku",
+                subtitle = "Version ${BuildConfig.DISPLAY_VERSION}",
+                onClick = onOpenAbout
+            )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(MiniPlayerHeight + 32.dp))
         }
     }
 }

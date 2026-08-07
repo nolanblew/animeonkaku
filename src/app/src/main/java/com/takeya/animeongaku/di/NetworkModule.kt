@@ -11,20 +11,24 @@ import com.takeya.animeongaku.BuildConfig
 import com.takeya.animeongaku.data.filter.CustomRange
 import com.takeya.animeongaku.data.filter.DateAnchor
 import com.takeya.animeongaku.data.filter.FilterNode
-import com.takeya.animeongaku.data.auth.KitsuAuthRepository
-import com.takeya.animeongaku.data.auth.KitsuAuthRepositoryImpl
-import com.takeya.animeongaku.data.auth.KitsuTokenStore
-import com.takeya.animeongaku.data.remote.ApiConstants
-import com.takeya.animeongaku.data.remote.KitsuApi
-import com.takeya.animeongaku.data.remote.KitsuAuthApi
-import com.takeya.animeongaku.network.KitsuAuthInterceptor
-import com.takeya.animeongaku.network.RateLimitInterceptor
+import com.takeya.animeongaku.data.auth.OngakuAuthRepository
+import com.takeya.animeongaku.data.auth.OngakuAuthRepositoryImpl
+import com.takeya.animeongaku.data.auth.ServerTokenStore
+import com.takeya.animeongaku.data.remote.OngakuApi
+import com.takeya.animeongaku.data.remote.OngakuMusicApi
+import com.takeya.animeongaku.data.remote.MusicRequestApi
+import com.takeya.animeongaku.data.server.ServerSettingsStore
+import com.takeya.animeongaku.network.OngakuAuthInterceptor
+import com.takeya.animeongaku.network.OngakuBaseUrlInterceptor
 import com.takeya.animeongaku.network.RetryInterceptor
+import com.takeya.animeongaku.network.ServerMediaRebaseInterceptor
+import coil.ImageLoader
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import java.net.Proxy
 import javax.inject.Named
 import javax.inject.Singleton
 import okhttp3.OkHttpClient
@@ -101,7 +105,7 @@ object NetworkModule {
         }
 
         return OkHttpClient.Builder()
-            .addInterceptor(RateLimitInterceptor())
+            .proxy(Proxy.NO_PROXY)
             .addInterceptor(RetryInterceptor())
             .addInterceptor(logging)
             .build()
@@ -115,25 +119,27 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    @Named("kitsu")
-    fun provideKitsuOkHttpClient(
+    @Named("ongaku")
+    fun provideOngakuOkHttpClient(
         @Named("base") baseClient: OkHttpClient,
-        kitsuAuthInterceptor: KitsuAuthInterceptor
+        baseUrlInterceptor: OngakuBaseUrlInterceptor,
+        authInterceptor: OngakuAuthInterceptor
     ): OkHttpClient {
         return baseClient.newBuilder()
-            .addInterceptor(kitsuAuthInterceptor)
+            .addInterceptor(baseUrlInterceptor)
+            .addInterceptor(authInterceptor)
             .build()
     }
 
     @Provides
     @Singleton
-    @Named("kitsu")
-    fun provideKitsuRetrofit(
-        @Named("kitsu") okHttpClient: OkHttpClient,
+    @Named("ongaku")
+    fun provideOngakuRetrofit(
+        @Named("ongaku") okHttpClient: OkHttpClient,
         moshi: Moshi
     ): Retrofit {
         return Retrofit.Builder()
-            .baseUrl(ApiConstants.KITSU_BASE_URL)
+            .baseUrl("https://ongaku.local/")
             .client(okHttpClient)
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
@@ -141,33 +147,60 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    @Named("auth")
-    fun provideAuthRetrofit(
-        @Named("base") okHttpClient: OkHttpClient,
-        moshi: Moshi
-    ): Retrofit {
-        return Retrofit.Builder()
-            .baseUrl(ApiConstants.KITSU_AUTH_URL)
-            .client(okHttpClient)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
+    fun provideOngakuApi(@Named("ongaku") retrofit: Retrofit): OngakuApi {
+        return retrofit.create(OngakuApi::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideOngakuMusicApi(@Named("ongaku") retrofit: Retrofit): OngakuMusicApi =
+        retrofit.create(OngakuMusicApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideMusicRequestApi(@Named("ongaku") retrofit: Retrofit): MusicRequestApi =
+        retrofit.create(MusicRequestApi::class.java)
+
+    @Provides
+    @Singleton
+    @Named("image")
+    fun provideImageOkHttpClient(
+        @Named("base") baseClient: OkHttpClient
+    ): OkHttpClient {
+        return baseClient.newBuilder()
+            .apply {
+                interceptors().removeAll { it is RetryInterceptor }
+            }
+            .build()
+    }
+
+    /**
+     * Coil image loader whose HTTP client rebases stale server-media URLs onto the
+     * current server base (see [ServerMediaRebaseInterceptor]). Installed as the app's
+     * default loader via [com.takeya.animeongaku.AnimeOngakuApp] so every AsyncImage
+     * survives a server host change instead of rendering broken artwork. Image
+     * requests do not use the API retry loop, so fallback URLs advance immediately
+     * after an HTTP failure without imposing a deadline on slow full-size artwork.
+     */
+    @Provides
+    @Singleton
+    fun provideImageLoader(
+        @ApplicationContext context: Context,
+        @Named("image") imageClient: OkHttpClient,
+        rebaseInterceptor: ServerMediaRebaseInterceptor
+    ): ImageLoader {
+        val client = imageClient.newBuilder()
+            .addInterceptor(rebaseInterceptor)
+            .build()
+        return ImageLoader.Builder(context)
+            .okHttpClient(client)
             .build()
     }
 
     @Provides
     @Singleton
-    fun provideKitsuApi(@Named("kitsu") retrofit: Retrofit): KitsuApi {
-        return retrofit.create(KitsuApi::class.java)
-    }
-
-    @Provides
-    @Singleton
-    fun provideKitsuAuthApi(@Named("auth") retrofit: Retrofit): KitsuAuthApi {
-        return retrofit.create(KitsuAuthApi::class.java)
-    }
-
-    @Provides
-    @Singleton
-    fun provideEncryptedPreferences(
+    @Named("legacyEncrypted")
+    fun provideLegacyEncryptedPreferences(
         @ApplicationContext context: Context
     ): SharedPreferences {
         val masterKey = MasterKey.Builder(context)
@@ -184,13 +217,31 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideTokenStore(prefs: SharedPreferences): KitsuTokenStore {
-        return KitsuTokenStore(prefs)
+    @Named("session")
+    fun provideSessionPreferences(
+        @ApplicationContext context: Context
+    ): SharedPreferences =
+        context.getSharedPreferences("ongaku_session_prefs", Context.MODE_PRIVATE)
+
+    @Provides
+    @Singleton
+    fun provideServerSettingsStore(
+        @Named("session") prefs: SharedPreferences
+    ): ServerSettingsStore {
+        return ServerSettingsStore(prefs, BuildConfig.ONGAKU_SERVER_BASE_URL)
     }
 
     @Provides
     @Singleton
-    fun provideKitsuAuthRepository(
-        impl: KitsuAuthRepositoryImpl
-    ): KitsuAuthRepository = impl
+    fun provideServerTokenStore(
+        @Named("session") prefs: SharedPreferences
+    ): ServerTokenStore {
+        return ServerTokenStore(prefs)
+    }
+
+    @Provides
+    @Singleton
+    fun provideOngakuAuthRepository(
+        impl: OngakuAuthRepositoryImpl
+    ): OngakuAuthRepository = impl
 }

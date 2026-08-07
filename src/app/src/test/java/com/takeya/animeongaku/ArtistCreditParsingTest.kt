@@ -79,7 +79,7 @@ class ArtistCreditParsingTest {
         assertEquals("Some Artist", e.artist)
     }
 
-    // ─── Display string generation (mirrors SyncManager.toEntity logic) ──────
+    // ─── Display string generation (mirrors theme entity mapping logic) ──────
 
     private fun buildDisplayArtist(credits: List<ArtistCredit>, fallback: String?): String? {
         return if (credits.isNotEmpty()) {
@@ -148,7 +148,7 @@ class ArtistCreditParsingTest {
         assertNull(result)
     }
 
-    // ─── Cross-ref generation (mirrors SyncManager.toCrossRefs logic) ────────
+    // ─── Cross-ref generation (mirrors theme artist mapping logic) ───────────
 
     data class CrossRef(
         val themeId: Long,

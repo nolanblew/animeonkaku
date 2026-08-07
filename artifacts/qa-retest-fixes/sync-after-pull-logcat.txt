@@ -1,0 +1,14 @@
+06-13 14:42:54.177 28121 28952 I okhttp.OkHttpClient: --> POST https://ongaku.local/v1/sync (14-byte body)
+06-13 14:42:54.203 28121 28952 I okhttp.OkHttpClient: <-- 200 OK http://127.0.0.1:8080/v1/sync (25ms, 11-byte body)
+06-13 14:42:54.257 28121 28952 I okhttp.OkHttpClient: --> GET https://ongaku.local/v1/sync/status
+06-13 14:42:54.269 28121 28952 I okhttp.OkHttpClient: <-- 200 OK http://127.0.0.1:8080/v1/sync/status (11ms, 92-byte body)
+06-13 14:42:56.283 28121 28952 I okhttp.OkHttpClient: --> GET https://ongaku.local/v1/sync/status
+06-13 14:42:56.296 28121 28952 I okhttp.OkHttpClient: <-- 200 OK http://127.0.0.1:8080/v1/sync/status (13ms, 144-byte body)
+06-13 14:42:56.303 28121 28952 I okhttp.OkHttpClient: --> POST https://ongaku.local/v1/plays (505-byte body)
+06-13 14:42:56.323 28121 28952 I okhttp.OkHttpClient: <-- 200 OK http://127.0.0.1:8080/v1/plays (19ms, 15-byte body)
+06-13 14:42:56.385 28121 28952 I okhttp.OkHttpClient: --> GET https://ongaku.local/v1/library
+06-13 14:42:56.408 28121 28952 I okhttp.OkHttpClient: <-- 200 OK http://127.0.0.1:8080/v1/library (22ms, 67897-byte body)
+06-13 14:42:56.669 28121 28952 I okhttp.OkHttpClient: --> GET https://ongaku.local/v1/prefs/themes
+06-13 14:42:56.679 28121 28952 I okhttp.OkHttpClient: <-- 200 OK http://127.0.0.1:8080/v1/prefs/themes (9ms, 636-byte body)
+06-13 14:42:56.723 28121 28952 I okhttp.OkHttpClient: --> GET https://ongaku.local/v1/playlists
+06-13 14:42:56.737 28121 28952 I okhttp.OkHttpClient: <-- 200 OK http://127.0.0.1:8080/v1/playlists (13ms, 1215-byte body)

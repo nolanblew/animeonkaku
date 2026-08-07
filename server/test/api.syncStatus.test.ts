@@ -1,0 +1,180 @@
+import { describe, expect, it } from "vitest";
+import { JobSyncApiService } from "../src/api/jobSyncApiService.js";
+import { JobPriority, JobQueue } from "../src/jobs/index.js";
+import { FakeJobRepository } from "./helpers/fakeJobRepository.js";
+
+const USER = "466215";
+
+function setup() {
+  const repo = new FakeJobRepository();
+  const queue = new JobQueue(repo);
+  const service = new JobSyncApiService(queue);
+  return { repo, queue, service };
+}
+
+describe("JobSyncApiService.getStatus upstream-blocked surfacing", () => {
+  it("reports upstreamBlocked when the user's MAP_THEMES job failed with a 403 block", async () => {
+    const { repo, queue, service } = setup();
+    // A completed library sync — the user would see "Sync complete".
+    const sync = await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.HIGH,
+      payload: { userId: USER },
+      dedupeKey: `KITSU_FULL_SYNC:${USER}`,
+    });
+    await repo.complete(sync.id);
+    // ...but theme mapping hit a Cloudflare block.
+    const map = await queue.enqueue({
+      type: "MAP_THEMES",
+      priority: JobPriority.NORMAL,
+      payload: { kitsuIds: ["1"], userId: USER },
+      dedupeKey: `MAP_THEMES:${USER}:1`,
+    });
+    await repo.fail(map.id, {
+      state: "FAILED",
+      nextRunAt: new Date(),
+      lastError: "AnimeThemes request failed with HTTP 403: cloudflare",
+      incrementAttempts: true,
+    });
+
+    const status = await service.getStatus(USER);
+    expect(status.upstreamBlocked).toBe(true);
+    expect(status.mapping?.state).toBe("FAILED");
+    expect(status.mapping?.lastError).toContain("403");
+  });
+
+  it("does not let an old mapping failure poison a newly queued sync retry", async () => {
+    const { repo, queue, service } = setup();
+    const oldSync = await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.HIGH,
+      payload: { userId: USER },
+      dedupeKey: `old:KITSU_FULL_SYNC:${USER}`,
+    });
+    await repo.complete(oldSync.id);
+    const oldMapping = await queue.enqueue({
+      type: "MAP_THEMES",
+      priority: JobPriority.NORMAL,
+      payload: { kitsuIds: ["1"], userId: USER },
+      dedupeKey: `old:MAP_THEMES:${USER}:1`,
+    });
+    await repo.fail(oldMapping.id, {
+      state: "FAILED",
+      nextRunAt: new Date(),
+      lastError: "AnimeThemes request failed with HTTP 403: cloudflare",
+      incrementAttempts: true,
+    });
+    await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.HIGH,
+      payload: { userId: USER },
+      dedupeKey: `retry:KITSU_FULL_SYNC:${USER}`,
+    });
+
+    const status = await service.getStatus(USER);
+
+    expect(status.state).toBe("QUEUED");
+    expect(status.upstreamBlocked).toBe(false);
+  });
+
+  it("does not report upstreamBlocked when mapping completed", async () => {
+    const { repo, queue, service } = setup();
+    const map = await queue.enqueue({
+      type: "MAP_THEMES",
+      priority: JobPriority.NORMAL,
+      payload: { kitsuIds: ["1"], userId: USER },
+      dedupeKey: `MAP_THEMES:${USER}:1`,
+    });
+    await repo.complete(map.id);
+
+    const status = await service.getStatus(USER);
+    expect(status.upstreamBlocked).toBe(false);
+    expect(status.mapping?.state).toBe("DONE");
+  });
+
+  it("keeps sync running while theme mapping is still queued after Kitsu sync completes", async () => {
+    const { repo, queue, service } = setup();
+    const sync = await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.HIGH,
+      payload: { userId: USER },
+      dedupeKey: `KITSU_FULL_SYNC:${USER}`,
+    });
+    await repo.complete(sync.id);
+    await queue.enqueue({
+      type: "MAP_THEMES",
+      priority: JobPriority.NORMAL,
+      payload: { kitsuIds: ["1"], userId: USER },
+      dedupeKey: `MAP_THEMES:${USER}:1`,
+    });
+
+    const status = await service.getStatus(USER);
+    expect(status.state).toBe("QUEUED");
+    expect(status.phase).toBe("MAPPING_THEMES");
+    expect(status.mapping?.state).toBe("QUEUED");
+  });
+
+  it("keeps sync running while theme mapping is running after Kitsu sync completes", async () => {
+    const { repo, queue, service } = setup();
+    const sync = await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.HIGH,
+      payload: { userId: USER },
+      dedupeKey: `KITSU_FULL_SYNC:${USER}`,
+    });
+    await repo.complete(sync.id);
+    const map = await queue.enqueue({
+      type: "MAP_THEMES",
+      priority: JobPriority.NORMAL,
+      payload: { kitsuIds: ["1"], userId: USER },
+      dedupeKey: `MAP_THEMES:${USER}:1`,
+    });
+    await repo.claimNext(new Date());
+
+    const status = await service.getStatus(USER);
+    expect(map.id).toBeGreaterThan(0);
+    expect(status.state).toBe("RUNNING");
+    expect(status.phase).toBe("MAPPING_THEMES");
+    expect(status.mapping?.state).toBe("RUNNING");
+  });
+
+  it("treats a non-block mapping failure as not upstreamBlocked", async () => {
+    const { repo, queue, service } = setup();
+    const map = await queue.enqueue({
+      type: "MAP_THEMES",
+      priority: JobPriority.NORMAL,
+      payload: { kitsuIds: ["1"], userId: USER },
+      dedupeKey: `MAP_THEMES:${USER}:1`,
+    });
+    await repo.fail(map.id, {
+      state: "FAILED",
+      nextRunAt: new Date(),
+      lastError: "boom: some unrelated database error",
+      incrementAttempts: true,
+    });
+
+    const status = await service.getStatus(USER);
+    expect(status.upstreamBlocked).toBe(false);
+    expect(status.mapping?.state).toBe("FAILED");
+  });
+
+  it("ignores MAP_THEMES jobs belonging to other users", async () => {
+    const { repo, queue, service } = setup();
+    const other = await queue.enqueue({
+      type: "MAP_THEMES",
+      priority: JobPriority.NORMAL,
+      payload: { kitsuIds: ["1"], userId: "999" },
+      dedupeKey: `MAP_THEMES:999:1`,
+    });
+    await repo.fail(other.id, {
+      state: "FAILED",
+      nextRunAt: new Date(),
+      lastError: "HTTP 403",
+      incrementAttempts: true,
+    });
+
+    const status = await service.getStatus(USER);
+    expect(status.upstreamBlocked).toBe(false);
+    expect(status.mapping).toBeNull();
+  });
+});

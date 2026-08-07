@@ -1,0 +1,405 @@
+package com.takeya.animeongaku
+
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import com.takeya.animeongaku.data.auth.ServerSession
+import com.takeya.animeongaku.data.auth.ServerTokenStore
+import com.takeya.animeongaku.data.auth.SessionStateManager
+import com.takeya.animeongaku.data.local.PendingOpEntity
+import com.takeya.animeongaku.data.local.PlaylistEntity
+import com.takeya.animeongaku.data.remote.OngakuAnimeDetailResponse
+import com.takeya.animeongaku.data.remote.OngakuApi
+import com.takeya.animeongaku.data.remote.OngakuAudioRequestResponse
+import com.takeya.animeongaku.data.remote.OngakuChangesResponse
+import com.takeya.animeongaku.data.remote.OngakuLibraryResponse
+import com.takeya.animeongaku.data.remote.OngakuLoginRequest
+import com.takeya.animeongaku.data.remote.OngakuLoginResponse
+import com.takeya.animeongaku.data.remote.OngakuManualAnimeRequest
+import com.takeya.animeongaku.data.remote.OngakuManualAnimeResponse
+import com.takeya.animeongaku.data.remote.OngakuMeResponse
+import com.takeya.animeongaku.data.remote.OngakuPlayAcceptedResponse
+import com.takeya.animeongaku.data.remote.OngakuPlayEvent
+import com.takeya.animeongaku.data.remote.OngakuPlaylistDto
+import com.takeya.animeongaku.data.remote.OngakuPlaylistRequest
+import com.takeya.animeongaku.data.remote.OngakuPlaylistResponse
+import com.takeya.animeongaku.data.remote.OngakuSyncQueuedResponse
+import com.takeya.animeongaku.data.remote.OngakuSyncRequest
+import com.takeya.animeongaku.data.remote.OngakuSyncStatusResponse
+import com.takeya.animeongaku.data.remote.OngakuThemePrefDto
+import com.takeya.animeongaku.data.remote.OngakuThemePrefPatch
+import com.takeya.animeongaku.data.repository.PlaylistWriteStore
+import com.takeya.animeongaku.data.repository.PlaylistWriteItem
+import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
+import com.takeya.animeongaku.data.server.ServerSettingsStore
+import com.takeya.animeongaku.sync.SyncEngine
+import com.takeya.animeongaku.sync.SyncEngineStore
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import retrofit2.Response
+
+class ServerPlaylistWriterTest {
+    @Test
+    fun `typed playlist items preserve entry identity and reject invalid song modes`() {
+        val item = PlaylistWriteItem(
+            entryId = 41L,
+            itemType = "THEME",
+            itemId = 88L,
+            modeOverride = "FULL_SIZE"
+        )
+
+        assertEquals(41L, item.toRequest().entryId)
+        assertEquals("THEME", item.toRequest().itemType)
+        assertEquals("FULL_SIZE", item.toRequest().modeOverride)
+
+        var rejected = false
+        try {
+            PlaylistWriteItem(itemType = "SONG", itemId = 99L, modeOverride = "TV_SIZE")
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue(rejected)
+        assertEquals(null, item.copy(entryId = -41L).toRequest().entryId)
+    }
+
+    @Test
+    fun `mixed create sends theme and song without local temporary entry ids`() = runBlocking {
+        val store = FakePlaylistWriteStore()
+        val api = PlaylistRecordingOngakuApi()
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+        }
+        val writer = ServerPlaylistWriter(store, settings, syncEngine(PlaylistSyncStore(store), api, settings))
+
+        writer.createPlaylistWithItems(
+            "Mixed",
+            listOf(
+                PlaylistWriteItem(itemType = "THEME", itemId = 10L, modeOverride = "FULL_SIZE"),
+                PlaylistWriteItem(itemType = "SONG", itemId = 20L)
+            ),
+            defaultMode = "FULL_SIZE"
+        )
+
+        assertEquals(listOf("THEME", "SONG"), api.createdRequest?.items?.map { it.itemType })
+        assertTrue(api.createdRequest?.items.orEmpty().all { it.entryId == null })
+        assertEquals("FULL_SIZE", api.createdRequest?.defaultMode)
+    }
+
+    @Test
+    fun `mixed add sends ordered typed items and omits new temporary ids`() = runBlocking {
+        val store = FakePlaylistWriteStore(
+            playlists = mutableMapOf(900L to PlaylistEntity(id = 900L, name = "Mix", createdAt = 1L, isAuto = false))
+        )
+        val api = PlaylistRecordingOngakuApi()
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+        }
+        val writer = ServerPlaylistWriter(store, settings, syncEngine(PlaylistSyncStore(store), api, settings))
+
+        writer.addItems(
+            900L,
+            listOf(
+                PlaylistWriteItem(itemType = "THEME", itemId = 10L),
+                PlaylistWriteItem(itemType = "SONG", itemId = 20L)
+            )
+        )
+
+        assertEquals(listOf("THEME", "SONG"), api.updatedRequest?.items?.map { it.itemType })
+        assertTrue(api.updatedRequest?.items.orEmpty().all { it.entryId == null })
+    }
+
+    @Test
+    fun `server mode creates playlist on server and applies returned server id locally`() = runBlocking {
+        val store = FakePlaylistWriteStore()
+        val api = PlaylistRecordingOngakuApi(
+            createResponse = OngakuPlaylistDto(
+                id = 900L,
+                name = "Mix",
+                entries = listOf(100L, 101L),
+                isAuto = false,
+                updatedAt = 1760000000000,
+                dynamicSpecJson = null
+            )
+        )
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+        }
+        val syncStore = PlaylistSyncStore(store)
+        val writer = ServerPlaylistWriter(store, settings, syncEngine(syncStore, api, settings))
+
+        val id = writer.createPlaylist("Mix", listOf(100L, 101L))
+
+        assertTrue(id < 0L)
+        assertEquals("Mix", api.createdRequest?.name)
+        assertEquals(listOf(100L, 101L), api.createdRequest?.entries)
+        assertEquals(900L, store.appliedServerPlaylists.single().id)
+        assertEquals(listOf(id), store.createdLocalIds)
+        assertTrue(syncStore.ops.isEmpty())
+    }
+
+    @Test
+    fun `add entries syncs manual playlist entries to server`() = runBlocking {
+        val store = FakePlaylistWriteStore(
+            playlists = mutableMapOf(
+                900L to PlaylistEntity(id = 900L, name = "Mix", createdAt = 1L, isAuto = false)
+            ),
+            entries = mutableMapOf(900L to mutableListOf(100L))
+        )
+        val api = PlaylistRecordingOngakuApi()
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+        }
+        val syncStore = PlaylistSyncStore(store)
+        val writer = ServerPlaylistWriter(store, settings, syncEngine(syncStore, api, settings))
+
+        writer.addEntries(900L, listOf(101L, 102L))
+
+        assertEquals(listOf(100L, 101L, 102L), store.entries[900L])
+        assertEquals(900L, api.updatedPlaylistId)
+        assertEquals(listOf(100L, 101L, 102L), api.updatedRequest?.entries)
+        assertTrue((api.updatedRequest?.opTs ?: 0L) > 0L)
+    }
+
+    @Test
+    fun `auto playlist entry changes are not written to server`() = runBlocking {
+        val store = FakePlaylistWriteStore(
+            playlists = mutableMapOf(
+                77L to PlaylistEntity(id = 77L, name = "Liked Songs", createdAt = 1L, isAuto = true)
+            ),
+            entries = mutableMapOf(77L to mutableListOf(100L))
+        )
+        val api = PlaylistRecordingOngakuApi()
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+        }
+        val writer = ServerPlaylistWriter(store, settings, syncEngine(PlaylistSyncStore(store), api, settings))
+
+        var rejected = false
+        try {
+            writer.addEntries(77L, listOf(101L))
+        } catch (_: IllegalStateException) {
+            rejected = true
+        }
+
+        assertTrue(rejected)
+        assertEquals(listOf(100L), store.entries[77L])
+        assertFalse(api.updateCalled)
+    }
+
+    @Test
+    fun `blank server mode keeps playlist writes local`() = runBlocking {
+        val store = FakePlaylistWriteStore()
+        val api = PlaylistRecordingOngakuApi()
+        val settings = ServerSettingsStore(FakeSharedPreferences())
+        val syncStore = PlaylistSyncStore(store)
+        val writer = ServerPlaylistWriter(store, settings, syncEngine(syncStore, api, settings))
+
+        val id = writer.createPlaylist("Local Mix", listOf(100L))
+
+        assertEquals(1L, id)
+        assertEquals(listOf(1L), store.createdLocalIds)
+        assertFalse(api.createCalled)
+        assertTrue(syncStore.ops.isEmpty())
+    }
+
+    private fun syncEngine(
+        store: PlaylistSyncStore,
+        api: PlaylistRecordingOngakuApi,
+        settings: ServerSettingsStore
+    ): SyncEngine =
+        SyncEngine(
+            store = store,
+            api = api,
+            settings = settings,
+            sessionStateManager = activeSessionStateManager(),
+            moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+        )
+
+    private fun activeSessionStateManager(): SessionStateManager {
+        val tokenStore = ServerTokenStore(FakeSharedPreferences()).apply {
+            save(ServerSession("tok", "uid", "nblew"))
+        }
+        return SessionStateManager(tokenStore)
+    }
+}
+
+private class FakePlaylistWriteStore(
+    val playlists: MutableMap<Long, PlaylistEntity> = mutableMapOf(),
+    val entries: MutableMap<Long, MutableList<Long>> = mutableMapOf()
+) : PlaylistWriteStore {
+    val createdLocalIds = mutableListOf<Long>()
+    val appliedServerPlaylists = mutableListOf<OngakuPlaylistDto>()
+    private var nextId = 1L
+    private var nextEntryId = -1L
+    private val typedEntries = mutableMapOf<Long, MutableList<PlaylistWriteItem>>()
+
+    override suspend fun createLocalPlaylist(
+        name: String,
+        entries: List<Long>,
+        playlistId: Long?,
+        isAuto: Boolean,
+        updatedAt: Long
+    ): Long {
+        val id = playlistId ?: nextId++
+        playlists[id] = PlaylistEntity(id = id, name = name, createdAt = updatedAt, isAuto = isAuto, updatedAt = updatedAt)
+        this.entries[id] = entries.toMutableList()
+        createdLocalIds += id
+        return id
+    }
+
+    override suspend fun applyServerPlaylist(playlist: OngakuPlaylistDto) {
+        playlists[playlist.id] = PlaylistEntity(
+            id = playlist.id,
+            name = playlist.name,
+            createdAt = playlist.updatedAt,
+            isAuto = playlist.isAuto,
+            updatedAt = playlist.updatedAt
+        )
+        entries[playlist.id] = playlist.entries.toMutableList()
+        appliedServerPlaylists += playlist
+    }
+
+    override suspend fun addEntries(playlistId: Long, themeIds: List<Long>) {
+        entries.getOrPut(playlistId) { mutableListOf() }.addAll(themeIds)
+    }
+
+    override suspend fun addItems(playlistId: Long, items: List<PlaylistWriteItem>) {
+        val stored = items.map { it.copy(entryId = it.entryId ?: nextEntryId--) }
+        typedEntries.getOrPut(playlistId) {
+            entries[playlistId].orEmpty().map {
+                PlaylistWriteItem(itemType = "THEME", itemId = it)
+            }.toMutableList()
+        }.addAll(stored)
+        entries.getOrPut(playlistId) { mutableListOf() }
+            .addAll(items.filter { it.itemType == "THEME" }.map { it.itemId })
+    }
+
+    override suspend fun playlistItems(playlistId: Long): List<PlaylistWriteItem> =
+        typedEntries[playlistId] ?: super<PlaylistWriteStore>.playlistItems(playlistId)
+
+    override suspend fun renamePlaylist(playlistId: Long, name: String, updatedAt: Long) {
+        playlists[playlistId] = playlists.getValue(playlistId).copy(name = name, updatedAt = updatedAt, deletedAt = null)
+    }
+
+    override suspend fun tombstonePlaylist(playlistId: Long, updatedAt: Long) {
+        playlists[playlistId] = playlists.getValue(playlistId).copy(updatedAt = updatedAt, deletedAt = updatedAt)
+        entries.remove(playlistId)
+    }
+
+    override suspend fun touchPlaylist(playlistId: Long, updatedAt: Long) {
+        playlists[playlistId] = playlists.getValue(playlistId).copy(updatedAt = updatedAt, deletedAt = null)
+    }
+
+    override suspend fun playlistById(playlistId: Long): PlaylistEntity? =
+        playlists[playlistId]
+
+    override suspend fun themeIdsInPlaylist(playlistId: Long): List<Long> =
+        entries[playlistId].orEmpty()
+}
+
+private class PlaylistSyncStore(
+    private val playlistStore: FakePlaylistWriteStore
+) : SyncEngineStore {
+    val ops = mutableListOf<PendingOpEntity>()
+    private var nextId = 1L
+
+    override suspend fun insertPendingOp(op: PendingOpEntity): Long {
+        val stored = op.copy(id = nextId++)
+        ops += stored
+        return stored.id
+    }
+
+    override suspend fun deleteSupersededPendingOp(entityType: String, entityKey: String, opType: String) {
+        ops.removeAll { it.entityType == entityType && it.entityKey == entityKey && it.opType == opType }
+    }
+
+    override suspend fun oldestPendingOps(limit: Int): List<PendingOpEntity> =
+        ops.sortedWith(compareBy<PendingOpEntity> { it.createdAt }.thenBy { it.id }).take(limit)
+
+    override suspend fun deletePendingOps(ids: List<Long>) {
+        ops.removeAll { it.id in ids }
+    }
+
+    override suspend fun incrementPendingOpAttempts(id: Long) {
+        val index = ops.indexOfFirst { it.id == id }
+        if (index >= 0) ops[index] = ops[index].copy(attempts = ops[index].attempts + 1)
+    }
+
+    override suspend fun remapPlaylistId(tempId: Long, serverPlaylist: OngakuPlaylistDto) {
+        playlistStore.entries.remove(tempId)
+        playlistStore.playlists.remove(tempId)
+        playlistStore.applyServerPlaylist(serverPlaylist)
+        ops.replaceAll { op ->
+            if (op.entityType == PendingOpEntity.ENTITY_PLAYLIST && op.entityKey == tempId.toString()) {
+                op.copy(entityKey = serverPlaylist.id.toString())
+            } else {
+                op
+            }
+        }
+    }
+}
+
+private class PlaylistRecordingOngakuApi(
+    private val createResponse: OngakuPlaylistDto = OngakuPlaylistDto(
+        id = 1L,
+        name = "Created",
+        entries = emptyList(),
+        isAuto = false,
+        updatedAt = 1L,
+        dynamicSpecJson = null
+    )
+) : OngakuApi {
+    var createCalled = false
+    var updateCalled = false
+    var createdRequest: OngakuPlaylistRequest? = null
+    var updatedPlaylistId: Long? = null
+    var updatedRequest: OngakuPlaylistRequest? = null
+
+    override suspend fun createPlaylist(request: OngakuPlaylistRequest): OngakuPlaylistResponse {
+        createCalled = true
+        createdRequest = request
+        return OngakuPlaylistResponse(createResponse)
+    }
+
+    override suspend fun updatePlaylist(id: Long, request: OngakuPlaylistRequest): OngakuPlaylistResponse {
+        updateCalled = true
+        updatedPlaylistId = id
+        updatedRequest = request
+        return OngakuPlaylistResponse(
+            OngakuPlaylistDto(
+                id = id,
+                name = request.name ?: "Updated",
+                entries = request.entries.orEmpty(),
+                isAuto = false,
+                updatedAt = 1L,
+                dynamicSpecJson = request.dynamicSpecJson
+            )
+        )
+    }
+
+    override suspend fun login(request: OngakuLoginRequest): OngakuLoginResponse = error("unused")
+    override suspend fun logout(): Response<Unit> = Response.success(Unit)
+    override suspend fun me(): OngakuMeResponse = error("unused")
+    override suspend fun revokeDevice(id: Long): Response<Unit> = Response.success(Unit)
+    override suspend fun library(since: Long?): OngakuLibraryResponse = error("unused")
+    override suspend fun changes(since: Long?): OngakuChangesResponse = error("unused")
+    override suspend fun anime(kitsuId: String): OngakuAnimeDetailResponse = error("unused")
+    override suspend fun search(query: String): com.takeya.animeongaku.data.remote.OngakuSearchResponse =
+        error("unused")
+    override suspend fun artist(slug: String): com.takeya.animeongaku.data.remote.AnimeThemesSingleArtistResponse =
+        error("unused")
+    override suspend fun addAnime(request: OngakuManualAnimeRequest): OngakuManualAnimeResponse = error("unused")
+    override suspend fun removeAnime(kitsuId: String): Response<Unit> = Response.success(Unit)
+    override suspend fun themePrefs(): List<OngakuThemePrefDto> = error("unused")
+    override suspend fun updateThemePref(themeId: Long, request: OngakuThemePrefPatch): OngakuThemePrefDto = error("unused")
+    override suspend fun recordPlays(plays: List<OngakuPlayEvent>): OngakuPlayAcceptedResponse = error("unused")
+    override suspend fun playlists(since: Long?): List<OngakuPlaylistDto> = error("unused")
+    override suspend fun autoPlaylists(): List<OngakuPlaylistDto> = error("unused")
+    override suspend fun updatePlaylistSpec(id: Long, spec: Any): OngakuPlaylistResponse = error("unused")
+    override suspend fun deletePlaylist(id: Long, opTs: Long?): Response<Unit> = Response.success(Unit)
+    override suspend fun requestAudio(themeId: Long): OngakuAudioRequestResponse = error("unused")
+    override suspend fun startSync(request: OngakuSyncRequest): OngakuSyncQueuedResponse = error("unused")
+    override suspend fun syncStatus(): OngakuSyncStatusResponse = error("unused")
+}

@@ -4,15 +4,18 @@ import android.util.Log
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.CacheKeyFactory
 import androidx.media3.datasource.cache.CacheWriter
+import androidx.media3.datasource.cache.ContentMetadata
+import com.takeya.animeongaku.download.DownloadPreferences
+import com.takeya.animeongaku.network.ConnectivityMonitor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -23,7 +26,10 @@ import javax.inject.Singleton
 @Singleton
 class PreCacheManager @Inject constructor(
     private val audioCacheProvider: AudioCacheProvider,
-    private val nowPlayingManager: NowPlayingManager
+    private val nowPlayingManager: NowPlayingManager,
+    private val playbackResolutionCoordinator: PlaybackResolutionCoordinator,
+    private val downloadPreferences: DownloadPreferences,
+    private val connectivityMonitor: ConnectivityMonitor,
 ) {
     companion object {
         private const val TAG = "PreCacheManager"
@@ -48,23 +54,36 @@ class PreCacheManager @Inject constructor(
     private fun observeQueue() {
         scope.launch {
             nowPlayingManager.state
-                .map { state ->
-                    // Only react to changes in upcoming tracks or queue version
-                    val upcoming = state.upcomingTracks.take(MAX_PRE_CACHE_TRACKS)
-                    upcoming.map { it.audioUrl }
+                .distinctUntilChangedBy { state ->
+                    Triple(
+                        state.currentEntry?.queueId,
+                        state.upcomingEntries.take(MAX_PRE_CACHE_TRACKS).map { it.queueId },
+                        state.playbackIntent,
+                    )
                 }
-                .distinctUntilChanged()
-                .collect { upcomingUrls ->
+                .collect { state ->
                     // Cancel any in-flight pre-cache work
                     preCacheJob?.cancel()
                     preCacheJob = scope.launch {
-                        preCacheTracks(upcomingUrls)
+                        val resolved = playbackResolutionCoordinator.resolveAll(
+                            state.upcomingEntries.take(MAX_PRE_CACHE_TRACKS),
+                            state.playbackIntent,
+                        )
+                        preCacheTracks(upcomingPlaybackUrls(resolved, MAX_PRE_CACHE_TRACKS))
                     }
                 }
         }
     }
 
     private suspend fun preCacheTracks(audioUrls: List<String>) {
+        if (!shouldPreCacheOnNetwork(
+                wifiOnly = downloadPreferences.wifiOnly,
+                isUnmetered = connectivityMonitor.isUnmetered.value,
+            )
+        ) {
+            Log.d(TAG, "Skipping pre-cache on a metered network")
+            return
+        }
         for (url in audioUrls) {
             kotlin.coroutines.coroutineContext.ensureActive()
 
@@ -98,9 +117,21 @@ class PreCacheManager @Inject constructor(
 
     private fun isCached(url: String): Boolean {
         val cache = audioCacheProvider.cache
-        val keys = cache.keys
-        // SimpleCache uses the URI as the cache key by default
-        return keys.contains(url)
+        val dataSpec = DataSpec.Builder()
+            .setUri(url)
+            .build()
+        val key = CacheKeyFactory.DEFAULT.buildCacheKey(dataSpec)
+        val contentLength = ContentMetadata.getContentLength(cache.getContentMetadata(key))
+
+        if (contentLength >= 0) {
+            val cachedBytes = if (cache.isCached(key, 0, contentLength)) contentLength else 0L
+            return isCacheComplete(contentLength, cachedBytes)
+        }
+
+        return isCacheComplete(
+            contentLength = contentLength,
+            cachedBytes = if (cache.keys.contains(key)) 1L else 0L
+        )
     }
 
     private fun startPeriodicEviction() {
@@ -112,12 +143,15 @@ class PreCacheManager @Inject constructor(
         }
     }
 
-    private fun runEviction() {
+    private suspend fun runEviction() {
         try {
             val cache = audioCacheProvider.cache
-            val nowPlayingUrls = nowPlayingManager.state.value.nowPlaying
-                .map { it.audioUrl }
-                .toSet()
+            val state = nowPlayingManager.state.value
+            val resolved = playbackResolutionCoordinator.resolveAll(
+                state.nowPlayingEntries,
+                state.playbackIntent,
+            )
+            val nowPlayingUrls = protectedPlaybackUrls(resolved)
 
             val now = System.currentTimeMillis()
             val keysToEvict = mutableListOf<String>()
@@ -149,5 +183,48 @@ class PreCacheManager @Inject constructor(
         } catch (e: Exception) {
             Log.w(TAG, "Eviction error", e)
         }
+    }
+}
+
+internal fun upcomingPlaybackUrls(
+    state: NowPlayingState,
+    maxTracks: Int,
+    activeServerBaseUrl: String?
+): List<String> = state.upcomingItems
+    .take(maxTracks)
+    .map { it.playbackUriString(activeServerBaseUrl) }
+
+internal fun protectedPlaybackUrls(
+    state: NowPlayingState,
+    activeServerBaseUrl: String?
+): Set<String> = state.nowPlayingItems
+    .map { it.playbackUriString(activeServerBaseUrl) }
+    .toSet()
+
+/** Resolver-owned paths are the only safe pre-cache inputs: local files and direct video URLs
+ * must never be placed in the server-audio cache. */
+internal fun upcomingPlaybackUrls(
+    resolved: List<ResolvedPlaybackItem>,
+    maxTracks: Int,
+): List<String> = resolved
+    .asSequence()
+    .filter { it.isPlayable && it.source == PlaybackSource.SERVER_AUDIO }
+    .mapNotNull { it.uri }
+    .take(maxTracks)
+    .toList()
+
+internal fun protectedPlaybackUrls(
+    resolved: Collection<ResolvedPlaybackItem>,
+): Set<String> = resolved
+    .asSequence()
+    .filter { it.isPlayable && it.source == PlaybackSource.SERVER_AUDIO }
+    .mapNotNull { it.uri }
+    .toSet()
+
+internal fun isCacheComplete(contentLength: Long, cachedBytes: Long): Boolean {
+    return if (contentLength >= 0L) {
+        cachedBytes >= contentLength
+    } else {
+        cachedBytes > 0L
     }
 }

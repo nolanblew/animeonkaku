@@ -1,10 +1,18 @@
 package com.takeya.animeongaku
 
+import com.takeya.animeongaku.data.auth.ServerSession
+import com.takeya.animeongaku.data.auth.ServerTokenStore
+import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.media.NowPlayingManager
+import com.takeya.animeongaku.media.PlaybackPreferences
 import com.takeya.animeongaku.media.NowPlayingState
+import com.takeya.animeongaku.media.BaseModePolicy
+import com.takeya.animeongaku.media.PlayableItem
+import com.takeya.animeongaku.media.PlaybackMode
 import com.takeya.animeongaku.media.QueueEntry
+import com.takeya.animeongaku.media.ThemeModePolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -40,7 +48,13 @@ class NowPlayingManagerTest {
 
     @Before
     fun setUp() {
-        manager = NowPlayingManager()
+        val tokenStore = ServerTokenStore(FakeSharedPreferences()).apply {
+            save(ServerSession("tok", "uid", "n"))
+        }
+        manager = NowPlayingManager(
+            SessionStateManager(tokenStore),
+            PlaybackPreferences(FakeSharedPreferences())
+        )
     }
 
     // ─── play() ─────────────────────────────────────────────────────────
@@ -112,10 +126,61 @@ class NowPlayingManagerTest {
     }
 
     @Test
+    fun `new context and selecting the paused current item each request playback once`() {
+        val before = manager.state.value.playRequestGeneration
+
+        manager.play("ctx", listOf(theme(1), theme(2)))
+        val afterNewContext = manager.state.value.playRequestGeneration
+        manager.skipTo(manager.state.value.currentIndex)
+
+        assertEquals(before + 1, afterNewContext)
+        assertEquals(afterNewContext + 1, manager.state.value.playRequestGeneration)
+    }
+
+    @Test
     fun `play stores animeMap`() {
         val a = anime(10L)
         manager.play("ctx", listOf(theme(1, animeId = 10L)), animeMap = mapOf(10L to a))
         assertEquals(a, manager.state.value.animeMap[10L])
+    }
+
+    @Test
+    fun `playItems preserves independent playlist policies for duplicate themes`() {
+        val sameTheme = theme(44)
+        val policies = listOf(
+            BaseModePolicy(ThemeModePolicy.INHERIT, PlaybackMode.TV_SIZE),
+            BaseModePolicy(ThemeModePolicy.FULL_SIZE, PlaybackMode.TV_SIZE)
+        )
+
+        manager.playItems(
+            contextLabel = "Mixed playlist",
+            items = listOf(PlayableItem.Theme(sameTheme), PlayableItem.Theme(sameTheme)),
+            baseModePolicies = policies
+        )
+
+        val entries = manager.state.value.nowPlayingEntries
+        assertEquals(2, entries.size)
+        assertTrue(entries[0].queueId != entries[1].queueId)
+        assertEquals(policies, entries.map { it.baseModePolicy })
+    }
+
+    @Test
+    fun `mixed whole playlist queue actions preserve ordered per-entry policies`() {
+        manager.play("Current", listOf(theme(1)))
+        val policies = listOf(
+            BaseModePolicy(ThemeModePolicy.TV_SIZE, PlaybackMode.FULL_SIZE),
+            BaseModePolicy(ThemeModePolicy.FULL_SIZE, PlaybackMode.TV_SIZE)
+        )
+        val items = listOf(PlayableItem.Theme(theme(2)), PlayableItem.Theme(theme(2)))
+
+        manager.playNextItems(items, baseModePolicies = policies)
+
+        val afterPlayNext = manager.state.value.nowPlayingEntries.drop(1)
+        assertEquals(listOf(2L, 2L), afterPlayNext.map { it.themeOrNull?.id })
+        assertEquals(policies, afterPlayNext.map { it.baseModePolicy })
+
+        manager.addPlayableItems(items, baseModePolicies = policies)
+        assertEquals(policies, manager.state.value.nowPlayingEntries.takeLast(2).map { it.baseModePolicy })
     }
 
     @Test
@@ -137,12 +202,14 @@ class NowPlayingManagerTest {
 
     @Test
     fun `playNext with empty queue starts queue with single song`() {
+        val before = manager.state.value.playRequestGeneration
         manager.playNext(theme(1))
         val state = manager.state.value
         assertTrue(manager.isActive)
         assertEquals(listOf(1L), state.nowPlaying.map { it.id })
         assertEquals(1L, state.currentTheme?.id)
         assertTrue(state.isFullReload)
+        assertEquals(before + 1, state.playRequestGeneration)
     }
 
     @Test
@@ -151,6 +218,16 @@ class NowPlayingManagerTest {
         val state = manager.state.value
         assertEquals(listOf(1L, 2L, 3L), state.nowPlaying.map { it.id })
         assertEquals(1L, state.currentTheme?.id)
+    }
+
+    @Test
+    fun `playNext with empty queue preserves duplicate songs as distinct queue entries`() {
+        manager.playNext(listOf(theme(1), theme(1), theme(2)))
+
+        val state = manager.state.value
+
+        assertEquals(listOf(1L, 1L, 2L), state.nowPlaying.map { it.id })
+        assertEquals(3, state.nowPlayingEntries.map { it.queueId }.toSet().size)
     }
 
     @Test
@@ -233,6 +310,16 @@ class NowPlayingManagerTest {
         val state = manager.state.value
         assertEquals(listOf(1L, 2L, 3L), state.nowPlaying.map { it.id })
         assertEquals(1L, state.currentTheme?.id)
+    }
+
+    @Test
+    fun `addToQueue with empty queue preserves duplicate songs as distinct queue entries`() {
+        manager.addToQueue(listOf(theme(1), theme(1), theme(2)))
+
+        val state = manager.state.value
+
+        assertEquals(listOf(1L, 1L, 2L), state.nowPlaying.map { it.id })
+        assertEquals(3, state.nowPlayingEntries.map { it.queueId }.toSet().size)
     }
 
     @Test
@@ -386,7 +473,7 @@ class NowPlayingManagerTest {
     }
 
     @Test
-    fun `unshuffle from added copy of original song does not duplicate original slot`() {
+    fun `unshuffle from added copy preserves every original queue occurrence`() {
         manager.play("ctx", listOf(theme(1), theme(2), theme(3), theme(4)))
         manager.addToQueue(theme(2))
 
@@ -400,9 +487,9 @@ class NowPlayingManagerTest {
         manager.toggleShuffle()
 
         val state = manager.state.value
-        assertEquals(listOf(2L, 3L, 4L), state.nowPlaying.map { it.id })
+        assertEquals(listOf(2L, 1L, 2L, 3L, 4L), state.nowPlaying.map { it.id })
         assertEquals(copyEntryId, state.currentEntry?.queueId)
-        assertTrue(state.currentEntry?.queueId != originalEntryId)
+        assertEquals(originalEntryId, state.nowPlayingEntries[2].queueId)
     }
 
     // ─── onTrackChangedByThemeId() ────────────────────────────────────────
@@ -627,6 +714,22 @@ class NowPlayingManagerTest {
 
         val state = manager.state.value
         assertEquals(4L, state.nowPlaying[1].id)
+    }
+
+    @Test
+    fun `moveToPlayNext targets duplicate by queue entry identity`() {
+        manager.play("ctx", listOf(theme(1), theme(2), theme(1), theme(3)))
+
+        val firstDuplicateQueueId = manager.state.value.nowPlayingEntries[0].queueId
+        val secondDuplicateQueueId = manager.state.value.nowPlayingEntries[2].queueId
+        manager.moveToPlayNext(2)
+
+        val state = manager.state.value
+
+        assertEquals(listOf(1L, 1L, 2L, 3L), state.nowPlaying.map { it.id })
+        assertEquals(secondDuplicateQueueId, state.nowPlayingEntries[1].queueId)
+        assertEquals(firstDuplicateQueueId, state.nowPlayingEntries[0].queueId)
+        assertEquals(listOf(secondDuplicateQueueId), state.playNextEntryIds)
     }
 
     @Test

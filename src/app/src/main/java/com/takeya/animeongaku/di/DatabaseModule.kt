@@ -9,10 +9,26 @@ import com.takeya.animeongaku.data.local.ArtistImageDao
 import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.DynamicPlaylistSpecDao
 import com.takeya.animeongaku.data.local.GenreDao
+import com.takeya.animeongaku.data.local.PendingOpDao
+import com.takeya.animeongaku.data.local.PendingPlayDao
+import com.takeya.animeongaku.data.local.MusicCatalogDao
+import com.takeya.animeongaku.data.local.ThemeModeDao
+import com.takeya.animeongaku.data.local.SongPreferenceDao
+import com.takeya.animeongaku.data.local.DownloadItemDao
 import com.takeya.animeongaku.data.local.PlayCountDao
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.UserPreferenceDao
+import com.takeya.animeongaku.data.repository.PlaylistWriteStore
+import com.takeya.animeongaku.data.repository.RoomPlaylistWriteStore
+import com.takeya.animeongaku.sync.DefaultLibraryPullSideEffects
+import com.takeya.animeongaku.sync.LibraryPullCache
+import com.takeya.animeongaku.sync.LibraryPullSideEffects
+import com.takeya.animeongaku.sync.RoomLibraryPullCache
+import com.takeya.animeongaku.sync.RoomSyncEngineStore
+import com.takeya.animeongaku.sync.RoomServerMigrationStore
+import com.takeya.animeongaku.sync.ServerMigrationStore
+import com.takeya.animeongaku.sync.SyncEngineStore
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -41,7 +57,13 @@ object DatabaseModule {
         AppDatabase.MIGRATION_15_16,
         AppDatabase.MIGRATION_16_17,
         AppDatabase.MIGRATION_17_18,
-        AppDatabase.MIGRATION_18_19
+        AppDatabase.MIGRATION_18_19,
+        AppDatabase.MIGRATION_19_20,
+        AppDatabase.MIGRATION_20_21,
+        AppDatabase.MIGRATION_21_22,
+        AppDatabase.MIGRATION_22_23,
+        AppDatabase.MIGRATION_23_24,
+        AppDatabase.MIGRATION_24_25
     ).build()
 
     @Provides
@@ -73,4 +95,43 @@ object DatabaseModule {
 
     @Provides
     fun provideDynamicPlaylistSpecDao(database: AppDatabase): DynamicPlaylistSpecDao = database.dynamicPlaylistSpecDao()
+
+    @Provides
+    fun providePendingPlayDao(database: AppDatabase): PendingPlayDao = database.pendingPlayDao()
+
+    @Provides
+    fun providePendingOpDao(database: AppDatabase): PendingOpDao = database.pendingOpDao()
+
+    @Provides
+    fun provideMusicCatalogDao(database: AppDatabase): MusicCatalogDao = database.musicCatalogDao()
+
+    @Provides
+    fun provideThemeModeDao(database: AppDatabase): ThemeModeDao = database.themeModeDao()
+
+    @Provides
+    fun provideSongPreferenceDao(database: AppDatabase): SongPreferenceDao = database.songPreferenceDao()
+
+    @Provides
+    fun provideDownloadItemDao(database: AppDatabase): DownloadItemDao = database.downloadItemDao()
+
+    @Provides
+    @Singleton
+    fun provideLibraryPullCache(cache: RoomLibraryPullCache): LibraryPullCache = cache
+
+    @Provides
+    @Singleton
+    fun provideLibraryPullSideEffects(sideEffects: DefaultLibraryPullSideEffects): LibraryPullSideEffects =
+        sideEffects
+
+    @Provides
+    @Singleton
+    fun providePlaylistWriteStore(store: RoomPlaylistWriteStore): PlaylistWriteStore = store
+
+    @Provides
+    @Singleton
+    fun provideSyncEngineStore(store: RoomSyncEngineStore): SyncEngineStore = store
+
+    @Provides
+    @Singleton
+    fun provideServerMigrationStore(store: RoomServerMigrationStore): ServerMigrationStore = store
 }

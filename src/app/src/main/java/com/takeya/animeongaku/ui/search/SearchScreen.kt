@@ -58,15 +58,19 @@ import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ArtistTrackCount
 import com.takeya.animeongaku.data.local.PlaylistWithCount
-import com.takeya.animeongaku.data.local.primaryArtworkUrl
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.ui.common.FallbackAsyncImage
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.model.OnlineAnimeResult
 import com.takeya.animeongaku.data.model.OnlineArtistResult
+import com.takeya.animeongaku.data.repository.RelatedRelease
+import com.takeya.animeongaku.data.repository.RelatedTrack
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
+import com.takeya.animeongaku.ui.common.BrowseVideoWarningDialog
 import com.takeya.animeongaku.ui.common.PlaylistCoverArt
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
 import com.takeya.animeongaku.ui.common.displayInfo
@@ -85,6 +89,7 @@ fun SearchScreen(
     onOpenAnime: (String) -> Unit = {},
     onOpenArtist: (String) -> Unit = {},
     onOpenPlaylist: (Long) -> Unit = {},
+    onOpenRelatedMusic: (String, Long?) -> Unit = { _, _ -> },
     viewModel: SearchViewModel = hiltViewModel()
 ) {
     val queryText by viewModel.query.collectAsStateWithLifecycle()
@@ -99,11 +104,22 @@ fun SearchScreen(
     val onlineResults by viewModel.onlineResults.collectAsStateWithLifecycle()
     val onlineAnime by viewModel.onlineAnime.collectAsStateWithLifecycle()
     val onlineArtists by viewModel.onlineArtists.collectAsStateWithLifecycle()
+    val localMusic by viewModel.localMusic.collectAsStateWithLifecycle()
+    val onlineMusic by viewModel.onlineMusic.collectAsStateWithLifecycle()
     val onlineState by viewModel.onlineState.collectAsStateWithLifecycle()
     val onlineError by viewModel.onlineError.collectAsStateWithLifecycle()
+    val onlineEnabled by viewModel.onlineEnabled.collectAsStateWithLifecycle()
     val allAnime by viewModel.anime.collectAsStateWithLifecycle()
     val allPlaylists by viewModel.playlists.collectAsStateWithLifecycle()
     val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
+    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+    val themeModesById by viewModel.themeModesById.collectAsStateWithLifecycle()
+    val musicReleases = remember(localMusic, onlineMusic) {
+        (onlineMusic.releases + localMusic.releases).distinctBy { it.owner.kitsuId to it.release.id }
+    }
+    val musicTracks = remember(localMusic, onlineMusic) {
+        (onlineMusic.tracks + localMusic.tracks).distinctBy { Triple(it.owner.kitsuId, it.release.id, it.song.id) }
+    }
 
     val animeByThemesId = remember(allAnime) {
         allAnime.mapNotNull { entry -> entry.animeThemesId?.let { id -> id to entry } }.toMap()
@@ -112,30 +128,51 @@ fun SearchScreen(
     var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }
     var sheetOnlineEntry by remember { mutableStateOf<AnimeThemeEntry?>(null) }
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
+    var pendingVideoRequest by remember { mutableStateOf<BrowseVideoStartRequest?>(null) }
     val downloadedThemeIds by viewModel.downloadedThemeIds.collectAsStateWithLifecycle()
     val downloadingThemeIds by viewModel.downloadingThemeIds.collectAsStateWithLifecycle()
-    val likedThemeIds by viewModel.likedThemeIds.collectAsStateWithLifecycle()
-    val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
+
+    fun handleVideoRequest(request: BrowseVideoStartRequest?) {
+        if (request == null) return
+        if (request.warning != null) pendingVideoRequest = request
+        else if (viewModel.startPlayVideo(request)) onPlayTheme()
+    }
+
+    pendingVideoRequest?.let { request ->
+        BrowseVideoWarningDialog(request, { pendingVideoRequest = null }) {
+            pendingVideoRequest = null
+            if (viewModel.startPlayVideo(request)) onPlayTheme()
+        }
+    }
 
     // Song ActionSheet (local)
     sheetTheme?.let { theme ->
         val sheetAnime = theme.animeId?.let { animeByThemesId[it] }
+        val sheetAnimeImageUrls = sheetAnime?.primaryArtworkUrls() ?: emptyList()
         val info = theme.displayInfo(sheetAnime)
         val isDownloaded = theme.id in downloadedThemeIds
         val isDownloading = theme.id in downloadingThemeIds
+        val preference by remember(theme.id) {
+            viewModel.observePreference(theme.id)
+        }.collectAsStateWithLifecycle(initialValue = null)
         ActionSheet(
             config = ActionSheetConfig(
                 title = info.primaryText,
                 subtitle = info.secondaryText,
-                imageUrl = sheetAnime?.primaryArtworkUrl(),
+                imageUrl = sheetAnimeImageUrls.firstOrNull(),
+                imageUrls = sheetAnimeImageUrls,
                 showGoToArtist = !theme.artistName.isNullOrBlank(),
                 showGoToAnime = sheetAnime?.kitsuId != null,
                 showDownload = !isDownloaded && !isDownloading,
                 showDownloading = isDownloading,
                 showRemoveDownload = isDownloaded,
                 showLike = true,
-                isLiked = theme.id in likedThemeIds,
-                showRemoveDislike = theme.id in dislikedThemeIds,
+                isLiked = preference?.isLiked == true,
+                showRemoveDislike = preference?.isDisliked == true,
+                showPlayVideo = BrowseVideoActionPolicy.singleTheme(
+                    isOnline,
+                    themeModesById[theme.id]
+                ),
                 artistName = theme.artistName?.split(",")?.firstOrNull()?.trim(),
                 animeName = sheetAnime?.title
             ),
@@ -148,6 +185,7 @@ fun SearchScreen(
                     animeMap = sheetAnime?.let { a -> theme.animeId?.let { mapOf(it to a) } } ?: emptyMap()
                 )
             },
+            onPlayVideo = { handleVideoRequest(viewModel.requestPlayVideo(theme.id)) },
             onSaveToPlaylist = { pickerThemeIds = listOf(theme.id) },
             onGoToArtist = { theme.artistName?.split(",")?.firstOrNull()?.trim()?.let { onOpenArtist(it) } },
             onGoToAnime = { sheetAnime?.kitsuId?.let { onOpenAnime(it) } },
@@ -160,12 +198,16 @@ fun SearchScreen(
 
     // Online song ActionSheet
     sheetOnlineEntry?.let { entry ->
+        val themeId = entry.themeId.toLongOrNull()
         val info = themeDisplayInfo(
             title = entry.title,
             artistName = entry.artist,
             themeType = entry.themeType,
             animeName = entry.animeName
         )
+        val preference by remember(themeId) {
+            viewModel.observePreference(themeId)
+        }.collectAsStateWithLifecycle(initialValue = null)
         ActionSheet(
             config = ActionSheetConfig(
                 title = info.primaryText,
@@ -174,8 +216,8 @@ fun SearchScreen(
                 showGoToArtist = !entry.artist.isNullOrBlank(),
                 showGoToAnime = entry.kitsuId != null,
                 showLike = true,
-                isLiked = entry.themeId.toLongOrNull()?.let { it in likedThemeIds } == true,
-                showRemoveDislike = entry.themeId.toLongOrNull()?.let { it in dislikedThemeIds } == true,
+                isLiked = preference?.isLiked == true,
+                showRemoveDislike = preference?.isDisliked == true,
                 artistName = entry.artist?.split(",")?.firstOrNull()?.trim(),
                 animeName = entry.animeNameEn ?: entry.animeName
             ),
@@ -205,8 +247,8 @@ fun SearchScreen(
             onGoToAnime = {
                 entry.kitsuId?.let { onOpenAnime(it) }
             },
-            onLike = { entry.themeId.toLongOrNull()?.let { viewModel.toggleLike(it) } },
-            onRemoveDislike = { entry.themeId.toLongOrNull()?.let { viewModel.toggleDislike(it) } }
+            onLike = { themeId?.let { viewModel.toggleLike(it) } },
+            onRemoveDislike = { themeId?.let { viewModel.toggleDislike(it) } }
         )
     }
 
@@ -222,6 +264,15 @@ fun SearchScreen(
             },
             onCreatePlaylist = { name ->
                 viewModel.createAndAddToPlaylist(name, ids)
+                pickerThemeIds = null
+            },
+            showThemeModeChoice = true,
+            onSelectPlaylistWithMode = { playlistId, modeOverride ->
+                viewModel.addToPlaylist(playlistId, ids, modeOverride)
+                pickerThemeIds = null
+            },
+            onCreatePlaylistWithMode = { name, modeOverride ->
+                viewModel.createAndAddToPlaylist(name, ids, modeOverride)
                 pickerThemeIds = null
             }
         )
@@ -299,6 +350,20 @@ fun SearchScreen(
                     }
                 }
 
+                if (musicReleases.isNotEmpty()) {
+                    item { SectionHeader("Releases") }
+                    items(musicReleases.take(8), key = { "release-${it.owner.kitsuId}-${it.release.id}" }) { release ->
+                        MusicReleaseResultRow(release) { onOpenRelatedMusic(release.owner.kitsuId, release.release.id) }
+                    }
+                }
+
+                if (musicTracks.isNotEmpty()) {
+                    item { SectionHeader("Tracks") }
+                    items(musicTracks.take(12), key = { "track-${it.owner.kitsuId}-${it.release.id}-${it.song.id}" }) { track ->
+                        MusicTrackResultRow(track) { onOpenRelatedMusic(track.owner.kitsuId, track.release.id) }
+                    }
+                }
+
                 // Local Anime
                 if (localAnime.isNotEmpty()) {
                     item {
@@ -352,19 +417,31 @@ fun SearchScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     OnlineSearchButton(
                         state = onlineState,
+                        enabled = onlineEnabled,
                         onClick = { viewModel.searchOnline() }
                     )
                 }
 
-                // Online error
-                onlineError?.let { error ->
+                // Online error / reconnect prompt
+                if (!onlineEnabled) {
                     item {
                         Text(
-                            text = error,
+                            text = "Reconnect to search online.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Rose500,
+                            color = Mist200,
                             modifier = Modifier.padding(vertical = 4.dp)
                         )
+                    }
+                } else {
+                    onlineError?.let { error ->
+                        item {
+                            Text(
+                                text = error,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Rose500,
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            )
+                        }
                     }
                 }
 
@@ -476,6 +553,28 @@ private fun SectionHeader(title: String) {
         color = Mist100,
         modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
     )
+}
+
+@Composable
+private fun MusicReleaseResultRow(release: RelatedRelease, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        FallbackAsyncImage(listOfNotNull(release.release.artworkUrl, release.owner.artworkUrl), release.release.title, Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)))
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(release.release.title, color = Mist100, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(listOfNotNull(release.release.artistCredit.takeIf(String::isNotBlank), release.owner.title).joinToString(" · "), color = Mist200, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun MusicTrackResultRow(track: RelatedTrack, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        FallbackAsyncImage(listOfNotNull(track.release.artworkUrl, track.owner.artworkUrl), track.song.title, Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)))
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(track.song.title, color = Mist100, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(listOfNotNull(track.owner.title, track.release.title).joinToString(" · "), color = Mist200, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
 }
 
 @Composable
@@ -642,7 +741,7 @@ private fun PlaylistRow(playlist: PlaylistWithCount, coverUrls: List<List<String
 }
 
 @Composable
-private fun OnlineSearchButton(state: OnlineSearchState, onClick: () -> Unit) {
+private fun OnlineSearchButton(state: OnlineSearchState, enabled: Boolean, onClick: () -> Unit) {
     val shape = RoundedCornerShape(24.dp)
     Row(
         modifier = Modifier
@@ -650,13 +749,18 @@ private fun OnlineSearchButton(state: OnlineSearchState, onClick: () -> Unit) {
             .clip(shape)
             .background(Ink800.copy(alpha = 0.6f), shape)
             .border(1.dp, Mist200.copy(alpha = 0.12f), shape)
-            .clickable(enabled = state != OnlineSearchState.Loading) { onClick() }
+            .clickable(enabled = enabled && state != OnlineSearchState.Loading) { onClick() }
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
     ) {
-        when (state) {
-            OnlineSearchState.Loading -> {
+        when {
+            !enabled -> {
+                Icon(Icons.Rounded.TravelExplore, contentDescription = null, tint = Mist200.copy(alpha = 0.5f), modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(10.dp))
+                Text("Reconnect to search online", style = MaterialTheme.typography.bodyMedium, color = Mist200.copy(alpha = 0.5f))
+            }
+            state == OnlineSearchState.Loading -> {
                 CircularProgressIndicator(
                     color = Rose500,
                     modifier = Modifier.size(18.dp),
@@ -665,7 +769,7 @@ private fun OnlineSearchButton(state: OnlineSearchState, onClick: () -> Unit) {
                 Spacer(modifier = Modifier.width(10.dp))
                 Text("Searching online…", style = MaterialTheme.typography.bodyMedium, color = Mist200)
             }
-            OnlineSearchState.Done -> {
+            state == OnlineSearchState.Done -> {
                 Icon(Icons.Rounded.TravelExplore, contentDescription = null, tint = Mist200, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(10.dp))
                 Text("Search online again", style = MaterialTheme.typography.bodyMedium, color = Mist200)

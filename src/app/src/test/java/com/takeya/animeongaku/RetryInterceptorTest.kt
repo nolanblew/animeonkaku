@@ -11,6 +11,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.fail
 import org.junit.Test
 import java.io.IOException
+import java.io.InterruptedIOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
 
 class RetryInterceptorTest {
 
@@ -25,13 +28,13 @@ class RetryInterceptorTest {
             okhttp3.RequestBody.create("application/json".toMediaType(), this)
         }
 
-    private fun fakeResponse(code: Int, request: Request): Response =
+    private fun fakeResponse(code: Int, request: Request, body: String = ""): Response =
         Response.Builder()
             .request(request)
             .protocol(Protocol.HTTP_1_1)
             .code(code)
             .message("Fake")
-            .body("".toResponseBody("text/plain".toMediaType()))
+            .body(body.toResponseBody("text/plain".toMediaType()))
             .build()
 
     /**
@@ -79,12 +82,12 @@ class RetryInterceptorTest {
     // ─── Retry on retryable status codes ─────────────────────────────────────
 
     @Test
-    fun `500 response is retried for GET requests`() {
+    fun `503 response is retried for GET requests`() {
         val interceptor = RetryInterceptor(maxRetries = 2, baseDelayMs = 1)
         val request = getRequest()
         var attempt = 0
         val (chain, callCount) = fakeChain(request) { _ ->
-            val code = if (attempt++ < 2) 500 else 200
+            val code = if (attempt++ < 2) 503 else 200
             fakeResponse(code, request)
         }
 
@@ -95,8 +98,8 @@ class RetryInterceptorTest {
     }
 
     @Test
-    fun `retryable codes include 408 429 500 502 503 504`() {
-        val retryCodes = listOf(408, 429, 500, 502, 503, 504)
+    fun `retryable codes include 408 429 502 503 504`() {
+        val retryCodes = listOf(408, 429, 502, 503, 504)
         for (code in retryCodes) {
             val interceptor = RetryInterceptor(maxRetries = 1, baseDelayMs = 1)
             val request = getRequest()
@@ -135,6 +138,32 @@ class RetryInterceptorTest {
         assertEquals(1, callCount())
     }
 
+    @Test
+    fun `terminal AUDIO_UNAVAILABLE 503 is returned without retry`() {
+        val interceptor = RetryInterceptor(maxRetries = 2, baseDelayMs = 0)
+        val request = getRequest("https://example.com/v1/media/audio/42")
+        val (chain, callCount) = fakeChain(request) {
+            fakeResponse(503, request, "{\"error\":{\"code\":\"AUDIO_UNAVAILABLE\"}}")
+        }
+
+        val response = interceptor.intercept(chain)
+
+        assertEquals(503, response.code)
+        assertEquals(1, callCount())
+    }
+
+    @Test
+    fun `500 response is returned without retry`() {
+        val interceptor = RetryInterceptor(maxRetries = 2, baseDelayMs = 0)
+        val request = getRequest()
+        val (chain, callCount) = fakeChain(request) { fakeResponse(500, request) }
+
+        val response = interceptor.intercept(chain)
+
+        assertEquals(500, response.code)
+        assertEquals(1, callCount())
+    }
+
     // ─── POST requests are not retried ────────────────────────────────────────
 
     @Test
@@ -152,11 +181,11 @@ class RetryInterceptorTest {
     // ─── IOException handling ─────────────────────────────────────────────────
 
     @Test
-    fun `IOException is retried for GET up to maxRetries times`() {
+    fun `socket timeout is retried for GET up to maxRetries times`() {
         val interceptor = RetryInterceptor(maxRetries = 2, baseDelayMs = 1)
         val request = getRequest()
         val (chain, callCount) = fakeChain(request) { attempt ->
-            if (attempt < 2) throw IOException("Network error")
+            if (attempt < 2) throw SocketTimeoutException("Network timeout")
             fakeResponse(200, request)
         }
 
@@ -181,10 +210,10 @@ class RetryInterceptorTest {
     }
 
     @Test
-    fun `IOException exceeding maxRetries is rethrown`() {
+    fun `socket timeout exceeding maxRetries is rethrown`() {
         val interceptor = RetryInterceptor(maxRetries = 1, baseDelayMs = 1)
         val request = getRequest()
-        val (chain, callCount) = fakeChain(request) { _ -> throw IOException("Always fails") }
+        val (chain, callCount) = fakeChain(request) { _ -> throw SocketTimeoutException("Always fails") }
 
         try {
             interceptor.intercept(chain)
@@ -193,6 +222,53 @@ class RetryInterceptorTest {
             assertEquals("Always fails", e.message)
         }
         assertEquals(2, callCount()) // 1 initial + 1 retry
+    }
+
+    @Test
+    fun `connection refused fails fast without blocking the caller on backoff`() {
+        val interceptor = RetryInterceptor(maxRetries = 1, baseDelayMs = 1)
+        val request = getRequest("http://192.168.1.25:3000/health")
+        val (chain, callCount) = fakeChain(request) {
+            throw ConnectException("Connection refused")
+        }
+
+        try {
+            interceptor.intercept(chain)
+            fail("Expected ConnectException to be thrown")
+        } catch (error: ConnectException) {
+            assertEquals("Connection refused", error.message)
+        }
+        assertEquals(1, callCount())
+    }
+
+    @Test
+    fun `generic IOException is returned immediately without retry`() {
+        val interceptor = RetryInterceptor(maxRetries = 2, baseDelayMs = 0)
+        val request = getRequest()
+        val (chain, callCount) = fakeChain(request) { throw IOException("Malformed response") }
+
+        try {
+            interceptor.intercept(chain)
+            fail("Expected IOException to be thrown")
+        } catch (error: IOException) {
+            assertEquals("Malformed response", error.message)
+        }
+        assertEquals(1, callCount())
+    }
+
+    @Test
+    fun `interrupted request is never retried`() {
+        val interceptor = RetryInterceptor(maxRetries = 2, baseDelayMs = 0)
+        val request = getRequest()
+        val (chain, callCount) = fakeChain(request) { throw InterruptedIOException("Canceled") }
+
+        try {
+            interceptor.intercept(chain)
+            fail("Expected InterruptedIOException to be thrown")
+        } catch (error: InterruptedIOException) {
+            assertEquals("Canceled", error.message)
+        }
+        assertEquals(1, callCount())
     }
 
     // ─── maxRetries boundary ──────────────────────────────────────────────────

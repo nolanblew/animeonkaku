@@ -34,6 +34,9 @@ class ConnectivityMonitor @Inject constructor(
     private val _isOnWifi = MutableStateFlow(_networkType.value == NetworkType.WIFI)
     val isOnWifi: StateFlow<Boolean> = _isOnWifi.asStateFlow()
 
+    private val _isUnmetered = MutableStateFlow(getCurrentNetworkIsUnmetered())
+    val isUnmetered: StateFlow<Boolean> = _isUnmetered.asStateFlow()
+
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             updateState()
@@ -63,6 +66,7 @@ class ConnectivityMonitor @Inject constructor(
         _networkType.value = type
         _isOnline.value = type != NetworkType.NONE
         _isOnWifi.value = type == NetworkType.WIFI
+        _isUnmetered.value = getCurrentNetworkIsUnmetered()
     }
 
     private fun getNetworkTypeForNetwork(network: Network): NetworkType {
@@ -91,5 +95,18 @@ class ConnectivityMonitor @Inject constructor(
             if (type != NetworkType.NONE) return type
         }
         return NetworkType.NONE
+    }
+
+    private fun getCurrentNetworkIsUnmetered(): Boolean {
+        val networks = buildList {
+            connectivityManager.activeNetwork?.let(::add)
+            addAll(connectivityManager.allNetworks)
+        }.distinct()
+        return networks.any { network ->
+            connectivityManager.getNetworkCapabilities(network)?.let { capabilities ->
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+            } == true
+        }
     }
 }

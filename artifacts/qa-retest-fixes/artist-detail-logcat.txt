@@ -1,0 +1,4 @@
+06-13 14:40:13.158 28121 28696 I okhttp.OkHttpClient: --> GET https://ongaku.local/v1/search?q=Karuta
+06-13 14:40:16.882 28121 28696 I okhttp.OkHttpClient: <-- 200 OK http://127.0.0.1:8080/v1/search?q=Karuta (3723ms, 167785-byte body)
+06-13 14:40:17.087 28121 28696 I okhttp.OkHttpClient: --> GET https://ongaku.local/v1/artists/karuta
+06-13 14:40:17.990 28121 28696 I okhttp.OkHttpClient: <-- 200 OK http://127.0.0.1:8080/v1/artists/karuta (903ms, 2152-byte body)

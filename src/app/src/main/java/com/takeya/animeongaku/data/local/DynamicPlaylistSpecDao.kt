@@ -17,8 +17,11 @@ interface DynamicPlaylistSpecDao {
     @Query("SELECT * FROM dynamic_playlist_spec WHERE playlistId = :id")
     fun observeById(id: Long): Flow<DynamicPlaylistSpecEntity?>
 
-    @Query("SELECT * FROM dynamic_playlist_spec WHERE mode = 'AUTO'")
+    @Query("SELECT * FROM dynamic_playlist_spec WHERE mode = 'AUTO' AND serverManaged = 0")
     suspend fun getAllAuto(): List<DynamicPlaylistSpecEntity>
+
+    @Query("SELECT * FROM dynamic_playlist_spec")
+    suspend fun getAll(): List<DynamicPlaylistSpecEntity>
 
     @Query("SELECT * FROM dynamic_playlist_spec")
     fun observeAll(): Flow<List<DynamicPlaylistSpecEntity>>

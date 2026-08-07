@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Anime Ongaku** is a native Android music player for anime opening/ending themes. It syncs with Kitsu.io accounts to auto-populate a library, fetching audio from AnimeThemes.moe.
+**Anime Ongaku** is a native Android music player for anime opening/ending themes. The Android app is now a thin client for a self-hosted Anime Ongaku server. The server authenticates against Kitsu, syncs library metadata, fetches/caches AnimeThemes media, and exposes stable media URLs to Android.
 
 ## Build Commands
 
@@ -24,7 +24,22 @@ All commands run from the `src/` directory:
 ./gradlew test --tests "com.takeya.animeongaku.NowPlayingManagerTest"
 ```
 
-**Requirements:** JDK 21, `google-services.json` in `src/app/` for Firebase.
+**Requirements:** JDK 21, `google-services.json` in `src/app/` for Firebase. Network sync/search/playback of non-downloaded tracks requires a configured Anime Ongaku server URL.
+
+**Windows verification paths that worked in this workspace:**
+```powershell
+$env:ANDROID_HOME = 'F:\Program Files (x86)\Microsoft Visual Studio\Shared\Android\android-sdk'
+$env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
+$env:JAVA_HOME = 'F:\Program Files (x86)\Microsoft Visual Studio\Shared\Android\openjdk\jdk-21.0.8'
+$env:Path = "$env:JAVA_HOME\bin;$env:ANDROID_HOME\platform-tools;C:\Windows\System32;$env:Path"
+.\gradlew.bat --no-daemon test
+```
+
+Server checks run from `server/`:
+```powershell
+& 'E:\Users\Nolan\npm\node.exe' '.\node_modules\vitest\vitest.mjs' run
+& 'E:\Users\Nolan\npm\node.exe' '.\node_modules\typescript\bin\tsc' -p tsconfig.json --noEmit
+```
 
 ## Architecture
 
@@ -33,7 +48,7 @@ The app uses MVVM + Repository pattern with Hilt DI, Jetpack Compose UI, and Med
 ### Layers
 
 ```
-Compose UI → ViewModel (StateFlow) → Repository → Room DB / Retrofit APIs
+Compose UI → ViewModel (StateFlow) → Repository → Room DB / OngakuApi
                                               ↕
                                     Media Engine (ExoPlayer)
 ```
@@ -44,9 +59,10 @@ Compose UI → ViewModel (StateFlow) → Repository → Room DB / Retrofit APIs
 - `MediaPlaybackService` — foreground service providing the `MediaSession` and ExoPlayer instance
 
 **Sync pipeline:**
-1. `SyncManager` fetches anime list from Kitsu API in 50-item batches
-2. Maps Kitsu anime IDs → AnimeThemes.moe slugs to resolve audio/video URLs
-3. Stores results in Room; `AutoPlaylistManager` creates "Currently Watching" playlist
+1. Android signs in through the Anime Ongaku server using a Kitsu username/email and password.
+2. The server owns Kitsu tokens, syncs the library, maps AnimeThemes metadata, and caches media.
+3. `LibraryPullManager` pulls `/v1/library` deltas into Room and rewrites media/artwork URLs to server endpoints.
+4. `AutoPlaylistManager` refreshes local Room-derived playlists such as "Currently Watching".
 
 **Download pipeline:**
 - `DownloadManager` (singleton) coordinates UI state
@@ -62,7 +78,7 @@ Compose UI → ViewModel (StateFlow) → Repository → Room DB / Retrofit APIs
 | `data/` | Room entities, DAOs, repositories, API models |
 | `media/` | ExoPlayer integration and playback state |
 | `download/` | Offline download management |
-| `sync/` | Kitsu library synchronization services |
+| `sync/` | Server pull, pending write, migration, and local playlist refresh services |
 | `di/` | Hilt modules (NetworkModule, DatabaseModule, etc.) |
 | `src/app/schemas/` | Room migration schema snapshots |
 
@@ -70,9 +86,9 @@ Compose UI → ViewModel (StateFlow) → Repository → Room DB / Retrofit APIs
 
 **ViewModels** expose `StateFlow` using `SharingStarted.WhileSubscribed(5_000)`.
 
-**Network layer** uses named `OkHttpClient` qualifiers (`"base"`, `"kitsu"`) with custom interceptors: `RateLimitInterceptor`, `RetryInterceptor`, `KitsuAuthInterceptor`.
+**Network layer** uses named `OkHttpClient` qualifiers (`"base"`, `"ongaku"`) with `RetryInterceptor`, `OngakuBaseUrlInterceptor`, and `OngakuAuthInterceptor`. Android must not call Kitsu or AnimeThemes directly.
 
-**Authentication** stores OAuth2 tokens in `EncryptedSharedPreferences` (AES256-GCM) via `KitsuTokenStore`.
+**Authentication** stores the server bearer session in `EncryptedSharedPreferences` (AES256-GCM) via `ServerTokenStore`. The server owns Kitsu OAuth tokens.
 
 **Artwork** uses a multi-resolution fallback system — `primaryArtworkUrl()` helper is the canonical way to get cover art URLs across UI and data layers.
 

@@ -14,10 +14,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -47,6 +51,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.takeya.animeongaku.data.auth.SessionState
 import com.takeya.animeongaku.ui.dynamic.DynamicAdvancedBuilderScreen
 import com.takeya.animeongaku.ui.dynamic.DynamicPlaylistDraftViewModel
 import com.takeya.animeongaku.ui.dynamic.DynamicPreviewScreen
@@ -57,9 +62,13 @@ import com.takeya.animeongaku.ui.library.AnimeDetailScreen
 import com.takeya.animeongaku.ui.library.ArtistDetailScreen
 import com.takeya.animeongaku.ui.library.LibraryScreen
 import com.takeya.animeongaku.ui.library.PlaylistDetailScreen
+import com.takeya.animeongaku.ui.library.RelatedMusicScreen
+import com.takeya.animeongaku.ui.onboarding.OnboardingScreen
+import com.takeya.animeongaku.ui.onboarding.ReconnectBanner
 import com.takeya.animeongaku.ui.player.PlayerContainer
 import com.takeya.animeongaku.ui.player.MiniPlayerHeight
 import com.takeya.animeongaku.ui.search.SearchScreen
+import com.takeya.animeongaku.ui.settings.AboutScreen
 import com.takeya.animeongaku.ui.settings.DownloadManagerScreen
 import com.takeya.animeongaku.ui.settings.SettingsScreen
 import com.takeya.animeongaku.ui.sync.ImportScreen
@@ -81,17 +90,22 @@ private object Routes {
     const val Library = "library"
     const val Playlist = "playlist"
     const val AnimeDetail = "animeDetail"
+    const val RelatedMusic = "relatedMusic"
     const val ArtistDetail = "artistDetail"
     const val Import = "import"
     const val Player = "player"
     const val Settings = "settings"
     const val DownloadManager = "downloadManager"
+    const val About = "about"
 }
 
 private const val ShowLibraryBadgesArg = "showLibraryBadges"
 
 internal fun animeDetailRoute(kitsuId: String, showLibraryBadges: Boolean = true): String =
     "${Routes.AnimeDetail}/$kitsuId?$ShowLibraryBadgesArg=$showLibraryBadges"
+
+internal fun relatedMusicRoute(kitsuId: String, releaseId: Long? = null): String =
+    "${Routes.RelatedMusic}/$kitsuId?releaseId=${releaseId ?: -1L}"
 
 internal fun artistDetailRoute(artistName: String, showLibraryBadges: Boolean = true): String =
     "${Routes.ArtistDetail}/${encodeRouteSegment(artistName)}?$ShowLibraryBadgesArg=$showLibraryBadges"
@@ -108,8 +122,23 @@ private data class BottomNavItem(
 @Composable
 fun AnimeOngakuApp(
     pendingNavigateTo: androidx.compose.runtime.MutableState<String?>? = null,
-    appUpdateViewModel: AppUpdateViewModel
+    appUpdateViewModel: AppUpdateViewModel,
+    rootSessionViewModel: RootSessionViewModel = hiltViewModel()
 ) {
+    val sessionState by rootSessionViewModel.sessionState.collectAsStateWithLifecycle()
+
+    if (sessionState is SessionState.LoggedOut || sessionState is SessionState.InitialSync) {
+        LoggedOutGate()
+        return
+    }
+
+    val isReauthRequired = sessionState is SessionState.ReauthRequired
+    var showReconnect by rememberSaveable { mutableStateOf(false) }
+
+    androidx.compose.runtime.LaunchedEffect(sessionState) {
+        if (sessionState is SessionState.Active) showReconnect = false
+    }
+
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
@@ -277,7 +306,8 @@ fun AnimeOngakuApp(
                         },
                         onOpenPlaylist = { playlistId ->
                             navController.navigate("${Routes.Playlist}/$playlistId")
-                        }
+                        },
+                        onOpenRelatedMusic = { kitsuId, releaseId -> navController.navigate(relatedMusicRoute(kitsuId, releaseId)) }
                     )
                 }
                 composable(
@@ -327,13 +357,29 @@ fun AnimeOngakuApp(
                         navArgument("kitsuId") { type = NavType.StringType },
                         navArgument(ShowLibraryBadgesArg) { type = NavType.BoolType; defaultValue = true }
                     )
-                ) {
-                    val showLibraryBadges = it.arguments?.getBoolean(ShowLibraryBadgesArg) ?: true
+                ) { entry ->
+                    val showLibraryBadges = entry.arguments?.getBoolean(ShowLibraryBadgesArg) ?: true
+                    val kitsuId = entry.arguments?.getString("kitsuId").orEmpty()
                     AnimeDetailScreen(
                         onBack = { navController.popBackStack() },
                         onPlayTheme = { isPlayerExpanded = true },
                         onOpenArtist = { artistName -> navController.navigate(artistDetailRoute(artistName, showLibraryBadges)) },
+                        onOpenRelatedMusic = { releaseId -> navController.navigate(relatedMusicRoute(kitsuId, releaseId)) },
                         showLibraryBadges = showLibraryBadges
+                    )
+                }
+                composable(
+                    route = "${Routes.RelatedMusic}/{kitsuId}?releaseId={releaseId}",
+                    arguments = listOf(
+                        navArgument("kitsuId") { type = NavType.StringType },
+                        navArgument("releaseId") { type = NavType.LongType; defaultValue = -1L }
+                    )
+                ) {
+                    val kitsuId = it.arguments?.getString("kitsuId").orEmpty()
+                    RelatedMusicScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenRelease = { releaseId -> navController.navigate(relatedMusicRoute(kitsuId, releaseId)) },
+                        onPlay = { isPlayerExpanded = true }
                     )
                 }
                 composable(
@@ -366,11 +412,17 @@ fun AnimeOngakuApp(
                         availableUpdate = updateState.availableUpdate,
                         onCheckForUpdates = { appUpdateViewModel.checkForUpdates(openWhenAvailable = true) },
                         onDownloadUpdate = { appUpdateViewModel.openAvailableUpdate() },
-                        onOpenReleasePage = { appUpdateViewModel.openReleasePage() }
+                        onOpenReleasePage = { appUpdateViewModel.openReleasePage() },
+                        onOpenAbout = { navController.navigate(Routes.About) }
                     )
                 }
                 composable(Routes.DownloadManager) {
                     DownloadManagerScreen(
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable(Routes.About) {
+                    AboutScreen(
                         onBack = { navController.popBackStack() }
                     )
                 }
@@ -481,10 +533,51 @@ fun AnimeOngakuApp(
                 isPlayerExpanded = false
                 navController.navigate(animeDetailRoute(kitsuId))
             },
+            onOpenRelatedMusic = { kitsuId ->
+                isPlayerExpanded = false
+                navController.navigate(relatedMusicRoute(kitsuId))
+            },
             onOpenArtist = { artistName ->
                 isPlayerExpanded = false
                 navController.navigate(artistDetailRoute(artistName))
             }
         )
+
+        if (isReauthRequired) {
+            ReconnectBanner(
+                onReconnect = { showReconnect = true },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+            )
+        }
     }
+
+    if (isReauthRequired && showReconnect) {
+        BackHandler(enabled = showReconnect) {
+            showReconnect = false
+        }
+        Box(Modifier.fillMaxSize()) {
+            OnboardingScreen()
+            IconButton(
+                onClick = { showReconnect = false },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = "Dismiss reconnect",
+                    tint = Mist100
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LoggedOutGate() {
+    // The server URL is fixed at build time, so onboarding only needs the sign-in screen.
+    OnboardingScreen()
 }

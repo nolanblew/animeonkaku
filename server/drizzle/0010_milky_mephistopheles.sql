@@ -1,0 +1,2 @@
+ALTER TABLE "music_acquisitions" DROP CONSTRAINT "music_acquisitions_provider_job_unique";--> statement-breakpoint
+CREATE INDEX "music_acquisitions_provider_job_idx" ON "music_acquisitions" USING btree ("provider","provider_job_id");

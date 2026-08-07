@@ -1,0 +1,104 @@
+import type { AnimeThemesClient } from "../animethemes/client.js";
+import type { AnimeThemeEntry, AnimeThemesLookupResult } from "../animethemes/types.js";
+import type { JobQueue } from "../jobs/jobQueue.js";
+import type { JobRecord } from "../jobs/types.js";
+import type { KitsuAuthClient } from "../auth/types.js";
+import type { KitsuClient } from "../kitsu/kitsuClient.js";
+import type { KitsuAnimeEntry, KitsuGenre } from "../kitsu/types.js";
+
+export interface SyncUserAuth {
+  userId: string;
+  accessToken: string | null;
+  refreshToken: string | null;
+  tokenExpiresAt: Date | null;
+  kitsuAuthState: string;
+  lastSyncAt: Date | null;
+  lastStatusSyncAt: Date | null;
+}
+
+export interface KitsuCatalogRecord {
+  kitsuId: string;
+  title: string | null;
+  titleEn: string | null;
+  titleRomaji: string | null;
+  titleJa: string | null;
+  abbreviatedTitles: string[];
+  animethemesAnimeId: number | null;
+  mappingState: string;
+}
+
+export interface SyncRepository {
+  getUserSyncAuth(userId: string): Promise<SyncUserAuth | null>;
+  upsertKitsuAnime(entries: KitsuAnimeEntry[]): Promise<void>;
+  upsertLibraryEntries(userId: string, entries: KitsuAnimeEntry[]): Promise<void>;
+  tombstoneMissingLibraryEntries(userId: string, activeKitsuIds: string[]): Promise<void>;
+  upsertAnimeGenres(kitsuId: string, genres: KitsuGenre[]): Promise<void>;
+  updateUserSyncTimestamps(
+    userId: string,
+    timestamps: { lastSyncAt?: Date; lastStatusSyncAt?: Date },
+  ): Promise<void>;
+  updateKitsuTokens(
+    userId: string,
+    tokens: { accessToken: string; refreshToken: string | null; expiresAt: Date | null },
+  ): Promise<void>;
+  markKitsuReauthRequired(userId: string): Promise<void>;
+  refreshAutoPlaylists?(userId: string): Promise<void>;
+  getKitsuAnimeForMapping?(kitsuIds: string[]): Promise<KitsuCatalogRecord[]>;
+  saveAnimeThemesCatalog?(themes: AnimeThemeEntry[]): Promise<void>;
+  setAnimeThemeMappings?(mappings: Map<string, number>): Promise<void>;
+  markAnimeUnmatched?(kitsuIds: string[]): Promise<void>;
+  getThemeIdsMissingReadyAudio?(userId?: string): Promise<number[]>;
+  getAnimeImagesMissingReady?(
+    userId?: string,
+  ): Promise<Array<{ kind: "ANIME_POSTER" | "ANIME_COVER"; refId: string }>>;
+  getFailedAudioThemeIds?(): Promise<number[]>;
+  markAudioMediaMissing?(themeIds: string[]): Promise<void>;
+  listReadyMediaFilePaths?(): Promise<string[]>;
+  listActiveUserIds?(activeAfter?: Date): Promise<string[]>;
+  deactivateInactiveUsers?(activeAfter: Date): Promise<string[]>;
+}
+
+export interface KitsuClientLike
+  extends Pick<KitsuClient, "getLibraryEntries" | "getLibraryEntriesUpdatedSince" | "getAnimeCategories"> {
+  getAnimeMappings?: KitsuClient["getAnimeMappings"];
+}
+
+export type AnimeThemesClientLike = Pick<
+  AnimeThemesClient,
+  "fetchByKitsuIds" | "fetchByMalIds" | "searchByTitle"
+> & {
+  fetchByKitsuIds(kitsuIds: string[]): Promise<AnimeThemesLookupResult>;
+  fetchByMalIds(malIds: string[]): Promise<AnimeThemesLookupResult>;
+  searchByTitle(title: string): Promise<AnimeThemesLookupResult>;
+};
+
+export interface SyncJobInput {
+  userId: string;
+  full: boolean;
+  job: JobRecord;
+}
+
+export interface MapThemesInput {
+  kitsuIds: string[];
+  userId?: string | undefined;
+  job: JobRecord;
+}
+
+export interface LibrarySyncPipelineDeps {
+  repo: SyncRepository;
+  kitsu: KitsuClientLike;
+  kitsuAuth?: Pick<KitsuAuthClient, "refresh">;
+  animeThemes: Partial<AnimeThemesClientLike>;
+  queue: JobQueue;
+  now?: () => Date;
+  mappingBatchSize?: number;
+  /**
+   * Wall-clock budget for a single MAP_THEMES invocation. When exceeded, the
+   * job re-enqueues its remaining kitsuIds as a fresh MAP_THEMES and completes,
+   * so no invocation ever approaches the job timeout (which would otherwise
+   * retry from scratch and strand the client on "matching themes").
+   */
+  mappingTimeBudgetMs?: number;
+  /** Best-effort notification for newly observed AnimeThemes mappings. */
+  onAnimeMapped?: (animeThemesIds: number[]) => Promise<void>;
+}

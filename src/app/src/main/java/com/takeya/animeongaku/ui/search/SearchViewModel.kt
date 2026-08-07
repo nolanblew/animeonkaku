@@ -7,31 +7,47 @@ import com.takeya.animeongaku.data.local.DownloadDao
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.ArtistDao
 import com.takeya.animeongaku.data.local.ArtistTrackCount
+import com.takeya.animeongaku.data.local.mergeArtistTrackCounts
 import com.takeya.animeongaku.data.local.PlaylistDao
-import com.takeya.animeongaku.data.local.PlaylistEntity
-import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.PlaylistWithCount
+import com.takeya.animeongaku.data.auth.SessionState
+import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.local.ThemeArtistCrossRef
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.ThemeModeDao
+import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.model.OnlineAnimeResult
 import com.takeya.animeongaku.data.model.OnlineArtistResult
+import com.takeya.animeongaku.data.model.OnlineSearchResult
 import com.takeya.animeongaku.data.repository.AnimeRepository
-import com.takeya.animeongaku.data.repository.UserRepository
+import com.takeya.animeongaku.data.repository.MusicCatalogRepository
+import com.takeya.animeongaku.data.repository.MusicSearchResults
+import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
 import com.takeya.animeongaku.media.NowPlayingManager
+import com.takeya.animeongaku.network.ConnectivityMonitor
+import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
+import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
+import com.takeya.animeongaku.sync.LibraryPullManager
+import com.takeya.animeongaku.sync.SyncEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-import kotlin.math.abs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -40,47 +56,107 @@ import kotlinx.coroutines.launch
 
 enum class OnlineSearchState { Idle, Loading, Done, Error }
 
-@OptIn(ExperimentalCoroutinesApi::class)
+private const val LOCAL_SEARCH_DEBOUNCE_MS = 250L
+
+@OptIn(FlowPreview::class)
+internal fun debouncedDistinctSearchQueries(source: Flow<String>): Flow<String> = source
+    .map { query -> query.trim().replace(Regex("\\s+"), " ") }
+    .debounce { query -> if (query.isBlank()) 0L else LOCAL_SEARCH_DEBOUNCE_MS }
+    .distinctUntilChanged()
+
+internal suspend fun <T> executeLatestOnlineSearch(
+    isCurrent: () -> Boolean,
+    load: suspend () -> T,
+    onSuccess: (T) -> Unit,
+    onFailure: (Exception) -> Unit
+) {
+    try {
+        val result = load()
+        if (isCurrent()) onSuccess(result)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        if (isCurrent()) onFailure(e)
+    }
+}
+
+internal fun parseServerThemeId(value: String): Long? =
+    value.toLongOrNull()?.takeIf { it > 0L }
+
+private data class OnlineSearchPayload(
+    val anime: OnlineSearchResult,
+    val music: MusicSearchResults
+)
+
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @HiltViewModel
 class SearchViewModel @Inject constructor(
     private val themeDao: ThemeDao,
+    private val themeModeDao: ThemeModeDao,
     private val animeDao: AnimeDao,
     private val artistDao: ArtistDao,
     private val playlistDao: PlaylistDao,
     private val animeRepository: AnimeRepository,
-    private val userRepository: UserRepository,
+    private val musicCatalogRepository: MusicCatalogRepository,
+    private val libraryPullManager: LibraryPullManager,
+    private val syncEngine: SyncEngine,
     val nowPlayingManager: NowPlayingManager,
     val downloadManager: DownloadManager,
     private val downloadDao: DownloadDao,
-    private val userPreferencesRepository: UserPreferencesRepository
+    private val serverPlaylistWriter: ServerPlaylistWriter,
+    private val userPreferencesRepository: UserPreferencesRepository,
+    private val sessionStateManager: SessionStateManager,
+    connectivityMonitor: ConnectivityMonitor
 ) : ViewModel() {
+
+    val isOnline: StateFlow<Boolean> = connectivityMonitor.isOnline
+
+    val onlineEnabled: StateFlow<Boolean> = sessionStateManager.state
+        .map { it is SessionState.Active }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), sessionStateManager.isOnlineEnabled())
 
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
+    private val localSearchQuery: StateFlow<String> = debouncedDistinctSearchQueries(_query)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
 
-    val localSongs: StateFlow<List<ThemeEntity>> = _query
+    val localSongs: StateFlow<List<ThemeEntity>> = localSearchQuery
         .flatMapLatest { q ->
             if (q.isBlank()) flowOf(emptyList()) else themeDao.searchThemes(q)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val localAnime: StateFlow<List<AnimeEntity>> = _query
+    val themeModesById: StateFlow<Map<Long, ThemeModeEntity>> = localSongs
+        .flatMapLatest { list ->
+            val ids = list.map { it.id }
+            if (ids.isEmpty()) flowOf(emptyList()) else themeModeDao.observeByThemeIds(ids)
+        }
+        .map { modes -> modes.associateBy { it.themeId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    val localAnime: StateFlow<List<AnimeEntity>> = localSearchQuery
         .flatMapLatest { q ->
             if (q.isBlank()) flowOf(emptyList()) else animeDao.searchAnime(q)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val localArtists: StateFlow<List<ArtistTrackCount>> = _query
+    val localArtists: StateFlow<List<ArtistTrackCount>> = localSearchQuery
         .flatMapLatest { q ->
-            if (q.isBlank()) flowOf(emptyList()) else artistDao.searchArtists(q)
+            if (q.isBlank()) flowOf(emptyList()) else combine(artistDao.searchArtists(q), musicCatalogRepository.observeArtistTrackCounts()) { themeArtists, catalogArtists ->
+                mergeArtistTrackCounts(themeArtists + catalogArtists.filter { it.artistName.contains(q, ignoreCase = true) })
+            }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val localPlaylists: StateFlow<List<PlaylistWithCount>> = _query
+    val localPlaylists: StateFlow<List<PlaylistWithCount>> = localSearchQuery
         .flatMapLatest { q ->
             if (q.isBlank()) flowOf(emptyList()) else playlistDao.searchPlaylists(q)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val localMusic: StateFlow<MusicSearchResults> = localSearchQuery.flatMapLatest { q ->
+        if (q.isBlank()) flowOf(MusicSearchResults()) else musicCatalogRepository.searchCached(q)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MusicSearchResults())
 
     val anime: StateFlow<List<AnimeEntity>> = animeDao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -109,6 +185,8 @@ class SearchViewModel @Inject constructor(
 
     private val _onlineArtists = MutableStateFlow<List<OnlineArtistResult>>(emptyList())
     val onlineArtists: StateFlow<List<OnlineArtistResult>> = _onlineArtists.asStateFlow()
+    private val _onlineMusic = MutableStateFlow(MusicSearchResults())
+    val onlineMusic: StateFlow<MusicSearchResults> = _onlineMusic.asStateFlow()
 
     private val _onlineState = MutableStateFlow(OnlineSearchState.Idle)
     val onlineState: StateFlow<OnlineSearchState> = _onlineState.asStateFlow()
@@ -117,37 +195,56 @@ class SearchViewModel @Inject constructor(
     val onlineError: StateFlow<String?> = _onlineError.asStateFlow()
 
     private var onlineJob: Job? = null
+    private var onlineRequestId = 0L
 
     fun onQueryChange(value: String) {
+        onlineRequestId++
         _query.value = value
         // Reset online search state for new query
         _onlineState.value = OnlineSearchState.Idle
         _onlineResults.value = emptyList()
         _onlineAnime.value = emptyList<com.takeya.animeongaku.data.model.OnlineAnimeResult>()
         _onlineArtists.value = emptyList<com.takeya.animeongaku.data.model.OnlineArtistResult>()
+        _onlineMusic.value = MusicSearchResults()
         _onlineError.value = null
         onlineJob?.cancel()
     }
 
     fun searchOnline() {
+        if (!sessionStateManager.isOnlineEnabled()) {
+            _onlineError.value = "Reconnect to search online."
+            _onlineState.value = OnlineSearchState.Error
+            return
+        }
         val q = _query.value
         if (q.isBlank()) return
         if (_onlineState.value == OnlineSearchState.Loading) return
 
         onlineJob?.cancel()
+        val requestId = ++onlineRequestId
         onlineJob = viewModelScope.launch {
             _onlineState.value = OnlineSearchState.Loading
             _onlineError.value = null
-            try {
-                val searchResult = animeRepository.searchAnimeThemes(q)
-                _onlineResults.value = searchResult.themes
-                _onlineAnime.value = searchResult.anime
-                _onlineArtists.value = searchResult.artists
-                _onlineState.value = OnlineSearchState.Done
-            } catch (e: Exception) {
-                _onlineError.value = "Search failed: ${e.message}"
-                _onlineState.value = OnlineSearchState.Error
-            }
+            executeLatestOnlineSearch(
+                isCurrent = { requestId == onlineRequestId },
+                load = {
+                    OnlineSearchPayload(
+                        anime = animeRepository.searchAnimeThemes(q),
+                        music = musicCatalogRepository.searchRemote(q)
+                    )
+                },
+                onSuccess = { result ->
+                    _onlineResults.value = result.anime.themes
+                    _onlineAnime.value = result.anime.anime
+                    _onlineArtists.value = result.anime.artists
+                    _onlineMusic.value = result.music
+                    _onlineState.value = OnlineSearchState.Done
+                },
+                onFailure = {
+                    _onlineError.value = searchFailureMessage(hasCachedSearchResults())
+                    _onlineState.value = OnlineSearchState.Error
+                }
+            )
         }
     }
 
@@ -180,8 +277,41 @@ class SearchViewModel @Inject constructor(
         nowPlayingManager.play("Search: ${_query.value}", songs, idx, animeMap = buildAnimeMap())
     }
 
-    private fun entryToThemeEntity(entry: AnimeThemeEntry): ThemeEntity {
-        val themeId = entry.themeId.toLongOrNull() ?: abs(entry.themeId.hashCode()).toLong()
+    private fun hasCachedSearchResults(): Boolean =
+        localSongs.value.isNotEmpty() || localAnime.value.isNotEmpty() || localArtists.value.isNotEmpty() ||
+            localPlaylists.value.isNotEmpty() || localMusic.value.releases.isNotEmpty() || localMusic.value.tracks.isNotEmpty()
+
+    private fun localContextLabel(): String = "Search: ${_query.value}"
+
+    fun requestPlayVideo(themeId: Long): BrowseVideoStartRequest? {
+        val theme = localSongs.value.firstOrNull { it.id == themeId } ?: return null
+        return BrowseVideoActionPolicy.request(
+            isOnline.value,
+            localContextLabel(),
+            listOf(theme),
+            themeModesById.value,
+            singleAnimeMap(theme)
+        )
+    }
+
+    fun startPlayVideo(request: BrowseVideoStartRequest): Boolean {
+        val themeId = request.themes.singleOrNull()?.id ?: return false
+        val currentTheme = localSongs.value.firstOrNull { it.id == themeId } ?: return false
+        return request.startIfStillValid(
+            nowPlayingManager,
+            isOnline.value,
+            listOf(currentTheme),
+            themeModesById.value,
+            localContextLabel(),
+            singleAnimeMap(currentTheme)
+        )
+    }
+
+    private fun singleAnimeMap(theme: ThemeEntity): Map<Long, AnimeEntity> =
+        theme.animeId?.let { id -> buildAnimeMap()[id]?.let { mapOf(id to it) } } ?: emptyMap()
+
+    private fun entryToThemeEntity(entry: AnimeThemeEntry): ThemeEntity? {
+        val themeId = parseServerThemeId(entry.themeId) ?: return null
         return ThemeEntity(
             id = themeId,
             animeId = entry.animeId.toLongOrNull(),
@@ -196,8 +326,8 @@ class SearchViewModel @Inject constructor(
         )
     }
 
-    private suspend fun saveThemeToDb(entry: AnimeThemeEntry): ThemeEntity {
-        val entity = entryToThemeEntity(entry)
+    private suspend fun saveThemeToDb(entry: AnimeThemeEntry): ThemeEntity? {
+        val entity = entryToThemeEntity(entry) ?: return null
         themeDao.upsertAll(listOf(entity))
         // Save artist cross-refs
         if (entry.artists.isNotEmpty()) {
@@ -216,9 +346,10 @@ class SearchViewModel @Inject constructor(
 
     fun saveAndPlayOnlineTheme(entry: AnimeThemeEntry) {
         viewModelScope.launch {
-            val allEntities = _onlineResults.value.map { entryToThemeEntity(it) }
-            val themeId = entryToThemeEntity(entry).id
-            val idx = allEntities.indexOfFirst { it.id == themeId }.coerceAtLeast(0)
+            val allEntities = _onlineResults.value.mapNotNull(::entryToThemeEntity)
+            val themeId = parseServerThemeId(entry.themeId) ?: return@launch
+            val idx = allEntities.indexOfFirst { it.id == themeId }
+            if (idx < 0) return@launch
 
             // Build anime map from online entries directly (cover art available immediately)
             val onlineAnimeMap = buildOnlineAnimeMap(_onlineResults.value)
@@ -238,68 +369,57 @@ class SearchViewModel @Inject constructor(
 
     fun saveOnlineThemePlayNext(entry: AnimeThemeEntry) {
         viewModelScope.launch {
-            val entity = saveThemeToDb(entry)
-            nowPlayingManager.playNext(entity)
+            saveThemeToDb(entry)?.let(nowPlayingManager::playNext)
         }
     }
 
     fun saveOnlineThemeAddToQueue(entry: AnimeThemeEntry) {
         viewModelScope.launch {
-            val entity = saveThemeToDb(entry)
-            nowPlayingManager.addToQueue(entity)
+            saveThemeToDb(entry)?.let(nowPlayingManager::addToQueue)
         }
     }
 
     fun addOnlineThemeToLibrary(entry: AnimeThemeEntry) {
         viewModelScope.launch {
-            saveThemeToDb(entry)
-            // Also try to create/update the AnimeEntity via Kitsu cross-reference
-            enrichAnimeFromKitsu(entry)
+            saveThemeToDb(entry) ?: return@launch
+            saveSyntheticAnimeIfMissing(entry)
+            requestServerLibraryAdd(entry)
         }
     }
 
-    private suspend fun enrichAnimeFromKitsu(entry: AnimeThemeEntry) {
+    private suspend fun saveSyntheticAnimeIfMissing(entry: AnimeThemeEntry) {
         val animeThemesId = entry.animeId.toLongOrNull() ?: return
-        // Check if we already have this anime
         val existing = animeDao.getByAnimeThemesId(animeThemesId)
         if (existing != null) return
 
-        try {
-            val match = if (entry.kitsuId != null) {
-                // We have a direct Kitsu ID from AnimeThemes resources — fetch details
-                val details = userRepository.getAnimeDetails(listOf(entry.kitsuId))
-                details.firstOrNull()
-            } else {
-                // Fall back to searching Kitsu by anime name
-                val animeName = entry.animeName ?: return
-                val kitsuResults = userRepository.searchKitsuAnime(animeName)
-                kitsuResults.firstOrNull()
-            } ?: return
+        val animeEntity = AnimeEntity(
+            kitsuId = entry.kitsuId ?: "online-${entry.animeId}",
+            animeThemesId = animeThemesId,
+            title = entry.animeNameEn ?: entry.animeName ?: "Unknown",
+            titleEn = entry.animeNameEn,
+            thumbnailUrl = entry.coverUrl,
+            coverUrl = entry.coverUrl,
+            syncedAt = System.currentTimeMillis(),
+            isManuallyAdded = true
+        )
+        animeDao.upsertAll(listOf(animeEntity))
+    }
 
-            val animeEntity = AnimeEntity(
-                kitsuId = match.id,
-                animeThemesId = animeThemesId,
-                title = match.title ?: entry.animeName ?: "Unknown",
-                titleEn = match.titleEn,
-                titleRomaji = match.titleRomaji,
-                titleJa = match.titleJa,
-                thumbnailUrl = match.posterUrl,
-                coverUrl = match.coverUrl,
-                syncedAt = System.currentTimeMillis()
-            )
-            animeDao.upsertAll(listOf(animeEntity))
-        } catch (_: Exception) {
-            // Best-effort: if Kitsu lookup fails, we still have the theme saved
+    private suspend fun requestServerLibraryAdd(entry: AnimeThemeEntry) {
+        val animeThemesId = entry.animeId.toLongOrNull()
+        syncEngine.enqueueLibraryAdd(
+            kitsuId = entry.kitsuId,
+            animeThemesId = if (entry.kitsuId == null) animeThemesId else null
+        )
+        val result = syncEngine.pushPendingWrites()
+        if (!result.failed) {
+            libraryPullManager.pullNow(forceFull = true)
         }
     }
 
-    fun addToPlaylist(playlistId: Long, themeIds: List<Long>) {
+    fun addToPlaylist(playlistId: Long, themeIds: List<Long>, modeOverride: String? = null) {
         viewModelScope.launch {
-            val count = playlistDao.countEntries(playlistId)
-            val entries = themeIds.mapIndexed { i, id ->
-                PlaylistEntryEntity(playlistId = playlistId, themeId = id, orderIndex = count + i)
-            }
-            playlistDao.insertEntries(entries)
+            serverPlaylistWriter.addThemeEntries(playlistId, themeIds, modeOverride)
         }
     }
 
@@ -319,6 +439,9 @@ class SearchViewModel @Inject constructor(
         .map { it.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
+    fun observePreference(themeId: Long?) =
+        themeId?.let { userPreferencesRepository.observePreference(it) } ?: flowOf(null)
+
     fun toggleLike(themeId: Long) {
         viewModelScope.launch { userPreferencesRepository.toggleLike(themeId) }
     }
@@ -336,15 +459,9 @@ class SearchViewModel @Inject constructor(
         downloadManager.removeDownload(themeId)
     }
 
-    fun createAndAddToPlaylist(name: String, themeIds: List<Long>) {
+    fun createAndAddToPlaylist(name: String, themeIds: List<Long>, modeOverride: String? = null) {
         viewModelScope.launch {
-            val newId = playlistDao.insertPlaylist(
-                PlaylistEntity(name = name, createdAt = System.currentTimeMillis())
-            )
-            val entries = themeIds.mapIndexed { i, id ->
-                PlaylistEntryEntity(playlistId = newId, themeId = id, orderIndex = i)
-            }
-            playlistDao.insertEntries(entries)
+            serverPlaylistWriter.createPlaylistWithThemes(name, themeIds, modeOverride)
         }
     }
 }
