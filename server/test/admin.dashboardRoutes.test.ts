@@ -37,7 +37,15 @@ describe("comprehensive admin dashboard", () => {
     settings.updateMode.mockImplementation(async (mode: string) => ({ mode, updatedAt: "2026-07-28T12:01:00.000Z" }));
     dashboard.overview.mockResolvedValue({
       counts: { users: 2, anime: 12, themes: 24, songs: 8, activeJobs: 3, failedJobs: 1 },
-      storage: { totalBytes: 1500, tvSongsBytes: 500, fullSongsBytes: 700, artworkBytes: 200, cacheBytes: 100 },
+      storage: {
+        totalBytes: 1500,
+        tvSongsBytes: 500,
+        fullSongsBytes: 700,
+        artworkBytes: 200,
+        cacheBytes: 100,
+        capacityBytes: 2 * 1024 ** 4,
+        freeBytes: 512 * 1024 ** 3,
+      },
     });
     dashboard.listUsers.mockResolvedValue([{ id: "7", username: "nolan", authState: "OK", sessionCount: 2 }]);
     dashboard.listAnime.mockResolvedValue([{ kitsuId: "1", title: "Toradora!", mapped: true, themeCount: 4, tvReady: 3, fullReady: 1 }]);
@@ -81,6 +89,15 @@ describe("comprehensive admin dashboard", () => {
     }
     expect(response.body).toContain("Re-import full size");
     expect(response.body).toContain("/full-size/reimport");
+  });
+
+  it("renders disk capacity and available space in the storage panel", async () => {
+    const response = await app.inject({ method: "GET", url: "/admin", headers: { cookie: await cookie() } });
+
+    expect(response.body).toContain("Disk capacity");
+    expect(response.body).toContain("s.capacityBytes");
+    expect(response.body).toContain("Available space");
+    expect(response.body).toContain("s.freeBytes");
   });
 
   it("protects and serves dashboard projections", async () => {
