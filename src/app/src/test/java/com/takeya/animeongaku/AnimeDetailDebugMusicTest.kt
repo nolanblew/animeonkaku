@@ -81,6 +81,30 @@ class AnimeDetailDebugMusicTest {
     }
 
     @Test
+    fun `status failure remains scoped and retryable while operator work stays disabled`() {
+        val statusError = musicRequestActionPresentation(
+            MusicRequestScopeUiState.loading(MusicRequestScope.FULL_SONGS).copy(
+                progress = MusicRequestUiState.StatusError("Could not load request status. Try again.")
+            )
+        )
+        val operator = musicRequestActionPresentation(
+            scopeState(
+                MusicRequestScope.EXTRA_MUSIC,
+                eligible = 3,
+                missing = 2,
+                active = true,
+                progress = MusicRequestUiState.AwaitingOperator(1)
+            )
+        )
+
+        assertEquals("Retry status", statusError.label)
+        assertEquals("Could not load request status. Try again.", statusError.supportingText)
+        assertTrue(statusError.enabled)
+        assertEquals("Operator review required", operator.supportingText)
+        assertFalse(operator.enabled)
+    }
+
+    @Test
     fun `requestable scopes are enabled independently`() {
         val full = musicRequestActionPresentation(
             scopeState(
