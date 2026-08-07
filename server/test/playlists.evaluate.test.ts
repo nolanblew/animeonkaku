@@ -195,4 +195,24 @@ describe("evaluate — sort + fallback", () => {
 
     expect(evaluate({ type: "and", children: [] }, sort, c)).toEqual([2, 1, 3]);
   });
+
+  it("supports grouped and interleaved natural OP/ED order with deterministic ties", () => {
+    const themes = [
+      theme(11, { themeType: "ED2" }),
+      theme(12, { themeType: "OP2" }),
+      theme(13, { themeType: "IN1" }),
+      theme(14, { themeType: "ED1" }),
+      theme(15, { themeType: "OP1" }),
+      theme(16, { themeType: "OP1" }),
+    ];
+    const animeMap = new Map(themes.map((item) => [item.id, anime({ title: "Same" })] as const));
+    const c = ctx(themes, animeMap);
+
+    expect(evaluate({ type: "and", children: [] }, {
+      keys: [{ attribute: "THEME_ORDER_GROUPED" }],
+    }, c)).toEqual([15, 16, 12, 14, 11, 13]);
+    expect(evaluate({ type: "and", children: [] }, {
+      keys: [{ attribute: "THEME_ORDER_INTERLEAVED" }],
+    }, c)).toEqual([15, 16, 14, 12, 11, 13]);
+  });
 });
