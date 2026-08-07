@@ -244,7 +244,11 @@ function naturalThemeTypeParts(themeType: string | null): {
   const digits = normalized.replace(/\D/g, "");
   return {
     group,
-    sequence: digits.length > 0 ? Number.parseInt(digits, 10) : Number.MAX_SAFE_INTEGER,
+    sequence: digits.length > 0
+      ? Number.parseInt(digits, 10)
+      : group < 2
+        ? 1
+        : Number.MAX_SAFE_INTEGER,
     normalized,
   };
 }

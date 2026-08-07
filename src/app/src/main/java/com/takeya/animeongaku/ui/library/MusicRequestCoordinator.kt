@@ -140,9 +140,9 @@ class MusicRequestCoordinator(
             try {
                 val request = repository.get(requestId)
                 statusRetryRequestIds.remove(requestScope)
-                updateFromRequest(request)
+                updateFromRequest(request, requestScope)
                 refreshStatus(currentKitsuId, showFailure = false)
-                ensurePolling(currentKitsuId, request)
+                ensurePolling(currentKitsuId, request, requestScope)
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
@@ -190,7 +190,7 @@ class MusicRequestCoordinator(
         mapped.forEach { scopeState ->
             val latest = status[scopeState.scope].latest
             if (scopeState.active && latest != null) {
-                ensurePolling(kitsuId, latest)
+                ensurePolling(kitsuId, latest, scopeState.scope)
             } else if (pollJobs[scopeState.scope]?.isActive != true) {
                 pollJobs.remove(scopeState.scope)?.cancel()
                 pollRequestIds.remove(scopeState.scope)
@@ -198,9 +198,12 @@ class MusicRequestCoordinator(
         }
     }
 
-    private fun ensurePolling(kitsuId: String, request: MusicRequest) {
+    private fun ensurePolling(
+        kitsuId: String,
+        request: MusicRequest,
+        requestScope: MusicRequestScope = request.scope
+    ) {
         if (!request.active || request.state.isTerminal) return
-        val requestScope = request.scope
         if (pollJobs[requestScope]?.isActive == true && pollRequestIds[requestScope] == request.id) return
 
         pollJobs.remove(requestScope)?.cancel()
@@ -215,7 +218,7 @@ class MusicRequestCoordinator(
                         statusRetryRequestIds.remove(requestScope)
                         val changed = next.state != current.state || next.lastUpdatedAt != current.lastUpdatedAt
                         current = next
-                        updateFromRequest(next)
+                        updateFromRequest(next, requestScope)
                         if (changed) {
                             onCatalogRefreshNeeded()
                             refreshStatus(kitsuId, showFailure = false)
@@ -236,8 +239,8 @@ class MusicRequestCoordinator(
         }
     }
 
-    private fun updateFromRequest(request: MusicRequest) {
-        _state.value = _state.value.updated(request.scope) {
+    private fun updateFromRequest(request: MusicRequest, requestScope: MusicRequestScope = request.scope) {
+        _state.value = _state.value.updated(requestScope) {
             it.copy(progress = request.toUiState(), active = request.active, statusLoaded = true)
         }
     }

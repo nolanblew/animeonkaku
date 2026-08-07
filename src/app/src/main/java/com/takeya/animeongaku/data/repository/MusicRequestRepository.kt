@@ -151,9 +151,12 @@ fun OngakuMusicRequestSummaryDto.toDomain(): MusicRequest = MusicRequest(
 fun OngakuMusicRequestStatusDto.toDomain(): MusicRequestStatus = MusicRequestStatus(
     kitsuId = kitsuId,
     scopes = scopes.map { status ->
+        val scope = MusicRequestScope.fromWire(status.scope)
         MusicRequestScopeStatus(
-            scope = MusicRequestScope.fromWire(status.scope),
-            latest = status.latest?.toDomain(),
+            scope = scope,
+            latest = status.latest?.toDomain()?.let { latest ->
+                if (status.latest.scope == "LEGACY_ALL") latest.copy(scope = scope) else latest
+            },
             active = status.active,
             eligibleCount = status.eligibleCount.coerceAtLeast(0),
             availableCount = status.availableCount.coerceAtLeast(0),

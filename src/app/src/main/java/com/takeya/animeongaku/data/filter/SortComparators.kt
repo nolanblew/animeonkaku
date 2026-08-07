@@ -114,7 +114,9 @@ private fun naturalThemeParts(themeType: String?): NaturalThemeParts {
             normalized.startsWith("ED") -> 1
             else -> 2
         },
-        sequence = digits.toIntOrNull() ?: Int.MAX_VALUE,
+        sequence = digits.toIntOrNull() ?: if (
+            normalized.startsWith("OP") || normalized.startsWith("ED")
+        ) 1 else Int.MAX_VALUE,
         normalized = normalized
     )
 }

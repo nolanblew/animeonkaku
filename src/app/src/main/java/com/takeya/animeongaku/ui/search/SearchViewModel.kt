@@ -83,6 +83,14 @@ internal suspend fun <T> executeLatestOnlineSearch(
 internal fun parseServerThemeId(value: String): Long? =
     value.toLongOrNull()?.takeIf { it > 0L }
 
+internal fun themeModeIdsForSearch(
+    localThemes: List<ThemeEntity>,
+    onlineThemes: List<AnimeThemeEntry>
+): Set<Long> = buildSet {
+    localThemes.mapTo(this) { it.id }
+    onlineThemes.mapNotNullTo(this, transform = { parseServerThemeId(it.themeId) })
+}
+
 private data class OnlineSearchPayload(
     val anime: OnlineSearchResult,
     val music: MusicSearchResults
@@ -126,10 +134,17 @@ class SearchViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val themeModesById: StateFlow<Map<Long, ThemeModeEntity>> = localSongs
-        .flatMapLatest { list ->
-            val ids = list.map { it.id }
-            if (ids.isEmpty()) flowOf(emptyList()) else themeModeDao.observeByThemeIds(ids)
+    private val _onlineResults = MutableStateFlow<List<AnimeThemeEntry>>(emptyList())
+    val onlineResults: StateFlow<List<AnimeThemeEntry>> = _onlineResults.asStateFlow()
+
+    val themeModesById: StateFlow<Map<Long, ThemeModeEntity>> = combine(
+        localSongs,
+        onlineResults
+    ) { localThemes, onlineThemes ->
+        themeModeIdsForSearch(localThemes, onlineThemes)
+    }
+        .flatMapLatest { ids ->
+            if (ids.isEmpty()) flowOf(emptyList()) else themeModeDao.observeByThemeIds(ids.toList())
         }
         .map { modes -> modes.associateBy { it.themeId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
@@ -176,9 +191,6 @@ class SearchViewModel @Inject constructor(
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
-
-    private val _onlineResults = MutableStateFlow<List<AnimeThemeEntry>>(emptyList())
-    val onlineResults: StateFlow<List<AnimeThemeEntry>> = _onlineResults.asStateFlow()
 
     private val _onlineAnime = MutableStateFlow<List<OnlineAnimeResult>>(emptyList())
     val onlineAnime: StateFlow<List<OnlineAnimeResult>> = _onlineAnime.asStateFlow()
