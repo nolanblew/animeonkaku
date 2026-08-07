@@ -13,6 +13,19 @@ import org.junit.Test
 
 class RoomLibraryPullCacheMergeTest {
     @Test
+    fun `newer remote preferred mode wins while older remote state preserves local intent`() {
+        val local = UserPreferenceEntity(themeId = 100L, preferredMode = "FULL_SIZE", updatedAt = 200L)
+        val older = UserPreferenceEntity(themeId = 100L, preferredMode = "TV_SIZE", updatedAt = 100L)
+        val newer = UserPreferenceEntity(themeId = 100L, preferredMode = "TV_SIZE", updatedAt = 300L)
+
+        val olderPlan = planThemePrefApply(listOf(older), emptyList(), mapOf(100L to local))
+        val newerPlan = planThemePrefApply(listOf(newer), emptyList(), mapOf(100L to local))
+
+        assertEquals(emptyList<UserPreferenceEntity>(), olderPlan.preferences)
+        assertEquals("TV_SIZE", newerPlan.preferences.single().preferredMode)
+    }
+
+    @Test
     fun `play counts apply even when an older preference row is skipped`() {
         val plan = planThemePrefApply(
             preferences = listOf(

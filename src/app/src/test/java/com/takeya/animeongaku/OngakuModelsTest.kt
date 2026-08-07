@@ -9,6 +9,8 @@ import com.takeya.animeongaku.data.remote.OngakuLoginRequest
 import com.takeya.animeongaku.data.remote.OngakuLoginResponse
 import com.takeya.animeongaku.data.remote.OngakuChangesResponse
 import com.takeya.animeongaku.data.remote.OngakuSyncStatusResponse
+import com.takeya.animeongaku.data.remote.OngakuThemePrefDto
+import com.takeya.animeongaku.data.remote.OngakuThemePrefPatch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -19,6 +21,19 @@ class OngakuModelsTest {
     private val moshi = Moshi.Builder()
         .add(KotlinJsonAdapterFactory())
         .build()
+
+    @Test
+    fun `theme preference DTO and patch preserve preferred mode`() {
+        val dto = moshi.adapter(OngakuThemePrefDto::class.java).fromJson(
+            """{"themeId":1,"liked":false,"disliked":false,"preferredMode":"FULL_SIZE","playCount":0,"lastPlayedAt":null}"""
+        )!!
+        val patchJson = moshi.adapter(OngakuThemePrefPatch::class.java).toJson(
+            OngakuThemePrefPatch(preferredMode = "TV_SIZE")
+        )
+
+        assertEquals("FULL_SIZE", dto.preferredMode)
+        assertTrue(patchJson.contains("\"preferredMode\":\"TV_SIZE\""))
+    }
 
     @Test
     fun `parses server login response`() {

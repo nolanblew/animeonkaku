@@ -27,6 +27,34 @@ class AppDatabaseMigrationTest {
 
     @Test
     @Throws(IOException::class)
+    fun migrate25To26AddsNullablePreferredModeAndPreservesPreference() {
+        helper.createDatabase(DB_NAME, 25).apply {
+            execSQL(
+                """INSERT INTO user_preferences
+                    (themeId, isLiked, isDisliked, isDislikedTvSize, isDislikedFullSize, updatedAt, deletedAt)
+                    VALUES (100, 1, 0, 0, 0, 1234, NULL)"""
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(
+            DB_NAME,
+            26,
+            true,
+            AppDatabase.MIGRATION_25_26
+        )
+
+        db.query("SELECT isLiked, preferredMode, updatedAt FROM user_preferences WHERE themeId = 100").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(1, cursor.getInt(0))
+            assertNull(cursor.getString(1))
+            assertEquals(1234L, cursor.getLong(2))
+        }
+        db.close()
+    }
+
+    @Test
+    @Throws(IOException::class)
     fun migrate22To23PreservesLegacyStateAndCreatesExactMediaKeys() {
         helper.createDatabase(DB_NAME, 22).apply {
             execSQL(

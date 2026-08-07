@@ -99,6 +99,25 @@ describe.skipIf(!adminDatabaseUrl)("mode-aware user state (PostgreSQL)", () => {
     });
   });
 
+  it("syncs preferred theme mode with LWW semantics and reactions do not clear it", async () => {
+    await withDatabase(async (pool) => {
+      await seed(pool);
+      const service = new DrizzleClientApiService(drizzle(pool), queue, undefined, undefined, true);
+
+      expect(await service.updateThemePref("user-1", 10, { preferredMode: "FULL_SIZE", opTs: 2_000 } as any))
+        .toMatchObject({ preferredMode: "FULL_SIZE" });
+      expect(await service.updateThemePref("user-1", 10, { liked: true, opTs: 3_000 }))
+        .toMatchObject({ liked: true, preferredMode: "FULL_SIZE" });
+      expect(await service.updateThemePref("user-1", 10, { disliked: true, opTs: 4_000 }))
+        .toMatchObject({ disliked: true, preferredMode: "FULL_SIZE" });
+      expect(await service.updateThemePref("user-1", 10, { preferredMode: "TV_SIZE", opTs: 1_000 } as any))
+        .toMatchObject({ preferredMode: "FULL_SIZE" });
+      expect(await service.updateThemePref("user-1", 10, { preferredMode: null, opTs: 5_000 } as any))
+        .toMatchObject({ preferredMode: null });
+      expect((await service.getChanges("user-1", null)).prefs[0]).toMatchObject({ preferredMode: null });
+    });
+  });
+
   it("resolves concurrent preference writes with the newest operation timestamp", async () => {
     await withDatabase(async (pool) => {
       await seed(pool);

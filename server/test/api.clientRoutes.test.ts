@@ -25,7 +25,7 @@ class FakeClientApi implements ClientApiService {
   ensureThemeCalls: Array<{ userId: string; themeIds: number[] }> = [];
   autoRefreshes: string[] = [];
   events: string[] = [];
-  prefs = new Map<number, { liked: boolean; disliked: boolean; dislikedTvSize: boolean; dislikedFullSize: boolean; playCount: number; lastPlayedAt: number | null }>();
+  prefs = new Map<number, { liked: boolean; disliked: boolean; dislikedTvSize: boolean; dislikedFullSize: boolean; preferredMode: "TV_SIZE" | "FULL_SIZE" | null; playCount: number; lastPlayedAt: number | null }>();
   songPrefs = new Map<number, { liked: boolean; disliked: boolean; playCount: number; lastPlayedAt: number | null }>();
   recordedPlays: PlayInput[] = [];
   playlists = new Map<number, {
@@ -78,7 +78,7 @@ class FakeClientApi implements ClientApiService {
     return { releases: [], tracks };
   }
 
-  private prefDto(themeId: number, pref: { liked: boolean; disliked: boolean; dislikedTvSize: boolean; dislikedFullSize: boolean; playCount: number; lastPlayedAt: number | null }) {
+  private prefDto(themeId: number, pref: { liked: boolean; disliked: boolean; dislikedTvSize: boolean; dislikedFullSize: boolean; preferredMode: "TV_SIZE" | "FULL_SIZE" | null; playCount: number; lastPlayedAt: number | null }) {
     return { themeId, ...pref, updatedAt: 1, deleted: false };
   }
 
@@ -199,6 +199,7 @@ class FakeClientApi implements ClientApiService {
       disliked: false,
       dislikedTvSize: false,
       dislikedFullSize: false,
+      preferredMode: null,
       playCount: 0,
       lastPlayedAt: null,
     };
@@ -475,7 +476,7 @@ describe("client API routes", () => {
 
     expect(prefs.statusCode).toBe(200);
     expect(prefs.json()).toEqual([
-      { themeId: 100, liked: true, disliked: false, dislikedTvSize: false, dislikedFullSize: false, playCount: 3, lastPlayedAt: 20, updatedAt: 1, deleted: false },
+      { themeId: 100, liked: true, disliked: false, dislikedTvSize: false, dislikedFullSize: false, preferredMode: null, playCount: 3, lastPlayedAt: 20, updatedAt: 1, deleted: false },
     ]);
   });
 
@@ -511,6 +512,34 @@ describe("client API routes", () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(changes.json()).toMatchObject({ songPrefs: [{ songId: 300, liked: true }] });
+  });
+
+  it("round-trips nullable preferred theme mode and rejects unsupported values", async () => {
+    const token = await bearer();
+    const preferred = await app.inject({
+      method: "PUT",
+      url: "/v1/prefs/themes/100",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { preferredMode: "FULL_SIZE", opTs: 1000 },
+    });
+    const invalid = await app.inject({
+      method: "PUT",
+      url: "/v1/prefs/themes/100",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { preferredMode: "VIDEO", opTs: 2000 },
+    });
+    const inherited = await app.inject({
+      method: "PUT",
+      url: "/v1/prefs/themes/100",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { preferredMode: null, opTs: 3000 },
+    });
+
+    expect(preferred.statusCode).toBe(200);
+    expect(preferred.json()).toMatchObject({ preferredMode: "FULL_SIZE" });
+    expect(invalid.statusCode).toBe(400);
+    expect(inherited.statusCode).toBe(200);
+    expect(inherited.json()).toMatchObject({ preferredMode: null });
   });
 
   it("accepts actual-mode events with stable UUIDs while preserving legacy plays", async () => {

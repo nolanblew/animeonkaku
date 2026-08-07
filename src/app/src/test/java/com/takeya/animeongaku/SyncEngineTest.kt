@@ -7,6 +7,7 @@ import com.takeya.animeongaku.data.auth.ServerTokenStore
 import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.local.PendingOpEntity
 import com.takeya.animeongaku.data.local.DynamicPlaylistSpecEntity
+import com.takeya.animeongaku.data.local.UserPreferenceEntity
 import com.takeya.animeongaku.data.remote.OngakuAnimeDetailResponse
 import com.takeya.animeongaku.data.remote.OngakuApi
 import com.takeya.animeongaku.data.remote.OngakuAudioRequestResponse
@@ -39,6 +40,21 @@ import org.junit.Test
 import retrofit2.Response
 
 class SyncEngineTest {
+    @Test
+    fun `pending preference payload preserves nullable preferred mode`() = runBlocking {
+        val store = FakeSyncEngineStore()
+        val api = SyncRecordingOngakuApi()
+        val engine = syncEngine(store, api)
+
+        engine.enqueueThemePreference(
+            UserPreferenceEntity(themeId = 100L, isLiked = true, preferredMode = "FULL_SIZE", updatedAt = 20L)
+        )
+        engine.pushPendingWrites()
+
+        assertEquals("FULL_SIZE", api.prefWrites.single().second.preferredMode)
+        assertEquals(true, api.prefWrites.single().second.liked)
+    }
+
     @Test
     fun `enqueue theme pref supersedes older queued state and push drains only after success`() = runBlocking {
         val store = FakeSyncEngineStore()
