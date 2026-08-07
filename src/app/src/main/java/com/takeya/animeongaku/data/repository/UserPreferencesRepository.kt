@@ -111,7 +111,7 @@ class UserPreferencesRepository @Inject constructor(
         val opTs = System.currentTimeMillis()
         val updated = current.copy(preferredMode = mode, updatedAt = opTs, deletedAt = null)
         preferenceDao.insertOrUpdate(updated)
-        syncEngine.enqueueThemePreference(updated, opTs)
+        syncEngine.enqueueThemePreferredMode(themeId, mode, opTs)
         pushPendingPreferenceWriteAndRefresh()
     }
 

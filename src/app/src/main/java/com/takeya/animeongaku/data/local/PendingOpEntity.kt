@@ -41,6 +41,7 @@ data class PendingOpEntity(
         const val ENTITY_PLAY = "play"
 
         const val OP_UPSERT = "upsert"
+        const val OP_SET_PREFERRED_MODE = "set_preferred_mode"
         const val OP_DELETE = "delete"
         const val OP_CREATE = "create"
         const val OP_RENAME = "rename"

@@ -1,5 +1,9 @@
 package com.takeya.animeongaku.data.remote
 
+import com.squareup.moshi.JsonAdapter
+import com.squareup.moshi.JsonReader
+import com.squareup.moshi.JsonWriter
+
 data class OngakuLoginRequest(
     val username: String,
     val password: String,
@@ -236,9 +240,70 @@ data class OngakuThemePrefPatch(
     val dislikedTvSize: Boolean? = null,
     val dislikedFullSize: Boolean? = null,
     val preferredMode: String? = null,
+    @Transient val includePreferredMode: Boolean = preferredMode != null,
     // Client op-timestamp (epoch ms) of when the user toggled; drives server last-write-wins.
     val opTs: Long? = null
 )
+
+/** Preserves the distinction between an omitted preferredMode and an explicit JSON null. */
+class OngakuThemePrefPatchJsonAdapter : JsonAdapter<OngakuThemePrefPatch>() {
+    override fun toJson(writer: JsonWriter, value: OngakuThemePrefPatch?) {
+        if (value == null) {
+            writer.nullValue()
+            return
+        }
+        writer.beginObject()
+        value.liked?.let { writer.name("liked").value(it) }
+        value.disliked?.let { writer.name("disliked").value(it) }
+        value.dislikedTvSize?.let { writer.name("dislikedTvSize").value(it) }
+        value.dislikedFullSize?.let { writer.name("dislikedFullSize").value(it) }
+        if (value.includePreferredMode) {
+            writer.name("preferredMode")
+            val previousSerializeNulls = writer.serializeNulls
+            writer.serializeNulls = true
+            writer.value(value.preferredMode)
+            writer.serializeNulls = previousSerializeNulls
+        }
+        value.opTs?.let { writer.name("opTs").value(it) }
+        writer.endObject()
+    }
+
+    override fun fromJson(reader: JsonReader): OngakuThemePrefPatch? {
+        if (reader.peek() == JsonReader.Token.NULL) return reader.nextNull()
+        var liked: Boolean? = null
+        var disliked: Boolean? = null
+        var dislikedTvSize: Boolean? = null
+        var dislikedFullSize: Boolean? = null
+        var preferredMode: String? = null
+        var includePreferredMode = false
+        var opTs: Long? = null
+        reader.beginObject()
+        while (reader.hasNext()) {
+            when (reader.nextName()) {
+                "liked" -> liked = reader.nextBoolean()
+                "disliked" -> disliked = reader.nextBoolean()
+                "dislikedTvSize" -> dislikedTvSize = reader.nextBoolean()
+                "dislikedFullSize" -> dislikedFullSize = reader.nextBoolean()
+                "preferredMode" -> {
+                    includePreferredMode = true
+                    preferredMode = if (reader.peek() == JsonReader.Token.NULL) reader.nextNull() else reader.nextString()
+                }
+                "opTs" -> opTs = reader.nextLong()
+                else -> reader.skipValue()
+            }
+        }
+        reader.endObject()
+        return OngakuThemePrefPatch(
+            liked = liked,
+            disliked = disliked,
+            dislikedTvSize = dislikedTvSize,
+            dislikedFullSize = dislikedFullSize,
+            preferredMode = preferredMode,
+            includePreferredMode = includePreferredMode,
+            opTs = opTs
+        )
+    }
+}
 
 data class OngakuPlayEvent(
     val themeId: Long,
