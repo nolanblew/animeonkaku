@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -100,13 +101,6 @@ fun PlayerModeChip(
     Box(modifier = modifier) {
         Row(
             modifier = Modifier
-                .minimumInteractiveComponentSize()
-                .clip(RoundedCornerShape(50))
-                .clickable(
-                    role = Role.Button,
-                    onClickLabel = "Change playback mode"
-                ) { menuOpen = true }
-                .padding(horizontal = 2.dp, vertical = 2.dp)
                 .semantics {
                     contentDescription = "Playback mode: $label"
                     // The retained-intent explanation no longer has a line of
@@ -115,7 +109,15 @@ fun PlayerModeChip(
                         stateDescription = retained
                         liveRegion = LiveRegionMode.Polite
                     }
-                },
+                }
+                .minimumInteractiveComponentSize()
+                .heightIn(min = 48.dp)
+                .clip(RoundedCornerShape(50))
+                .clickable(
+                    role = Role.Button,
+                    onClickLabel = "Change playback mode"
+                ) { menuOpen = true }
+                .padding(horizontal = 2.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(

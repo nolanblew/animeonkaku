@@ -6,6 +6,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -18,7 +19,6 @@ import com.takeya.animeongaku.ui.player.LandscapeVideoOverlay
 import com.takeya.animeongaku.ui.player.PlayerModeChip
 import com.takeya.animeongaku.ui.player.PlayerModeUiState
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -63,9 +63,8 @@ class PlayerModeControlsTest {
             )
         composeRule.onNodeWithContentDescription("Video playback mode").assertDoesNotExist()
 
-        // The visual footprint shrank but the touch target must not.
-        val bounds = chip.fetchSemanticsNode().boundsInRoot
-        assertTrue(bounds.height >= with(composeRule.density) { 48.dp.toPx() })
+        // The compact chip still exposes an accessible interactive boundary.
+        chip.assertHeightIsAtLeast(48.dp)
 
         chip.performClick()
 
