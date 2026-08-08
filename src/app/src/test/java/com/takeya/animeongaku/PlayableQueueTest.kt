@@ -63,6 +63,21 @@ class PlayableQueueTest {
     }
 
     @Test
+    fun `mixed list started from a song retains earlier items as previous`() {
+        val firstTheme = PlayableItem.Theme(theme(1))
+        val currentSong = relatedSong(10)
+        val lastTheme = PlayableItem.Theme(theme(2))
+
+        manager.playItems("Mixed", listOf(firstTheme, currentSong, lastTheme), startIndex = 1)
+
+        val state = manager.state.value
+        assertEquals(listOf(firstTheme.key, currentSong.key, lastTheme.key), state.nowPlayingItems.map { it.key })
+        assertEquals(1, state.currentIndex)
+        assertEquals(listOf(firstTheme.key), state.historyEntries.map { it.item.key })
+        assertEquals(currentSong.key, state.currentItem?.key)
+    }
+
+    @Test
     fun `mixed multi inserts preserve order through shuffle and unshuffle`() {
         val theme1 = PlayableItem.Theme(theme(1))
         val theme2 = PlayableItem.Theme(theme(2))
