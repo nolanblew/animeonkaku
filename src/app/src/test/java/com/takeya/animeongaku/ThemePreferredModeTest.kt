@@ -82,6 +82,37 @@ class ThemePreferredModeTest {
     }
 
     @Test
+    fun `scoped dislike resolves playback to the other available audio mode`() {
+        val entry = themeEntry(queueId = 73)
+
+        val fullDisliked = resolver.resolve(
+            entry = entry,
+            intent = PlaybackIntent(),
+            isOnline = true,
+            localMedia = emptyMap(),
+            themePreference = UserPreferenceEntity(
+                themeId = 1,
+                preferredMode = "FULL_SIZE",
+                isDislikedFullSize = true
+            )
+        )
+        val tvDisliked = resolver.resolve(
+            entry = entry,
+            intent = PlaybackIntent(),
+            isOnline = true,
+            localMedia = emptyMap(),
+            themePreference = UserPreferenceEntity(themeId = 1, isDislikedTvSize = true)
+        )
+
+        assertEquals(PlaybackMode.TV_SIZE, fullDisliked.preferredMode)
+        assertEquals(PlaybackMode.TV_SIZE, fullDisliked.actualMode)
+        assertTrue(PlaybackMode.FULL_SIZE !in fullDisliked.availableModes)
+        assertEquals(PlaybackMode.FULL_SIZE, tvDisliked.preferredMode)
+        assertEquals(PlaybackMode.FULL_SIZE, tvDisliked.actualMode)
+        assertTrue(PlaybackMode.TV_SIZE !in tvDisliked.availableModes)
+    }
+
+    @Test
     fun `action presentation exposes only the alternative when Full metadata is known`() {
         assertEquals("Prefer Full Size", themeModePreferenceAction(true, null)?.label)
         assertEquals("Prefer Full Size", themeModePreferenceAction(true, "TV_SIZE")?.label)

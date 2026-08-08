@@ -15,11 +15,83 @@ import com.takeya.animeongaku.download.isDownloadStillEligible
 import com.takeya.animeongaku.download.canonicalDownloadItemDirectory
 import com.takeya.animeongaku.download.deleteUncommittedTransfer
 import com.takeya.animeongaku.data.local.DownloadItemEntity
+import com.takeya.animeongaku.data.local.UserPreferenceEntity
+import com.takeya.animeongaku.download.resolveThemeDownloadMedia
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class DownloadMediaResolutionTest {
+    @Test
+    fun `preferred Full Size is the single theme download`() {
+        val descriptor = ThemeModeEntity(
+            themeId = 10,
+            tvSizeUrl = "/tv/10",
+            fullSizeSongId = 90,
+            fullSizeUrl = "/songs/90"
+        )
+
+        assertEquals(
+            DownloadMediaSpec.song(90, "/songs/90"),
+            resolveThemeDownloadMedia(
+                themeId = 10,
+                fallbackTvUrl = "/legacy/tv/10",
+                descriptor = descriptor,
+                canonicalSongUrl = "/songs/90",
+                preference = UserPreferenceEntity(10, preferredMode = "FULL_SIZE")
+            )
+        )
+    }
+
+    @Test
+    fun `scoped dislike replaces the preferred download with the other available version`() {
+        val descriptor = ThemeModeEntity(
+            themeId = 10,
+            tvSizeUrl = "/tv/10",
+            fullSizeSongId = 90,
+            fullSizeUrl = "/songs/90"
+        )
+
+        assertEquals(
+            DownloadMediaSpec.themeTv(10, "/tv/10"),
+            resolveThemeDownloadMedia(
+                themeId = 10,
+                fallbackTvUrl = "/legacy/tv/10",
+                descriptor = descriptor,
+                canonicalSongUrl = "/songs/90",
+                preference = UserPreferenceEntity(
+                    10,
+                    preferredMode = "FULL_SIZE",
+                    isDislikedFullSize = true
+                )
+            )
+        )
+        assertEquals(
+            DownloadMediaSpec.song(90, "/songs/90"),
+            resolveThemeDownloadMedia(
+                themeId = 10,
+                fallbackTvUrl = "/legacy/tv/10",
+                descriptor = descriptor,
+                canonicalSongUrl = "/songs/90",
+                preference = UserPreferenceEntity(10, isDislikedTvSize = true)
+            )
+        )
+    }
+
+    @Test
+    fun `unavailable preferred download falls back without changing the preference`() {
+        assertEquals(
+            DownloadMediaSpec.themeTv(10, "/tv/10"),
+            resolveThemeDownloadMedia(
+                themeId = 10,
+                fallbackTvUrl = "/tv/10",
+                descriptor = ThemeModeEntity(10, "/tv/10"),
+                canonicalSongUrl = null,
+                preference = UserPreferenceEntity(10, preferredMode = "FULL_SIZE")
+            )
+        )
+    }
+
     @Test
     fun `worker song source falls back to Full mapping when canonical row is absent`() {
         assertEquals(
@@ -84,6 +156,23 @@ class DownloadMediaResolutionTest {
                 DownloadMediaSpec.themeTv(11, "/tv/11")
             ),
             resolvePlaylistDownloadMedia(entries, "FULL_SIZE", modes, mapOf(90L to "/songs/90"))
+        )
+    }
+
+    @Test
+    fun `theme preference outranks playlist policy for downloads`() {
+        val entry = PlaylistEntryEntity(7, 10, 0, 100, "THEME", 10, null)
+        val mode = ThemeModeEntity(10, "/tv/10", fullSizeSongId = 90, fullSizeUrl = "/songs/90")
+
+        assertEquals(
+            listOf(DownloadMediaSpec.song(90, "/songs/90")),
+            resolvePlaylistDownloadMedia(
+                entries = listOf(entry),
+                playlistDefaultMode = "TV_SIZE",
+                themeModes = mapOf(10L to mode),
+                songUrls = mapOf(90L to "/songs/90"),
+                themePreferences = mapOf(10L to UserPreferenceEntity(10, preferredMode = "FULL_SIZE"))
+            )
         )
     }
 
