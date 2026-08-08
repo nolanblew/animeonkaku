@@ -36,23 +36,26 @@ class AppUpdateNotifierDeviceTest {
     @Test
     fun availableRelease_postsActionableUpdateNotification() {
         val version = "99.0.${System.nanoTime()}"
-        notifier.notifyIfNew(
+        assertTrue(notifier.notifyIfNew(
             AvailableAppUpdate(
                 versionName = version,
                 versionTag = "v$version",
                 downloadUrl = "https://github.com/nolanblew/animeonkaku/releases/download/v$version/anime-ongaku-v$version.apk",
                 releasePageUrl = "https://github.com/nolanblew/animeonkaku/releases/tag/v$version"
             )
-        )
+        ))
 
-        val notifications = context.getSystemService(NotificationManager::class.java).activeNotifications
-        assertTrue(
-            notifications.any { notification ->
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val notificationFound = (1..20).any {
+            val found = manager.activeNotifications.any { notification ->
                 notification.notification.extras
                     .getCharSequence(Notification.EXTRA_TITLE)
                     ?.contains("update", ignoreCase = true) == true &&
                     notification.notification.actions?.any { it.title.toString() == "Download" } == true
             }
-        )
+            if (!found) android.os.SystemClock.sleep(100)
+            found
+        }
+        assertTrue(notificationFound)
     }
 }

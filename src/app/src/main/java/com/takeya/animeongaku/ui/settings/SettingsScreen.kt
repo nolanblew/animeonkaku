@@ -180,7 +180,7 @@ fun SettingsScreen(
                     SettingsRow(
                         icon = Icons.Rounded.Download,
                         title = "Download ${availableUpdate.versionName}",
-                        subtitle = "Open the latest APK release",
+                        subtitle = "Download the signed GitHub release APK",
                         onClick = onDownloadUpdate
                     )
                 }

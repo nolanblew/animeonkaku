@@ -58,7 +58,8 @@ sealed interface UpdateCheckResult {
 class AppUpdateManager @Inject constructor(
     @ApplicationContext context: Context,
     private val okHttpClient: OkHttpClient,
-    moshi: Moshi
+    moshi: Moshi,
+    private val appUpdateNotifier: AppUpdateNotifier
 ) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences(UPDATE_PREFS_NAME, Context.MODE_PRIVATE)
@@ -75,6 +76,7 @@ class AppUpdateManager @Inject constructor(
 
     suspend fun refreshIfNeeded() {
         if (!BuildConfig.UPDATER_ENABLED) return
+        _state.value.availableUpdate?.let(appUpdateNotifier::notifyIfNew)
         val now = System.currentTimeMillis()
         if (now - _state.value.lastCheckedAt < UPDATE_CHECK_INTERVAL_MS) return
         runCheck()
@@ -100,9 +102,11 @@ class AppUpdateManager @Inject constructor(
                     availableUpdate = latestRelease,
                     lastCheckedAt = checkedAt
                 )
+                appUpdateNotifier.notifyIfNew(latestRelease)
                 UpdateCheckResult.UpdateAvailable(latestRelease)
             } else {
                 clearAvailableUpdate(checkedAt)
+                appUpdateNotifier.cancelAvailableUpdate()
                 _state.value = AppUpdateState(
                     enabled = true,
                     isChecking = false,
@@ -204,8 +208,10 @@ internal fun GitHubReleaseDto.toAvailableAppUpdate(): AvailableAppUpdate? {
     val versionName = extractVersionToken(versionSource) ?: return null
     val versionTag = tagName?.takeIf { it.isNotBlank() } ?: versionName
     val releasePageUrl = htmlUrl?.takeIf { it.isNotBlank() } ?: GITHUB_RELEASES_PAGE_URL
-    val downloadUrl = selectPreferredApkAsset(assets)?.browserDownloadUrl?.takeIf { it.isNotBlank() }
-        ?: releasePageUrl
+    val downloadUrl = selectPreferredApkAsset(assets)
+        ?.browserDownloadUrl
+        ?.takeIf(::isTrustedReleaseApkUrl)
+        ?: return null
 
     return AvailableAppUpdate(
         versionName = versionName,

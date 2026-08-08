@@ -78,7 +78,7 @@ android {
         versionCode = 2
         versionName = "1.2.1"
         
-        buildConfigField("String", "DISPLAY_VERSION", "\"1.0.3\"")
+        buildConfigField("String", "DISPLAY_VERSION", "\"1.2.1\"")
         buildConfigField("boolean", "UPDATER_ENABLED", "false")
         buildConfigField("String", "ONGAKU_SERVER_BASE_URL", ongakuServerBaseUrl.toBuildConfigStringLiteral())
 
