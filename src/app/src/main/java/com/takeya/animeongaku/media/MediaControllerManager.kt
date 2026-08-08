@@ -73,6 +73,7 @@ class MediaControllerManager @Inject constructor(
     private val serverSettingsStore: ServerSettingsStore,
     private val imageLoader: ImageLoader,
     private val playbackResolutionCoordinator: PlaybackResolutionCoordinator,
+    private val playbackPreferences: PlaybackPreferences,
     private val database: AppDatabase
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -259,7 +260,8 @@ class MediaControllerManager @Inject constructor(
                 index,
                 fallback.toPlaybackMediaItem(
                     artworkData = artwork,
-                    activeServerBaseUrl = serverSettingsStore.serverBaseUrl
+                    activeServerBaseUrl = serverSettingsStore.serverBaseUrl,
+                    bluetoothMetadataStyle = playbackPreferences.bluetoothMetadataStyle
                 )
             )
             ctrl.seekTo(index, 0L)
@@ -269,7 +271,10 @@ class MediaControllerManager @Inject constructor(
             resolvedItemsByQueueId = resolvedItemsByQueueId + (queueId to fallback)
             lastSyncedDescriptors = lastSyncedDescriptors.map { descriptor ->
                 if (descriptor.mediaId == queueId.toString()) {
-                    fallback.toPlaybackMediaDescriptor(serverSettingsStore.serverBaseUrl)
+                    fallback.toPlaybackMediaDescriptor(
+                        serverSettingsStore.serverBaseUrl,
+                        playbackPreferences.bluetoothMetadataStyle
+                    )
                 } else descriptor
             }
             _playbackState.value = _playbackState.value.copy(
@@ -461,6 +466,15 @@ class MediaControllerManager @Inject constructor(
                                     forceSyncQueue(ctrl, npState)
                                 }
                             }
+                    }
+                    launch {
+                        playbackPreferences.bluetoothMetadataStyleFlow.collectLatest {
+                            val ctrl = controller ?: return@collectLatest
+                            val npState = nowPlayingManager.state.value
+                            if (npState.nowPlayingEntries.isNotEmpty()) {
+                                forceSyncQueue(ctrl, npState)
+                            }
+                        }
                     }
                     nowPlayingManager.state
                         .distinctUntilChangedBy { it.queueVersion }
@@ -846,8 +860,9 @@ class MediaControllerManager @Inject constructor(
                 actualMode = resolved.actualMode
             )
         }
+        val bluetoothMetadataStyle = playbackPreferences.bluetoothMetadataStyle
         val descriptors = resolved.map { item ->
-            item.toPlaybackMediaDescriptor(serverSettingsStore.serverBaseUrl)
+            item.toPlaybackMediaDescriptor(serverSettingsStore.serverBaseUrl, bluetoothMetadataStyle)
         }
         val items = resolved.map { item ->
             val entry = entriesByQueueId[item.queueId]
@@ -855,7 +870,8 @@ class MediaControllerManager @Inject constructor(
                 ?: entry?.themeOrNull?.animeId?.let(npState.animeMap::get)
             item.toPlaybackMediaItem(
                 artworkData = anime?.let(::cachedArtworkDataForAnime),
-                activeServerBaseUrl = serverSettingsStore.serverBaseUrl
+                activeServerBaseUrl = serverSettingsStore.serverBaseUrl,
+                bluetoothMetadataStyle = bluetoothMetadataStyle
             )
         }
         val currentIndex = desiredCurrentIndexAfterFiltering(

@@ -22,16 +22,23 @@ import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.takeya.animeongaku.BuildConfig
+import com.takeya.animeongaku.media.BluetoothMetadataStyle
 import com.takeya.animeongaku.ui.player.MiniPlayerHeight
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
@@ -68,6 +76,8 @@ fun SettingsScreen(
 ) {
     val wifiOnly by viewModel.wifiOnly.collectAsStateWithLifecycle()
     val showOstsOnHome by viewModel.showOstsOnHome.collectAsStateWithLifecycle()
+    val bluetoothMetadataStyle by viewModel.bluetoothMetadataStyle.collectAsStateWithLifecycle()
+    var showBluetoothMetadataDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -121,6 +131,16 @@ fun SettingsScreen(
                 subtitle = "Include soundtrack songs in Quick picks.",
                 checked = showOstsOnHome,
                 onCheckedChange = viewModel::setShowOstsOnHome
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            SectionHeader("Playback")
+            SettingsRow(
+                icon = Icons.Rounded.Headphones,
+                title = "Bluetooth display",
+                subtitle = bluetoothMetadataStyle.displayName,
+                onClick = { showBluetoothMetadataDialog = true }
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -195,6 +215,60 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(MiniPlayerHeight + 32.dp))
         }
     }
+
+    if (showBluetoothMetadataDialog) {
+        BluetoothMetadataStyleDialog(
+            selectedStyle = bluetoothMetadataStyle,
+            onStyleSelected = { style ->
+                viewModel.setBluetoothMetadataStyle(style)
+                showBluetoothMetadataDialog = false
+            },
+            onDismiss = { showBluetoothMetadataDialog = false }
+        )
+    }
+}
+
+@Composable
+internal fun BluetoothMetadataStyleDialog(
+    selectedStyle: BluetoothMetadataStyle,
+    onStyleSelected: (BluetoothMetadataStyle) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Bluetooth display") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                BluetoothMetadataStyle.entries.forEach { style ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onStyleSelected(style) }
+                            .padding(vertical = 10.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = style == selectedStyle,
+                            onClick = null
+                        )
+                        Column(modifier = Modifier.padding(start = 8.dp)) {
+                            Text(style.displayName, fontWeight = FontWeight.SemiBold)
+                            Text(style.description, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @Composable

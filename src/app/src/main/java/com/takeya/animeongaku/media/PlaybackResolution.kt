@@ -68,6 +68,7 @@ data class ResolvedPlaybackItem(
     val artworkUrl: String?,
     val albumTitle: String? = null,
     val animeTitle: String? = null,
+    val themeLabel: String? = null,
     val videoSpoiler: Boolean = false,
     val videoNsfw: Boolean = false,
     val loudness: LoudnessProfile? = null
@@ -233,6 +234,7 @@ class PlaybackResolver @Inject constructor() {
             artworkUrl = item.display.artworkUrl,
             albumTitle = item.display.album,
             animeTitle = item.display.animeTitle,
+            themeLabel = item.theme.themeType.toThemeDisplayLabel(),
             videoSpoiler = descriptor?.videoSpoiler == true,
             videoNsfw = descriptor?.videoNsfw == true,
             loudness = loudness

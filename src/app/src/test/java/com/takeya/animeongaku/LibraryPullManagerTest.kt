@@ -479,6 +479,7 @@ class LibraryPullManagerTest {
             serverBaseUrl = "http://192.168.1.5:8080/api"
             serverPullCursor = 123L
             serverLastPullAt = 10_000L
+            libraryProjectionVersion = LibraryPullManager.CURRENT_LIBRARY_PROJECTION_VERSION
         }
         val api = FakeOngakuApi(libraryResponse(), emptyList(), emptyList())
         val cache = FakeLibraryPullCache(emptyMap())
