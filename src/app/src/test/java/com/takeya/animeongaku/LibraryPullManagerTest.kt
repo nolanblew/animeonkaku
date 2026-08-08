@@ -75,6 +75,39 @@ import retrofit2.Response
 
 class LibraryPullManagerTest {
     @Test
+    fun `stale client projection forces one full pull to hydrate mode metadata`() = runBlocking {
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+            serverPullCursor = 123L
+            serverLastPullAt = 10_000L
+        }
+        val cache = FakeLibraryPullCache(emptyMap())
+        val api = FakeOngakuApi(
+            libraryResponse = libraryResponse(),
+            prefsResponse = emptyList(),
+            autoPlaylistResponse = emptyList()
+        )
+        val manager = LibraryPullManager(
+            api,
+            settings,
+            cache,
+            FakeLibraryPullSideEffects(),
+            testMoshi(),
+            activeSessionStateManager()
+        )
+
+        val result = manager.pullIfStale(minIntervalMs = Long.MAX_VALUE, now = 10_001L)
+
+        assertTrue(result.applied)
+        assertNull(api.requestedChangesSince)
+        assertTrue(cache.themeModes.isNotEmpty())
+        assertEquals(
+            LibraryPullManager.CURRENT_LIBRARY_PROJECTION_VERSION,
+            settings.libraryProjectionVersion
+        )
+    }
+
+    @Test
     fun `concurrent pull requests do not overlap their server reads`() = runTest {
         val releaseFirstRead = CompletableDeferred<Unit>()
         val activeReads = AtomicInteger(0)

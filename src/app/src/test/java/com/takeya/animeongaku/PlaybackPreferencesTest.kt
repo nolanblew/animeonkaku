@@ -2,6 +2,7 @@ package com.takeya.animeongaku
 
 import com.takeya.animeongaku.media.PlaybackMode
 import com.takeya.animeongaku.media.PlaybackPreferences
+import com.takeya.animeongaku.media.BluetoothMetadataStyle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -13,6 +14,18 @@ class PlaybackPreferencesTest {
         val preferences = PlaybackPreferences(FakeSharedPreferences())
         assertEquals(PlaybackMode.TV_SIZE, preferences.rememberedAudioMode)
         assertTrue(preferences.showOstsOnHome)
+        assertEquals(BluetoothMetadataStyle.ANIME_THEME, preferences.bluetoothMetadataStyle)
+    }
+
+    @Test
+    fun `Bluetooth metadata style survives a new preference instance`() {
+        val storage = FakeSharedPreferences()
+        PlaybackPreferences(storage).bluetoothMetadataStyle = BluetoothMetadataStyle.COMBINED
+
+        val restarted = PlaybackPreferences(storage)
+
+        assertEquals(BluetoothMetadataStyle.COMBINED, restarted.bluetoothMetadataStyle)
+        assertEquals(BluetoothMetadataStyle.COMBINED, restarted.bluetoothMetadataStyleFlow.value)
     }
 
     @Test

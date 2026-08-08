@@ -209,6 +209,23 @@ class PlaybackResolverTest {
     }
 
     @Test
+    fun `downloaded playlist entry still offers remote modes while online`() {
+        val tvKey = MediaKey.themeTv(1)
+        val result = resolver.resolve(
+            themeEntry(modes(tv = true, full = true, video = true)),
+            PlaybackIntent(PlaybackMode.TV_SIZE),
+            isOnline = true,
+            localMedia = mapOf(tvKey to LocalMediaFile(tvKey, "/downloads/tv.webm"))
+        )
+
+        assertEquals(PlaybackSource.LOCAL, result.source)
+        assertEquals(
+            setOf(PlaybackMode.TV_SIZE, PlaybackMode.FULL_SIZE, PlaybackMode.VIDEO),
+            result.availableModes
+        )
+    }
+
+    @Test
     fun `related song always uses related audio and exact song key`() {
         val song = SongEntity(88, "OST", "Composer", audioUrl = "https://server/song/88")
         val entry = QueueEntry(9, PlayableItem.RelatedSong(song))
