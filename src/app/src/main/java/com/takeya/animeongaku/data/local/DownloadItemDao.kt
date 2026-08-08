@@ -32,6 +32,16 @@ interface DownloadItemDao {
     @Query("SELECT * FROM download_items WHERE mediaKey = :mediaKey LIMIT 1")
     fun observe(mediaKey: String): Flow<DownloadItemEntity?>
 
+    @Query("""
+        SELECT DISTINCT di.*
+        FROM download_items di
+        LEFT JOIN theme_modes tm ON tm.themeId = :themeId
+        WHERE (di.itemType = 'THEME' AND di.itemId = :themeId AND di.mode = 'TV_SIZE')
+           OR (di.itemType = 'SONG' AND di.itemId = tm.fullSizeSongId AND di.mode = 'AUDIO')
+        ORDER BY CASE WHEN di.status = 'completed' THEN 0 ELSE 1 END, di.createdAt
+    """)
+    fun observeForTheme(themeId: Long): Flow<List<DownloadItemEntity>>
+
     @Query("SELECT * FROM download_items WHERE mediaKey IN (:mediaKeys)")
     suspend fun getByMediaKeys(mediaKeys: List<String>): List<DownloadItemEntity>
 
@@ -105,15 +115,56 @@ interface DownloadItemDao {
     @Query("SELECT di.*, dgi.groupId AS groupId, dg.groupType AS groupType, dg.groupId AS externalGroupId, dg.label AS groupLabel, COALESCE((SELECT title FROM songs WHERE id = di.itemId AND di.itemType = 'SONG'), (SELECT title FROM themes WHERE id = di.itemId AND di.itemType = 'THEME'), 'Audio') AS displayTitle FROM download_items di JOIN download_group_items dgi ON dgi.mediaKey = di.mediaKey JOIN download_group dg ON dg.id = dgi.groupId ORDER BY dg.createdAt, di.createdAt")
     fun observeGroupedItems(): Flow<List<DownloadGroupItemRow>>
 
-    @Query("SELECT DISTINCT itemId FROM download_items WHERE itemType = 'THEME' AND mode = 'TV_SIZE' AND status = 'completed'")
+    @Query("""
+        SELECT DISTINCT t.id
+        FROM themes t
+        LEFT JOIN theme_modes tm ON tm.themeId = t.id
+        JOIN download_items di ON (
+            (di.itemType = 'THEME' AND di.itemId = t.id AND di.mode = 'TV_SIZE')
+            OR (di.itemType = 'SONG' AND di.itemId = tm.fullSizeSongId AND di.mode = 'AUDIO')
+        )
+        WHERE di.status = 'completed'
+    """)
     fun observeCompletedThemeIds(): Flow<List<Long>>
 
-    @Query("SELECT DISTINCT t.animeId FROM themes t JOIN download_items di ON di.itemType = 'THEME' AND di.itemId = t.id WHERE di.mode = 'TV_SIZE' AND di.status = 'completed' AND t.animeId IS NOT NULL")
+    @Query("""
+        SELECT DISTINCT t.animeId
+        FROM themes t
+        LEFT JOIN theme_modes tm ON tm.themeId = t.id
+        JOIN download_items di ON (
+            (di.itemType = 'THEME' AND di.itemId = t.id AND di.mode = 'TV_SIZE')
+            OR (di.itemType = 'SONG' AND di.itemId = tm.fullSizeSongId AND di.mode = 'AUDIO')
+        )
+        WHERE di.status = 'completed' AND t.animeId IS NOT NULL
+    """)
     fun observeAnimeIdsWithDownloads(): Flow<List<Long>>
 
     @Query("SELECT DISTINCT CAST(dg.groupId AS INTEGER) FROM download_group dg JOIN download_group_items dgi ON dgi.groupId = dg.id JOIN download_items di ON di.mediaKey = dgi.mediaKey WHERE dg.groupType = 'playlist' AND di.status = 'completed'")
     fun observePlaylistIdsWithDownloads(): Flow<List<Long>>
 
-    @Query("SELECT DISTINCT ta.artistName FROM theme_artist ta JOIN download_items di ON di.itemType = 'THEME' AND di.itemId = ta.themeId WHERE di.status = 'completed'")
+    @Query("""
+        SELECT DISTINCT ta.artistName
+        FROM theme_artist ta
+        LEFT JOIN theme_modes tm ON tm.themeId = ta.themeId
+        JOIN download_items di ON (
+            (di.itemType = 'THEME' AND di.itemId = ta.themeId AND di.mode = 'TV_SIZE')
+            OR (di.itemType = 'SONG' AND di.itemId = tm.fullSizeSongId AND di.mode = 'AUDIO')
+        )
+        WHERE di.status = 'completed'
+    """)
     fun observeArtistNamesWithDownloads(): Flow<List<String>>
+
+    @Query("""
+        SELECT DISTINCT pe.itemId
+        FROM playlist_entries pe
+        LEFT JOIN theme_modes tm ON tm.themeId = pe.itemId
+        JOIN download_items di ON (
+            (di.itemType = 'THEME' AND di.itemId = pe.itemId AND di.mode = 'TV_SIZE')
+            OR (di.itemType = 'SONG' AND di.itemId = tm.fullSizeSongId AND di.mode = 'AUDIO')
+        )
+        WHERE pe.playlistId = :playlistId
+          AND pe.itemType = 'THEME'
+          AND di.status = 'completed'
+    """)
+    fun observeCompletedThemeIdsForPlaylist(playlistId: Long): Flow<List<Long>>
 }

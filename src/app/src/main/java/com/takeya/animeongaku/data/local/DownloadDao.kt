@@ -154,6 +154,9 @@ interface DownloadDao {
     @Query("SELECT * FROM download_group")
     fun observeAllGroups(): Flow<List<DownloadGroupEntity>>
 
+    @Query("SELECT * FROM download_group ORDER BY id")
+    suspend fun getAllGroups(): List<DownloadGroupEntity>
+
     @Query("SELECT * FROM download_group WHERE groupType = :type AND groupId = :groupId LIMIT 1")
     suspend fun findGroup(type: String, groupId: String): DownloadGroupEntity?
 

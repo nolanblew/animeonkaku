@@ -56,6 +56,15 @@ interface ThemeDao {
     @Query("DELETE FROM themes WHERE id IN (:themeIds)")
     suspend fun deleteByIds(themeIds: List<Long>)
 
-    @Query("SELECT id FROM themes WHERE isDownloaded = 1")
+    @Query("""
+        SELECT DISTINCT t.id
+        FROM themes t
+        LEFT JOIN theme_modes tm ON tm.themeId = t.id
+        JOIN download_items di ON (
+            (di.itemType = 'THEME' AND di.itemId = t.id AND di.mode = 'TV_SIZE')
+            OR (di.itemType = 'SONG' AND di.itemId = tm.fullSizeSongId AND di.mode = 'AUDIO')
+        )
+        WHERE di.status = 'completed'
+    """)
     fun observeDownloadedThemeIds(): Flow<List<Long>>
 }

@@ -24,6 +24,8 @@ import com.takeya.animeongaku.data.local.SongEntity
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.local.ThemeModeDao
+import com.takeya.animeongaku.data.local.UserPreferenceDao
+import com.takeya.animeongaku.data.local.UserPreferenceEntity
 import com.takeya.animeongaku.network.ConnectivityMonitor
 import com.takeya.animeongaku.network.NetworkType as AppNetworkType
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -60,6 +62,18 @@ internal fun downloadInitialStatus(wifiOnly: Boolean, networkIsWifi: Boolean): S
 internal fun resumedDownloadStatus(status: String): String =
     if (status == DownloadItemEntity.STATUS_PAUSED) DownloadItemEntity.STATUS_PENDING else status
 
+private data class ThemeDownloadDirective(
+    val preferredMode: String?,
+    val tvSizeDisliked: Boolean,
+    val fullSizeDisliked: Boolean
+)
+
+private fun UserPreferenceEntity.toDownloadDirective() = ThemeDownloadDirective(
+    preferredMode = preferredMode,
+    tvSizeDisliked = isDislikedTvSize,
+    fullSizeDisliked = isDislikedFullSize
+)
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
 class DownloadManager @Inject constructor(
@@ -71,6 +85,7 @@ class DownloadManager @Inject constructor(
     private val musicCatalogDao: MusicCatalogDao,
     private val animeDao: AnimeDao,
     private val playlistDao: PlaylistDao,
+    private val userPreferenceDao: UserPreferenceDao,
     private val downloadPreferences: DownloadPreferences,
     private val connectivityMonitor: ConnectivityMonitor
 ) {
@@ -81,6 +96,7 @@ class DownloadManager @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val workManager = WorkManager.getInstance(context)
     private val groupIdentityMutex = Mutex()
+    private val groupMutationMutex = Mutex()
 
     init {
         scope.launch {
@@ -93,7 +109,22 @@ class DownloadManager @Inject constructor(
                     }) { it.toList() }
                 }
                 .collect { groups ->
-                    groups.forEach { group -> group.groupId.toLongOrNull()?.let(::downloadPlaylist) }
+                    groups.forEach { group ->
+                        group.groupId.toLongOrNull()?.let { downloadPlaylistInternal(it) }
+                    }
+                }
+        }
+        scope.launch {
+            var previous: Map<Long, ThemeDownloadDirective>? = null
+            userPreferenceDao.observeAllPreferences()
+                .map { preferences -> preferences.associate { it.themeId to it.toDownloadDirective() } }
+                .distinctUntilChanged()
+                .collect { current ->
+                    val changedThemeIds = previous?.let { before ->
+                        (before.keys + current.keys).filter { before[it] != current[it] }
+                    } ?: current.keys
+                    previous = current
+                    changedThemeIds.forEach { reconcileTrackedThemeDownload(it) }
                 }
         }
     }
@@ -101,9 +132,12 @@ class DownloadManager @Inject constructor(
     fun observeAllDownloads(): Flow<List<DownloadItemEntity>> = downloadItemDao.observeAll()
     fun observeGroupedDownloads(): Flow<List<DownloadGroupItemRow>> = downloadItemDao.observeGroupedItems()
     fun observeDownloadForTheme(themeId: Long): Flow<DownloadItemEntity?> =
-        downloadItemDao.observe(DownloadItemEntity.tvSizeMediaKey(themeId))
-    fun observeIsThemeDownloaded(themeId: Long): Flow<Boolean> = observeDownloadForTheme(themeId).map {
-        it?.status == DownloadItemEntity.STATUS_COMPLETED && it.filePath?.let(::File)?.isFile == true
+        downloadItemDao.observeForTheme(themeId).map(List<DownloadItemEntity>::firstOrNull)
+    fun observeIsThemeDownloaded(themeId: Long): Flow<Boolean> = downloadItemDao.observeForTheme(themeId).map { items ->
+        items.any { item ->
+            item.status == DownloadItemEntity.STATUS_COMPLETED &&
+                item.filePath?.let(::File)?.isFile == true
+        }
     }
     fun observeAllGroups(): Flow<List<DownloadGroupEntity>> = downloadDao.observeAllGroups()
     fun observeTotalDownloadSize(): Flow<Long> = downloadItemDao.observeTotalSize()
@@ -119,38 +153,15 @@ class DownloadManager @Inject constructor(
     fun observeDownloadedThemeIdsForAnime(animeThemesId: Long): Flow<List<Long>> =
         observeDownloadedThemes().map { themes -> themes.filter { it.animeId == animeThemesId }.map { it.id } }
     fun observeDownloadedThemeIdsForPlaylist(playlistId: Long): Flow<List<Long>> =
-        downloadItemDao.observeGroupedItems().map { rows ->
-            rows.filter { it.groupType == DownloadGroupEntity.TYPE_PLAYLIST && it.externalGroupId == playlistId.toString() }
-                .mapNotNull { it.item.legacyThemeId }.distinct()
-        }
+        downloadItemDao.observeCompletedThemeIdsForPlaylist(playlistId)
 
-    /** Existing Download buttons retain their TV Size meaning. */
+    /** Theme downloads follow the persisted per-theme preference, with TV Size as the default. */
     fun downloadSong(theme: ThemeEntity, anime: AnimeEntity? = null) {
         scope.launch {
-            val group = ensureGroup(DownloadGroupEntity.TYPE_SINGLE, theme.id.toString(), theme.title)
-            val descriptor = themeModeDao.getByThemeIds(listOf(theme.id)).firstOrNull()
-            enqueue(listOf(DownloadMediaSpec.themeTv(theme.id, theme.audioUrl, descriptor?.tvSizeLoudness)), group)
-        }
-    }
-
-    fun downloadThemeFullSize(theme: ThemeEntity, anime: AnimeEntity? = null) {
-        scope.launch {
-            val descriptor = themeModeDao.getByThemeIds(listOf(theme.id)).firstOrNull() ?: return@launch
-            val canonicalSong = descriptor.fullSizeSongId?.let { songId ->
-                musicCatalogDao.getSong(songId)
-            }
-            val media = resolveThemeFullSizeDownload(
-                descriptor,
-                canonicalSong?.audioUrl,
-                canonicalSong?.loudness
-            ) ?: return@launch
+            val media = resolvePreferredThemeDownload(theme) ?: return@launch
             val label = listOfNotNull(anime?.title, theme.title).joinToString(" · ")
-            val group = if (anime?.kitsuId != null) {
-                ensureGroup(DownloadGroupEntity.TYPE_ANIME, anime.kitsuId, anime.title ?: theme.title)
-            } else {
-                ensureGroup(DownloadGroupEntity.TYPE_SINGLE, "theme:${theme.id}:full", "$label · Full Size")
-            }
-            enqueue(listOf(media), group)
+            val group = ensureGroup(DownloadGroupEntity.TYPE_SINGLE, theme.id.toString(), label)
+            replaceAndPrepare(group, listOf(media))
         }
     }
 
@@ -173,52 +184,19 @@ class DownloadManager @Inject constructor(
     }
 
     fun downloadAnime(kitsuId: String) {
-        scope.launch {
-            val anime = animeDao.getByKitsuId(kitsuId) ?: return@launch
-            val animeThemesId = anime.animeThemesId ?: return@launch
-            val themes = themeDao.getByIds(themeDao.getThemeIdsByAnimeIds(listOf(animeThemesId)))
-            val group = ensureGroup(
-                DownloadGroupEntity.TYPE_ANIME,
-                kitsuId,
-                anime.title ?: anime.titleEn ?: "Anime"
-            )
-            val modes = themeModeDao.getByThemeIds(themes.map { it.id }).associateBy { it.themeId }
-            enqueue(themes.map { theme ->
-                DownloadMediaSpec.themeTv(theme.id, theme.audioUrl, modes[theme.id]?.tvSizeLoudness)
-            }, group)
-        }
+        scope.launch { downloadAnimeInternal(kitsuId) }
     }
 
     fun downloadPlaylist(playlistId: Long, visibleThemeIds: List<Long>? = null) {
-        scope.launch {
-            val playlist = playlistDao.getPlaylistById(playlistId) ?: return@launch
-            val entries = playlistDao.getPlaylistEntries(playlistId).let { all ->
-                if (visibleThemeIds == null) all else all.filter {
-                    it.itemType != "THEME" || it.itemId in visibleThemeIds
-                }
-            }
-            val themeIds = entries.filter { it.itemType == "THEME" }.map { it.itemId }.distinct()
-            val songIds = buildSet {
-                addAll(entries.filter { it.itemType == "SONG" }.map { it.itemId })
-                themeModeDao.getByThemeIds(themeIds).mapNotNullTo(this) { it.fullSizeSongId }
-            }
-            val modes = themeModeDao.getByThemeIds(themeIds).associateBy { it.themeId }
-            val songs = musicCatalogDao.getSongs(songIds.toList()).associateBy { it.id }
-            val specs = resolvePlaylistDownloadMedia(
-                entries,
-                playlist.defaultMode,
-                modes,
-                songs.mapValues { it.value.audioUrl },
-                songs.mapValues { it.value.loudness }
-            )
-            val group = ensureGroup(DownloadGroupEntity.TYPE_PLAYLIST, playlistId.toString(), playlist.name)
-            replaceGroupMembership(group, specs)
-            prepare(specs)
-            if (specs.isNotEmpty()) triggerBatchWorker()
-        }
+        scope.launch { downloadPlaylistInternal(playlistId, visibleThemeIds) }
     }
 
-    fun removeDownload(themeId: Long) = removeGroupByIdentity(DownloadGroupEntity.TYPE_SINGLE, themeId.toString())
+    fun removeDownload(themeId: Long) {
+        removeGroupsByIdentity(
+            DownloadGroupEntity.TYPE_SINGLE,
+            setOf(themeId.toString(), "theme:$themeId:full")
+        )
+    }
     fun removeAnimeDownload(kitsuId: String) = removeGroupByIdentity(DownloadGroupEntity.TYPE_ANIME, kitsuId)
     fun removePlaylistDownload(playlistId: Long) = removeGroupByIdentity(DownloadGroupEntity.TYPE_PLAYLIST, playlistId.toString())
     fun removeAlbumDownload(releaseId: Long) = removeGroupByIdentity(DownloadGroupEntity.TYPE_ALBUM, releaseId.toString())
@@ -289,16 +267,138 @@ class DownloadManager @Inject constructor(
     }
 
     private suspend fun enqueue(specs: List<DownloadMediaSpec>, group: DownloadGroupEntity) {
-        downloadItemDao.insertGroupItems(specs.distinctBy { it.mediaKey }.map { DownloadGroupItemEntity(group.id, it.mediaKey) })
-        prepare(specs)
+        groupMutationMutex.withLock {
+            downloadItemDao.insertGroupItems(
+                specs.distinctBy { it.mediaKey }.map { DownloadGroupItemEntity(group.id, it.mediaKey) }
+            )
+            prepare(specs)
+        }
         if (specs.isNotEmpty()) triggerBatchWorker()
     }
 
-    private suspend fun replaceGroupMembership(group: DownloadGroupEntity, specs: List<DownloadMediaSpec>) {
-        val oldKeys = downloadItemDao.getMediaKeysInGroup(group.id)
-        downloadItemDao.deleteGroupItems(group.id)
-        downloadItemDao.insertGroupItems(specs.map { DownloadGroupItemEntity(group.id, it.mediaKey) })
-        oldKeys.filter { old -> specs.none { it.mediaKey == old } }.forEach { cleanupIfOrphaned(it) }
+    private suspend fun replaceAndPrepare(group: DownloadGroupEntity, specs: List<DownloadMediaSpec>) {
+        val uniqueSpecs = specs.distinctBy(DownloadMediaSpec::mediaKey)
+        groupMutationMutex.withLock {
+            val oldKeys = downloadItemDao.getMediaKeysInGroup(group.id)
+            downloadItemDao.deleteGroupItems(group.id)
+            downloadItemDao.insertGroupItems(uniqueSpecs.map { DownloadGroupItemEntity(group.id, it.mediaKey) })
+            oldKeys.filterNot { old -> uniqueSpecs.any { it.mediaKey == old } }.forEach { cleanupIfOrphaned(it) }
+            prepare(uniqueSpecs)
+        }
+        if (uniqueSpecs.isNotEmpty()) triggerBatchWorker()
+    }
+
+    private suspend fun resolvePreferredThemeDownload(
+        theme: ThemeEntity,
+        fallbackMode: String = "TV_SIZE"
+    ): DownloadMediaSpec? {
+        val descriptor = themeModeDao.getByThemeIds(listOf(theme.id)).firstOrNull()
+        val canonicalSong = descriptor?.fullSizeSongId?.let { songId -> musicCatalogDao.getSong(songId) }
+        return resolveThemeDownloadMedia(
+            themeId = theme.id,
+            fallbackTvUrl = theme.audioUrl,
+            descriptor = descriptor,
+            canonicalSongUrl = canonicalSong?.audioUrl,
+            canonicalSongLoudness = canonicalSong?.loudness,
+            preference = userPreferenceDao.getPreference(theme.id),
+            fallbackMode = fallbackMode
+        )
+    }
+
+    private suspend fun downloadAnimeInternal(kitsuId: String) {
+        val anime = animeDao.getByKitsuId(kitsuId) ?: return
+        val animeThemesId = anime.animeThemesId ?: return
+        val themes = themeDao.getByIds(themeDao.getThemeIdsByAnimeIds(listOf(animeThemesId)))
+        val themeIds = themes.map(ThemeEntity::id)
+        val modes = themeModeDao.getByThemeIds(themeIds).associateBy { it.themeId }
+        val preferences = activePreferences(themeIds)
+        val songs = musicCatalogDao.getSongs(modes.values.mapNotNull { it.fullSizeSongId }.distinct())
+            .associateBy(SongEntity::id)
+        val specs = themes.mapNotNull { theme ->
+            val descriptor = modes[theme.id]
+            val canonicalSong = descriptor?.fullSizeSongId?.let(songs::get)
+            resolveThemeDownloadMedia(
+                themeId = theme.id,
+                fallbackTvUrl = theme.audioUrl,
+                descriptor = descriptor,
+                canonicalSongUrl = canonicalSong?.audioUrl,
+                canonicalSongLoudness = canonicalSong?.loudness,
+                preference = preferences[theme.id]
+            )
+        }
+        val group = ensureGroup(
+            DownloadGroupEntity.TYPE_ANIME,
+            kitsuId,
+            anime.title ?: anime.titleEn ?: "Anime"
+        )
+        replaceAndPrepare(group, specs)
+    }
+
+    private suspend fun downloadPlaylistInternal(playlistId: Long, visibleThemeIds: List<Long>? = null) {
+        val playlist = playlistDao.getPlaylistById(playlistId) ?: return
+        val entries = playlistDao.getPlaylistEntries(playlistId).let { all ->
+            if (visibleThemeIds == null) all else all.filter {
+                it.itemType != "THEME" || it.itemId in visibleThemeIds
+            }
+        }
+        val themeIds = entries.filter { it.itemType == "THEME" }.map { it.itemId }.distinct()
+        val modes = themeModeDao.getByThemeIds(themeIds).associateBy { it.themeId }
+        val songIds = buildSet {
+            addAll(entries.filter { it.itemType == "SONG" }.map { it.itemId })
+            modes.values.mapNotNullTo(this) { it.fullSizeSongId }
+        }
+        val songs = musicCatalogDao.getSongs(songIds.toList()).associateBy(SongEntity::id)
+        val specs = resolvePlaylistDownloadMedia(
+            entries = entries,
+            playlistDefaultMode = playlist.defaultMode,
+            themeModes = modes,
+            songUrls = songs.mapValues { it.value.audioUrl },
+            songLoudness = songs.mapValues { it.value.loudness },
+            themePreferences = activePreferences(themeIds)
+        )
+        val group = ensureGroup(DownloadGroupEntity.TYPE_PLAYLIST, playlistId.toString(), playlist.name)
+        replaceAndPrepare(group, specs)
+    }
+
+    private suspend fun activePreferences(themeIds: List<Long>): Map<Long, UserPreferenceEntity> =
+        if (themeIds.isEmpty()) {
+            emptyMap()
+        } else {
+            userPreferenceDao.getPreferencesByIdsIncludingDeleted(themeIds)
+                .filter { it.deletedAt == null }
+                .associateBy(UserPreferenceEntity::themeId)
+        }
+
+    private suspend fun reconcileTrackedThemeDownload(themeId: Long) {
+        val theme = themeDao.getByIds(listOf(themeId)).firstOrNull() ?: return
+        if (resolvePreferredThemeDownload(theme) == null) return
+
+        val groups = downloadDao.getAllGroups()
+        val singleIds = setOf(themeId.toString(), "theme:$themeId:full")
+        groups.filter {
+            it.groupType == DownloadGroupEntity.TYPE_SINGLE && it.groupId in singleIds
+        }.forEach { group ->
+            val desired = resolvePreferredThemeDownload(theme) ?: return@forEach
+            replaceAndPrepare(group, listOf(desired))
+        }
+
+        groups.filter { it.groupType == DownloadGroupEntity.TYPE_ANIME }
+            .mapNotNull { group ->
+                val anime = animeDao.getByKitsuId(group.groupId)
+                group.groupId.takeIf { anime?.animeThemesId == theme.animeId }
+            }
+            .distinct()
+            .forEach { downloadAnimeInternal(it) }
+
+        groups.filter { it.groupType == DownloadGroupEntity.TYPE_PLAYLIST }
+            .mapNotNull { group -> group.groupId.toLongOrNull() }
+            .filter { playlistId ->
+                playlistDao.getPlaylistEntries(playlistId).any {
+                    it.itemType == "THEME" && it.itemId == themeId
+                }
+            }
+            .distinct()
+            .forEach { downloadPlaylistInternal(it) }
     }
 
     private suspend fun prepare(specs: List<DownloadMediaSpec>) {
@@ -348,15 +448,21 @@ class DownloadManager @Inject constructor(
         }
 
     private fun removeGroupByIdentity(type: String, externalId: String) {
+        removeGroupsByIdentity(type, setOf(externalId))
+    }
+
+    private fun removeGroupsByIdentity(type: String, externalIds: Set<String>) {
         scope.launch {
-            val groups = downloadDao.findGroups(type, externalId)
-            if (groups.isEmpty()) return@launch
-            val keys = groups.flatMap { downloadItemDao.getMediaKeysInGroup(it.id) }.distinct()
-            groups.forEach { group ->
-                downloadItemDao.deleteGroupItems(group.id)
-                downloadDao.deleteGroup(group.id)
+            groupMutationMutex.withLock {
+                val groups = externalIds.flatMap { downloadDao.findGroups(type, it) }
+                if (groups.isEmpty()) return@withLock
+                val keys = groups.flatMap { downloadItemDao.getMediaKeysInGroup(it.id) }.distinct()
+                groups.forEach { group ->
+                    downloadItemDao.deleteGroupItems(group.id)
+                    downloadDao.deleteGroup(group.id)
+                }
+                keys.forEach { cleanupIfOrphaned(it) }
             }
-            keys.forEach { cleanupIfOrphaned(it) }
         }
     }
 

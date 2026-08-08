@@ -227,7 +227,7 @@ fun PlayerScreen(
                 onGoToAnime = { animeEntity?.kitsuId?.let { onOpenAnime(it) } },
                 onRelatedMusic = { animeEntity?.kitsuId?.let { onOpenRelatedMusic(it) } },
                 onAddToLibrary = { theme?.let { viewModel.saveSongToLibrary(it, animeEntity) } },
-                onDownload = { viewModel.downloadCurrent(item, modeUiState.actualMode) },
+                onDownload = { viewModel.downloadCurrent(item) },
                 onCustomAction = { key ->
                     val mode = preferredModeForThemeAction(key)
                     if (theme != null && mode != null) viewModel.setPreferredMode(theme.id, mode)

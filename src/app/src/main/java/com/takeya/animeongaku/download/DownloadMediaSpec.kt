@@ -4,6 +4,7 @@ import com.takeya.animeongaku.data.local.DownloadItemEntity
 import com.takeya.animeongaku.data.local.LoudnessProfile
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.ThemeModeEntity
+import com.takeya.animeongaku.data.local.UserPreferenceEntity
 import java.io.File
 
 internal fun canonicalDownloadItemDirectory(
@@ -65,13 +66,46 @@ internal fun resolveThemeFullSizeDownload(
     return DownloadMediaSpec.song(songId, sourceUrl, canonicalSongLoudness ?: descriptor.fullSizeLoudness)
 }
 
+internal fun resolveThemeDownloadMedia(
+    themeId: Long,
+    fallbackTvUrl: String,
+    descriptor: ThemeModeEntity?,
+    canonicalSongUrl: String?,
+    canonicalSongLoudness: LoudnessProfile? = null,
+    preference: UserPreferenceEntity? = null,
+    fallbackMode: String = "TV_SIZE"
+): DownloadMediaSpec? {
+    val tvUrl = descriptor?.tvSizeUrl?.takeIf(String::isNotBlank)
+        ?: fallbackTvUrl.takeIf(String::isNotBlank)
+    val full = resolveThemeFullSizeDownload(descriptor, canonicalSongUrl, canonicalSongLoudness)
+    val preferredMode = preference?.preferredMode ?: fallbackMode
+    val tvAllowed = preference?.isDislikedTvSize != true
+    val fullAllowed = preference?.isDislikedFullSize != true
+    val hasThemeDirective = preference?.preferredMode != null || !tvAllowed || !fullAllowed
+
+    val orderedModes = when (preferredMode) {
+        "FULL_SIZE" -> if (hasThemeDirective) listOf("FULL_SIZE", "TV_SIZE") else listOf("FULL_SIZE")
+        "TV_SIZE" -> if (hasThemeDirective) listOf("TV_SIZE", "FULL_SIZE") else listOf("TV_SIZE")
+        else -> emptyList()
+    }
+    return orderedModes.firstNotNullOfOrNull { mode ->
+        when (mode) {
+            "TV_SIZE" -> tvUrl?.takeIf { tvAllowed }
+                ?.let { DownloadMediaSpec.themeTv(themeId, it, descriptor?.tvSizeLoudness) }
+            "FULL_SIZE" -> full?.takeIf { fullAllowed }
+            else -> null
+        }
+    }
+}
+
 /** Resolves persisted playlist policy only; it never applies online playback fallbacks. */
 internal fun resolvePlaylistDownloadMedia(
     entries: List<PlaylistEntryEntity>,
     playlistDefaultMode: String,
     themeModes: Map<Long, ThemeModeEntity>,
     songUrls: Map<Long, String>,
-    songLoudness: Map<Long, LoudnessProfile?> = emptyMap()
+    songLoudness: Map<Long, LoudnessProfile?> = emptyMap(),
+    themePreferences: Map<Long, UserPreferenceEntity> = emptyMap()
 ): List<DownloadMediaSpec> = entries.mapNotNull { entry ->
     when (entry.itemType) {
         PlaylistEntryEntity.ITEM_TYPE_SONG -> songUrls[entry.itemId]
@@ -81,16 +115,15 @@ internal fun resolvePlaylistDownloadMedia(
         PlaylistEntryEntity.ITEM_TYPE_THEME -> {
             val mode = entry.modeOverride ?: playlistDefaultMode
             val descriptor = themeModes[entry.itemId]
-            when (mode) {
-                "TV_SIZE" -> descriptor?.tvSizeUrl?.takeIf(String::isNotBlank)
-                    ?.let { DownloadMediaSpec.themeTv(entry.itemId, it, descriptor?.tvSizeLoudness) }
-                "FULL_SIZE" -> resolveThemeFullSizeDownload(
-                    descriptor,
-                    descriptor?.fullSizeSongId?.let(songUrls::get),
-                    descriptor?.fullSizeSongId?.let(songLoudness::get)
-                )
-                else -> null
-            }
+            resolveThemeDownloadMedia(
+                themeId = entry.itemId,
+                fallbackTvUrl = descriptor?.tvSizeUrl.orEmpty(),
+                descriptor = descriptor,
+                canonicalSongUrl = descriptor?.fullSizeSongId?.let(songUrls::get),
+                canonicalSongLoudness = descriptor?.fullSizeSongId?.let(songLoudness::get),
+                preference = themePreferences[entry.itemId],
+                fallbackMode = mode
+            )
         }
         else -> null
     }
