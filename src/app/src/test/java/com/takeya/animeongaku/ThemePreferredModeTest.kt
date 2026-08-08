@@ -113,6 +113,20 @@ class ThemePreferredModeTest {
     }
 
     @Test
+    fun `video failure falls back to Full when TV is specifically disliked`() {
+        val fallback = resolver.resolveVideoFailureFallback(
+            entry = themeEntry(queueId = 74),
+            intent = PlaybackIntent(sessionOverride = PlaybackMode.VIDEO),
+            isOnline = true,
+            localMedia = emptyMap(),
+            themePreference = UserPreferenceEntity(themeId = 1, isDislikedTvSize = true)
+        )
+
+        assertEquals(PlaybackMode.VIDEO, fallback.preferredMode)
+        assertEquals(PlaybackMode.FULL_SIZE, fallback.actualMode)
+    }
+
+    @Test
     fun `action presentation exposes only the alternative when Full metadata is known`() {
         assertEquals("Prefer Full Size", themeModePreferenceAction(true, null)?.label)
         assertEquals("Prefer Full Size", themeModePreferenceAction(true, "TV_SIZE")?.label)
