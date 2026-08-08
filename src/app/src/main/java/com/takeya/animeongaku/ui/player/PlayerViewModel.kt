@@ -123,14 +123,10 @@ class PlayerViewModel @Inject constructor(
 
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
-    fun downloadCurrent(item: com.takeya.animeongaku.media.PlayableItem, actualMode: com.takeya.animeongaku.media.PlaybackMode?) {
+    fun downloadCurrent(item: com.takeya.animeongaku.media.PlayableItem) {
         when (item) {
             is com.takeya.animeongaku.media.PlayableItem.RelatedSong -> downloadManager.downloadRelatedSong(item.song, item.release)
-            is com.takeya.animeongaku.media.PlayableItem.Theme -> if (actualMode == com.takeya.animeongaku.media.PlaybackMode.FULL_SIZE) {
-                downloadManager.downloadThemeFullSize(item.theme, item.anime)
-            } else {
-                downloadManager.downloadSong(item.theme, item.anime)
-            }
+            is com.takeya.animeongaku.media.PlayableItem.Theme -> downloadManager.downloadSong(item.theme, item.anime)
         }
     }
 
@@ -142,6 +138,9 @@ class PlayerViewModel @Inject constructor(
         val themeId = state.currentTheme?.id
         if (themeId != null) userPreferencesRepository.observePreference(themeId) else kotlinx.coroutines.flow.flowOf(null)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    fun observePreference(themeId: Long?) =
+        themeId?.let(userPreferencesRepository::observePreference) ?: kotlinx.coroutines.flow.flowOf(null)
 
     val currentSongPreference: StateFlow<SongPreferenceEntity?> = nowPlayingState.flatMapLatest { state ->
         val songId = (state.currentItem as? PlayableItem.RelatedSong)?.song?.id
@@ -156,6 +155,10 @@ class PlayerViewModel @Inject constructor(
 
     fun toggleDislike(themeId: Long) {
         viewModelScope.launch { userPreferencesRepository.toggleDislike(themeId) }
+    }
+
+    fun setPreferredMode(themeId: Long, mode: String) {
+        viewModelScope.launch { userPreferencesRepository.setPreferredMode(themeId, mode) }
     }
 
     fun toggleModeDislike(themeId: Long, fullSize: Boolean) {

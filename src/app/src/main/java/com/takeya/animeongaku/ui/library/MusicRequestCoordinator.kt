@@ -2,7 +2,11 @@ package com.takeya.animeongaku.ui.library
 
 import com.takeya.animeongaku.data.repository.MusicRequest
 import com.takeya.animeongaku.data.repository.MusicRequestRepository
+import com.takeya.animeongaku.data.repository.MusicRequestScope
+import com.takeya.animeongaku.data.repository.MusicRequestScopeStatus
 import com.takeya.animeongaku.data.repository.MusicRequestState
+import com.takeya.animeongaku.data.repository.MusicRequestStatus
+import com.takeya.animeongaku.ui.common.ActionSheetAction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -11,6 +15,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 sealed interface MusicRequestUiState {
     data object Hydrating : MusicRequestUiState
@@ -28,121 +34,243 @@ sealed interface MusicRequestUiState {
     data class StatusError(val message: String) : MusicRequestUiState
 }
 
+data class MusicRequestScopeUiState(
+    val scope: MusicRequestScope,
+    val progress: MusicRequestUiState,
+    val active: Boolean,
+    val eligibleCount: Int,
+    val availableCount: Int,
+    val missingCount: Int,
+    val statusLoaded: Boolean
+) {
+    companion object {
+        fun loading(scope: MusicRequestScope) = MusicRequestScopeUiState(
+            scope = scope,
+            progress = MusicRequestUiState.Hydrating,
+            active = false,
+            eligibleCount = 0,
+            availableCount = 0,
+            missingCount = 0,
+            statusLoaded = false
+        )
+    }
+}
+
+data class MusicRequestScreenState(
+    val scopes: Map<MusicRequestScope, MusicRequestScopeUiState>
+) {
+    operator fun get(scope: MusicRequestScope): MusicRequestScopeUiState =
+        scopes[scope] ?: MusicRequestScopeUiState.loading(scope)
+
+    fun updated(scope: MusicRequestScope, transform: (MusicRequestScopeUiState) -> MusicRequestScopeUiState) =
+        copy(scopes = scopes + (scope to transform(get(scope))))
+
+    companion object {
+        fun loading() = of(*MusicRequestScope.entries.map(MusicRequestScopeUiState::loading).toTypedArray())
+        fun of(vararg states: MusicRequestScopeUiState) = MusicRequestScreenState(states.associateBy { it.scope })
+    }
+}
+
 class MusicRequestCoordinator(
     private val repository: MusicRequestRepository,
     private val scope: CoroutineScope,
     private val defaultPollDelayMillis: Long = 5_000,
     private val onCatalogRefreshNeeded: () -> Unit = {}
 ) {
-    private val _state = MutableStateFlow<MusicRequestUiState>(MusicRequestUiState.Idle)
-    val state: StateFlow<MusicRequestUiState> = _state.asStateFlow()
-    private var operation: Job? = null
-    private var statusRetry: StatusRetry? = null
+    private val _state = MutableStateFlow(MusicRequestScreenState.loading())
+    val state: StateFlow<MusicRequestScreenState> = _state.asStateFlow()
+
+    private val statusMutex = Mutex()
+    private var hydrateJob: Job? = null
+    private var kitsuId: String? = null
+    private val submissionJobs = mutableMapOf<MusicRequestScope, Job>()
+    private val pollJobs = mutableMapOf<MusicRequestScope, Job>()
+    private val pollRequestIds = mutableMapOf<MusicRequestScope, String>()
+    private val statusRetryRequestIds = mutableMapOf<MusicRequestScope, String>()
 
     fun hydrate(kitsuId: String) {
-        operation?.cancel()
-        _state.value = MusicRequestUiState.Hydrating
-        operation = scope.launch {
+        this.kitsuId = kitsuId
+        hydrateJob?.cancel()
+        pollJobs.values.forEach(Job::cancel)
+        pollJobs.clear()
+        pollRequestIds.clear()
+        _state.value = MusicRequestScreenState.loading()
+        hydrateJob = scope.launch { refreshStatus(kitsuId, showFailure = true) }
+    }
+
+    fun request(kitsuId: String, requestScope: MusicRequestScope) {
+        val current = _state.value[requestScope]
+        if (submissionJobs[requestScope]?.isActive == true || !current.canSubmit()) return
+
+        this.kitsuId = kitsuId
+        statusRetryRequestIds.remove(requestScope)
+        _state.value = _state.value.updated(requestScope) {
+            it.copy(progress = MusicRequestUiState.Submitting, active = false)
+        }
+        submissionJobs[requestScope] = scope.launch {
             try {
-                val request = repository.latest(kitsuId)
-                statusRetry = null
-                if (request == null) _state.value = MusicRequestUiState.Idle else observe(request)
+                val submitted = repository.request(kitsuId, requestScope)
+                updateFromRequest(submitted)
+                refreshStatus(kitsuId, showFailure = false)
+                ensurePolling(kitsuId, submitted)
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
-                statusRetry = StatusRetry.Latest(kitsuId)
-                _state.value = MusicRequestUiState.StatusError("Could not load request status. Try again.")
-            }
-        }
-    }
-
-    fun request(kitsuId: String) {
-        if (operation?.isActive == true) return
-        if (_state.value != MusicRequestUiState.Idle && _state.value !is MusicRequestUiState.SubmissionError) {
-            return
-        }
-        operation?.cancel()
-        statusRetry = null
-        _state.value = MusicRequestUiState.Submitting
-        operation = scope.launch {
-            try {
-                val submitted = repository.create(kitsuId)
-                observe(submitted)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (_: Exception) {
-                _state.value = MusicRequestUiState.SubmissionError("Could not request music. Try again.")
-            }
-        }
-    }
-
-    fun retryStatus() {
-        if (operation?.isActive == true) return
-        when (val retry = statusRetry) {
-            is StatusRetry.Latest -> hydrate(retry.kitsuId)
-            is StatusRetry.Current -> {
-                _state.value = MusicRequestUiState.Hydrating
-                operation = scope.launch {
-                    try {
-                        observe(repository.get(retry.request.id))
-                    } catch (error: CancellationException) {
-                        throw error
-                    } catch (_: Exception) {
-                        statusRetry = retry
-                        _state.value = MusicRequestUiState.StatusError(
-                            "Could not refresh request status. Try again."
-                        )
-                    }
+                _state.value = _state.value.updated(requestScope) {
+                    it.copy(
+                        progress = MusicRequestUiState.SubmissionError(
+                            "Could not request ${requestScope.displayName.lowercase()}. Try again."
+                        ),
+                        active = false
+                    )
                 }
             }
-            null -> Unit
+        }
+    }
+
+    fun retryStatus(requestScope: MusicRequestScope) {
+        if (submissionJobs[requestScope]?.isActive == true) return
+        val currentKitsuId = kitsuId ?: return
+        val requestId = statusRetryRequestIds[requestScope]
+        if (requestId == null) {
+            hydrate(currentKitsuId)
+            return
+        }
+        submissionJobs[requestScope] = scope.launch {
+            try {
+                val request = repository.get(requestId)
+                statusRetryRequestIds.remove(requestScope)
+                updateFromRequest(request, requestScope)
+                refreshStatus(currentKitsuId, showFailure = false)
+                ensurePolling(currentKitsuId, request, requestScope)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                showPollFailure(requestScope, requestId)
+            }
         }
     }
 
     fun cancel() {
-        operation?.cancel()
-        operation = null
+        hydrateJob?.cancel()
+        submissionJobs.values.forEach(Job::cancel)
+        pollJobs.values.forEach(Job::cancel)
+        submissionJobs.clear()
+        pollJobs.clear()
+        pollRequestIds.clear()
     }
 
-    private suspend fun observe(initial: MusicRequest) {
-        var current = initial
-        var readyBatchCount = 0
-        var catalogRefreshVersion: String? = null
-        while (true) {
-            statusRetry = null
-            _state.value = current.toUiState()
-            val currentReadyBatchCount = current.counts.completed + current.counts.completedWithWarnings
-            if (currentReadyBatchCount > readyBatchCount ||
-                (current.state.mayPublishCatalog && current.lastUpdatedAt != catalogRefreshVersion)
-            ) {
-                onCatalogRefreshNeeded()
-                catalogRefreshVersion = current.lastUpdatedAt
-            }
-            readyBatchCount = maxOf(readyBatchCount, currentReadyBatchCount)
-            if (current.state.isTerminal) return
-            delay(current.pollAfterSeconds?.times(1_000L) ?: defaultPollDelayMillis)
-            try {
-                current = repository.get(current.id)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (_: Exception) {
-                statusRetry = StatusRetry.Current(current)
-                _state.value = MusicRequestUiState.StatusError(
-                    "Could not refresh request status. Try again."
+    private suspend fun refreshStatus(kitsuId: String, showFailure: Boolean) {
+        try {
+            val status = statusMutex.withLock { repository.status(kitsuId) }
+            applyStatus(kitsuId, status)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            if (showFailure) {
+                _state.value = MusicRequestScreenState.of(
+                    *MusicRequestScope.entries.map { requestScope ->
+                        MusicRequestScopeUiState.loading(requestScope).copy(
+                            progress = MusicRequestUiState.StatusError(
+                                "Could not load request status. Try again."
+                            )
+                        )
+                    }.toTypedArray()
                 )
-                return
             }
         }
     }
 
-    private sealed interface StatusRetry {
-        data class Latest(val kitsuId: String) : StatusRetry
-        data class Current(val request: MusicRequest) : StatusRetry
+    private fun applyStatus(kitsuId: String, status: MusicRequestStatus) {
+        val mapped = MusicRequestScope.entries.map { requestScope ->
+            status[requestScope].toUiState()
+        }
+        _state.value = MusicRequestScreenState.of(*mapped.toTypedArray())
+
+        mapped.forEach { scopeState ->
+            val latest = status[scopeState.scope].latest
+            if (scopeState.active && latest != null) {
+                ensurePolling(kitsuId, latest, scopeState.scope)
+            } else if (pollJobs[scopeState.scope]?.isActive != true) {
+                pollJobs.remove(scopeState.scope)?.cancel()
+                pollRequestIds.remove(scopeState.scope)
+            }
+        }
+    }
+
+    private fun ensurePolling(
+        kitsuId: String,
+        request: MusicRequest,
+        requestScope: MusicRequestScope = request.scope
+    ) {
+        if (!request.active || request.state.isTerminal) return
+        if (pollJobs[requestScope]?.isActive == true && pollRequestIds[requestScope] == request.id) return
+
+        pollJobs.remove(requestScope)?.cancel()
+        pollRequestIds[requestScope] = request.id
+        pollJobs[requestScope] = scope.launch {
+            try {
+                var current = request
+                while (current.active && !current.state.isTerminal) {
+                    delay(current.pollAfterSeconds?.times(1_000L) ?: defaultPollDelayMillis)
+                    try {
+                        val next = repository.get(current.id)
+                        statusRetryRequestIds.remove(requestScope)
+                        val changed = next.state != current.state || next.lastUpdatedAt != current.lastUpdatedAt
+                        current = next
+                        updateFromRequest(next, requestScope)
+                        if (changed) {
+                            onCatalogRefreshNeeded()
+                            refreshStatus(kitsuId, showFailure = false)
+                        }
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        showPollFailure(requestScope, current.id)
+                        return@launch
+                    }
+                }
+            } finally {
+                if (pollRequestIds[requestScope] == request.id) {
+                    pollRequestIds.remove(requestScope)
+                    pollJobs.remove(requestScope)
+                }
+            }
+        }
+    }
+
+    private fun updateFromRequest(request: MusicRequest, requestScope: MusicRequestScope = request.scope) {
+        _state.value = _state.value.updated(requestScope) {
+            it.copy(progress = request.toUiState(), active = request.active, statusLoaded = true)
+        }
+    }
+
+    private fun showPollFailure(requestScope: MusicRequestScope, requestId: String) {
+        statusRetryRequestIds[requestScope] = requestId
+        _state.value = _state.value.updated(requestScope) {
+            it.copy(
+                progress = MusicRequestUiState.StatusError(
+                    "Could not refresh request status. Try again."
+                ),
+                active = true
+            )
+        }
     }
 }
 
-private val MusicRequestState.mayPublishCatalog: Boolean
-    get() = this == MusicRequestState.PROCESSING || this == MusicRequestState.AWAITING_OPERATOR || isTerminal
+private fun MusicRequestScopeStatus.toUiState() = MusicRequestScopeUiState(
+    scope = scope,
+    progress = latest?.toUiState() ?: MusicRequestUiState.Idle,
+    active = active,
+    eligibleCount = eligibleCount,
+    availableCount = availableCount,
+    missingCount = missingCount,
+    statusLoaded = true
+)
+
+private fun MusicRequestScopeUiState.canSubmit(): Boolean =
+    statusLoaded && eligibleCount > 0 && missingCount > 0 && !active &&
+        progress !is MusicRequestUiState.Submitting && progress !is MusicRequestUiState.StatusError
 
 private fun MusicRequest.toUiState(): MusicRequestUiState = when (state) {
     MusicRequestState.QUEUED -> MusicRequestUiState.Queued(batchCount, fullThemeCount)
@@ -158,77 +286,105 @@ private fun MusicRequest.toUiState(): MusicRequestUiState = when (state) {
 }
 
 data class MusicRequestActionPresentation(
+    val visible: Boolean,
     val label: String,
     val supportingText: String? = null,
     val statusDescription: String,
     val enabled: Boolean
 )
 
-internal fun shouldShowMusicRequestAction(
-    isDebug: Boolean,
-    @Suppress("UNUSED_PARAMETER") themeCount: Int,
-    @Suppress("UNUSED_PARAMETER") isInLibrary: Boolean
-): Boolean = isDebug
-
-internal fun musicRequestActionPresentation(state: MusicRequestUiState, readyMusicAvailable: Boolean = false): MusicRequestActionPresentation =
-    if (readyMusicAvailable) readyMusicPresentation(state) else
-    when (state) {
-        MusicRequestUiState.Hydrating -> MusicRequestActionPresentation("Loading request status", statusDescription = "Loading music request status", enabled = false)
-        MusicRequestUiState.Idle -> MusicRequestActionPresentation("Request music", statusDescription = "Request all music for this anime", enabled = true)
-        MusicRequestUiState.Submitting -> MusicRequestActionPresentation("Requesting music", statusDescription = "Submitting music request", enabled = false)
-        is MusicRequestUiState.Queued -> state.presentation("Music request queued", "Waiting to start")
-        is MusicRequestUiState.Searching -> state.presentation("Searching for music", "Searching sources")
-        is MusicRequestUiState.Downloading -> state.presentation("Downloading music", "Downloads in progress")
-        is MusicRequestUiState.Processing -> state.presentation("Processing music", "Preparing requested audio")
-        is MusicRequestUiState.AwaitingOperator -> state.presentation("Needs operator review", "Operator review required")
-        is MusicRequestUiState.Completed -> state.presentation("Music request completed", "Request completed")
-        is MusicRequestUiState.CompletedWithWarnings -> state.presentation("Completed with warnings", "Request completed with warnings")
-        is MusicRequestUiState.TerminalAttention -> state.presentation("Request needs attention", "Music request needs attention")
-        is MusicRequestUiState.SubmissionError -> MusicRequestActionPresentation("Retry music request", state.message, state.message, enabled = true)
-        is MusicRequestUiState.StatusError -> MusicRequestActionPresentation("Retry status", state.message, state.message, enabled = true)
+internal val MusicRequestScope.displayName: String
+    get() = when (this) {
+        MusicRequestScope.FULL_SONGS -> "Full Songs"
+        MusicRequestScope.EXTRA_MUSIC -> "Extra Music"
     }
 
-private fun readyMusicPresentation(state: MusicRequestUiState): MusicRequestActionPresentation = when (state) {
-    is MusicRequestUiState.Completed -> MusicRequestActionPresentation(
-        "Music is ready", "Available music is shown below.", "Music is ready", enabled = false
-    )
-    is MusicRequestUiState.AwaitingOperator,
-    is MusicRequestUiState.CompletedWithWarnings,
-    is MusicRequestUiState.TerminalAttention -> MusicRequestActionPresentation(
-        "Some music is ready", "Available music is shown below. Some requested items could not be added.", "Some music is ready", enabled = false
-    )
-    is MusicRequestUiState.Queued,
-    is MusicRequestUiState.Searching,
-    is MusicRequestUiState.Downloading,
-    is MusicRequestUiState.Processing -> MusicRequestActionPresentation(
-        "Finding and preparing music", "Ready music will appear below automatically.", "Finding and preparing music", enabled = false
-    )
-    else -> MusicRequestActionPresentation(
-        "Music is ready", "Available music is shown below.", "Music is ready", enabled = false
-    )
-}
-
-private fun MusicRequestUiState.presentation(label: String, statusDescription: String): MusicRequestActionPresentation {
-    val batchCountAndFullThemeCount = when (this) {
-        is MusicRequestUiState.Queued -> batchCount to fullThemeCount
-        is MusicRequestUiState.Searching -> batchCount to fullThemeCount
-        is MusicRequestUiState.Downloading -> batchCount to fullThemeCount
-        is MusicRequestUiState.Processing -> batchCount to fullThemeCount
-        is MusicRequestUiState.AwaitingOperator -> batchCount to fullThemeCount
-        is MusicRequestUiState.Completed -> batchCount to fullThemeCount
-        is MusicRequestUiState.CompletedWithWarnings -> batchCount to fullThemeCount
-        is MusicRequestUiState.TerminalAttention -> batchCount to fullThemeCount
-        else -> 0 to 0
+internal fun musicRequestActionPresentation(state: MusicRequestScopeUiState): MusicRequestActionPresentation {
+    val requestLabel = "Request ${state.scope.displayName}"
+    if (state.progress is MusicRequestUiState.StatusError && !state.active) {
+        return MusicRequestActionPresentation(
+            visible = true,
+            label = "Retry status",
+            supportingText = state.progress.message,
+            statusDescription = state.progress.message,
+            enabled = true
+        )
     }
-    val (batchCount, fullThemeCount) = batchCountAndFullThemeCount
+    if (!state.statusLoaded) {
+        return MusicRequestActionPresentation(
+            visible = true,
+            label = requestLabel,
+            supportingText = "Loading request status",
+            statusDescription = "Loading ${state.scope.displayName.lowercase()} request status",
+            enabled = false
+        )
+    }
+    if (state.eligibleCount <= 0 || state.missingCount <= 0) {
+        return MusicRequestActionPresentation(false, requestLabel, statusDescription = requestLabel, enabled = false)
+    }
+
+    val progressText = state.progress.supportingText()
+    if (state.active || state.progress == MusicRequestUiState.Submitting) {
+        return MusicRequestActionPresentation(
+            visible = true,
+            label = requestLabel,
+            supportingText = progressText ?: "Already requested",
+            statusDescription = progressText ?: "Already requested",
+            enabled = false
+        )
+    }
+    if (state.progress is MusicRequestUiState.SubmissionError) {
+        return MusicRequestActionPresentation(
+            visible = true,
+            label = "Retry ${state.scope.displayName}",
+            supportingText = state.progress.message,
+            statusDescription = state.progress.message,
+            enabled = true
+        )
+    }
+
+    val retry = state.progress is MusicRequestUiState.CompletedWithWarnings ||
+        state.progress is MusicRequestUiState.TerminalAttention
+    val label = if (retry) "Retry ${state.scope.displayName}" else requestLabel
     return MusicRequestActionPresentation(
+        visible = true,
         label = label,
-        supportingText = if (fullThemeCount > 0) {
-            "$fullThemeCount full songs requested across $batchCount ${if (batchCount == 1) "batch" else "batches"}"
-        } else {
-            "$batchCount ${if (batchCount == 1) "batch" else "batches"} requested"
-        },
-        statusDescription = statusDescription,
-        enabled = false
+        supportingText = if (retry) progressText else "${state.missingCount} missing",
+        statusDescription = label,
+        enabled = true
     )
 }
+
+private fun MusicRequestUiState.supportingText(): String? = when (this) {
+    MusicRequestUiState.Hydrating -> "Loading request status"
+    MusicRequestUiState.Idle -> null
+    MusicRequestUiState.Submitting -> "Submitting request"
+    is MusicRequestUiState.Queued -> "Waiting to start"
+    is MusicRequestUiState.Searching -> "Searching sources"
+    is MusicRequestUiState.Downloading -> "Downloads in progress"
+    is MusicRequestUiState.Processing -> "Preparing requested audio"
+    is MusicRequestUiState.AwaitingOperator -> "Operator review required"
+    is MusicRequestUiState.Completed -> "Request completed"
+    is MusicRequestUiState.CompletedWithWarnings -> "Completed with warnings; missing music can be retried"
+    is MusicRequestUiState.TerminalAttention -> "Request needs attention; missing music can be retried"
+    is MusicRequestUiState.SubmissionError -> message
+    is MusicRequestUiState.StatusError -> message
+}
+
+internal fun musicRequestActionSheetActions(state: MusicRequestScreenState): List<ActionSheetAction> =
+    MusicRequestScope.entries.mapNotNull { requestScope ->
+        val presentation = musicRequestActionPresentation(state[requestScope])
+        presentation.takeIf { it.visible }?.let {
+            ActionSheetAction(
+                key = musicRequestActionKey(requestScope),
+                label = it.label,
+                supportingText = it.supportingText,
+                enabled = it.enabled
+            )
+        }
+    }
+
+internal fun musicRequestActionKey(scope: MusicRequestScope): String = "music_request_${scope.name}"
+
+internal fun musicRequestScopeForAction(key: String): MusicRequestScope? =
+    MusicRequestScope.entries.firstOrNull { musicRequestActionKey(it) == key }

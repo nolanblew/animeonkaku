@@ -1,5 +1,6 @@
 import { amfJobCreateSchema, type AmfJobCreate } from "../animeMusicFetcher/schemas.js";
 import { SUPPORTED_AUDIO_FORMATS } from "./deliveryImporter.js";
+import type { MusicRequestScope } from "./types.js";
 
 type LocalizedNames = { english?: string | null; romaji?: string | null; japanese?: string | null };
 
@@ -44,7 +45,7 @@ export interface BuiltMusicRequestBatch {
 
 export function buildMusicRequestBatches(
   input: MusicRequestMetadata,
-  options: { includeRelated?: boolean } = {},
+  options: { includeRelated?: boolean; scope?: MusicRequestScope } = {},
 ): BuiltMusicRequestBatch[] {
   const primary = {
     english: clean(input.titles.english) ?? clean(input.titles.animeThemesNameEn),
@@ -110,7 +111,9 @@ export function buildMusicRequestBatches(
     themeId: null,
     release_preference: kind === "OTHER" ? "ANY" as const : "COLLECTION" as const,
   }));
-  const items = options.includeRelated === false ? numbered : [...numbered, ...categories];
+  const items = options.scope === "FULL_SONGS" ? numbered
+    : options.scope === "EXTRA_MUSIC" ? categories
+      : options.includeRelated === false ? numbered : [...numbered, ...categories];
   const animeThemesSlug = clean(input.animeThemesSlug);
   const batches: BuiltMusicRequestBatch[] = [];
   for (let offset = 0; offset < items.length; offset += 12) {

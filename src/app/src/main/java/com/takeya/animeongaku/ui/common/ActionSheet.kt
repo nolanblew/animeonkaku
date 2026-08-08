@@ -87,8 +87,37 @@ data class ActionSheetConfig(
     val showDelete: Boolean = false,
     val deleteLabel: String = "Delete",
     val artistName: String? = null,
-    val animeName: String? = null
+    val animeName: String? = null,
+    val customActions: List<ActionSheetAction> = emptyList()
 )
+
+data class ActionSheetAction(
+    val key: String,
+    val label: String,
+    val supportingText: String? = null,
+    val enabled: Boolean = true
+)
+
+const val PREFER_FULL_SIZE_ACTION = "prefer_full_size"
+const val PREFER_TV_SIZE_ACTION = "prefer_tv_size"
+
+fun themeModePreferenceAction(
+    fullSizeAvailable: Boolean?,
+    preferredMode: String?
+): ActionSheetAction? {
+    if (fullSizeAvailable != true) return null
+    return if (preferredMode == "FULL_SIZE") {
+        ActionSheetAction(PREFER_TV_SIZE_ACTION, "Prefer TV Size")
+    } else {
+        ActionSheetAction(PREFER_FULL_SIZE_ACTION, "Prefer Full Size")
+    }
+}
+
+fun preferredModeForThemeAction(key: String): String? = when (key) {
+    PREFER_FULL_SIZE_ACTION -> "FULL_SIZE"
+    PREFER_TV_SIZE_ACTION -> "TV_SIZE"
+    else -> null
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -113,7 +142,8 @@ fun ActionSheet(
     onRemoveFromQueue: () -> Unit = {},
     onEditFilters: () -> Unit = {},
     onRefresh: () -> Unit = {},
-    onDelete: () -> Unit = {}
+    onDelete: () -> Unit = {},
+    onCustomAction: (String) -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     fun dismissThen(action: () -> Unit) {
@@ -305,6 +335,15 @@ fun ActionSheet(
                     onClick = { dismissThen(onRelatedMusic) }
                 )
             }
+            config.customActions.forEach { action ->
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.Album, contentDescription = null, tint = Mist100) },
+                    label = action.label,
+                    supportingText = action.supportingText,
+                    enabled = action.enabled,
+                    onClick = { dismissThen { onCustomAction(action.key) } }
+                )
+            }
             if (config.showDownloading) {
                 OptionRow(
                     icon = {
@@ -385,21 +424,32 @@ private fun ActionButton(
 private fun OptionRow(
     icon: @Composable () -> Unit,
     label: String,
+    supportingText: String? = null,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
+            .clickable(enabled = enabled) { onClick() }
             .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         icon()
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = Mist100
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (enabled) Mist100 else Mist200
+            )
+            supportingText?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Mist200
+                )
+            }
+        }
     }
 }

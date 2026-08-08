@@ -31,7 +31,9 @@ class SortSpecSerializationTest {
                 SortKey(SortAttribute.TITLE, SortDirection.ASC),
                 SortKey(SortAttribute.LIKED, SortDirection.ASC),
                 SortKey(SortAttribute.RANDOM, SortDirection.ASC),
-                SortKey(SortAttribute.THEME_TYPE, SortDirection.DESC)
+                SortKey(SortAttribute.THEME_TYPE, SortDirection.DESC),
+                SortKey(SortAttribute.THEME_ORDER_GROUPED),
+                SortKey(SortAttribute.THEME_ORDER_INTERLEAVED)
             )
         )
         val restored = adapter.fromJson(adapter.toJson(spec))

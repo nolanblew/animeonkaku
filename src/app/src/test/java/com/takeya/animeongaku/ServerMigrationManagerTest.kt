@@ -70,7 +70,7 @@ class ServerMigrationManagerTest {
             settings = settings,
             api = api,
             session = ServerSession("token", "123", "nblewtest"),
-            preferences = listOf(UserPreferenceEntity(themeId = 10L, isLiked = true, isDisliked = false)),
+            preferences = listOf(UserPreferenceEntity(themeId = 10L, isLiked = true, isDisliked = false, preferredMode = "FULL_SIZE")),
             playCounts = listOf(PlayCountEntity(themeId = 10L, playCount = 3, lastPlayedAt = 1000L)),
             playlists = listOf(PlaylistEntity(id = 7L, name = "Manual", createdAt = 1L, isAuto = false)),
             playlistEntries = mapOf(7L to listOf(10L, 11L)),
@@ -94,7 +94,7 @@ class ServerMigrationManagerTest {
         assertEquals(3, result.uploadedPlayEvents)
         assertEquals(1, result.uploadedPlaylists)
         assertEquals(1, result.uploadedSpecs)
-        assertEquals(OngakuThemePrefPatch(liked = true, disliked = false), api.prefWrites.single().second)
+        assertEquals(OngakuThemePrefPatch(liked = true, disliked = false, preferredMode = "FULL_SIZE"), api.prefWrites.single().second)
         assertEquals(listOf(10L, 10L, 10L), api.playEvents.map { it.themeId })
         assertEquals(OngakuPlaylistRequest(name = "Manual", entries = listOf(10L, 11L)), api.createdPlaylists.single())
         assertEquals(

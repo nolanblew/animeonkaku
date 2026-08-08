@@ -21,7 +21,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
-import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.LibraryAdd
 import androidx.compose.material.icons.rounded.LibraryMusic
@@ -34,7 +33,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -48,21 +46,19 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.takeya.animeongaku.BuildConfig
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.data.repository.RelatedRelease
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.preferredModeForThemeAction
+import com.takeya.animeongaku.ui.common.themeModePreferenceAction
 import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
 import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
 import com.takeya.animeongaku.ui.common.BrowseVideoWarningDialog
@@ -104,6 +100,9 @@ fun AnimeDetailScreen(
     val background = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
     val coverUrls = remember(anime) { anime?.primaryArtworkUrls() ?: emptyList() }
     val coverUrl = coverUrls.firstOrNull()
+    val musicRequestActions = remember(musicRequestState) {
+        musicRequestActionSheetActions(musicRequestState)
+    }
 
     var sheetTheme by remember { mutableStateOf<ThemeEntity?>(null) }
     var showAnimeSheet by remember { mutableStateOf(false) }
@@ -114,6 +113,15 @@ fun AnimeDetailScreen(
         if (request == null) return
         if (request.warning != null) pendingVideoRequest = request
         else if (viewModel.startPlayVideo(request)) onPlayTheme()
+    }
+
+    fun handleMusicRequestAction(key: String) {
+        val scope = musicRequestScopeForAction(key) ?: return
+        if (musicRequestState[scope].progress is MusicRequestUiState.StatusError) {
+            viewModel.retryMusicRequestStatus(scope)
+        } else {
+            viewModel.requestMusic(scope)
+        }
     }
 
     pendingVideoRequest?.let { request ->
@@ -146,7 +154,10 @@ fun AnimeDetailScreen(
                 showLike = true,
                 isLiked = preference?.isLiked == true,
                 showRemoveDislike = preference?.isDisliked == true,
-                showPlayVideo = BrowseVideoActionPolicy.singleTheme(isOnline, themeModesById[theme.id])
+                showPlayVideo = BrowseVideoActionPolicy.singleTheme(isOnline, themeModesById[theme.id]),
+                customActions = musicRequestActions + listOfNotNull(themeModePreferenceAction(
+                    themeModesById[theme.id]?.fullSizeUrl?.isNotBlank(), preference?.preferredMode
+                ))
             ),
             onDismiss = { sheetTheme = null },
             onPlayNext = { viewModel.nowPlayingManager.playNext(theme, anime) },
@@ -162,7 +173,11 @@ fun AnimeDetailScreen(
             onDownload = { viewModel.downloadSong(theme) },
             onRemoveDownload = { viewModel.removeDownload(theme.id) },
             onLike = { viewModel.toggleLike(theme.id) },
-            onRemoveDislike = { viewModel.toggleDislike(theme.id) }
+            onRemoveDislike = { viewModel.toggleDislike(theme.id) },
+            onCustomAction = { key ->
+                preferredModeForThemeAction(key)?.let { viewModel.setPreferredMode(theme.id, it) }
+                    ?: handleMusicRequestAction(key)
+            }
         )
     }
 
@@ -182,7 +197,8 @@ fun AnimeDetailScreen(
                 showPlayVideo = BrowseVideoActionPolicy.context(
                     isOnline,
                     themes.mapNotNull { themeModesById[it.id] }
-                )
+                ),
+                customActions = musicRequestActions
             ),
             onDismiss = { showAnimeSheet = false },
             onPlayNext = { viewModel.nowPlayingManager.playNext(themes, anime?.let { a -> a.animeThemesId?.let { mapOf(it to a) } } ?: emptyMap()) },
@@ -192,7 +208,8 @@ fun AnimeDetailScreen(
             onSaveToPlaylist = { pickerThemeIds = themes.map { it.id } },
             onAddToLibrary = { viewModel.saveAllToLibrary() },
             onDownload = { viewModel.downloadAnime() },
-            onRemoveDownload = { viewModel.removeAnimeDownload() }
+            onRemoveDownload = { viewModel.removeAnimeDownload() },
+            onCustomAction = ::handleMusicRequestAction
         )
     }
 
@@ -331,66 +348,6 @@ fun AnimeDetailScreen(
                         Icon(Icons.Rounded.Shuffle, contentDescription = null, modifier = Modifier.size(20.dp), tint = Mist100)
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Shuffle", color = Mist100)
-                    }
-                }
-            }
-
-            if (shouldShowMusicRequestAction(BuildConfig.DEBUG, themes.size, isInLibrary)) {
-                item {
-                    val presentation = musicRequestActionPresentation(
-                        musicRequestState,
-                        hasReadyMusic(relatedMusic.isNotEmpty(), themeModesById)
-                    )
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 4.dp)
-                            .semantics {
-                                liveRegion = LiveRegionMode.Polite
-                            }
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                if (musicRequestState is MusicRequestUiState.StatusError) {
-                                    viewModel.retryMusicRequestStatus()
-                                } else {
-                                    viewModel.requestMusic()
-                                }
-                            },
-                            enabled = presentation.enabled,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .semantics {
-                                    stateDescription = presentation.statusDescription
-                                },
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            if (musicRequestState == MusicRequestUiState.Hydrating ||
-                                musicRequestState == MusicRequestUiState.Submitting
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                            } else {
-                                Icon(
-                                    Icons.Rounded.CloudDownload,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                            }
-                            Text(presentation.label)
-                        }
-                        presentation.supportingText?.let { supportingText ->
-                            Text(
-                                text = supportingText,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = Mist200,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
-                            )
-                        }
                     }
                 }
             }

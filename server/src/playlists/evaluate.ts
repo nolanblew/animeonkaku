@@ -398,6 +398,10 @@ function comparatorForKey(key: Json, ctx: EvalContext): Cmp {
           categoricalRank(b.themeType?.toUpperCase().slice(0, 2) ?? null, order));
         return r !== 0 ? r : seq(a.themeType) - seq(b.themeType);
       };
+    case "THEME_ORDER_GROUPED":
+      return groupedNaturalThemeOrder;
+    case "THEME_ORDER_INTERLEAVED":
+      return interleavedNaturalThemeOrder;
     case "WATCHING_STATUS":
       return (a, b) => rankCmp(
         categoricalRank(animeFor(a, ctx)?.watchingStatus ?? null, order),
@@ -439,7 +443,49 @@ function defaultOrder(ctx: EvalContext): Cmp {
     const rankA = categoricalRank(a.themeType?.toUpperCase().slice(0, 2) ?? null, typeOrder);
     const rankB = categoricalRank(b.themeType?.toUpperCase().slice(0, 2) ?? null, typeOrder);
     if (rankA !== rankB) return rankA - rankB;
-    return seq(a.themeType) - seq(b.themeType);
+    const sequenceCmp = seq(a.themeType) - seq(b.themeType);
+    if (sequenceCmp !== 0) return sequenceCmp;
+    return a.id - b.id;
+  };
+}
+
+function groupedNaturalThemeOrder(a: EvalTheme, b: EvalTheme): number {
+  const aParts = naturalThemeParts(a.themeType);
+  const bParts = naturalThemeParts(b.themeType);
+  if (aParts.group !== bParts.group) return aParts.group - bParts.group;
+  if (aParts.sequence !== bParts.sequence) return aParts.sequence - bParts.sequence;
+  return ciCompare(aParts.normalized, bParts.normalized);
+}
+
+function interleavedNaturalThemeOrder(a: EvalTheme, b: EvalTheme): number {
+  const aParts = naturalThemeParts(a.themeType);
+  const bParts = naturalThemeParts(b.themeType);
+  const aPhase = interleavedPhase(aParts);
+  const bPhase = interleavedPhase(bParts);
+  if (aPhase !== bPhase) return aPhase - bPhase;
+  if (aParts.sequence !== bParts.sequence) return aParts.sequence - bParts.sequence;
+  if (aParts.group !== bParts.group) return aParts.group - bParts.group;
+  return ciCompare(aParts.normalized, bParts.normalized);
+}
+
+function interleavedPhase(parts: NaturalThemeParts): number {
+  if (parts.sequence === Number.MAX_SAFE_INTEGER) return 2;
+  return parts.group < 2 ? 0 : 1;
+}
+
+interface NaturalThemeParts {
+  group: number;
+  sequence: number;
+  normalized: string;
+}
+
+function naturalThemeParts(themeType: string | null): NaturalThemeParts {
+  const normalized = themeType?.toUpperCase() ?? "";
+  const digits = normalized.replace(/\D/g, "");
+  return {
+    group: normalized.startsWith("OP") ? 0 : normalized.startsWith("ED") ? 1 : 2,
+    sequence: digits.length > 0 ? Number.parseInt(digits, 10) : Number.MAX_SAFE_INTEGER,
+    normalized,
   };
 }
 

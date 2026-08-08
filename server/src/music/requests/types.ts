@@ -5,6 +5,9 @@ import type { MusicRequestMetadata } from "./builder.js";
 export const MUSIC_BATCH_STATES = ["QUEUED", "SEARCHING", "AWAITING_OPERATOR", "DOWNLOADING", "PROCESSING", "COMPLETED", "COMPLETED_WITH_WARNINGS", "FAILED", "CANCELLED"] as const;
 export type MusicBatchState = typeof MUSIC_BATCH_STATES[number];
 export type MusicRequestSource = "DEBUG_USER" | "AUTOMATIC" | "ADMIN_REIMPORT";
+export const MUSIC_REQUEST_SCOPES = ["FULL_SONGS", "EXTRA_MUSIC", "LEGACY_ALL"] as const;
+export type MusicRequestScope = typeof MUSIC_REQUEST_SCOPES[number];
+export type ExplicitMusicRequestScope = Exclude<MusicRequestScope, "LEGACY_ALL">;
 /**
  * The slice of the last-observed AMF manifest that decides whether the poll
  * backoff ladder should reset. Deliberately narrower than the full evidence
@@ -78,13 +81,15 @@ export interface ProviderEvidenceScope {
   fileIndexStride: number;
 }
 
-export interface StoredMusicRequest { id: string; kitsuId: string; animeThemesAnimeId: number; createdAt: Date; updatedAt: Date; completedAt: Date | null; batches: StoredMusicBatch[]; }
-export interface NewMusicRequest { id: string; requestedByUserId: string; kitsuId: string; animeThemesAnimeId: number; source: MusicRequestSource; batches: Array<{ id: string; index: number; body: AmfJobCreate; idempotencyKey: string; items: Array<{ id: string; itemIndex: number; kind: string; number: number | null; themeId: number | null }> }>; }
+export interface StoredMusicRequest { id: string; kitsuId: string; animeThemesAnimeId: number; scope: MusicRequestScope; createdAt: Date; updatedAt: Date; completedAt: Date | null; batches: StoredMusicBatch[]; }
+export interface NewMusicRequest { id: string; requestedByUserId: string; kitsuId: string; animeThemesAnimeId: number; source: MusicRequestSource; scope: MusicRequestScope; batches: Array<{ id: string; index: number; body: AmfJobCreate; idempotencyKey: string; items: Array<{ id: string; itemIndex: number; kind: string; number: number | null; themeId: number | null }> }>; }
+export type MusicRequestScopeAvailability = Record<ExplicitMusicRequestScope, { eligibleCount: number; availableCount: number }>;
 export interface MusicRequestRepository {
   loadMetadata(kitsuId: string): Promise<(MusicRequestMetadata & { animeThemesAnimeId: number }) | null>;
   createOrReplay(input: NewMusicRequest): Promise<{ request: StoredMusicRequest; created: boolean }>;
   findById(id: string): Promise<StoredMusicRequest | null>;
-  findLatest(animeThemesAnimeId: number): Promise<StoredMusicRequest | null>;
+  findLatest(animeThemesAnimeId: number, scope?: MusicRequestScope): Promise<StoredMusicRequest | null>;
+  getScopeAvailability(animeThemesAnimeId: number): Promise<MusicRequestScopeAvailability>;
   findBatch(id: string): Promise<StoredMusicBatch | null>;
   listRecoverableBatches(): Promise<StoredMusicBatch[]>;
   listRecheckableBatches(): Promise<StoredMusicBatch[]>;
@@ -105,7 +110,17 @@ export interface MusicRequestRepository {
 
 export type MusicRequestState = MusicBatchState;
 export interface MusicRequestSummary {
-  id: string; kitsuId: string; state: MusicRequestState; batchCount: number; fullThemeCount: number;
+  id: string; kitsuId: string; scope: MusicRequestScope; state: MusicRequestState; active: boolean; batchCount: number; fullThemeCount: number;
   counts: Record<"queued" | "searching" | "awaitingOperator" | "downloading" | "processing" | "completed" | "completedWithWarnings" | "failed" | "cancelled", number>;
   requiresOperatorAction: boolean; lastUpdatedAt: string; pollAfterSeconds?: number;
 }
+
+export interface MusicRequestScopeStatus {
+  scope: ExplicitMusicRequestScope;
+  latest: MusicRequestSummary | null;
+  active: boolean;
+  eligibleCount: number;
+  availableCount: number;
+  missingCount: number;
+}
+export interface MusicRequestStatus { kitsuId: string; scopes: MusicRequestScopeStatus[]; }

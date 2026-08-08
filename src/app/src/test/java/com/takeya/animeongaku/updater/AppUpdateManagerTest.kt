@@ -38,14 +38,30 @@ class AppUpdateManagerTest {
     }
 
     @Test
-    fun releaseMapping_fallsBackToReleasePageWhenNoApkExists() {
+    fun releaseMapping_returnsNullWhenNoApkExists() {
         val mapped = GitHubReleaseDto(
             tagName = "v1.5.0",
             htmlUrl = "https://github.com/nolanblew/animeonkaku/releases/tag/v1.5.0"
         ).toAvailableAppUpdate()
 
-        assertNotNull(mapped)
-        assertEquals(mapped?.releasePageUrl, mapped?.downloadUrl)
+        assertNull(mapped)
+    }
+
+    @Test
+    fun releaseMapping_rejectsApkOutsideOfficialGitHubReleasePath() {
+        val mapped = GitHubReleaseDto(
+            tagName = "v1.5.0",
+            htmlUrl = "https://github.com/nolanblew/animeonkaku/releases/tag/v1.5.0",
+            assets = listOf(
+                GitHubReleaseAssetDto(
+                    name = "anime-ongaku-release.apk",
+                    browserDownloadUrl = "https://example.com/anime-ongaku-release.apk",
+                    contentType = "application/vnd.android.package-archive"
+                )
+            )
+        ).toAvailableAppUpdate()
+
+        assertNull(mapped)
     }
 
     @Test

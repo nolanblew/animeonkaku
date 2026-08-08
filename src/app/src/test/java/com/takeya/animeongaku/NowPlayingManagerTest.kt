@@ -74,12 +74,27 @@ class NowPlayingManagerTest {
     }
 
     @Test
-    fun `play from startIndex only queues from start onward`() {
-        val themes = listOf(theme(1), theme(2), theme(3))
-        manager.play("ctx", themes, startIndex = 1)
+    fun `play from middle retains earlier songs as previous queue entries`() {
+        val themes = listOf(theme(1), theme(2), theme(3), theme(4))
+        manager.play("ctx", themes, startIndex = 2)
         val state = manager.state.value
-        assertEquals(listOf(2L, 3L), state.nowPlaying.map { it.id })
-        assertEquals(0, state.currentIndex)
+
+        assertEquals(listOf(1L, 2L, 3L, 4L), state.nowPlaying.map { it.id })
+        assertEquals(2, state.currentIndex)
+        assertEquals(listOf(1L, 2L), state.history.map { it.id })
+        assertEquals(setOf(0, 1, 2), state.playedIndices)
+    }
+
+    @Test
+    fun `play from middle retains duplicate occurrences in previous`() {
+        val duplicate = theme(1)
+        manager.play("ctx", listOf(duplicate, theme(2), duplicate, theme(3)), startIndex = 2)
+
+        val state = manager.state.value
+        assertEquals(listOf(1L, 2L), state.history.map { it.id })
+        assertEquals(1L, state.currentTheme?.id)
+        assertEquals(4, state.nowPlayingEntries.map { it.queueId }.distinct().size)
+        assertTrue(state.historyEntries.first().queueId != state.currentEntry?.queueId)
     }
 
     @Test
@@ -682,6 +697,36 @@ class NowPlayingManagerTest {
         assertTrue(state.isShuffled)
         assertEquals(1L, state.nowPlaying.first().id) // current stays first
         assertEquals(4, state.nowPlaying.size) // all tracks still present
+    }
+
+    @Test
+    fun `toggleShuffle from middle shuffles the whole source list`() {
+        manager.play("ctx", listOf(theme(1), theme(2), theme(3), theme(4)), startIndex = 2)
+        val entriesBeforeShuffle = manager.state.value.nowPlayingEntries
+        val currentQueueId = manager.state.value.currentEntry!!.queueId
+
+        manager.toggleShuffle()
+
+        val state = manager.state.value
+        assertTrue(state.isShuffled)
+        assertEquals(currentQueueId, state.currentEntry?.queueId)
+        assertEquals(entriesBeforeShuffle.map { it.queueId }.toSet(), state.nowPlayingEntries.map { it.queueId }.toSet())
+        assertEquals(4, state.nowPlayingEntries.size)
+        assertTrue(state.historyEntries.isEmpty())
+        assertEquals(setOf(0), state.playedIndices)
+    }
+
+    @Test
+    fun `unshuffle restores full source order and previous section around current`() {
+        manager.play("ctx", listOf(theme(1), theme(2), theme(3), theme(4)), startIndex = 2)
+        manager.toggleShuffle()
+        manager.toggleShuffle()
+
+        val state = manager.state.value
+        assertFalse(state.isShuffled)
+        assertEquals(listOf(1L, 2L, 3L, 4L), state.nowPlaying.map { it.id })
+        assertEquals(2, state.currentIndex)
+        assertEquals(listOf(1L, 2L), state.history.map { it.id })
     }
 
     @Test

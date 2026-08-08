@@ -4,7 +4,7 @@ import type { AmfJob, AmfJobCreate } from "../animeMusicFetcher/schemas.js";
 import { normalizeMusicText } from "../matching/normalize.js";
 import type { AppLogger } from "../../logging.js";
 import { AMF_PROVIDER_JOB_FILE_INDEX_STRIDE } from "./providerGraph.js";
-import type { MusicRequestRepository, NewMusicRequest, ProviderEvidenceScope, StoredMusicBatch, StoredProviderJobLink, StoredMusicRequest, MusicBatchState } from "./types.js";
+import type { MusicRequestRepository, MusicRequestScope, MusicRequestScopeAvailability, NewMusicRequest, ProviderEvidenceScope, StoredMusicBatch, StoredProviderJobLink, StoredMusicRequest, MusicBatchState } from "./types.js";
 import { AMF_IGNORED_FULL_SIZE_VARIANT_ERROR_PREFIX } from "./deliveryService.js";
 
 const TERMINAL = new Set<MusicBatchState>(["COMPLETED", "COMPLETED_WITH_WARNINGS", "FAILED", "CANCELLED"]);
@@ -61,11 +61,14 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
   }
 
   async createOrReplay(input: NewMusicRequest): Promise<{ request: StoredMusicRequest; created: boolean }> {
+    validateScopedRequest(input);
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`anime-music-request:${input.animeThemesAnimeId}`]);
-      const active = await client.query<{ id: string }>("SELECT id FROM anime_music_requests WHERE animethemes_anime_id=$1 AND completed_at IS NULL", [input.animeThemesAnimeId]);
+      const active = await client.query<{ id: string }>(`SELECT id FROM anime_music_requests
+        WHERE animethemes_anime_id=$1 AND completed_at IS NULL AND scope IN ($2,'LEGACY_ALL')
+        ORDER BY (scope=$2) DESC,created_at DESC LIMIT 1`, [input.animeThemesAnimeId, input.scope]);
       if (active.rows[0]) {
         if (input.source === "ADMIN_REIMPORT") {
           const blocking = await client.query(`SELECT 1 FROM anime_music_request_batches
@@ -86,8 +89,8 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
         }
       }
       await client.query(`INSERT INTO anime_music_requests
-        (id, requested_by_user_id, kitsu_id, animethemes_anime_id, source) VALUES ($1,$2,$3,$4,$5)`,
-        [input.id, input.requestedByUserId, input.kitsuId, input.animeThemesAnimeId, input.source]);
+        (id, requested_by_user_id, kitsu_id, animethemes_anime_id, source, scope) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [input.id, input.requestedByUserId, input.kitsuId, input.animeThemesAnimeId, input.source, input.scope]);
       for (const batch of input.batches) {
         await client.query(`INSERT INTO anime_music_request_batches
           (id, request_id, batch_index, amf_request_body, idempotency_key) VALUES ($1,$2,$3,$4,$5)`,
@@ -104,10 +107,71 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
   }
 
   findById(id: string) { return this.hydrate(id, this.pool); }
-  async findLatest(animeThemesAnimeId: number) {
+  async findLatest(animeThemesAnimeId: number, scope?: MusicRequestScope) {
     const result = await this.pool.query<{ id: string }>(`SELECT id FROM anime_music_requests WHERE animethemes_anime_id=$1
-      ORDER BY (completed_at IS NULL) DESC, created_at DESC LIMIT 1`, [animeThemesAnimeId]);
+      AND ($2::text IS NULL OR scope=$2)
+      ORDER BY (completed_at IS NULL) DESC, created_at DESC LIMIT 1`, [animeThemesAnimeId, scope ?? null]);
     return result.rows[0] ? this.hydrate(result.rows[0].id, this.pool) : null;
+  }
+  async getScopeAvailability(animeThemesAnimeId: number): Promise<MusicRequestScopeAvailability> {
+    const result = await this.pool.query<{
+      full_eligible: string | number; full_available: string | number; extra_available: string | number;
+    }>(`
+      WITH normalized_themes AS (
+        SELECT id,upper(trim(theme_type)) theme_type
+          FROM themes WHERE animethemes_anime_id=$1 AND deleted_at IS NULL
+            AND upper(trim(theme_type)) ~ '^(OP|ED)([1-9][0-9]?)?$'
+      ), explicit_themes AS (
+        SELECT DISTINCT ON (substring(theme_type from 1 for 2),substring(theme_type from 3)::int)
+          id,substring(theme_type from 1 for 2) kind,substring(theme_type from 3)::int number
+          FROM normalized_themes WHERE length(theme_type)>2
+         ORDER BY substring(theme_type from 1 for 2),substring(theme_type from 3)::int,id
+      ), bare_themes AS (
+        SELECT theme_type kind,min(id) id,count(*) item_count
+          FROM normalized_themes WHERE length(theme_type)=2 GROUP BY theme_type
+      ), eligible_full AS (
+        SELECT id FROM explicit_themes
+        UNION ALL
+        SELECT b.id FROM bare_themes b WHERE b.item_count=1
+          AND NOT EXISTS (SELECT 1 FROM explicit_themes e WHERE e.kind=b.kind AND e.number=1)
+      ), available_full AS (
+        SELECT DISTINCT e.id FROM eligible_full e
+          JOIN theme_full_songs tfs ON tfs.theme_id=e.id
+          JOIN songs s ON s.id=tfs.song_id AND s.deleted_at IS NULL
+          JOIN media_files mf ON mf.kind='AUDIO' AND mf.ref_id='song:' || s.id::text
+            AND mf.variant='ORIGINAL' AND mf.state='READY'
+      ), requested_extra AS (
+        SELECT DISTINCT i.kind
+          FROM anime_music_requests r
+          JOIN anime_music_request_batches b ON b.request_id=r.id
+          JOIN anime_music_request_items i ON i.batch_id=b.id
+          JOIN anime_music_request_deliveries d ON d.item_id=i.id AND d.active=true AND d.import_state='READY'
+          JOIN media_files mf ON mf.kind='AUDIO' AND mf.ref_id='song:' || d.song_id::text
+            AND mf.variant='ORIGINAL' AND mf.state='READY'
+         WHERE r.animethemes_anime_id=$1 AND i.kind IN ('OST','CHARACTER_SONG','DRAMA','OTHER')
+      ), catalog_extra AS (
+        SELECT DISTINCT CASE mr.release_type
+          WHEN 'SOUNDTRACK' THEN 'OST' WHEN 'CHARACTER' THEN 'CHARACTER_SONG' ELSE 'OTHER' END kind
+          FROM anime_music_releases amr
+          JOIN music_releases mr ON mr.id=amr.release_id AND mr.deleted_at IS NULL
+          JOIN music_acquisitions ma ON ma.animethemes_anime_id=amr.animethemes_anime_id
+            AND ma.release_id=amr.release_id AND ma.purpose='RELATED_RELEASE' AND ma.state='READY'
+         WHERE amr.animethemes_anime_id=$1 AND EXISTS (
+           SELECT 1 FROM release_tracks rt JOIN songs s ON s.id=rt.song_id AND s.deleted_at IS NULL
+           JOIN media_files mf ON mf.kind='AUDIO' AND mf.ref_id='song:' || s.id::text
+             AND mf.variant='ORIGINAL' AND mf.state='READY'
+           WHERE rt.release_id=amr.release_id)
+      ), available_extra AS (
+        SELECT kind FROM requested_extra UNION SELECT kind FROM catalog_extra
+      )
+      SELECT (SELECT count(*) FROM eligible_full) full_eligible,
+        (SELECT count(*) FROM available_full) full_available,
+        (SELECT count(*) FROM available_extra) extra_available` , [animeThemesAnimeId]);
+    const row = result.rows[0] ?? { full_eligible: 0, full_available: 0, extra_available: 0 };
+    return {
+      FULL_SONGS: { eligibleCount: Number(row.full_eligible), availableCount: Number(row.full_available) },
+      EXTRA_MUSIC: { eligibleCount: 4, availableCount: Math.min(4, Number(row.extra_available)) },
+    };
   }
   async findBatch(id: string): Promise<StoredMusicBatch | null> {
     const result = await this.pool.query("SELECT * FROM anime_music_request_batches WHERE id=$1", [id]);
@@ -381,7 +445,26 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
     if (!request.rows[0]) return null;
     const batches = await queryable.query("SELECT * FROM anime_music_request_batches WHERE request_id=$1 ORDER BY batch_index", [id]);
     const row = request.rows[0];
-    return { id: row.id, kitsuId: row.kitsu_id, animeThemesAnimeId: Number(row.animethemes_anime_id), createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at, batches: batches.rows.map((batch) => mapBatch(batch, this.logger)) };
+    return { id: row.id, kitsuId: row.kitsu_id, animeThemesAnimeId: Number(row.animethemes_anime_id), scope: row.scope,
+      createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at, batches: batches.rows.map((batch) => mapBatch(batch, this.logger)) };
+  }
+}
+
+function validateScopedRequest(input: NewMusicRequest): void {
+  const items = input.batches.flatMap((batch) => batch.items);
+  if (items.length === 0) throw new Error(`Cannot persist an empty ${input.scope} music request.`);
+  if (input.batches.some((batch) => batch.items.length === 0 || batch.items.length > 12 || batch.body.items.length === 0 || batch.body.items.length > 12)) {
+    throw new Error("Music request batches must contain between 1 and 12 items.");
+  }
+  if (input.scope === "LEGACY_ALL") return;
+  const allowed = input.scope === "FULL_SONGS" ? new Set(["OP", "ED"]) : new Set(["OST", "CHARACTER_SONG", "DRAMA", "OTHER"]);
+  if (items.some((item) => !allowed.has(item.kind))
+    || input.batches.some((batch) => batch.body.items.some((item) => !allowed.has(item.kind)))) {
+    throw new Error(`${input.scope} contains an item outside its scope.`);
+  }
+  if (input.scope === "FULL_SONGS" && input.batches.some((batch) => batch.body.items.some((item) =>
+    (item.kind !== "OP" && item.kind !== "ED") || item.version !== "FULL" || item.release_preference !== "INDIVIDUAL"))) {
+    throw new Error("FULL_SONGS items must request FULL individual OP/ED versions.");
   }
 }
 

@@ -18,9 +18,9 @@ import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.data.repository.AnimeRepository
 import com.takeya.animeongaku.data.repository.MusicRequestRepository
+import com.takeya.animeongaku.data.repository.MusicRequestScope
 import com.takeya.animeongaku.data.repository.MusicCatalogRepository
 import com.takeya.animeongaku.data.repository.RelatedRelease
-import com.takeya.animeongaku.BuildConfig
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.download.DownloadManager
@@ -198,14 +198,12 @@ class AnimeDetailViewModel @Inject constructor(
         scope = viewModelScope,
         onCatalogRefreshNeeded = { refreshAvailableCatalog(includeLibraryChanges = true) }
     )
-    val musicRequestState: StateFlow<MusicRequestUiState> = musicRequestCoordinator.state
+    val musicRequestState: StateFlow<MusicRequestScreenState> = musicRequestCoordinator.state
 
     init {
         fetchFromApiIfNeeded()
         refreshMusic()
-        if (BuildConfig.DEBUG) {
-            musicRequestCoordinator.hydrate(kitsuId)
-        }
+        musicRequestCoordinator.hydrate(kitsuId)
     }
 
     private fun refreshMusic() {
@@ -243,16 +241,12 @@ class AnimeDetailViewModel @Inject constructor(
             }
     }
 
-    fun requestMusic() {
-        if (BuildConfig.DEBUG) {
-            musicRequestCoordinator.request(kitsuId)
-        }
+    fun requestMusic(scope: MusicRequestScope) {
+        musicRequestCoordinator.request(kitsuId, scope)
     }
 
-    fun retryMusicRequestStatus() {
-        if (BuildConfig.DEBUG) {
-            musicRequestCoordinator.retryStatus()
-        }
+    fun retryMusicRequestStatus(scope: MusicRequestScope) {
+        musicRequestCoordinator.retryStatus(scope)
     }
 
     private fun fetchFromApiIfNeeded() {
@@ -459,6 +453,10 @@ class AnimeDetailViewModel @Inject constructor(
 
     fun toggleDislike(themeId: Long) {
         viewModelScope.launch { userPreferencesRepository.toggleDislike(themeId) }
+    }
+
+    fun setPreferredMode(themeId: Long, mode: String) {
+        viewModelScope.launch { userPreferencesRepository.setPreferredMode(themeId, mode) }
     }
 
     fun downloadSong(theme: ThemeEntity) {

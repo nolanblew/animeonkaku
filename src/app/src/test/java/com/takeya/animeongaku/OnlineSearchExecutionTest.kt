@@ -1,6 +1,9 @@
 package com.takeya.animeongaku
 
+import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.model.AnimeThemeEntry
 import com.takeya.animeongaku.ui.search.executeLatestOnlineSearch
+import com.takeya.animeongaku.ui.search.themeModeIdsForSearch
 import java.util.concurrent.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
@@ -15,6 +18,26 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class OnlineSearchExecutionTest {
+    @Test
+    fun `remote-only anime theme IDs are included in mode availability lookup`() {
+        val remoteOnly = AnimeThemeEntry(
+            animeId = "100",
+            themeId = "200",
+            title = "Remote Full Theme",
+            artist = "Artist",
+            audioUrl = "https://server/audio/200",
+            videoUrl = null
+        )
+
+        assertEquals(
+            setOf(10L, 200L),
+            themeModeIdsForSearch(
+                localThemes = listOf(ThemeEntity(10L, null, "Local", null, "https://server/audio/10", null, false, null)),
+                onlineThemes = listOf(remoteOnly)
+            )
+        )
+    }
+
     @Test
     fun `older non-cooperative search cannot overwrite newer results`() = runTest {
         var currentRequest = 1L

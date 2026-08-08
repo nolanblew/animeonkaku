@@ -6,6 +6,8 @@ import com.takeya.animeongaku.data.local.LoudnessProfile
 import com.takeya.animeongaku.data.local.MusicCatalogDao
 import com.takeya.animeongaku.data.local.ThemeModeDao
 import com.takeya.animeongaku.data.local.ThemeModeEntity
+import com.takeya.animeongaku.data.local.UserPreferenceDao
+import com.takeya.animeongaku.data.local.UserPreferenceEntity
 import com.takeya.animeongaku.network.ConnectivityMonitor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -67,6 +69,7 @@ data class ResolvedPlaybackItem(
     val artworkUrl: String?,
     val albumTitle: String? = null,
     val animeTitle: String? = null,
+    val themeLabel: String? = null,
     val videoSpoiler: Boolean = false,
     val videoNsfw: Boolean = false,
     val loudness: LoudnessProfile? = null
@@ -88,9 +91,19 @@ class PlaybackResolver @Inject constructor() {
         entry: QueueEntry,
         intent: PlaybackIntent,
         isOnline: Boolean,
-        localMedia: Map<MediaKey, LocalMediaFile>
+        localMedia: Map<MediaKey, LocalMediaFile>,
+        preferredThemeMode: PlaybackMode? = null,
+        themePreference: UserPreferenceEntity? = null
     ): ResolvedPlaybackItem = when (val item = entry.item) {
-        is PlayableItem.Theme -> resolveTheme(entry, item, intent, isOnline, localMedia)
+        is PlayableItem.Theme -> resolveTheme(
+            entry,
+            item,
+            intent,
+            isOnline,
+            localMedia,
+            preferredThemeMode,
+            themePreference
+        )
         is PlayableItem.RelatedSong -> resolveRelatedSong(entry, item, isOnline, localMedia)
     }
 
@@ -98,25 +111,27 @@ class PlaybackResolver @Inject constructor() {
         entry: QueueEntry,
         intent: PlaybackIntent,
         isOnline: Boolean,
-        localMedia: Map<MediaKey, LocalMediaFile>
+        localMedia: Map<MediaKey, LocalMediaFile>,
+        themePreference: UserPreferenceEntity? = null
     ): ResolvedPlaybackItem {
-        val preferred = resolve(entry, intent, isOnline, localMedia)
+        val preferred = resolve(entry, intent, isOnline, localMedia, themePreference = themePreference)
         if (entry.item !is PlayableItem.Theme || preferred.preferredMode != PlaybackMode.VIDEO) {
             return preferred
         }
-        val tvCandidate = resolve(
+        val audioCandidate = resolve(
             entry,
             intent.copy(sessionOverride = PlaybackMode.TV_SIZE),
             isOnline,
-            localMedia
+            localMedia,
+            themePreference = themePreference
         )
-        return if (tvCandidate.actualMode == PlaybackMode.TV_SIZE) {
-            tvCandidate.copy(
+        return if (audioCandidate.actualMode in setOf(PlaybackMode.TV_SIZE, PlaybackMode.FULL_SIZE)) {
+            audioCandidate.copy(
                 preferredMode = PlaybackMode.VIDEO,
                 retainedIntentReason = RetainedIntentReason.PREFERRED_MODE_UNAVAILABLE
             )
         } else {
-            tvCandidate.copy(
+            audioCandidate.copy(
                 preferredMode = PlaybackMode.VIDEO,
                 actualMode = null,
                 uri = null,
@@ -132,10 +147,29 @@ class PlaybackResolver @Inject constructor() {
         item: PlayableItem.Theme,
         intent: PlaybackIntent,
         isOnline: Boolean,
-        localMedia: Map<MediaKey, LocalMediaFile>
+        localMedia: Map<MediaKey, LocalMediaFile>,
+        preferredThemeMode: PlaybackMode?,
+        themePreference: UserPreferenceEntity?
     ): ResolvedPlaybackItem {
         val descriptor = item.modeDescriptor
-        val preferred = entry.baseModePolicy.resolvePreferred(intent)
+        require(preferredThemeMode == null || preferredThemeMode == PlaybackMode.TV_SIZE || preferredThemeMode == PlaybackMode.FULL_SIZE)
+        val storedPreferredMode = when (themePreference?.preferredMode) {
+            "TV_SIZE" -> PlaybackMode.TV_SIZE
+            "FULL_SIZE" -> PlaybackMode.FULL_SIZE
+            else -> preferredThemeMode
+        }
+        val requested = if (intent.sessionOverride == PlaybackMode.VIDEO) {
+            PlaybackMode.VIDEO
+        } else {
+            storedPreferredMode ?: entry.baseModePolicy.resolvePreferred(intent)
+        }
+        val tvAllowed = themePreference?.isDislikedTvSize != true
+        val fullAllowed = themePreference?.isDislikedFullSize != true
+        val preferred = when (requested) {
+            PlaybackMode.TV_SIZE -> if (tvAllowed) PlaybackMode.TV_SIZE else PlaybackMode.FULL_SIZE
+            PlaybackMode.FULL_SIZE -> if (fullAllowed) PlaybackMode.FULL_SIZE else PlaybackMode.TV_SIZE
+            else -> requested
+        }
         val tvKey = MediaKey.themeTv(item.theme.id)
         val fullKey = descriptor?.fullSizeSongId?.let(MediaKey::songAudio)
         val tvUrl = if (descriptor != null) {
@@ -148,13 +182,17 @@ class PlaybackResolver @Inject constructor() {
 
         fun hasLocal(key: MediaKey?): Boolean = key != null && localMedia[key]?.filePath?.isNotBlank() == true
         val availableModes = buildSet {
-            if (hasLocal(tvKey) || (isOnline && tvUrl != null)) add(PlaybackMode.TV_SIZE)
-            if (hasLocal(fullKey) || (isOnline && fullUrl != null)) add(PlaybackMode.FULL_SIZE)
+            if (tvAllowed && (hasLocal(tvKey) || (isOnline && tvUrl != null))) add(PlaybackMode.TV_SIZE)
+            if (fullAllowed && (hasLocal(fullKey) || (isOnline && fullUrl != null))) add(PlaybackMode.FULL_SIZE)
             if (isOnline && videoUrl != null) add(PlaybackMode.VIDEO)
         }
 
         val actual = if (!isOnline) {
-            preferred.takeIf { it in availableModes && it != PlaybackMode.VIDEO }
+            when {
+                preferred in availableModes && preferred != PlaybackMode.VIDEO -> preferred
+                preferredThemeMode == PlaybackMode.FULL_SIZE && PlaybackMode.TV_SIZE in availableModes -> PlaybackMode.TV_SIZE
+                else -> null
+            }
         } else {
             when (preferred) {
                 PlaybackMode.TV_SIZE -> when {
@@ -221,6 +259,7 @@ class PlaybackResolver @Inject constructor() {
             artworkUrl = item.display.artworkUrl,
             albumTitle = item.display.album,
             animeTitle = item.display.animeTitle,
+            themeLabel = item.theme.themeType.toThemeDisplayLabel(),
             videoSpoiler = descriptor?.videoSpoiler == true,
             videoNsfw = descriptor?.videoNsfw == true,
             loudness = loudness
@@ -285,11 +324,19 @@ class PlaybackResolutionCoordinator @Inject constructor(
     private val connectivityMonitor: ConnectivityMonitor,
     private val downloadItemDao: DownloadItemDao,
     private val themeModeDao: ThemeModeDao,
-    private val musicCatalogDao: MusicCatalogDao
+    private val musicCatalogDao: MusicCatalogDao,
+    private val userPreferenceDao: UserPreferenceDao
 ) {
     suspend fun resolve(entry: QueueEntry, intent: PlaybackIntent): ResolvedPlaybackItem {
         val snapshot = snapshots(listOf(entry)).single()
-        return resolver.resolve(snapshot.entry, intent, snapshot.isOnline, snapshot.localMedia)
+        return resolver.resolve(
+            snapshot.entry,
+            intent,
+            snapshot.isOnline,
+            snapshot.localMedia,
+            snapshot.preferredThemeMode,
+            snapshot.themePreference
+        )
     }
 
     /**
@@ -302,7 +349,14 @@ class PlaybackResolutionCoordinator @Inject constructor(
     ): List<ResolvedPlaybackItem> {
         if (entries.isEmpty()) return emptyList()
         return snapshots(entries.toList()).map { snapshot ->
-            resolver.resolve(snapshot.entry, intent, snapshot.isOnline, snapshot.localMedia)
+            resolver.resolve(
+                snapshot.entry,
+                intent,
+                snapshot.isOnline,
+                snapshot.localMedia,
+                snapshot.preferredThemeMode,
+                snapshot.themePreference
+            )
         }
     }
 
@@ -315,7 +369,8 @@ class PlaybackResolutionCoordinator @Inject constructor(
             snapshot.entry,
             intent,
             snapshot.isOnline,
-            snapshot.localMedia
+            snapshot.localMedia,
+            snapshot.themePreference
         )
     }
 
@@ -330,6 +385,11 @@ class PlaybackResolutionCoordinator @Inject constructor(
             }.distinct()
             val descriptorsByThemeId = if (themeIds.isEmpty()) emptyMap() else {
                 themeModeDao.getByThemeIds(themeIds).associateBy { it.themeId }
+            }
+            val preferredModesByThemeId = if (themeIds.isEmpty()) emptyMap() else {
+                userPreferenceDao.getPreferencesByIdsIncludingDeleted(themeIds)
+                    .filter { it.deletedAt == null }
+                    .associateBy(UserPreferenceEntity::themeId)
             }
             val songsById = if (songIds.isEmpty()) emptyMap() else {
                 musicCatalogDao.getSongs(songIds).associateBy { it.id }
@@ -348,7 +408,17 @@ class PlaybackResolutionCoordinator @Inject constructor(
                 ResolutionSnapshot(
                     entry = hydratedEntry,
                     isOnline = isOnline,
-                    localMedia = localMedia.filterKeys { it in keys }
+                    localMedia = localMedia.filterKeys { it in keys },
+                    preferredThemeMode = (hydratedEntry.item as? PlayableItem.Theme)
+                        ?.theme?.id?.let(preferredModesByThemeId::get)?.preferredMode?.let { mode ->
+                            when (mode) {
+                                "TV_SIZE" -> PlaybackMode.TV_SIZE
+                                "FULL_SIZE" -> PlaybackMode.FULL_SIZE
+                                else -> null
+                            }
+                        },
+                    themePreference = (hydratedEntry.item as? PlayableItem.Theme)
+                        ?.theme?.id?.let(preferredModesByThemeId::get)
                 )
             }
         }
@@ -357,7 +427,9 @@ class PlaybackResolutionCoordinator @Inject constructor(
 private data class ResolutionSnapshot(
     val entry: QueueEntry,
     val isOnline: Boolean,
-    val localMedia: Map<MediaKey, LocalMediaFile>
+    val localMedia: Map<MediaKey, LocalMediaFile>,
+    val preferredThemeMode: PlaybackMode?,
+    val themePreference: UserPreferenceEntity?
 )
 
 internal fun QueueEntry.withLatestMediaMetadata(

@@ -1,7 +1,9 @@
 package com.takeya.animeongaku
 
 import android.content.Intent
+import android.Manifest
 import android.os.Bundle
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -24,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import javax.inject.Inject
 import com.takeya.animeongaku.updater.AppUpdateViewModel
+import com.takeya.animeongaku.updater.AppUpdateNotifier
 
 internal fun activeRefreshIntervalMs(): Long = 10 * 60 * 1_000L
 
@@ -34,6 +37,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var libraryPullManager: LibraryPullManager
     @Inject lateinit var serverSettingsStore: ServerSettingsStore
     @Inject lateinit var sessionStateManager: SessionStateManager
+    @Inject lateinit var appUpdateNotifier: AppUpdateNotifier
 
     val pendingNavigateTo = mutableStateOf<String?>(null)
     private val appUpdateViewModel: AppUpdateViewModel by viewModels()
@@ -41,6 +45,9 @@ class MainActivity : ComponentActivity() {
     private var periodicSyncJob: Job? = null
     private var handledInitialServerStart = false
     private var isForeground = false
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -72,6 +79,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        if (BuildConfig.UPDATER_ENABLED && appUpdateNotifier.needsNotificationPermissionRequest()) {
+            appUpdateNotifier.markNotificationPermissionRequested()
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
         isForeground = true
         updateForegroundServerWork(sessionStateManager.state.value)
     }

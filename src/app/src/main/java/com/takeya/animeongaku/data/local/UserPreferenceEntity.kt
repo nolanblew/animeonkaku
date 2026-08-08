@@ -11,6 +11,7 @@ data class UserPreferenceEntity(
     val isDisliked: Boolean = false,
     val isDislikedTvSize: Boolean = false,
     val isDislikedFullSize: Boolean = false,
+    val preferredMode: String? = null,
     val updatedAt: Long = 0L,
     val deletedAt: Long? = null
 )

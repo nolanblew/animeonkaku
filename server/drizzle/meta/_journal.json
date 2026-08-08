@@ -148,6 +148,20 @@
       "when": 1785780000000,
       "tag": "0020_media_loudness",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786139816707,
+      "tag": "0021_music_request_scopes",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786142117677,
+      "tag": "0022_theme_preferred_mode",
+      "breakpoints": true
     }
   ]
 }

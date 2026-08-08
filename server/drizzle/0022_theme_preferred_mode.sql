@@ -1,0 +1,2 @@
+ALTER TABLE "theme_prefs" ADD COLUMN "preferred_mode" text;--> statement-breakpoint
+ALTER TABLE "theme_prefs" ADD CONSTRAINT "theme_prefs_preferred_mode_check" CHECK ("theme_prefs"."preferred_mode" is null or "theme_prefs"."preferred_mode" in ('TV_SIZE', 'FULL_SIZE'));

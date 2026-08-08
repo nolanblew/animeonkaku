@@ -2,6 +2,7 @@ package com.takeya.animeongaku.ui.player
 
 import com.takeya.animeongaku.media.PlaybackMode
 import com.takeya.animeongaku.media.PlayableItem
+import com.takeya.animeongaku.media.playerDisplayInfo
 import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
 import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
 import com.takeya.animeongaku.ui.common.BrowseVideoWarningDialog
@@ -94,6 +95,8 @@ import com.takeya.animeongaku.media.NowPlayingState
 import com.takeya.animeongaku.media.PlaybackState
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.preferredModeForThemeAction
+import com.takeya.animeongaku.ui.common.themeModePreferenceAction
 import com.takeya.animeongaku.ui.common.MarqueeText
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
 import com.takeya.animeongaku.ui.theme.Ember400
@@ -204,7 +207,13 @@ fun PlayerScreen(
                         isOnline, queuedThemeModesById[theme.id]
                     ),
                     artistName = item.display.artist?.split(",")?.firstOrNull()?.trim(),
-                    animeName = animeEntity?.title
+                    animeName = animeEntity?.title,
+                    customActions = if (theme == null) emptyList() else listOfNotNull(
+                        themeModePreferenceAction(
+                            queuedThemeModesById[theme.id]?.fullSizeUrl?.isNotBlank(),
+                            currentPreference?.preferredMode
+                        )
+                    )
                 ),
                 onDismiss = { showPlayerSheet = false },
                 onPlayVideo = {
@@ -218,7 +227,11 @@ fun PlayerScreen(
                 onGoToAnime = { animeEntity?.kitsuId?.let { onOpenAnime(it) } },
                 onRelatedMusic = { animeEntity?.kitsuId?.let { onOpenRelatedMusic(it) } },
                 onAddToLibrary = { theme?.let { viewModel.saveSongToLibrary(it, animeEntity) } },
-                onDownload = { viewModel.downloadCurrent(item, modeUiState.actualMode) }
+                onDownload = { viewModel.downloadCurrent(item) },
+                onCustomAction = { key ->
+                    val mode = preferredModeForThemeAction(key)
+                    if (theme != null && mode != null) viewModel.setPreferredMode(theme.id, mode)
+                }
             )
         }
     }
@@ -246,15 +259,11 @@ fun PlayerScreen(
     val currentSong = (currentItem as? PlayableItem.RelatedSong)?.song
     val animeEntity = currentItem?.anime ?: currentTheme?.animeId?.let { npState.animeMap[it] }
     val backgroundArtUrl = currentItem?.display?.artworkUrl ?: animeEntity?.backgroundArtworkUrl()
-    val title = currentItem?.display?.title ?: "Select a song"
-    val artist = listOfNotNull(currentItem?.display?.artist, currentItem?.display?.animeTitle ?: currentItem?.display?.album)
-        .filter { it.isNotBlank() }
-        .joinToString(" · ")
-        .ifBlank { "Choose a track from your library" }
-    val expandedTitle = currentItem?.display?.title ?: "Select a song"
-    val expandedArtist = currentItem?.display?.artist ?: animeEntity?.title ?: "Choose a track from your library"
-    val eyebrowAnimeName = currentItem?.display?.animeTitle?.takeIf { it.isNotBlank() }
-    val eyebrowThemeTag = formatThemeTag(currentTheme?.themeType)
+    val playerDisplay = currentItem?.let { playerDisplayInfo(it, animeEntity) }
+    val title = playerDisplay?.primaryText ?: "Select a song"
+    val artist = playerDisplay?.secondaryText ?: "Choose a track from your library"
+    val expandedTitle = title
+    val expandedArtist = artist
     val upNextEntry = npState.upcomingEntries.firstOrNull { entry ->
         val queueIdx = npState.indexOfQueueId(entry.queueId)
         entry.themeOrNull?.id !in dislikedThemeIds || entry.queueId in npState.unskippedEntryIds
@@ -523,7 +532,7 @@ fun PlayerScreen(
         ) {
             if (isExpandedThreshold) {
                 val showsModeChip = modeUiState.showsModeChip()
-                if (eyebrowAnimeName != null || eyebrowThemeTag != null || showsModeChip) {
+                if (showsModeChip) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -531,40 +540,6 @@ fun PlayerScreen(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (eyebrowAnimeName != null) {
-                            // Only the anime name flexes. The theme tag and the
-                            // mode chip keep their intrinsic width so a long
-                            // title marquees rather than squeezing them out.
-                            MarqueeText(
-                                text = eyebrowAnimeName,
-                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                                color = Color(0xFF56E8F5),
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                        }
-                        if (eyebrowAnimeName != null && eyebrowThemeTag != null) {
-                            Text(
-                                text = "  \u00B7  ",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = Mist200
-                            )
-                        }
-                        if (eyebrowThemeTag != null) {
-                            Text(
-                                text = eyebrowThemeTag,
-                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
-                                color = Mist200,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        if (showsModeChip && (eyebrowAnimeName != null || eyebrowThemeTag != null)) {
-                            Text(
-                                text = "  \u00B7  ",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = Mist200
-                            )
-                        }
                         PlayerModeChip(
                             state = modeUiState,
                             onModeSelected = onModeSelected

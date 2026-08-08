@@ -50,9 +50,11 @@ internal data class PlaybackMediaDescriptor(
 )
 
 internal fun ResolvedPlaybackItem.toPlaybackMediaDescriptor(
-    activeServerBaseUrl: String? = null
+    activeServerBaseUrl: String? = null,
+    bluetoothMetadataStyle: BluetoothMetadataStyle = BluetoothMetadataStyle.ANIME_THEME
 ): PlaybackMediaDescriptor {
     val actualLabel = actualMode?.displayLabel()
+    val bluetoothDisplay = bluetoothDisplayInfo(bluetoothMetadataStyle)
     val values = buildMap<String, Any> {
         put(PlaybackMediaExtras.PLAYABLE_KIND, playableKey.kind.name)
         put(PlaybackMediaExtras.PLAYABLE_ID, playableKey.id)
@@ -65,8 +67,8 @@ internal fun ResolvedPlaybackItem.toPlaybackMediaDescriptor(
     return PlaybackMediaDescriptor(
         mediaId = queueId.toString(),
         uri = rewriteServerMediaUrl(uri.orEmpty(), activeServerBaseUrl),
-        title = title,
-        artist = artist,
+        title = bluetoothDisplay.title,
+        artist = bluetoothDisplay.artist,
         albumTitle = albumTitle ?: animeTitle ?: animeOrRelease,
         subtitle = actualLabel,
         description = listOfNotNull(animeOrRelease, actualLabel).distinct().joinToString(" · "),
@@ -82,9 +84,10 @@ internal fun ResolvedPlaybackItem.toPlaybackMediaDescriptor(
 internal fun ResolvedPlaybackItem.toPlaybackMediaItem(
     artworkData: ByteArray? = null,
     activeServerBaseUrl: String? = null,
+    bluetoothMetadataStyle: BluetoothMetadataStyle = BluetoothMetadataStyle.ANIME_THEME,
     includePlatformExtras: Boolean = true
 ): MediaItem {
-    val descriptor = toPlaybackMediaDescriptor(activeServerBaseUrl)
+    val descriptor = toPlaybackMediaDescriptor(activeServerBaseUrl, bluetoothMetadataStyle)
     val extras = if (includePlatformExtras) Bundle().apply {
         descriptor.values.forEach { (key, value) ->
             when (value) {

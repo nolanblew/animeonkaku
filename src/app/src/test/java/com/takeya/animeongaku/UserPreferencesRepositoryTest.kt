@@ -53,6 +53,29 @@ import retrofit2.Response
 
 class UserPreferencesRepositoryTest {
     @Test
+    fun `set preferred mode persists and syncs without changing reactions`() = runBlocking {
+        val dao = FakeUserPreferenceDao().apply {
+            insertOrUpdate(UserPreferenceEntity(themeId = 100L, isLiked = true, isDislikedFullSize = true))
+        }
+        val api = RecordingOngakuApi()
+        val store = PreferenceSyncStore()
+        val settings = ServerSettingsStore(FakeSharedPreferences()).apply {
+            serverBaseUrl = "http://192.168.1.5:8080/api"
+        }
+        val repository = UserPreferencesRepository(
+            dao, syncEngine(store, api, settings), RecordingServerUserStateRefresher()
+        )
+
+        repository.setPreferredMode(100L, "FULL_SIZE")
+
+        val saved = dao.saved.last()
+        assertEquals("FULL_SIZE", saved.preferredMode)
+        assertTrue(saved.isLiked)
+        assertTrue(saved.isDislikedFullSize)
+        assertEquals("FULL_SIZE", api.updatedThemePref?.preferredMode)
+    }
+
+    @Test
     fun `toggle like writes through to server when server mode is configured`() = runBlocking {
         val dao = FakeUserPreferenceDao()
         val api = RecordingOngakuApi()
@@ -129,7 +152,8 @@ class UserPreferencesRepositoryTest {
             isLiked = true,
             isDisliked = false,
             isDislikedTvSize = false,
-            isDislikedFullSize = true
+            isDislikedFullSize = true,
+            preferredMode = "FULL_SIZE"
         )
 
         val broad = base.withBroadThemeDislike(disliked = true, timestamp = 10L)
@@ -137,12 +161,14 @@ class UserPreferencesRepositoryTest {
         assertEquals(true, broad.isDisliked)
         assertEquals(false, broad.isDislikedTvSize)
         assertEquals(false, broad.isDislikedFullSize)
+        assertEquals("FULL_SIZE", broad.preferredMode)
 
         val scoped = broad.withModeThemeDislike(fullSize = false, disliked = true, timestamp = 11L)
         assertEquals(false, scoped.isLiked)
         assertEquals(false, scoped.isDisliked)
         assertEquals(true, scoped.isDislikedTvSize)
         assertEquals(false, scoped.isDislikedFullSize)
+        assertEquals("FULL_SIZE", scoped.preferredMode)
     }
 
     @Test

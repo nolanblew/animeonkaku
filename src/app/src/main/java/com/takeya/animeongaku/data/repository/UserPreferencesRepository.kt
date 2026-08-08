@@ -102,6 +102,19 @@ class UserPreferencesRepository @Inject constructor(
         }
     }
 
+    suspend fun setPreferredMode(themeId: Long, mode: String?) {
+        require(mode == null || mode == "TV_SIZE" || mode == "FULL_SIZE") {
+            "Preferred mode must be TV_SIZE, FULL_SIZE, or null"
+        }
+        val current = preferenceDao.getPreference(themeId) ?: UserPreferenceEntity(themeId)
+        if (current.preferredMode == mode) return
+        val opTs = System.currentTimeMillis()
+        val updated = current.copy(preferredMode = mode, updatedAt = opTs, deletedAt = null)
+        preferenceDao.insertOrUpdate(updated)
+        syncEngine.enqueueThemePreferredMode(themeId, mode, opTs)
+        pushPendingPreferenceWriteAndRefresh()
+    }
+
     /** A normal dislike suppresses every mode of this theme; scoped actions clear it first. */
     suspend fun toggleModeDislike(themeId: Long, fullSize: Boolean) {
         val current = preferenceDao.getPreference(themeId) ?: UserPreferenceEntity(themeId)

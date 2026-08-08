@@ -16,7 +16,8 @@ sealed interface AppUpdateEvent {
 
 @HiltViewModel
 class AppUpdateViewModel @Inject constructor(
-    private val appUpdateManager: AppUpdateManager
+    private val appUpdateManager: AppUpdateManager,
+    private val appUpdateInstaller: AppUpdateInstaller
 ) : ViewModel() {
     val state = appUpdateManager.state
 
@@ -44,7 +45,7 @@ class AppUpdateViewModel @Inject constructor(
 
                 is UpdateCheckResult.UpdateAvailable -> {
                     if (openWhenAvailable) {
-                        _events.emit(AppUpdateEvent.OpenUrl(result.update.downloadUrl))
+                        downloadUpdate(result.update)
                     } else {
                         _events.emit(
                             AppUpdateEvent.ShowMessage("Version ${result.update.versionName} is available.")
@@ -61,11 +62,21 @@ class AppUpdateViewModel @Inject constructor(
 
     fun openAvailableUpdate() {
         val update = state.value.availableUpdate ?: return
-        _events.tryEmit(AppUpdateEvent.OpenUrl(update.downloadUrl))
+        downloadUpdate(update)
     }
 
     fun openReleasePage() {
         val url = state.value.availableUpdate?.releasePageUrl ?: GITHUB_RELEASES_PAGE_URL
         _events.tryEmit(AppUpdateEvent.OpenUrl(url))
+    }
+
+    private fun downloadUpdate(update: AvailableAppUpdate) {
+        val message = when (val result = appUpdateInstaller.enqueue(update)) {
+            is UpdateDownloadResult.Started -> "Downloading Anime Ongaku ${update.versionName}."
+            UpdateDownloadResult.AlreadyQueued -> "This update is already in Downloads."
+            UpdateDownloadResult.InvalidRelease -> "The GitHub release does not contain a trusted APK."
+            is UpdateDownloadResult.Failed -> result.message
+        }
+        _events.tryEmit(AppUpdateEvent.ShowMessage(message))
     }
 }

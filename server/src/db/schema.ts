@@ -3,6 +3,7 @@ import {
   bigint,
   bigserial,
   boolean,
+  check,
   date,
   doublePrecision,
   index,
@@ -44,6 +45,7 @@ export type MusicAcquisitionState =
   | "FAILED"
   | "AMBIGUOUS";
 export type AnimeMusicRequestSource = "DEBUG_USER" | "AUTOMATIC" | "ADMIN_REIMPORT";
+export type AnimeMusicRequestScope = "FULL_SONGS" | "EXTRA_MUSIC" | "LEGACY_ALL";
 export type AnimeMusicBatchState =
   | "QUEUED" | "SEARCHING" | "AWAITING_OPERATOR" | "DOWNLOADING" | "PROCESSING"
   | "COMPLETED" | "COMPLETED_WITH_WARNINGS" | "FAILED" | "CANCELLED";
@@ -389,6 +391,7 @@ export const themePrefs = pgTable(
     disliked: boolean("disliked").notNull().default(false),
     dislikedTvSize: boolean("disliked_tv_size").notNull().default(false),
     dislikedFullSize: boolean("disliked_full_size").notNull().default(false),
+    preferredMode: text("preferred_mode").$type<PlaylistPlaybackMode>(),
     playCount: integer("play_count").notNull().default(0),
     lastPlayedAt: timestamp("last_played_at", { withTimezone: true }),
     // Dedicated last-write-wins clock for the liked/disliked pair. Kept separate from
@@ -405,6 +408,10 @@ export const themePrefs = pgTable(
     index("theme_prefs_user_liked_active_idx")
       .on(t.userId, t.liked, t.themeId)
       .where(sql`${t.deletedAt} is null`),
+    check(
+      "theme_prefs_preferred_mode_check",
+      sql`${t.preferredMode} is null or ${t.preferredMode} in ('TV_SIZE', 'FULL_SIZE')`,
+    ),
   ],
 );
 
@@ -475,12 +482,13 @@ export const animeMusicRequests = pgTable("anime_music_requests", {
   animethemesAnimeId: bigint("animethemes_anime_id", { mode: "number" }).notNull()
     .references(() => animethemesAnime.id),
   source: text("source").$type<AnimeMusicRequestSource>().notNull(),
+  scope: text("scope").$type<AnimeMusicRequestScope>().notNull().default("LEGACY_ALL"),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 }, (t) => [
-  uniqueIndex("anime_music_requests_one_active_anime_unique")
-    .on(t.animethemesAnimeId).where(sql`${t.completedAt} is null`),
+  uniqueIndex("anime_music_requests_one_active_scope_unique")
+    .on(t.animethemesAnimeId, t.scope).where(sql`${t.completedAt} is null`),
   index("anime_music_requests_anime_latest_idx").on(t.animethemesAnimeId, t.createdAt),
 ]);
 

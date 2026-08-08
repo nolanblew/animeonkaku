@@ -35,19 +35,28 @@ class LibraryPullManager @Inject constructor(
     ): LibraryPullResult = pullMutex.withLock {
         if (!sessionStateManager.isOnlineEnabled()) return@withLock LibraryPullResult(applied = false)
         if (!settings.isConfigured) return@withLock LibraryPullResult(applied = false)
-        if (now - settings.serverLastPullAt < minIntervalMs) {
+        val projectionNeedsRefresh =
+            settings.libraryProjectionVersion < CURRENT_LIBRARY_PROJECTION_VERSION
+        if (!projectionNeedsRefresh && now - settings.serverLastPullAt < minIntervalMs) {
             return@withLock LibraryPullResult(applied = false)
         }
 
-        val result = pullNowLocked(forceFull = false)
+        val result = pullNowLocked(forceFull = projectionNeedsRefresh)
         if (result.applied) {
             settings.serverLastPullAt = now
+            if (projectionNeedsRefresh) {
+                settings.libraryProjectionVersion = CURRENT_LIBRARY_PROJECTION_VERSION
+            }
         }
         result
     }
 
     override suspend fun pullNow(forceFull: Boolean): LibraryPullResult = pullMutex.withLock {
-        pullNowLocked(forceFull)
+        pullNowLocked(forceFull).also { result ->
+            if (forceFull && result.applied) {
+                settings.libraryProjectionVersion = CURRENT_LIBRARY_PROJECTION_VERSION
+            }
+        }
     }
 
     private suspend fun pullNowLocked(forceFull: Boolean): LibraryPullResult {
@@ -87,6 +96,7 @@ class LibraryPullManager @Inject constructor(
                     isDisliked = it.disliked,
                     isDislikedTvSize = it.dislikedTvSize,
                     isDislikedFullSize = it.dislikedFullSize,
+                    preferredMode = it.preferredMode,
                     updatedAt = it.updatedAt,
                     deletedAt = it.updatedAt.takeIf { _ -> it.deleted }
                 )
@@ -167,6 +177,10 @@ class LibraryPullManager @Inject constructor(
             themeCount = activeThemes.size,
             serverTime = changes.serverTime
         )
+    }
+
+    companion object {
+        const val CURRENT_LIBRARY_PROJECTION_VERSION = 1
     }
 }
 

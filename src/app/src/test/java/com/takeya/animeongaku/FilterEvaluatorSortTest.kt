@@ -148,6 +148,43 @@ class FilterEvaluatorSortTest {
     }
 
     @Test
+    fun `OP ED natural choices support grouped and interleaved ordering with stable id ties`() {
+        val t1 = theme(11, themeType = "ED2")
+        val t2 = theme(12, themeType = "OP2")
+        val t3 = theme(13, themeType = "IN1")
+        val t4 = theme(14, themeType = "ED1")
+        val t5 = theme(15, themeType = "OP1")
+        val t6 = theme(16, themeType = "OP1")
+        val context = ctx(listOf(t1, t2, t3, t4, t5, t6))
+
+        val grouped = SortSpec(listOf(SortKey(SortAttribute.THEME_ORDER_GROUPED)))
+        val interleaved = SortSpec(listOf(SortKey(SortAttribute.THEME_ORDER_INTERLEAVED)))
+
+        assertEquals(listOf(15L, 16L, 12L, 14L, 11L, 13L),
+            listOf(t1, t2, t3, t4, t5, t6).sortedBy(grouped, context))
+        assertEquals(listOf(15L, 16L, 14L, 12L, 11L, 13L),
+            listOf(t1, t2, t3, t4, t5, t6).sortedBy(interleaved, context))
+    }
+
+    @Test
+    fun `unnumbered OP and ED are sequence one with deterministic grouped and interleaved ties`() {
+        val op = theme(21, themeType = "OP")
+        val op1 = theme(22, themeType = "OP1")
+        val op2 = theme(23, themeType = "OP2")
+        val ed = theme(24, themeType = "ED")
+        val ed1 = theme(25, themeType = "ED1")
+        val ed2 = theme(26, themeType = "ED2")
+        val input = listOf(ed2, op2, ed1, op1, ed, op)
+        val context = ctx(input)
+
+        val grouped = SortSpec(listOf(SortKey(SortAttribute.THEME_ORDER_GROUPED)))
+        val interleaved = SortSpec(listOf(SortKey(SortAttribute.THEME_ORDER_INTERLEAVED)))
+
+        assertEquals(listOf(21L, 22L, 23L, 24L, 25L, 26L), input.sortedBy(grouped, context))
+        assertEquals(listOf(21L, 22L, 24L, 25L, 23L, 26L), input.sortedBy(interleaved, context))
+    }
+
+    @Test
     fun `multi key tiebreaking uses later keys only for equal earlier values`() {
         val animeA = anime("a", 10L, libraryUpdatedAt = 500L)
         val animeB = anime("b", 20L, libraryUpdatedAt = 500L)

@@ -90,6 +90,20 @@ class SyncEngine @Inject constructor(
         )
     }
 
+    suspend fun enqueueThemePreferredMode(
+        themeId: Long,
+        preferredMode: String?,
+        opTs: Long = System.currentTimeMillis()
+    ) {
+        enqueueSuperseding(
+            entityType = PendingOpEntity.ENTITY_THEME_PREF,
+            entityKey = themeId.toString(),
+            opType = PendingOpEntity.OP_SET_PREFERRED_MODE,
+            payload = mapOf("preferredMode" to preferredMode),
+            opTs = opTs
+        )
+    }
+
     suspend fun enqueueSongPreference(
         preference: SongPreferenceEntity,
         opTs: Long = preference.updatedAt.takeIf { it > 0L } ?: System.currentTimeMillis()
@@ -319,13 +333,16 @@ class SyncEngine @Inject constructor(
     }
 
     private suspend fun pushThemePref(op: PendingOpEntity, payload: Map<String, Any?>) {
+        val isPreferredModeWrite = op.opType == PendingOpEntity.OP_SET_PREFERRED_MODE
         api.updateThemePref(
             op.entityKey.toLong(),
             OngakuThemePrefPatch(
-                liked = payload["liked"] as? Boolean,
-                disliked = payload["disliked"] as? Boolean,
-                dislikedTvSize = payload["dislikedTvSize"] as? Boolean,
-                dislikedFullSize = payload["dislikedFullSize"] as? Boolean,
+                liked = if (isPreferredModeWrite) null else payload["liked"] as? Boolean,
+                disliked = if (isPreferredModeWrite) null else payload["disliked"] as? Boolean,
+                dislikedTvSize = if (isPreferredModeWrite) null else payload["dislikedTvSize"] as? Boolean,
+                dislikedFullSize = if (isPreferredModeWrite) null else payload["dislikedFullSize"] as? Boolean,
+                preferredMode = if (isPreferredModeWrite) payload["preferredMode"] as? String else null,
+                includePreferredMode = isPreferredModeWrite,
                 opTs = op.opTs
             )
         )

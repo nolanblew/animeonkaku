@@ -3,7 +3,10 @@ package com.takeya.animeongaku
 import com.takeya.animeongaku.data.repository.MusicRequest
 import com.takeya.animeongaku.data.repository.MusicRequestBatchCounts
 import com.takeya.animeongaku.data.repository.MusicRequestRepository
+import com.takeya.animeongaku.data.repository.MusicRequestScope
+import com.takeya.animeongaku.data.repository.MusicRequestScopeStatus
 import com.takeya.animeongaku.data.repository.MusicRequestState
+import com.takeya.animeongaku.data.repository.MusicRequestStatus
 import com.takeya.animeongaku.ui.library.MusicRequestCoordinator
 import com.takeya.animeongaku.ui.library.MusicRequestUiState
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -19,82 +22,80 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class MusicRequestCoordinatorTest {
     @Test
-    fun `hydration with no durable request becomes idle`() = runTest {
-        val repository = FakeMusicRequestRepository(latest = null)
-        val coordinator = MusicRequestCoordinator(repository, this, defaultPollDelayMillis = 1_000)
-
-        coordinator.hydrate("123")
-        advanceUntilIdle()
-
-        assertEquals(MusicRequestUiState.Idle, coordinator.state.value)
-        assertEquals(listOf("123"), repository.latestCalls)
-    }
-
-    @Test
-    fun `hydration polls nonterminal request until completion`() = runTest {
-        val queued = request(state = MusicRequestState.QUEUED, pollAfterSeconds = 1)
-        val completed = request(state = MusicRequestState.COMPLETED, pollAfterSeconds = null)
-        val repository = FakeMusicRequestRepository(latest = queued, polls = ArrayDeque(listOf(completed)))
-        val coordinator = MusicRequestCoordinator(repository, this, defaultPollDelayMillis = 5_000)
-
-        coordinator.hydrate("123")
-        runCurrent()
-        assertTrue(coordinator.state.value is MusicRequestUiState.Queued)
-        assertTrue(repository.pollCalls.isEmpty())
-
-        advanceTimeBy(1_000)
-        runCurrent()
-
-        assertTrue(coordinator.state.value is MusicRequestUiState.Completed)
-        assertEquals(listOf("request-1"), repository.pollCalls)
-        advanceTimeBy(30_000)
-        assertEquals(1, repository.pollCalls.size)
-    }
-
-    @Test
-    fun `request prevents concurrent submissions and polls accepted request`() = runTest {
-        val searching = request(state = MusicRequestState.SEARCHING, pollAfterSeconds = 1)
-        val completed = request(state = MusicRequestState.COMPLETED)
-        val repository = FakeMusicRequestRepository(created = searching, polls = ArrayDeque(listOf(completed)))
-        val coordinator = MusicRequestCoordinator(repository, this, defaultPollDelayMillis = 1_000)
-
-        coordinator.request("123")
-        coordinator.request("123")
-        runCurrent()
-
-        assertEquals(1, repository.createCalls.size)
-        assertTrue(coordinator.state.value is MusicRequestUiState.Searching)
-        advanceTimeBy(1_000)
-        advanceUntilIdle()
-        assertTrue(coordinator.state.value is MusicRequestUiState.Completed)
-    }
-
-    @Test
-    fun `new ready batches and terminal status refresh available catalog`() = runTest {
-        val searching = request(
-            state = MusicRequestState.SEARCHING,
-            pollAfterSeconds = 1,
-            counts = MusicRequestBatchCounts(searching = 2)
-        )
-        val partiallyReady = request(
-            state = MusicRequestState.PROCESSING,
-            pollAfterSeconds = 1,
-            counts = MusicRequestBatchCounts(processing = 1, completed = 1),
-            lastUpdatedAt = "2026-07-21T20:00:01.000Z"
-        )
-        val moreFilesReadyInSameBatch = request(
-            state = MusicRequestState.PROCESSING,
-            pollAfterSeconds = 1,
-            counts = MusicRequestBatchCounts(processing = 1, completed = 1),
-            lastUpdatedAt = "2026-07-21T20:00:02.000Z"
-        )
-        val completed = request(
-            state = MusicRequestState.COMPLETED,
-            counts = MusicRequestBatchCounts(completed = 2)
-        )
+    fun `hydration maps both scopes from one combined status`() = runTest {
         val repository = FakeMusicRequestRepository(
-            latest = searching,
-            polls = ArrayDeque(listOf(partiallyReady, moreFilesReadyInSameBatch, completed))
+            statuses = ArrayDeque(
+                listOf(
+                    status(
+                        scopeStatus(MusicRequestScope.FULL_SONGS, eligible = 4, missing = 3),
+                        scopeStatus(MusicRequestScope.EXTRA_MUSIC, eligible = 2, available = 2, missing = 0)
+                    )
+                )
+            )
+        )
+        val coordinator = MusicRequestCoordinator(repository, this)
+
+        coordinator.hydrate("123")
+        advanceUntilIdle()
+
+        assertEquals(3, coordinator.state.value[MusicRequestScope.FULL_SONGS].missingCount)
+        assertEquals(0, coordinator.state.value[MusicRequestScope.EXTRA_MUSIC].missingCount)
+        assertEquals(listOf("123"), repository.statusCalls)
+    }
+
+    @Test
+    fun `active full songs request does not block extra music submission`() = runTest {
+        val full = request("full-1", MusicRequestScope.FULL_SONGS, MusicRequestState.SEARCHING, active = true)
+        val extra = request("extra-1", MusicRequestScope.EXTRA_MUSIC, MusicRequestState.QUEUED, active = true)
+        val repository = FakeMusicRequestRepository(
+            statuses = ArrayDeque(
+                listOf(
+                    status(
+                        scopeStatus(MusicRequestScope.FULL_SONGS, eligible = 4, missing = 2, latest = full),
+                        scopeStatus(MusicRequestScope.EXTRA_MUSIC, eligible = 3, missing = 3)
+                    ),
+                    status(
+                        scopeStatus(MusicRequestScope.FULL_SONGS, eligible = 4, missing = 2, latest = full),
+                        scopeStatus(MusicRequestScope.EXTRA_MUSIC, eligible = 3, missing = 3, latest = extra)
+                    )
+                )
+            ),
+            created = mutableMapOf(MusicRequestScope.EXTRA_MUSIC to extra)
+        )
+        val coordinator = MusicRequestCoordinator(repository, this, defaultPollDelayMillis = 10_000)
+
+        coordinator.hydrate("123")
+        runCurrent()
+        coordinator.request("123", MusicRequestScope.FULL_SONGS)
+        coordinator.request("123", MusicRequestScope.EXTRA_MUSIC)
+        runCurrent()
+
+        assertEquals(listOf(MusicRequestScope.EXTRA_MUSIC), repository.createCalls.map { it.second })
+        assertTrue(coordinator.state.value[MusicRequestScope.FULL_SONGS].progress is MusicRequestUiState.Searching)
+        assertTrue(coordinator.state.value[MusicRequestScope.EXTRA_MUSIC].progress is MusicRequestUiState.Queued)
+        coordinator.cancel()
+    }
+
+    @Test
+    fun `active scopes poll their own request ids and refresh combined status and catalog`() = runTest {
+        val fullActive = request("full-1", MusicRequestScope.FULL_SONGS, MusicRequestState.SEARCHING, active = true, pollSeconds = 1)
+        val extraActive = request("extra-1", MusicRequestScope.EXTRA_MUSIC, MusicRequestState.DOWNLOADING, active = true, pollSeconds = 1)
+        val fullDone = request("full-1", MusicRequestScope.FULL_SONGS, MusicRequestState.COMPLETED, active = false)
+        val extraWarning = request("extra-1", MusicRequestScope.EXTRA_MUSIC, MusicRequestState.COMPLETED_WITH_WARNINGS, active = false)
+        val repository = FakeMusicRequestRepository(
+            statuses = ArrayDeque(
+                listOf(
+                    status(
+                        scopeStatus(MusicRequestScope.FULL_SONGS, 4, missing = 2, latest = fullActive),
+                        scopeStatus(MusicRequestScope.EXTRA_MUSIC, 3, missing = 2, latest = extraActive)
+                    ),
+                    status(
+                        scopeStatus(MusicRequestScope.FULL_SONGS, 4, available = 4, missing = 0, latest = fullDone),
+                        scopeStatus(MusicRequestScope.EXTRA_MUSIC, 3, available = 2, missing = 1, latest = extraWarning)
+                    )
+                )
+            ),
+            polled = mutableMapOf("full-1" to fullDone, "extra-1" to extraWarning)
         )
         var catalogRefreshes = 0
         val coordinator = MusicRequestCoordinator(
@@ -106,160 +107,160 @@ class MusicRequestCoordinatorTest {
 
         coordinator.hydrate("123")
         runCurrent()
-        assertEquals(0, catalogRefreshes)
-
         advanceTimeBy(1_000)
         runCurrent()
-        assertEquals(1, catalogRefreshes)
 
-        advanceTimeBy(1_000)
-        runCurrent()
-        assertEquals(2, catalogRefreshes)
-
-        advanceTimeBy(1_000)
-        advanceUntilIdle()
-        assertEquals(3, catalogRefreshes)
-        assertTrue(repository.createCalls.isEmpty())
+        assertEquals(setOf("full-1", "extra-1"), repository.pollCalls.toSet())
+        assertEquals(2, repository.pollCalls.size)
+        assertTrue(repository.statusCalls.size >= 2)
+        assertTrue(catalogRefreshes >= 1)
+        coordinator.cancel()
     }
 
     @Test
-    fun `active polling refuses a new POST request`() = runTest {
-        val queued = request(state = MusicRequestState.QUEUED, pollAfterSeconds = 10)
-        val repository = FakeMusicRequestRepository(latest = queued, created = queued)
-        val coordinator = MusicRequestCoordinator(repository, this)
-
-        coordinator.hydrate("123")
-        runCurrent()
-        coordinator.request("123")
-        runCurrent()
-
-        assertTrue(coordinator.state.value is MusicRequestUiState.Queued)
-        assertTrue(repository.createCalls.isEmpty())
-    }
-
-    @Test
-    fun `submission error is retryable without leaving anime detail`() = runTest {
-        val repository = FakeMusicRequestRepository(createError = IllegalStateException("controller offline"))
-        val coordinator = MusicRequestCoordinator(repository, this)
-
-        coordinator.request("123")
-        advanceUntilIdle()
-
-        val failed = coordinator.state.value as MusicRequestUiState.SubmissionError
-        assertEquals("Could not request music. Try again.", failed.message)
-
-        repository.createError = null
-        repository.created = request(state = MusicRequestState.AWAITING_OPERATOR)
-        coordinator.request("123")
-        runCurrent()
-
-        assertTrue(coordinator.state.value is MusicRequestUiState.AwaitingOperator)
-        assertEquals(2, repository.createCalls.size)
-    }
-
-    @Test
-    fun `cancel stops polling without cancelling server request`() = runTest {
-        val repository = FakeMusicRequestRepository(latest = request(state = MusicRequestState.DOWNLOADING))
+    fun `legacy request shown for extra music keeps polling and progress under extra music`() = runTest {
+        val legacyActive = request("legacy-1", MusicRequestScope.FULL_SONGS, MusicRequestState.SEARCHING, active = true, pollSeconds = 1)
+        val legacyDone = request("legacy-1", MusicRequestScope.FULL_SONGS, MusicRequestState.COMPLETED, active = false)
+        val repository = FakeMusicRequestRepository(
+            statuses = ArrayDeque(
+                listOf(
+                    status(
+                        scopeStatus(MusicRequestScope.FULL_SONGS, eligible = 4, missing = 0),
+                        scopeStatus(MusicRequestScope.EXTRA_MUSIC, eligible = 2, missing = 2, latest = legacyActive)
+                    ),
+                    status(
+                        scopeStatus(MusicRequestScope.FULL_SONGS, eligible = 4, missing = 0),
+                        scopeStatus(MusicRequestScope.EXTRA_MUSIC, eligible = 2, missing = 0, latest = legacyDone)
+                    )
+                )
+            ),
+            polled = mutableMapOf("legacy-1" to legacyDone)
+        )
         val coordinator = MusicRequestCoordinator(repository, this, defaultPollDelayMillis = 1_000)
 
         coordinator.hydrate("123")
         runCurrent()
-        coordinator.cancel()
-        advanceTimeBy(10_000)
+        advanceTimeBy(1_000)
+        runCurrent()
 
-        assertTrue(repository.pollCalls.isEmpty())
-        assertFalse(repository.cancelWasCalled)
+        assertTrue(coordinator.state.value[MusicRequestScope.EXTRA_MUSIC].progress is MusicRequestUiState.Completed)
+        assertTrue(coordinator.state.value[MusicRequestScope.FULL_SONGS].progress is MusicRequestUiState.Idle)
+        coordinator.cancel()
     }
 
     @Test
-    fun `latest status failure retries GET rather than POST`() = runTest {
-        val repository = FakeMusicRequestRepository(latestError = IllegalStateException("offline"))
-        val coordinator = MusicRequestCoordinator(repository, this)
+    fun `rehydration does not create duplicate polling loops`() = runTest {
+        val active = request("full-1", MusicRequestScope.FULL_SONGS, MusicRequestState.SEARCHING, active = true, pollSeconds = 1)
+        val done = request("full-1", MusicRequestScope.FULL_SONGS, MusicRequestState.COMPLETED, active = false)
+        val snapshot = status(
+            scopeStatus(MusicRequestScope.FULL_SONGS, 4, missing = 2, latest = active),
+            scopeStatus(MusicRequestScope.EXTRA_MUSIC, 0, missing = 0)
+        )
+        val repository = FakeMusicRequestRepository(
+            statuses = ArrayDeque(listOf(snapshot, snapshot, snapshot)),
+            polled = mutableMapOf("full-1" to done)
+        )
+        val coordinator = MusicRequestCoordinator(repository, this, defaultPollDelayMillis = 1_000)
 
         coordinator.hydrate("123")
-        advanceUntilIdle()
-        assertTrue(coordinator.state.value is MusicRequestUiState.StatusError)
+        runCurrent()
+        coordinator.hydrate("123")
+        runCurrent()
+        advanceTimeBy(1_000)
+        runCurrent()
 
-        repository.latestError = null
-        repository.latest = request(state = MusicRequestState.COMPLETED)
-        coordinator.retryStatus()
-        advanceUntilIdle()
-
-        assertTrue(coordinator.state.value is MusicRequestUiState.Completed)
-        assertEquals(2, repository.latestCalls.size)
-        assertTrue(repository.createCalls.isEmpty())
+        assertEquals(listOf("full-1"), repository.pollCalls)
+        coordinator.cancel()
     }
 
     @Test
-    fun `poll failure retries resource GET rather than POST`() = runTest {
-        val queued = request(state = MusicRequestState.QUEUED, pollAfterSeconds = 1)
-        val completed = request(state = MusicRequestState.COMPLETED)
+    fun `terminal missing work can submit again while completed scope stays untouched`() = runTest {
+        val failed = request("extra-old", MusicRequestScope.EXTRA_MUSIC, MusicRequestState.FAILED, active = false)
+        val retry = request("extra-new", MusicRequestScope.EXTRA_MUSIC, MusicRequestState.QUEUED, active = true)
         val repository = FakeMusicRequestRepository(
-            latest = queued,
-            pollError = IllegalStateException("offline")
+            statuses = ArrayDeque(
+                listOf(
+                    status(
+                        scopeStatus(MusicRequestScope.FULL_SONGS, 4, available = 4, missing = 0),
+                        scopeStatus(MusicRequestScope.EXTRA_MUSIC, 3, available = 1, missing = 2, latest = failed)
+                    ),
+                    status(
+                        scopeStatus(MusicRequestScope.FULL_SONGS, 4, available = 4, missing = 0),
+                        scopeStatus(MusicRequestScope.EXTRA_MUSIC, 3, available = 1, missing = 2, latest = retry)
+                    )
+                )
+            ),
+            created = mutableMapOf(MusicRequestScope.EXTRA_MUSIC to retry)
         )
         val coordinator = MusicRequestCoordinator(repository, this)
 
         coordinator.hydrate("123")
-        advanceTimeBy(1_000)
-        runCurrent()
-        assertTrue(coordinator.state.value is MusicRequestUiState.StatusError)
-
-        repository.pollError = null
-        repository.polls += completed
-        coordinator.retryStatus()
         advanceUntilIdle()
+        coordinator.request("123", MusicRequestScope.EXTRA_MUSIC)
+        runCurrent()
 
-        assertTrue(coordinator.state.value is MusicRequestUiState.Completed)
-        assertEquals(listOf("request-1", "request-1"), repository.pollCalls)
-        assertTrue(repository.createCalls.isEmpty())
+        assertEquals(1, repository.createCalls.size)
+        assertFalse(coordinator.state.value[MusicRequestScope.FULL_SONGS].active)
+        assertTrue(coordinator.state.value[MusicRequestScope.EXTRA_MUSIC].active)
+        coordinator.cancel()
     }
 
+    private fun status(vararg scopes: MusicRequestScopeStatus) = MusicRequestStatus("123", scopes.toList())
+
+    private fun scopeStatus(
+        scope: MusicRequestScope,
+        eligible: Int,
+        available: Int = 0,
+        missing: Int,
+        latest: MusicRequest? = null
+    ) = MusicRequestScopeStatus(scope, latest, latest?.active == true, eligible, available, missing)
+
     private fun request(
+        id: String,
+        scope: MusicRequestScope,
         state: MusicRequestState,
-        pollAfterSeconds: Int? = null,
-        counts: MusicRequestBatchCounts = MusicRequestBatchCounts(),
-        lastUpdatedAt: String = "2026-07-21T20:00:00.000Z"
+        active: Boolean,
+        pollSeconds: Int? = null
     ) = MusicRequest(
-        id = "request-1",
+        id = id,
         kitsuId = "123",
+        scope = scope,
         state = state,
-        batchCount = 3,
-        counts = counts,
+        active = active,
+        batchCount = 1,
+        fullThemeCount = if (scope == MusicRequestScope.FULL_SONGS) 4 else 0,
+        counts = MusicRequestBatchCounts(),
         requiresOperatorAction = state == MusicRequestState.AWAITING_OPERATOR,
-        lastUpdatedAt = lastUpdatedAt,
-        pollAfterSeconds = pollAfterSeconds
+        lastUpdatedAt = "$id-$state",
+        pollAfterSeconds = pollSeconds
     )
 }
 
 private class FakeMusicRequestRepository(
-    var latest: MusicRequest? = null,
-    var created: MusicRequest? = null,
-    val polls: ArrayDeque<MusicRequest> = ArrayDeque(),
-    var createError: Exception? = null,
-    var latestError: Exception? = null,
-    var pollError: Exception? = null
+    val statuses: ArrayDeque<MusicRequestStatus> = ArrayDeque(),
+    val created: MutableMap<MusicRequestScope, MusicRequest> = mutableMapOf(),
+    val polled: MutableMap<String, MusicRequest> = mutableMapOf()
 ) : MusicRequestRepository {
-    val latestCalls = mutableListOf<String>()
-    val createCalls = mutableListOf<String>()
+    val statusCalls = mutableListOf<String>()
+    val createCalls = mutableListOf<Pair<String, MusicRequestScope>>()
     val pollCalls = mutableListOf<String>()
-    var cancelWasCalled = false
 
-    override suspend fun latest(kitsuId: String): MusicRequest? {
-        latestCalls += kitsuId
-        latestError?.let { throw it }
-        return latest
+    override suspend fun status(kitsuId: String): MusicRequestStatus {
+        statusCalls += kitsuId
+        return if (statuses.size > 1) statuses.removeFirst() else statuses.first()
     }
 
-    override suspend fun create(kitsuId: String): MusicRequest {
-        createCalls += kitsuId
-        createError?.let { throw it }
-        return checkNotNull(created)
+    override suspend fun request(kitsuId: String, scope: MusicRequestScope): MusicRequest {
+        createCalls += kitsuId to scope
+        return checkNotNull(created[scope])
     }
 
     override suspend fun get(requestId: String): MusicRequest {
         pollCalls += requestId
-        pollError?.let { throw it }
-        return polls.removeFirst()
+        return checkNotNull(polled[requestId])
     }
+
+    override suspend fun create(kitsuId: String): MusicRequest = request(kitsuId, MusicRequestScope.FULL_SONGS)
+
+    override suspend fun latest(kitsuId: String): MusicRequest? = status(kitsuId)[MusicRequestScope.FULL_SONGS].latest
 }

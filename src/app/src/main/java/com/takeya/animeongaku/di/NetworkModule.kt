@@ -15,6 +15,8 @@ import com.takeya.animeongaku.data.auth.OngakuAuthRepository
 import com.takeya.animeongaku.data.auth.OngakuAuthRepositoryImpl
 import com.takeya.animeongaku.data.auth.ServerTokenStore
 import com.takeya.animeongaku.data.remote.OngakuApi
+import com.takeya.animeongaku.data.remote.OngakuThemePrefPatch
+import com.takeya.animeongaku.data.remote.OngakuThemePrefPatchJsonAdapter
 import com.takeya.animeongaku.data.remote.OngakuMusicApi
 import com.takeya.animeongaku.data.remote.MusicRequestApi
 import com.takeya.animeongaku.data.server.ServerSettingsStore
@@ -85,6 +87,7 @@ object NetworkModule {
             .withSubtype(CustomRange.Exact::class.java, "exact")
 
         return Moshi.Builder()
+            .add(OngakuThemePrefPatch::class.java, OngakuThemePrefPatchJsonAdapter())
             .add(filterNodeFactory)
             .add(dateAnchorFactory)
             .add(customRangeFactory)

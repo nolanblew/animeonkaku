@@ -522,6 +522,21 @@ private fun DirectionRow(
                 }
             }
         }
+        SortValueKind.FIXED_ORDER -> {
+            Surface(
+                color = accent.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(999.dp),
+                border = BorderStroke(1.dp, accent.copy(alpha = 0.28f))
+            ) {
+                Text(
+                    text = "Natural order",
+                    color = accent,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+            }
+        }
         else -> {
             val (ascLabel, descLabel) = directionLabels(key.attribute)
             FlowRow(
@@ -740,7 +755,13 @@ private enum class AttributeCategory(
     val displayName: String,
     val attributes: List<SortAttribute>
 ) {
-    SONG("Song", listOf(SortAttribute.TITLE, SortAttribute.ARTIST, SortAttribute.THEME_TYPE)),
+    SONG("Song", listOf(
+        SortAttribute.TITLE,
+        SortAttribute.ARTIST,
+        SortAttribute.THEME_TYPE,
+        SortAttribute.THEME_ORDER_GROUPED,
+        SortAttribute.THEME_ORDER_INTERLEAVED
+    )),
     ANIME("Anime", listOf(
         SortAttribute.ANIME_TITLE,
         SortAttribute.AIRED_DATE,
@@ -764,6 +785,8 @@ internal fun attributeLabel(attr: SortAttribute): String = when (attr) {
     SortAttribute.ARTIST -> "Artist"
     SortAttribute.ANIME_TITLE -> "Anime Title"
     SortAttribute.THEME_TYPE -> "Theme Type"
+    SortAttribute.THEME_ORDER_GROUPED -> "OP/ED grouped (OP1, OP2, ED1, ED2)"
+    SortAttribute.THEME_ORDER_INTERLEAVED -> "OP/ED interleaved (OP1, ED1, OP2, ED2)"
     SortAttribute.AIRED_DATE -> "Aired Date"
     SortAttribute.WATCHED_DATE -> "Watched Date"
     SortAttribute.AVERAGE_RATING -> "Average Rating"
@@ -784,6 +807,7 @@ internal fun attributeKindLabel(attr: SortAttribute): String = when (attr.valueK
     SortValueKind.DATE -> "Date"
     SortValueKind.BOOLEAN -> "Yes / No"
     SortValueKind.CATEGORICAL -> "Custom order"
+    SortValueKind.FIXED_ORDER -> "Natural order"
     SortValueKind.RANDOM -> "Shuffle"
 }
 
@@ -793,7 +817,7 @@ internal fun directionLabels(attr: SortAttribute): Pair<String, String> = when (
     SortValueKind.NUMBER -> "Low \u2192 High" to "High \u2192 Low"
     SortValueKind.DATE -> "Oldest first" to "Newest first"
     SortValueKind.BOOLEAN -> "Yes first" to "No first"
-    SortValueKind.CATEGORICAL, SortValueKind.RANDOM -> "Custom" to "Custom"
+    SortValueKind.CATEGORICAL, SortValueKind.RANDOM, SortValueKind.FIXED_ORDER -> "Custom" to "Custom"
 }
 
 internal fun attributeAccent(attr: SortAttribute): Color = when (attr.valueKind) {
@@ -802,6 +826,7 @@ internal fun attributeAccent(attr: SortAttribute): Color = when (attr.valueKind)
     SortValueKind.DATE -> Sky500
     SortValueKind.BOOLEAN -> Rose500
     SortValueKind.CATEGORICAL -> Mist200
+    SortValueKind.FIXED_ORDER -> Mist200
     SortValueKind.RANDOM -> Gold400
 }
 
