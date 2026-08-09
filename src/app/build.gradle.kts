@@ -75,10 +75,10 @@ android {
         applicationId = "com.takeya.animeongaku"
         minSdk = 35
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.2.1"
+        versionCode = 3
+        versionName = "1.2.2"
         
-        buildConfigField("String", "DISPLAY_VERSION", "\"1.2.1\"")
+        buildConfigField("String", "DISPLAY_VERSION", "\"1.2.2\"")
         buildConfigField("boolean", "UPDATER_ENABLED", "false")
         buildConfigField("String", "ONGAKU_SERVER_BASE_URL", ongakuServerBaseUrl.toBuildConfigStringLiteral())
 
