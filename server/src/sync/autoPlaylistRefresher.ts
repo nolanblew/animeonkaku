@@ -134,13 +134,7 @@ export class DrizzleAutoPlaylistRefresher {
     const existingRow = existing[0] ?? null;
     const existingEntries = existingRow ? await this.autoPlaylistEntries(playlistId) : [];
     const existingThemeIds = existingEntries.flatMap((entry) => entry.itemType === "THEME" ? [entry.itemId] : []);
-    const metadataChanged =
-      existingRow === null ||
-      !existingRow.isAuto ||
-      existingRow.autoKind !== spec.kind ||
-      existingRow.gradientSeed !== gradient ||
-      existingRow.defaultMode !== "TV_SIZE" ||
-      existingRow.deletedAt !== null;
+    const metadataChanged = autoPlaylistMetadataChanged(existingRow, spec.kind, gradient);
     const entriesChanged = existingEntries.some((entry) => entry.itemType !== "THEME" || entry.modeOverride !== null)
       || !orderedThemeIdsMatch(existingThemeIds, nextThemeIds);
     if (!metadataChanged && !entriesChanged) {
@@ -153,7 +147,6 @@ export class DrizzleAutoPlaylistRefresher {
         isAuto: true,
         autoKind: spec.kind,
         gradientSeed: gradient,
-        defaultMode: "TV_SIZE",
         deletedAt: null,
         updatedAt: new Date(),
       })
@@ -181,6 +174,24 @@ export class DrizzleAutoPlaylistRefresher {
       .orderBy(asc(playlistEntries.orderIndex));
     return rows;
   }
+}
+
+export function autoPlaylistMetadataChanged(
+  existingRow: {
+    isAuto: boolean;
+    autoKind: string | null;
+    gradientSeed: number;
+    defaultMode: "TV_SIZE" | "FULL_SIZE";
+    deletedAt: Date | null;
+  } | null,
+  kind: AutoPlaylistKind,
+  gradient: number,
+): boolean {
+  return existingRow === null ||
+    !existingRow.isAuto ||
+    existingRow.autoKind !== kind ||
+    existingRow.gradientSeed !== gradient ||
+    existingRow.deletedAt !== null;
 }
 
 function uniqueNumbers(items: number[]): number[] {

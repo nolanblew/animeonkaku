@@ -20,6 +20,8 @@ import com.takeya.animeongaku.data.local.DownloadItemEntity
 import com.takeya.animeongaku.data.local.MusicCatalogDao
 import com.takeya.animeongaku.data.local.MusicReleaseEntity
 import com.takeya.animeongaku.data.local.PlaylistDao
+import com.takeya.animeongaku.data.local.PlaylistEntity
+import com.takeya.animeongaku.data.local.PlaylistEntryEntity
 import com.takeya.animeongaku.data.local.SongEntity
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
@@ -43,6 +45,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -52,6 +55,23 @@ internal fun newPlaylistDownloadThemeIds(
     playlistThemeIds: List<Long>,
     trackedThemeIds: Set<Long>
 ): List<Long> = playlistThemeIds.distinct().filter { it !in trackedThemeIds }
+
+private data class PlaylistDownloadRevision(
+    val playlistId: Long,
+    val defaultMode: String,
+    val entries: List<PlaylistEntryEntity>
+)
+
+internal fun playlistDownloadRefreshes(
+    group: DownloadGroupEntity,
+    playlist: Flow<PlaylistEntity?>,
+    entries: Flow<List<PlaylistEntryEntity>>
+): Flow<Long> = combine(playlist, entries) { currentPlaylist, currentEntries ->
+    currentPlaylist?.let { PlaylistDownloadRevision(it.id, it.defaultMode, currentEntries) }
+}
+    .filterNotNull()
+    .distinctUntilChanged()
+    .map { revision -> group.groupId.toLongOrNull() ?: revision.playlistId }
 
 internal fun shouldDeletePhysicalDownload(remainingGroupCount: Int, forcePhysicalRemoval: Boolean): Boolean =
     forcePhysicalRemoval || remainingGroupCount == 0
@@ -105,7 +125,12 @@ class DownloadManager @Inject constructor(
                 .distinctUntilChanged()
                 .flatMapLatest { groups ->
                     if (groups.isEmpty()) flowOf(emptyList()) else combine(groups.map { group ->
-                        playlistDao.observePlaylistEntries(group.groupId.toLongOrNull() ?: -1L).map { group }
+                        val playlistId = group.groupId.toLongOrNull() ?: -1L
+                        playlistDownloadRefreshes(
+                            group,
+                            playlistDao.observePlaylist(playlistId),
+                            playlistDao.observePlaylistEntries(playlistId)
+                        ).map { group }
                     }) { it.toList() }
                 }
                 .collect { groups ->

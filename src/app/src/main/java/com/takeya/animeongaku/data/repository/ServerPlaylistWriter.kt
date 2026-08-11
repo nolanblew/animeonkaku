@@ -264,9 +264,16 @@ class ServerPlaylistWriter @Inject constructor(
 
     suspend fun updateDefaultMode(playlistId: Long, defaultMode: String) {
         require(defaultMode == "TV_SIZE" || defaultMode == "FULL_SIZE")
-        requireEditable(playlistId)
-        store.updateDefaultMode(playlistId, defaultMode, System.currentTimeMillis())
-        syncPlaylistItems(playlistId)
+        val playlist = store.playlistById(playlistId) ?: return
+        val opTs = System.currentTimeMillis()
+        store.updateDefaultMode(playlistId, defaultMode, opTs)
+        if (!serverSettingsStore.isConfigured) return
+        if (playlist.isAuto) {
+            syncEngine.enqueuePlaylistDefaultMode(playlistId, defaultMode, opTs)
+            syncEngine.pushPendingWrites()
+        } else {
+            syncPlaylistItems(playlistId)
+        }
     }
 
     suspend fun updateItemMode(playlistId: Long, entryId: Long, modeOverride: String?) {

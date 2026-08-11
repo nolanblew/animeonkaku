@@ -244,6 +244,22 @@ class SyncEngineTest {
     }
 
     @Test
+    fun `preferred version update is pushed even for an auto dynamic playlist`() = runBlocking {
+        val store = FakeSyncEngineStore(autoDynamicPlaylistIds = setOf(88L))
+        val api = SyncRecordingOngakuApi()
+        val engine = syncEngine(store, api)
+
+        engine.enqueuePlaylistDefaultMode(playlistId = 88L, defaultMode = "FULL_SIZE", opTs = 41L)
+        val result = engine.pushPendingWrites()
+
+        assertEquals(1, result.opCount)
+        assertEquals(88L, api.updatedPlaylistId)
+        assertEquals("FULL_SIZE", api.updatedPlaylistRequest?.defaultMode)
+        assertNull(api.updatedPlaylistRequest?.entries)
+        assertNull(api.updatedPlaylistRequest?.items)
+    }
+
+    @Test
     fun `playlist remap follows server dynamic ownership and kind`() {
         val localSpec = DynamicPlaylistSpecEntity(
             playlistId = -10L,

@@ -1,10 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
+  autoPlaylistMetadataChanged,
   currentlyWatchingThemeIds,
   orderedThemeIdsMatch,
 } from "../src/sync/autoPlaylistRefresher.js";
 
 describe("DrizzleAutoPlaylistRefresher helpers", () => {
+  it("preserves a listener-selected Full Size default during refresh", () => {
+    expect(autoPlaylistMetadataChanged({
+      isAuto: true,
+      autoKind: "CURRENTLY_WATCHING",
+      gradientSeed: 123,
+      defaultMode: "FULL_SIZE",
+      deletedAt: null,
+    }, "CURRENTLY_WATCHING", 123)).toBe(false);
+  });
+
   it("detects unchanged materialized playlist entries without sorting them", () => {
     expect(orderedThemeIdsMatch([100, 101, 102], [100, 101, 102])).toBe(true);
     expect(orderedThemeIdsMatch([100, 102, 101], [100, 101, 102])).toBe(false);
