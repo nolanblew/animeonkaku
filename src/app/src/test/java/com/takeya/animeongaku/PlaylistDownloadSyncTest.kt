@@ -10,10 +10,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.yield
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class PlaylistDownloadSyncTest {
     @Test
     fun `downloaded playlist refreshes when its preferred version changes`() = runTest {
@@ -28,9 +30,12 @@ class PlaylistDownloadSyncTest {
         )))
         val group = DownloadGroupEntity(3, DownloadGroupEntity.TYPE_PLAYLIST, "7", "Drive")
 
-        val emissions = async { playlistDownloadRefreshes(group, playlist, entries).take(2).toList() }
-        yield()
+        val emissions = async {
+            playlistDownloadRefreshes(group, playlist, entries).take(2).toList()
+        }
+        advanceUntilIdle()
         playlist.value = playlist.value.copy(defaultMode = "FULL_SIZE", updatedAt = 2)
+        advanceUntilIdle()
 
         assertEquals(listOf(7L, 7L), emissions.await())
     }
