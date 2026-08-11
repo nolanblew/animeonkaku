@@ -75,7 +75,7 @@ android {
         applicationId = "com.takeya.animeongaku"
         minSdk = 35
         targetSdk = 36
-        versionCode = 3
+        versionCode = 5
         versionName = "1.2.2"
         
         buildConfigField("String", "DISPLAY_VERSION", "\"1.2.2\"")
