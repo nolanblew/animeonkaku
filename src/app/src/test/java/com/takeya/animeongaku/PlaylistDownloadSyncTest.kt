@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -28,6 +29,7 @@ class PlaylistDownloadSyncTest {
         val group = DownloadGroupEntity(3, DownloadGroupEntity.TYPE_PLAYLIST, "7", "Drive")
 
         val emissions = async { playlistDownloadRefreshes(group, playlist, entries).take(2).toList() }
+        yield()
         playlist.value = playlist.value.copy(defaultMode = "FULL_SIZE", updatedAt = 2)
 
         assertEquals(listOf(7L, 7L), emissions.await())

@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -31,6 +32,38 @@ data class DownloadManagerUiState(
     val batchCompletedCount: Int = 0
 )
 
+data class DownloadBatchProgress(
+    val totalCount: Int = 0,
+    val completedCount: Int = 0,
+    val mediaKeys: Set<String> = emptySet()
+)
+
+private fun DownloadItemEntity.isBatchActive(): Boolean = status in setOf(
+    DownloadItemEntity.STATUS_PENDING,
+    DownloadItemEntity.STATUS_DOWNLOADING,
+    DownloadItemEntity.STATUS_RETRYING,
+    DownloadItemEntity.STATUS_WAITING_FOR_WIFI
+)
+
+internal fun nextDownloadBatchProgress(
+    previous: DownloadBatchProgress,
+    downloads: List<DownloadItemEntity>
+): DownloadBatchProgress {
+    val activeKeys = downloads.asSequence().filter(DownloadItemEntity::isBatchActive).map { it.mediaKey }.toSet()
+    if (activeKeys.isEmpty()) return DownloadBatchProgress()
+
+    val trackedKeys = previous.mediaKeys + activeKeys
+    val completedKeys = downloads.asSequence()
+        .filter { it.mediaKey in trackedKeys && it.status == DownloadItemEntity.STATUS_COMPLETED }
+        .map { it.mediaKey }
+        .toSet()
+    return DownloadBatchProgress(
+        totalCount = trackedKeys.size,
+        completedCount = completedKeys.size,
+        mediaKeys = trackedKeys
+    )
+}
+
 @HiltViewModel
 class DownloadManagerViewModel @Inject constructor(
     private val downloadManager: DownloadManager
@@ -38,27 +71,30 @@ class DownloadManagerViewModel @Inject constructor(
 
     private val _freeSpace = MutableStateFlow(getDeviceFreeSpace())
     private val _totalSpace = MutableStateFlow(getDeviceTotalSpace())
+    private val batchProgress = downloadManager.observeAllDownloads()
+        .scan(DownloadBatchProgress(), ::nextDownloadBatchProgress)
 
     val uiState: StateFlow<DownloadManagerUiState> = combine(
         downloadManager.observeTotalDownloadSize(),
         downloadManager.observeAllGroups(),
         downloadManager.observeAllDownloads(),
         downloadManager.observeGroupedDownloads(),
-        downloadManager.observeActiveCount(),
-        downloadManager.observeCompletedCount()
+        batchProgress
     ) { values ->
         @Suppress("UNCHECKED_CAST")
+        val downloads = values[2] as List<DownloadItemEntity>
+        val progress = values[4] as DownloadBatchProgress
         DownloadManagerUiState(
             totalSize = values[0] as Long,
             freeSpace = _freeSpace.value,
             totalSpace = _totalSpace.value,
             groups = values[1] as List<DownloadGroupEntity>,
-            downloads = values[2] as List<DownloadItemEntity>,
+            downloads = downloads,
             groupedItems = values[3] as List<DownloadGroupItemRow>,
-            activeCount = values[4] as Int,
-            completedCount = values[5] as Int,
-            batchTotalCount = values[4] as Int,
-            batchCompletedCount = 0
+            activeCount = downloads.count(DownloadItemEntity::isBatchActive),
+            completedCount = downloads.count { it.status == DownloadItemEntity.STATUS_COMPLETED },
+            batchTotalCount = progress.totalCount,
+            batchCompletedCount = progress.completedCount
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DownloadManagerUiState())
 

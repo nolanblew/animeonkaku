@@ -420,24 +420,22 @@ fun PlaylistDetailScreen(
                             color = Rose500
                         )
                     }
-                    if (playlist?.isAuto != true) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text("Default version", style = MaterialTheme.typography.labelMedium, color = Mist100)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("TV_SIZE" to "TV Size", "FULL_SIZE" to "Full Size").forEach { (mode, label) ->
-                                Text(
-                                    label,
-                                    color = if (playlist?.defaultMode == mode) Color.White else Mist200,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(if (playlist?.defaultMode == mode) Rose500 else Ink700)
-                                        .clickable { viewModel.updateDefaultMode(mode) }
-                                        .padding(horizontal = 12.dp, vertical = 7.dp)
-                                )
-                            }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Preferred playlist version", style = MaterialTheme.typography.labelMedium, color = Mist100)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("TV_SIZE" to "TV Size", "FULL_SIZE" to "Full Size").forEach { (mode, label) ->
+                            Text(
+                                label,
+                                color = if (playlist?.defaultMode == mode) Color.White else Mist200,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(if (playlist?.defaultMode == mode) Rose500 else Ink700)
+                                    .clickable { viewModel.updateDefaultMode(mode) }
+                                    .padding(horizontal = 12.dp, vertical = 7.dp)
+                            )
                         }
-                        Text("Used when a theme has no override", style = MaterialTheme.typography.labelSmall, color = Mist200)
                     }
+                    Text("Used for playback and downloads when a theme has no override", style = MaterialTheme.typography.labelSmall, color = Mist200)
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(

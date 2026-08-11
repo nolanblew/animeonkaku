@@ -21,6 +21,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import javax.inject.Inject
@@ -38,6 +40,7 @@ class MediaPlaybackService : MediaSessionService() {
     private lateinit var mediaSession: MediaSession
     
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val sessionHydrationMutex = Mutex()
 
     override fun onCreate() {
         super.onCreate()
@@ -89,42 +92,29 @@ class MediaPlaybackService : MediaSessionService() {
                 controller: MediaSession.ControllerInfo
             ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
                 val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
-                val activeState = nowPlayingManager.state.value
                 scope.launch {
                     try {
-                        if (activeState.nowPlayingEntries.isNotEmpty()) {
-                            val playbackItems = mediaControllerManager.playbackItemsForSessionResumption()
-                            future.set(
-                                MediaSession.MediaItemsWithStartPosition(
-                                    playbackItems.items,
-                                    playbackItems.currentIndex,
-                                    player.currentPosition.takeIf { it > 0 } ?: C.TIME_UNSET
-                                )
+                        val result = sessionHydrationMutex.withLock {
+                            val selected = selectSessionHydrationState(
+                                nowPlayingManager.state.value,
+                                nowPlayingPersistence.restore()
+                            ) ?: return@withLock MediaSession.MediaItemsWithStartPosition(
+                                emptyList(), 0, C.TIME_UNSET
                             )
-                            return@launch
-                        }
-
-                        val restored = nowPlayingPersistence.restore()
-                        if (restored == null) {
-                            future.set(
-                                MediaSession.MediaItemsWithStartPosition(
-                                    emptyList(),
-                                    0,
-                                    C.TIME_UNSET
-                                )
-                            )
-                            return@launch
-                        }
-
-                        player.repeatMode = restored.repeatMode
-                        val playbackItems = mediaControllerManager.prepareForSessionResumption(restored)
-                        future.set(
+                            val playbackItems = mediaControllerManager.prepareForSessionResumption(selected)
+                            val selectedMediaId = playbackItems.items.getOrNull(playbackItems.currentIndex)?.mediaId
+                            val position = if (player.currentMediaItem?.mediaId == selectedMediaId) {
+                                player.currentPosition.takeIf { it > 0 } ?: selected.positionMs
+                            } else {
+                                selected.positionMs
+                            }
                             MediaSession.MediaItemsWithStartPosition(
                                 playbackItems.items,
                                 playbackItems.currentIndex,
-                                restored.positionMs
+                                position
                             )
-                        )
+                        }
+                        future.set(result)
                     } catch (e: Exception) {
                         future.setException(e)
                     }
@@ -137,6 +127,25 @@ class MediaPlaybackService : MediaSessionService() {
             .setSessionActivity(sessionActivity)
             .setCallback(callback)
             .build()
+
+        // External controllers such as a car can display metadata before the first Play command.
+        // Populate the paused player as soon as the service starts so that metadata and the item
+        // which will actually play come from the same current queue entry.
+        scope.launch {
+            sessionHydrationMutex.withLock {
+                if (player.mediaItemCount > 0) return@withLock
+                val selected = selectSessionHydrationState(
+                    nowPlayingManager.state.value,
+                    nowPlayingPersistence.restore()
+                ) ?: return@withLock
+                val playbackItems = mediaControllerManager.prepareForSessionResumption(selected)
+                if (playbackItems.items.isEmpty()) return@withLock
+                player.setMediaItems(playbackItems.items, playbackItems.currentIndex, selected.positionMs)
+                player.repeatMode = selected.repeatMode
+                player.playWhenReady = false
+                player.prepare()
+            }
+        }
 
         val notificationProvider = DefaultMediaNotificationProvider(this)
         notificationProvider.setSmallIcon(R.drawable.ic_notification)
@@ -165,4 +174,18 @@ class MediaPlaybackService : MediaSessionService() {
         player.release()
         super.onDestroy()
     }
+}
+
+internal fun selectSessionHydrationState(
+    activeState: NowPlayingState,
+    persistedState: RestoredQueueState?
+): RestoredQueueState? {
+    if (activeState.nowPlayingEntries.isEmpty()) return persistedState
+    val activeQueueId = activeState.currentEntry?.queueId
+    val persistedQueueId = persistedState?.nowPlayingState?.currentEntry?.queueId
+    return RestoredQueueState(
+        nowPlayingState = activeState,
+        positionMs = persistedState?.positionMs?.takeIf { activeQueueId == persistedQueueId } ?: 0L,
+        repeatMode = persistedState?.repeatMode ?: Player.REPEAT_MODE_OFF
+    )
 }

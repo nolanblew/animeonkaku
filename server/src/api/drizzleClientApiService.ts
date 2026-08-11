@@ -73,6 +73,16 @@ import type {
   SongPrefPatch,
 } from "./clientRoutes.js";
 
+export function autoPlaylistUpdateIsAllowed(input: PlaylistInput): boolean {
+  return input.defaultMode !== undefined &&
+    input.name === undefined &&
+    input.entries === undefined &&
+    input.items === undefined &&
+    input.dynamicSpecJson === undefined &&
+    input.dynamicSortJson === undefined &&
+    input.autoUpdate === undefined;
+}
+
 export class DrizzleClientApiService implements ClientApiService, LegacyLibraryImportService {
   private readonly autoPlaylistRefresher: DrizzleAutoPlaylistRefresher;
   private readonly dynamicPlaylistEvaluator: DrizzleDynamicPlaylistEvaluator;
@@ -994,8 +1004,9 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
   }
 
   async updatePlaylist(userId: string, id: number, input: PlaylistInput): Promise<PlaylistDto | null> {
-    const existing = await this.mutablePlaylistRow(userId, id);
+    const existing = await this.playlistUpdateRow(userId, id);
     if (!existing) return null;
+    if (existing.isAuto && !autoPlaylistUpdateIsAllowed(input)) return null;
 
     const now = this.now();
     const opTs = resolveOpTs(input.opTs ?? null, now.getTime());
@@ -1020,7 +1031,12 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       const [locked] = await tx
         .select({ mutationUpdatedAt: playlists.mutationUpdatedAt })
         .from(playlists)
-        .where(and(eq(playlists.id, id), eq(playlists.userId, userId), eq(playlists.isAuto, false), isNull(playlists.deletedAt)))
+        .where(and(
+          eq(playlists.id, id),
+          eq(playlists.userId, userId),
+          eq(playlists.isAuto, existing.isAuto),
+          isNull(playlists.deletedAt),
+        ))
         .for("update")
         .limit(1);
       if (!locked || !shouldApplyWrite(opTs, locked.mutationUpdatedAt.getTime())) return { applied: false, serverEvaluated: false };
@@ -1534,6 +1550,22 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
 
   private async findMutablePlaylist(userId: string, id: number): Promise<boolean> {
     return (await this.mutablePlaylistRow(userId, id)) !== null;
+  }
+
+  private async playlistUpdateRow(
+    userId: string,
+    id: number,
+  ): Promise<{ id: number; isAuto: boolean; mutationUpdatedAt: Date } | null> {
+    const rows = await this.db
+      .select({ id: playlists.id, isAuto: playlists.isAuto, mutationUpdatedAt: playlists.mutationUpdatedAt })
+      .from(playlists)
+      .where(and(
+        eq(playlists.id, id),
+        eq(playlists.userId, userId),
+        isNull(playlists.deletedAt),
+      ))
+      .limit(1);
+    return rows[0] ?? null;
   }
 
   /** A user-owned, non-auto (manual or dynamic), non-deleted playlist row, or null. */

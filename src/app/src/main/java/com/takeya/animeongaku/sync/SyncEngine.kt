@@ -199,6 +199,21 @@ class SyncEngine @Inject constructor(
         )
     }
 
+    suspend fun enqueuePlaylistDefaultMode(
+        playlistId: Long,
+        defaultMode: String,
+        opTs: Long = System.currentTimeMillis()
+    ) {
+        require(defaultMode == "TV_SIZE" || defaultMode == "FULL_SIZE")
+        enqueueSuperseding(
+            entityType = PendingOpEntity.ENTITY_PLAYLIST,
+            entityKey = playlistId.toString(),
+            opType = PendingOpEntity.OP_REORDER,
+            payload = mapOf("defaultMode" to defaultMode),
+            opTs = opTs
+        )
+    }
+
     suspend fun enqueueDynamicPlaylistUpsert(
         playlistId: Long,
         name: String?,
@@ -361,7 +376,10 @@ class SyncEngine @Inject constructor(
 
     private suspend fun pushPlaylist(op: PendingOpEntity, payload: Map<String, Any?>) {
         val playlistId = op.entityKey.toLong()
-        if (op.opType == PendingOpEntity.OP_REORDER && store.isAutoDynamicPlaylist(playlistId)) {
+        if (op.opType == PendingOpEntity.OP_REORDER &&
+            store.isAutoDynamicPlaylist(playlistId) &&
+            payload["defaultMode"] == null
+        ) {
             return
         }
         when (op.opType) {
