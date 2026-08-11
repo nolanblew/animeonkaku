@@ -13,6 +13,8 @@ import com.takeya.animeongaku.media.PlaybackPreferences
 import com.takeya.animeongaku.media.PlaybackResolver
 import com.takeya.animeongaku.media.BaseModePolicy
 import com.takeya.animeongaku.media.ThemeModePolicy
+import com.takeya.animeongaku.media.RestoredQueueState
+import com.takeya.animeongaku.media.selectSessionHydrationState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
@@ -143,6 +145,28 @@ class PlaybackSessionStateTest {
         assertThrows(IllegalArgumentException::class.java) {
             PlaybackIntent(sessionOverride = PlaybackMode.RELATED_AUDIO)
         }
+    }
+
+    @Test
+    fun `active queue wins over stale persistence when hydrating bluetooth metadata`() {
+        manager.playItems("Old", listOf(PlayableItem.Theme(theme(1))))
+        val stale = RestoredQueueState(manager.state.value, positionMs = 45_000, repeatMode = 2)
+        manager.playItems("Current", listOf(PlayableItem.Theme(theme(2))))
+
+        val selected = selectSessionHydrationState(manager.state.value, stale)!!
+
+        assertEquals(2L, selected.nowPlayingState.currentEntry?.themeOrNull?.id)
+        assertEquals(0L, selected.positionMs)
+        assertEquals(2, selected.repeatMode)
+    }
+
+    @Test
+    fun `persisted queue hydrates bluetooth metadata when memory is empty`() {
+        manager.playItems("Last", listOf(PlayableItem.Theme(theme(3))))
+        val persisted = RestoredQueueState(manager.state.value, positionMs = 12_000, repeatMode = 1)
+        val emptyManager = newManager()
+
+        assertEquals(persisted, selectSessionHydrationState(emptyManager.state.value, persisted))
     }
 
     private fun newManager(
