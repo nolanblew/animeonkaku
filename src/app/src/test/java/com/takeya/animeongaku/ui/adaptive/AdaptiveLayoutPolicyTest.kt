@@ -60,4 +60,16 @@ class AdaptiveLayoutPolicyTest {
         assertEquals(1440, expanded.contentWidthDp(AdaptiveContentKind.Browse))
         assertEquals(960, expanded.contentWidthDp(AdaptiveContentKind.Form))
     }
+
+    @Test
+    fun `mini player shares the bottom bar only on medium primary routes`() {
+        val compact = AdaptiveLayoutPolicy.forWidth(411)
+        val foldable = AdaptiveLayoutPolicy.forWidth(720)
+        val tablet = AdaptiveLayoutPolicy.forWidth(1024)
+
+        assertFalse(compact.miniPlayerSharesBottomBar(showPrimaryNavigation = true))
+        assertTrue(foldable.miniPlayerSharesBottomBar(showPrimaryNavigation = true))
+        assertFalse(foldable.miniPlayerSharesBottomBar(showPrimaryNavigation = false))
+        assertFalse(tablet.miniPlayerSharesBottomBar(showPrimaryNavigation = true))
+    }
 }
