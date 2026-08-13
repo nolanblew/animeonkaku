@@ -51,7 +51,7 @@ enum class AdaptiveContentKind {
     Form
 }
 
-data class AdaptiveLayoutInfo internal constructor(
+data class AdaptiveLayoutInfo(
     val widthDp: Int,
     val windowSize: AdaptiveWindowSize,
     val navigation: AdaptiveNavigation,

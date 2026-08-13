@@ -12,9 +12,15 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Home
@@ -25,6 +31,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -32,12 +40,14 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -67,6 +77,12 @@ import com.takeya.animeongaku.ui.onboarding.OnboardingScreen
 import com.takeya.animeongaku.ui.onboarding.ReconnectBanner
 import com.takeya.animeongaku.ui.player.PlayerContainer
 import com.takeya.animeongaku.ui.player.MiniPlayerHeight
+import com.takeya.animeongaku.ui.adaptive.AdaptiveContentKind
+import com.takeya.animeongaku.ui.adaptive.AdaptiveLayoutPolicy
+import com.takeya.animeongaku.ui.adaptive.AdaptiveNavigation
+import com.takeya.animeongaku.ui.adaptive.AdaptivePlayerPresentation
+import com.takeya.animeongaku.ui.adaptive.AdaptivePlayerState
+import com.takeya.animeongaku.ui.adaptive.LocalAdaptiveLayoutInfo
 import com.takeya.animeongaku.ui.search.SearchScreen
 import com.takeya.animeongaku.ui.settings.AboutScreen
 import com.takeya.animeongaku.ui.settings.DownloadManagerScreen
@@ -143,14 +159,29 @@ fun AnimeOngakuApp(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val layoutInfo = remember(configuration.screenWidthDp) {
+        AdaptiveLayoutPolicy.forWidth(configuration.screenWidthDp)
+    }
     val updateState by appUpdateViewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var isPlayerExpanded by rememberSaveable { mutableStateOf(false) }
+    var savedPlayerState by rememberSaveable { mutableStateOf(AdaptivePlayerState.Collapsed.name) }
+    val playerState = AdaptivePlayerState.valueOf(savedPlayerState)
     var dismissedUpdateTag by rememberSaveable { mutableStateOf<String?>(null) }
 
-    BackHandler(enabled = isPlayerExpanded) {
-        isPlayerExpanded = false
+    fun openPlayer() {
+        if (playerState == AdaptivePlayerState.Collapsed) {
+            savedPlayerState = playerState.open(layoutInfo).name
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(layoutInfo.playerPresentation) {
+        savedPlayerState = playerState.reconcile(layoutInfo).name
+    }
+
+    BackHandler(enabled = playerState != AdaptivePlayerState.Collapsed) {
+        savedPlayerState = playerState.back(layoutInfo).name
     }
 
     // Handle deep link from notification
@@ -159,7 +190,7 @@ fun AnimeOngakuApp(
         if (navigateTo != null) {
             pendingNavigateTo?.value = null
             if (navigateTo == Routes.Player || navigateTo == "player") {
-                isPlayerExpanded = true
+                openPlayer()
             } else {
                 navController.navigate(navigateTo) {
                     launchSingleTop = true
@@ -230,12 +261,31 @@ fun AnimeOngakuApp(
         }
     }
 
+    val usesNavigationRail = showBottomBar && layoutInfo.navigation == AdaptiveNavigation.Rail
+    val route = currentDestination?.route.orEmpty()
+    val contentKind = if (
+        route == Routes.Home || route.startsWith(Routes.Library)
+    ) {
+        AdaptiveContentKind.Browse
+    } else {
+        AdaptiveContentKind.Form
+    }
+    val contentWidth = layoutInfo.contentWidthDp(contentKind).dp
+
+    CompositionLocalProvider(LocalAdaptiveLayoutInfo provides layoutInfo) {
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             bottomBar = {
-                Column {
-                    if (showBottomBar) {
-                        NavigationBar(containerColor = Color(0xFF0E0D12)) {
+                if (showBottomBar && !usesNavigationRail) {
+                    Row(modifier = Modifier.background(Color(0xFF0E0D12))) {
+                        NavigationBar(
+                            modifier = if (layoutInfo.playerPresentation == AdaptivePlayerPresentation.SidePanel) {
+                                Modifier.weight(1f)
+                            } else {
+                                Modifier.fillMaxWidth()
+                            },
+                            containerColor = Color(0xFF0E0D12)
+                        ) {
                             bottomItems.forEach { item ->
                                 val selected = currentDestination?.hierarchy?.any { it.route == item.route } == true
                                 NavigationBarItem(
@@ -259,16 +309,51 @@ fun AnimeOngakuApp(
                                 )
                             }
                         }
+                        if (layoutInfo.playerPresentation == AdaptivePlayerPresentation.SidePanel) {
+                            Spacer(Modifier.width(layoutInfo.playerPanelWidthDp.dp))
+                        }
                     }
                 }
             }
         ) { padding ->
             scaffoldPadding = padding
-            Box(modifier = Modifier.fillMaxSize()) {
-            NavHost(
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
+                if (usesNavigationRail) {
+                    NavigationRail(
+                        modifier = Modifier.fillMaxHeight(),
+                        containerColor = Color(0xFF0E0D12)
+                    ) {
+                        bottomItems.forEach { item ->
+                            val selected = currentDestination?.hierarchy?.any { it.route == item.route } == true
+                            NavigationRailItem(
+                                selected = selected,
+                                onClick = {
+                                    navController.navigate(item.route) {
+                                        popUpTo(Routes.Home) { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                },
+                                icon = { Icon(item.icon, contentDescription = item.label) },
+                                label = { Text(item.label) }
+                            )
+                        }
+                    }
+                }
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                NavHost(
                 navController = navController,
                 startDestination = Routes.Home,
-                modifier = Modifier.padding(padding),
+                modifier = Modifier
+                    .widthIn(max = contentWidth)
+                    .fillMaxSize(),
                 enterTransition = { fadeIn(animationSpec = tween(300)) },
                 exitTransition = { fadeOut(animationSpec = tween(300)) },
                 popEnterTransition = { fadeIn(animationSpec = tween(300)) },
@@ -276,7 +361,7 @@ fun AnimeOngakuApp(
             ) {
                 composable(Routes.Home) {
                     HomeScreen(
-                        onPlayTheme = { isPlayerExpanded = true },
+                        onPlayTheme = ::openPlayer,
                         onOpenPlaylist = { playlistId ->
                             navController.navigate("${Routes.Playlist}/$playlistId")
                         },
@@ -297,7 +382,7 @@ fun AnimeOngakuApp(
                 }
                 composable(Routes.Search) {
                     SearchScreen(
-                        onPlayTheme = { isPlayerExpanded = true },
+                        onPlayTheme = ::openPlayer,
                         onOpenAnime = { kitsuId ->
                             navController.navigate(animeDetailRoute(kitsuId))
                         },
@@ -321,7 +406,7 @@ fun AnimeOngakuApp(
                         onOpenPlaylist = { playlistId ->
                             navController.navigate("${Routes.Playlist}/$playlistId")
                         },
-                        onPlayTheme = { isPlayerExpanded = true },
+                        onPlayTheme = ::openPlayer,
                         onOpenAnime = { kitsuId ->
                             navController.navigate(animeDetailRoute(kitsuId, showLibraryBadges = false))
                         },
@@ -339,7 +424,7 @@ fun AnimeOngakuApp(
                     val playlistId = it.arguments?.getLong("playlistId") ?: return@composable
                     PlaylistDetailScreen(
                         onBack = { navController.popBackStack() },
-                        onPlayTheme = { isPlayerExpanded = true },
+                        onPlayTheme = ::openPlayer,
                         onOpenAnime = { kitsuId ->
                             navController.navigate(animeDetailRoute(kitsuId, showLibraryBadges = false))
                         },
@@ -362,7 +447,7 @@ fun AnimeOngakuApp(
                     val kitsuId = entry.arguments?.getString("kitsuId").orEmpty()
                     AnimeDetailScreen(
                         onBack = { navController.popBackStack() },
-                        onPlayTheme = { isPlayerExpanded = true },
+                        onPlayTheme = ::openPlayer,
                         onOpenArtist = { artistName -> navController.navigate(artistDetailRoute(artistName, showLibraryBadges)) },
                         onOpenRelatedMusic = { releaseId -> navController.navigate(relatedMusicRoute(kitsuId, releaseId)) },
                         showLibraryBadges = showLibraryBadges
@@ -379,7 +464,7 @@ fun AnimeOngakuApp(
                     RelatedMusicScreen(
                         onBack = { navController.popBackStack() },
                         onOpenRelease = { releaseId -> navController.navigate(relatedMusicRoute(kitsuId, releaseId)) },
-                        onPlay = { isPlayerExpanded = true }
+                        onPlay = ::openPlayer
                     )
                 }
                 composable(
@@ -392,7 +477,7 @@ fun AnimeOngakuApp(
                     val showLibraryBadges = it.arguments?.getBoolean(ShowLibraryBadgesArg) ?: true
                     ArtistDetailScreen(
                         onBack = { navController.popBackStack() },
-                        onPlayTheme = { isPlayerExpanded = true },
+                        onPlayTheme = ::openPlayer,
                         onOpenAnime = { kitsuId -> navController.navigate(animeDetailRoute(kitsuId, showLibraryBadges)) },
                         showLibraryBadges = showLibraryBadges
                     )
@@ -509,6 +594,7 @@ fun AnimeOngakuApp(
                 }
             }
             }
+            }
         }
 
         SnackbarHost(
@@ -518,27 +604,41 @@ fun AnimeOngakuApp(
                 .padding(
                     start = 16.dp,
                     end = 16.dp,
-                    bottom = scaffoldPadding.calculateBottomPadding() + MiniPlayerHeight + 24.dp
+                    bottom = scaffoldPadding.calculateBottomPadding() +
+                        if (
+                            layoutInfo.playerPresentation == AdaptivePlayerPresentation.SidePanel &&
+                            !usesNavigationRail
+                        ) {
+                            24.dp
+                        } else {
+                            MiniPlayerHeight + 24.dp
+                        }
                 )
         )
 
         PlayerContainer(
-            isExpanded = isPlayerExpanded,
-            onExpand = { isPlayerExpanded = true },
-            onCollapse = { isPlayerExpanded = false },
+            state = playerState,
+            layoutInfo = layoutInfo,
+            onStateChange = { savedPlayerState = it.name },
             showMiniPlayer = true,
             modifier = Modifier.align(Alignment.BottomCenter),
-            bottomPadding = scaffoldPadding.calculateBottomPadding(),
+            bottomPadding = if (
+                layoutInfo.playerPresentation == AdaptivePlayerPresentation.SidePanel && !usesNavigationRail
+            ) {
+                0.dp
+            } else {
+                scaffoldPadding.calculateBottomPadding()
+            },
             onOpenAnime = { kitsuId ->
-                isPlayerExpanded = false
+                savedPlayerState = AdaptivePlayerState.Collapsed.name
                 navController.navigate(animeDetailRoute(kitsuId))
             },
             onOpenRelatedMusic = { kitsuId ->
-                isPlayerExpanded = false
+                savedPlayerState = AdaptivePlayerState.Collapsed.name
                 navController.navigate(relatedMusicRoute(kitsuId))
             },
             onOpenArtist = { artistName ->
-                isPlayerExpanded = false
+                savedPlayerState = AdaptivePlayerState.Collapsed.name
                 navController.navigate(artistDetailRoute(artistName))
             }
         )
@@ -558,7 +658,7 @@ fun AnimeOngakuApp(
             showReconnect = false
         }
         Box(Modifier.fillMaxSize()) {
-            OnboardingScreen()
+            AdaptiveOnboardingContent()
             IconButton(
                 onClick = { showReconnect = false },
                 modifier = Modifier
@@ -574,10 +674,29 @@ fun AnimeOngakuApp(
             }
         }
     }
+    }
 }
 
 @Composable
 private fun LoggedOutGate() {
     // The server URL is fixed at build time, so onboarding only needs the sign-in screen.
-    OnboardingScreen()
+    AdaptiveOnboardingContent()
+}
+
+@Composable
+private fun AdaptiveOnboardingContent() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Ink700),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Box(
+            modifier = Modifier
+                .widthIn(max = 960.dp)
+                .fillMaxSize()
+        ) {
+            OnboardingScreen()
+        }
+    }
 }

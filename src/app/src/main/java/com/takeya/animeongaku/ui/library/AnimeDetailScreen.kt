@@ -72,6 +72,8 @@ import com.takeya.animeongaku.ui.theme.Ink900
 import com.takeya.animeongaku.ui.theme.Mist100
 import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.theme.Rose500
+import com.takeya.animeongaku.ui.adaptive.AdaptiveWindowSize
+import com.takeya.animeongaku.ui.adaptive.LocalAdaptiveLayoutInfo
 
 @Composable
 fun AnimeDetailScreen(
@@ -82,6 +84,7 @@ fun AnimeDetailScreen(
     showLibraryBadges: Boolean = true,
     viewModel: AnimeDetailViewModel = hiltViewModel()
 ) {
+    val adaptiveLayout = LocalAdaptiveLayoutInfo.current
     val anime by viewModel.anime.collectAsStateWithLifecycle()
     val themes by viewModel.themes.collectAsStateWithLifecycle()
     val relatedMusic by viewModel.relatedMusic.collectAsStateWithLifecycle()
@@ -249,7 +252,13 @@ fun AnimeDetailScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(1.4f)
+                        .then(
+                            if (adaptiveLayout.windowSize == AdaptiveWindowSize.Compact) {
+                                Modifier.aspectRatio(1.4f)
+                            } else {
+                                Modifier.height(380.dp)
+                            }
+                        )
                 ) {
                     if (coverUrls.isNotEmpty()) {
                         FallbackAsyncImage(

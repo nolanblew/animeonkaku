@@ -93,6 +93,8 @@ import com.takeya.animeongaku.ui.theme.Ink900
 import com.takeya.animeongaku.ui.theme.Mist100
 import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.theme.Rose500
+import com.takeya.animeongaku.ui.adaptive.AdaptiveWindowSize
+import com.takeya.animeongaku.ui.adaptive.LocalAdaptiveLayoutInfo
 
 @Composable
 fun PlaylistDetailScreen(
@@ -103,6 +105,7 @@ fun PlaylistDetailScreen(
     onEditFilters: (Long) -> Unit = {},
     viewModel: PlaylistDetailViewModel = hiltViewModel()
 ) {
+    val adaptiveLayout = LocalAdaptiveLayoutInfo.current
     val playlist by viewModel.playlist.collectAsStateWithLifecycle()
     val tracks by viewModel.tracks.collectAsStateWithLifecycle()
     val playlistItems by viewModel.items.collectAsStateWithLifecycle()
@@ -388,7 +391,7 @@ fun PlaylistDetailScreen(
                     PlaylistCoverArt(
                         coverUrlGroups = coverUrls,
                         gradientSeed = playlist?.gradientSeed ?: 0,
-                        size = 160.dp,
+                        size = if (adaptiveLayout.windowSize == AdaptiveWindowSize.Compact) 160.dp else 220.dp,
                         cornerRadius = 16.dp,
                         modifier = Modifier.padding(bottom = 16.dp)
                     )

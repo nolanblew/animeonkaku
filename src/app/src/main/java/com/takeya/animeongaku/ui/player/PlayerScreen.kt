@@ -35,6 +35,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Repeat
@@ -78,6 +79,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.constraintlayout.compose.ExperimentalMotionApi
 import androidx.constraintlayout.compose.MotionLayout
 import androidx.constraintlayout.compose.MotionScene
@@ -116,9 +118,12 @@ fun PlayerScreen(
     onSwipeUpHandled: () -> Unit = {},
     onExpand: () -> Unit = {},
     onCollapse: () -> Unit = {},
+    onRequestFullscreen: (() -> Unit)? = null,
     onOpenAnime: (String) -> Unit = {},
     onOpenRelatedMusic: (String) -> Unit = {},
     onOpenArtist: (String) -> Unit = {},
+    playerWidth: Dp? = null,
+    showQueueInline: Boolean = false,
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -172,8 +177,10 @@ fun PlayerScreen(
             downloadedMediaKeys = downloadedMediaKeys,
             dislikedThemeIds = dislikedThemeIds,
             viewModel = viewModel,
+            inline = showQueueInline,
             onDismiss = { showUpNext = false }
         )
+        if (showQueueInline) return
     }
 
     if (showPlayerSheet) {
@@ -280,7 +287,7 @@ fun PlayerScreen(
     val isExpanded = progress > 0.5f
     val configuration = LocalConfiguration.current
     val expandedArtworkSize = expandedPlayerArtworkSize(
-        configuration.screenWidthDp.dp,
+        playerWidth ?: configuration.screenWidthDp.dp,
         configuration.screenHeightDp.dp
     )
     val artHorizontalInset = if (modeUiState.isVideo) 0 else PLAYER_CONTENT_MARGIN_DP
@@ -370,17 +377,26 @@ fun PlayerScreen(
             }
         }
 
-        Row(modifier = Modifier.layoutId("topBar"), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            IconButton(onClick = onCollapse) {
+        Box(modifier = Modifier.layoutId("topBar").fillMaxWidth()) {
+            IconButton(onClick = onCollapse, modifier = Modifier.align(Alignment.CenterStart)) {
                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Collapse player", tint = Rose500)
             }
             Text(
                 text = "Now Playing",
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                color = Mist100
+                color = Mist100,
+                maxLines = 1,
+                modifier = Modifier.align(Alignment.Center)
             )
-            IconButton(onClick = { showPlayerSheet = true }) {
-                Icon(Icons.Rounded.MoreVert, "More options", tint = Rose500)
+            Row(modifier = Modifier.align(Alignment.CenterEnd)) {
+                if (onRequestFullscreen != null) {
+                    IconButton(onClick = onRequestFullscreen, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Rounded.Fullscreen, "Expand player full screen", tint = Rose500)
+                    }
+                }
+                IconButton(onClick = { showPlayerSheet = true }, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Rounded.MoreVert, "More options", tint = Rose500)
+                }
             }
         }
 

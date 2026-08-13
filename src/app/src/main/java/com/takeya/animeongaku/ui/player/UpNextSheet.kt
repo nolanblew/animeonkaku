@@ -24,11 +24,16 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.SheetValue
@@ -71,6 +76,7 @@ import com.takeya.animeongaku.media.NowPlayingState
 import com.takeya.animeongaku.media.MediaKey
 import com.takeya.animeongaku.media.isExactOfflineAvailable
 import com.takeya.animeongaku.media.PlayableItem
+import com.takeya.animeongaku.media.PlaybackState
 import com.takeya.animeongaku.ui.common.MarqueeText
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
@@ -103,6 +109,7 @@ fun UpNextSheet(
     downloadedMediaKeys: Set<MediaKey> = emptySet(),
     dislikedThemeIds: Set<Long> = emptySet(),
     viewModel: PlayerViewModel,
+    inline: Boolean = false,
     onDismiss: () -> Unit
 ) {
     // State is owned by the sheet so every open starts fresh. Seeding
@@ -112,6 +119,28 @@ fun UpNextSheet(
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = upNextCurrentRowListIndex(npState.historyEntries.size)
     )
+
+    if (inline) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Ink900)
+        ) {
+            UpNextContent(
+                npState = npState,
+                nowPlayingManager = nowPlayingManager,
+                listState = listState,
+                isOffline = isOffline,
+                downloadedMediaKeys = downloadedMediaKeys,
+                dislikedThemeIds = dislikedThemeIds,
+                viewModel = viewModel,
+                onDismiss = onDismiss,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        return
+    }
+
     var sheetHeightPx by remember { mutableIntStateOf(0) }
     val sheetStateHolder = remember { mutableStateOf<SheetState?>(null) }
     val sheetState = rememberModalBottomSheetState(
@@ -172,6 +201,7 @@ private fun UpNextContent(
     val currentEntry = npState.currentEntry
     val upcoming = npState.upcomingEntries
     val queuedModes by viewModel.queuedThemeModesById.collectAsStateWithLifecycle()
+    val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
     var pendingVideo by remember { mutableStateOf<Pair<Long, BrowseVideoStartRequest>?>(null) }
 
     pendingVideo?.let { (queueId, request) ->
@@ -324,7 +354,8 @@ private fun UpNextContent(
         LazyColumn(
             state = listState,
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f)
+                .fillMaxWidth()
                 .nestedScroll(blockSheetDismissScroll)
         ) {
             // History section
@@ -474,6 +505,61 @@ private fun UpNextContent(
 
             item {
                 Spacer(modifier = Modifier.height(40.dp))
+            }
+        }
+
+        QueueTransportBar(
+            playbackState = playbackState,
+            onPrevious = viewModel.mediaControllerManager::seekToPrevious,
+            onPlayPause = {
+                if (playbackState.isPlaying) viewModel.mediaControllerManager.pause()
+                else viewModel.mediaControllerManager.play()
+            },
+            onNext = viewModel.mediaControllerManager::seekToNext
+        )
+    }
+}
+
+@Composable
+private fun QueueTransportBar(
+    playbackState: PlaybackState,
+    onPrevious: () -> Unit,
+    onPlayPause: () -> Unit,
+    onNext: () -> Unit
+) {
+    val duration = playbackState.durationMs.coerceAtLeast(1L)
+    val progress = (playbackState.positionMs.toFloat() / duration).coerceIn(0f, 1f)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Ink800.copy(alpha = 0.96f))
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier.fillMaxWidth(),
+            color = Rose500,
+            trackColor = Ink700
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onPrevious, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", tint = Mist100)
+            }
+            IconButton(onClick = onPlayPause, modifier = Modifier.size(56.dp)) {
+                Icon(
+                    if (playbackState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = "Play or pause",
+                    tint = Mist100,
+                    modifier = Modifier.size(34.dp)
+                )
+            }
+            IconButton(onClick = onNext, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Rounded.SkipNext, contentDescription = "Next", tint = Mist100)
             }
         }
     }
