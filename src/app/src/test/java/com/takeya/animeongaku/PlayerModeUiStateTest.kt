@@ -211,6 +211,28 @@ class PlayerModeUiStateTest {
     }
 
     @Test
+    fun `side panel artwork can yield further in a short landscape window`() {
+        val shortPanelMinimum = 72.dp
+
+        assertEquals(
+            135.dp,
+            expandedPlayerArtworkSize(
+                screenWidth = 360.dp,
+                availableHeight = 680.dp,
+                minimumArtworkSize = shortPanelMinimum
+            )
+        )
+        assertEquals(
+            shortPanelMinimum,
+            expandedPlayerArtworkSize(
+                screenWidth = 360.dp,
+                availableHeight = 600.dp,
+                minimumArtworkSize = shortPanelMinimum
+            )
+        )
+    }
+
+    @Test
     fun `video controls use recommended timeout when accessibility is inactive`() {
         assertEquals(
             9_000L,
