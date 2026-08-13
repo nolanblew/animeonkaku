@@ -62,6 +62,11 @@ data class AdaptiveLayoutInfo(
     val playerPanelWidthDp: Int,
     val supportsTwoPaneDetails: Boolean
 ) {
+    fun miniPlayerSharesBottomBar(showPrimaryNavigation: Boolean): Boolean =
+        showPrimaryNavigation &&
+            navigation == AdaptiveNavigation.BottomBar &&
+            playerPresentation == AdaptivePlayerPresentation.SidePanel
+
     fun contentWidthDp(kind: AdaptiveContentKind): Int = minOf(
         widthDp,
         when (kind) {

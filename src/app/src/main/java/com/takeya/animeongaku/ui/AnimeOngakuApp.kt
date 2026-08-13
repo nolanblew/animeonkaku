@@ -262,6 +262,7 @@ fun AnimeOngakuApp(
     }
 
     val usesNavigationRail = showBottomBar && layoutInfo.navigation == AdaptiveNavigation.Rail
+    val miniPlayerSharesBottomBar = layoutInfo.miniPlayerSharesBottomBar(showBottomBar)
     val route = currentDestination?.route.orEmpty()
     val contentKind = if (
         route == Routes.Home || route.startsWith(Routes.Library)
@@ -279,7 +280,7 @@ fun AnimeOngakuApp(
                 if (showBottomBar && !usesNavigationRail) {
                     Row(modifier = Modifier.background(Color(0xFF0E0D12))) {
                         NavigationBar(
-                            modifier = if (layoutInfo.playerPresentation == AdaptivePlayerPresentation.SidePanel) {
+                            modifier = if (miniPlayerSharesBottomBar) {
                                 Modifier.weight(1f)
                             } else {
                                 Modifier.fillMaxWidth()
@@ -309,7 +310,7 @@ fun AnimeOngakuApp(
                                 )
                             }
                         }
-                        if (layoutInfo.playerPresentation == AdaptivePlayerPresentation.SidePanel) {
+                        if (miniPlayerSharesBottomBar) {
                             Spacer(Modifier.width(layoutInfo.playerPanelWidthDp.dp))
                         }
                     }
@@ -606,8 +607,7 @@ fun AnimeOngakuApp(
                     end = 16.dp,
                     bottom = scaffoldPadding.calculateBottomPadding() +
                         if (
-                            layoutInfo.playerPresentation == AdaptivePlayerPresentation.SidePanel &&
-                            !usesNavigationRail
+                            miniPlayerSharesBottomBar
                         ) {
                             24.dp
                         } else {
@@ -623,7 +623,7 @@ fun AnimeOngakuApp(
             showMiniPlayer = true,
             modifier = Modifier.align(Alignment.BottomCenter),
             bottomPadding = if (
-                layoutInfo.playerPresentation == AdaptivePlayerPresentation.SidePanel && !usesNavigationRail
+                miniPlayerSharesBottomBar
             ) {
                 0.dp
             } else {
