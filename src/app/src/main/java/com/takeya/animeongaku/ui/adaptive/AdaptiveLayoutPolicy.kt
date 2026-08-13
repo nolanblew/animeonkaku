@@ -23,9 +23,12 @@ enum class AdaptivePlayerState {
     SidePanel,
     FullScreen;
 
-    fun open(layout: AdaptiveLayoutInfo): AdaptivePlayerState = when (layout.playerPresentation) {
-        AdaptivePlayerPresentation.FullScreen -> FullScreen
-        AdaptivePlayerPresentation.SidePanel -> SidePanel
+    fun open(layout: AdaptiveLayoutInfo): AdaptivePlayerState = when (this) {
+        SidePanel, FullScreen -> this
+        Collapsed -> when (layout.playerPresentation) {
+            AdaptivePlayerPresentation.FullScreen -> FullScreen
+            AdaptivePlayerPresentation.SidePanel -> SidePanel
+        }
     }
 
     fun expandToFullScreen(): AdaptivePlayerState = if (this == Collapsed) Collapsed else FullScreen
