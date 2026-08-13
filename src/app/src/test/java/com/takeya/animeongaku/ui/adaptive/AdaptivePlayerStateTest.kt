@@ -47,4 +47,18 @@ class AdaptivePlayerStateTest {
             AdaptivePlayerState.FullScreen.reconcile(foldable)
         )
     }
+
+    @Test
+    fun `opening an already visible player is idempotent`() {
+        val foldable = AdaptiveLayoutPolicy.forWidth(720)
+
+        assertEquals(
+            AdaptivePlayerState.SidePanel,
+            AdaptivePlayerState.SidePanel.open(foldable)
+        )
+        assertEquals(
+            AdaptivePlayerState.FullScreen,
+            AdaptivePlayerState.FullScreen.open(foldable)
+        )
+    }
 }
