@@ -123,6 +123,8 @@ fun PlayerScreen(
     onOpenRelatedMusic: (String) -> Unit = {},
     onOpenArtist: (String) -> Unit = {},
     playerWidth: Dp? = null,
+    playerHeight: Dp? = null,
+    minimumArtworkSize: Dp = PLAYER_ARTWORK_MIN_DP.dp,
     showQueueInline: Boolean = false,
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
@@ -288,7 +290,8 @@ fun PlayerScreen(
     val configuration = LocalConfiguration.current
     val expandedArtworkSize = expandedPlayerArtworkSize(
         playerWidth ?: configuration.screenWidthDp.dp,
-        configuration.screenHeightDp.dp
+        playerHeight ?: configuration.screenHeightDp.dp,
+        minimumArtworkSize
     )
     val artHorizontalInset = if (modeUiState.isVideo) 0 else PLAYER_CONTENT_MARGIN_DP
     val fullscreenVideo = isFullscreenVideo(
@@ -893,12 +896,13 @@ internal const val PLAYER_ARTWORK_MAX_DP = 400
  */
 internal fun expandedPlayerArtworkSize(
     screenWidth: androidx.compose.ui.unit.Dp,
-    availableHeight: androidx.compose.ui.unit.Dp
+    availableHeight: androidx.compose.ui.unit.Dp,
+    minimumArtworkSize: androidx.compose.ui.unit.Dp = PLAYER_ARTWORK_MIN_DP.dp
 ): androidx.compose.ui.unit.Dp {
     val widthBound = (screenWidth - (PLAYER_CONTENT_MARGIN_DP * 2).dp).coerceAtLeast(0.dp)
     val heightBound = availableHeight - PLAYER_STACK_BELOW_ART_DP.dp
     return minOf(widthBound, heightBound)
-        .coerceIn(PLAYER_ARTWORK_MIN_DP.dp, PLAYER_ARTWORK_MAX_DP.dp)
+        .coerceIn(minimumArtworkSize, PLAYER_ARTWORK_MAX_DP.dp)
 }
 
 @Composable

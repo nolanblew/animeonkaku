@@ -172,17 +172,21 @@ private fun WideSidePlayer(
                 .clip(panelShape)
                 .background(Ink900)
         ) {
-            PlayerScreen(
-                progress = 1f,
-                onCollapse = onDismiss,
-                onRequestFullscreen = onExpandToFullScreen,
-                onOpenAnime = onOpenAnime,
-                onOpenRelatedMusic = onOpenRelatedMusic,
-                onOpenArtist = onOpenArtist,
-                playerWidth = outerWidth,
-                showQueueInline = true,
-                viewModel = viewModel
-            )
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                PlayerScreen(
+                    progress = 1f,
+                    onCollapse = onDismiss,
+                    onRequestFullscreen = onExpandToFullScreen,
+                    onOpenAnime = onOpenAnime,
+                    onOpenRelatedMusic = onOpenRelatedMusic,
+                    onOpenArtist = onOpenArtist,
+                    playerWidth = maxWidth,
+                    playerHeight = maxHeight,
+                    minimumArtworkSize = 72.dp,
+                    showQueueInline = true,
+                    viewModel = viewModel
+                )
+            }
         }
     }
 }
@@ -207,6 +211,7 @@ private fun VerticalPlayerContainer(
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val containerWidth = maxWidth
+        val containerHeight = maxHeight
         val screenHeightPx = constraints.maxHeight.toFloat()
         val miniPlayerHeightPx = with(density) { MiniPlayerHeight.toPx() }
         val bottomPaddingPx = with(density) { bottomPadding.toPx() }
@@ -297,6 +302,7 @@ private fun VerticalPlayerContainer(
                 onOpenRelatedMusic = onOpenRelatedMusic,
                 onOpenArtist = onOpenArtist,
                 playerWidth = containerWidth,
+                playerHeight = containerHeight,
                 viewModel = viewModel
             )
         }
