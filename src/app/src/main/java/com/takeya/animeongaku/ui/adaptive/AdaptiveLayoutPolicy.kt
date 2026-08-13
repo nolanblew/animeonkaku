@@ -18,6 +18,34 @@ enum class AdaptivePlayerPresentation {
     SidePanel
 }
 
+enum class AdaptivePlayerState {
+    Collapsed,
+    SidePanel,
+    FullScreen;
+
+    fun open(layout: AdaptiveLayoutInfo): AdaptivePlayerState = when (layout.playerPresentation) {
+        AdaptivePlayerPresentation.FullScreen -> FullScreen
+        AdaptivePlayerPresentation.SidePanel -> SidePanel
+    }
+
+    fun expandToFullScreen(): AdaptivePlayerState = if (this == Collapsed) Collapsed else FullScreen
+
+    fun back(layout: AdaptiveLayoutInfo): AdaptivePlayerState = when (this) {
+        Collapsed -> Collapsed
+        SidePanel -> Collapsed
+        FullScreen -> if (layout.playerPresentation == AdaptivePlayerPresentation.SidePanel) {
+            SidePanel
+        } else {
+            Collapsed
+        }
+    }
+
+    fun reconcile(layout: AdaptiveLayoutInfo): AdaptivePlayerState = when {
+        this == SidePanel && layout.playerPresentation == AdaptivePlayerPresentation.FullScreen -> FullScreen
+        else -> this
+    }
+}
+
 enum class AdaptiveContentKind {
     Browse,
     Form
