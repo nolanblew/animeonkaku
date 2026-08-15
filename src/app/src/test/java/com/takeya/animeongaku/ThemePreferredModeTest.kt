@@ -45,6 +45,43 @@ class ThemePreferredModeTest {
     }
 
     @Test
+    fun `playlist override outranks a theme preference but never a scoped dislike`() {
+        val overridingEntry = themeEntry(
+            queueId = 42,
+            policy = BaseModePolicy(
+                entryPolicy = ThemeModePolicy.INHERIT,
+                playlistDefault = PlaybackMode.TV_SIZE,
+                overrideUserPreference = true
+            )
+        )
+
+        val overridden = resolver.resolve(
+            entry = overridingEntry,
+            intent = PlaybackIntent(),
+            isOnline = true,
+            localMedia = emptyMap(),
+            themePreference = UserPreferenceEntity(themeId = 1, preferredMode = "FULL_SIZE")
+        )
+        val disliked = resolver.resolve(
+            entry = overridingEntry,
+            intent = PlaybackIntent(),
+            isOnline = true,
+            localMedia = emptyMap(),
+            themePreference = UserPreferenceEntity(
+                themeId = 1,
+                preferredMode = "FULL_SIZE",
+                isDislikedTvSize = true
+            )
+        )
+
+        assertEquals(PlaybackMode.TV_SIZE, overridden.preferredMode)
+        assertEquals(PlaybackMode.TV_SIZE, overridden.actualMode)
+        assertEquals(PlaybackMode.FULL_SIZE, disliked.preferredMode)
+        assertEquals(PlaybackMode.FULL_SIZE, disliked.actualMode)
+        assertTrue(PlaybackMode.TV_SIZE !in disliked.availableModes)
+    }
+
+    @Test
     fun `temporarily missing Full falls back to TV while retaining intent and queue identity`() {
         val unavailable = themeEntry(queueId = 71, fullAvailable = false)
         val available = themeEntry(queueId = 72, fullAvailable = true)
