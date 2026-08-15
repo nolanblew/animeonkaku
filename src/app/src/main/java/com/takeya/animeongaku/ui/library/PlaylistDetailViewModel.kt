@@ -16,6 +16,7 @@ import com.takeya.animeongaku.data.local.PendingOpEntity
 import com.takeya.animeongaku.data.local.PlayCountDao
 import com.takeya.animeongaku.data.local.PlaylistDao
 import com.takeya.animeongaku.data.local.PlaylistEntryEntity
+import com.takeya.animeongaku.data.local.PlaylistEntity
 import com.takeya.animeongaku.data.local.PlaylistTrack
 import com.takeya.animeongaku.data.local.PlaylistWithCount
 import com.takeya.animeongaku.data.local.MusicCatalogDao
@@ -358,6 +359,12 @@ class PlaylistDetailViewModel @Inject constructor(
         }
     }
 
+    fun updateOverrideUserPreference(overrideUserPreference: Boolean) {
+        runPlaylistAction("Couldn't update the playlist override. Try again when your connection is stable.") {
+            serverPlaylistWriter.updateOverrideUserPreference(playlistId, overrideUserPreference)
+        }
+    }
+
     fun moveEntry(entryId: Long, direction: Int) {
         val list = items.value
         val index = list.indexOfFirst { it.entry.entryId == entryId }
@@ -407,7 +414,7 @@ class PlaylistDetailViewModel @Inject constructor(
         nowPlayingManager.playNextItems(
             listOf(row.playable(animeMap, themeModesById.value)),
             animeMap,
-            row.baseModePolicy(playlist.value?.defaultMode)
+            row.baseModePolicy(playlist.value)
         )
     }
 
@@ -417,7 +424,7 @@ class PlaylistDetailViewModel @Inject constructor(
         nowPlayingManager.addPlayableItems(
             listOf(row.playable(animeMap, themeModesById.value)),
             animeMap,
-            row.baseModePolicy(playlist.value?.defaultMode)
+            row.baseModePolicy(playlist.value)
         )
     }
 
@@ -428,7 +435,7 @@ class PlaylistDetailViewModel @Inject constructor(
         nowPlayingManager.playNextItems(
             items = rows.map { it.playable(animeMap, themeModesById.value) },
             animeMap = animeMap,
-            baseModePolicies = rows.map { it.baseModePolicy(playlist.value?.defaultMode) }
+            baseModePolicies = rows.map { it.baseModePolicy(playlist.value) }
         )
     }
 
@@ -439,7 +446,7 @@ class PlaylistDetailViewModel @Inject constructor(
         nowPlayingManager.addPlayableItems(
             items = rows.map { it.playable(animeMap, themeModesById.value) },
             animeMap = animeMap,
-            baseModePolicies = rows.map { it.baseModePolicy(playlist.value?.defaultMode) }
+            baseModePolicies = rows.map { it.baseModePolicy(playlist.value) }
         )
     }
 
@@ -449,7 +456,7 @@ class PlaylistDetailViewModel @Inject constructor(
         if (rows.isEmpty()) return
         val animeMap = buildAnimeMap()
         val playables = rows.map { it.playable(animeMap, themeModesById.value) }
-        val policies = rows.map { it.baseModePolicy(pl.defaultMode) }
+        val policies = rows.map { it.baseModePolicy(pl) }
         nowPlayingManager.playItems(
             contextLabel = contextLabel(), items = playables, startIndex = startIndex,
             shuffle = shuffle, animeMap = animeMap, baseModePolicies = policies
@@ -576,12 +583,13 @@ class PlaylistDetailViewModel @Inject constructor(
 /** Auto playlist order is materialized by the server and already sorted by PlaylistDao. */
 internal fun preserveMaterializedPlaylistOrder(tracks: List<PlaylistTrack>): List<PlaylistTrack> = tracks
 
-private fun PlaylistItemRow.baseModePolicy(defaultMode: String?): BaseModePolicy =
+private fun PlaylistItemRow.baseModePolicy(playlist: PlaylistEntity?): BaseModePolicy =
     BaseModePolicy(
         entryPolicy = when (entry.modeOverride) {
             "FULL_SIZE" -> ThemeModePolicy.FULL_SIZE
             "TV_SIZE" -> ThemeModePolicy.TV_SIZE
             else -> ThemeModePolicy.INHERIT
         },
-        playlistDefault = if (defaultMode == "FULL_SIZE") PlaybackMode.FULL_SIZE else PlaybackMode.TV_SIZE
+        playlistDefault = if (playlist?.defaultMode == "FULL_SIZE") PlaybackMode.FULL_SIZE else PlaybackMode.TV_SIZE,
+        overrideUserPreference = playlist?.overrideUserPreference == true
     )

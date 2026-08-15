@@ -160,6 +160,8 @@ class PlaybackResolver @Inject constructor() {
         }
         val requested = if (intent.sessionOverride == PlaybackMode.VIDEO) {
             PlaybackMode.VIDEO
+        } else if (entry.baseModePolicy.overrideUserPreference) {
+            entry.baseModePolicy.resolvePreferred(intent)
         } else {
             storedPreferredMode ?: entry.baseModePolicy.resolvePreferred(intent)
         }

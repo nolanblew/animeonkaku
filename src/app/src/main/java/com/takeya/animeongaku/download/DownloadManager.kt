@@ -59,6 +59,7 @@ internal fun newPlaylistDownloadThemeIds(
 private data class PlaylistDownloadRevision(
     val playlistId: Long,
     val defaultMode: String,
+    val overrideUserPreference: Boolean,
     val entries: List<PlaylistEntryEntity>
 )
 
@@ -67,7 +68,9 @@ internal fun playlistDownloadRefreshes(
     playlist: Flow<PlaylistEntity?>,
     entries: Flow<List<PlaylistEntryEntity>>
 ): Flow<Long> = combine(playlist, entries) { currentPlaylist, currentEntries ->
-    currentPlaylist?.let { PlaylistDownloadRevision(it.id, it.defaultMode, currentEntries) }
+    currentPlaylist?.let {
+        PlaylistDownloadRevision(it.id, it.defaultMode, it.overrideUserPreference, currentEntries)
+    }
 }
     .filterNotNull()
     .distinctUntilChanged()
@@ -376,6 +379,7 @@ class DownloadManager @Inject constructor(
         val specs = resolvePlaylistDownloadMedia(
             entries = entries,
             playlistDefaultMode = playlist.defaultMode,
+            overrideUserPreference = playlist.overrideUserPreference,
             themeModes = modes,
             songUrls = songs.mapValues { it.value.audioUrl },
             songLoudness = songs.mapValues { it.value.loudness },

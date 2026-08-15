@@ -28,6 +28,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
@@ -49,7 +51,9 @@ data class DynamicDraftState(
     val availableGenres: List<GenreEntity> = emptyList(),
     val editingPlaylistId: Long? = null,
     val isEditLocked: Boolean = false,
-    val sort: SortSpec = SortSpec.DEFAULT
+    val sort: SortSpec = SortSpec.DEFAULT,
+    val defaultMode: String = "TV_SIZE",
+    val overrideUserPreference: Boolean = false
 )
 
 data class PreviewResult(val count: Int, val tracks: List<PlaylistTrack>)
@@ -164,6 +168,15 @@ class DynamicPlaylistDraftViewModel @Inject constructor(
         _state.update { it.copy(saveMode = mode) }
     }
 
+    fun setDefaultMode(mode: String) {
+        require(mode == "TV_SIZE" || mode == "FULL_SIZE")
+        _state.update { it.copy(defaultMode = mode) }
+    }
+
+    fun setOverrideUserPreference(override: Boolean) {
+        _state.update { it.copy(overrideUserPreference = override) }
+    }
+
     fun toggleGenreSlug(slug: String) {
         _state.update { s ->
             val updated = if (slug in s.simple.genreSlugs) {
@@ -243,7 +256,7 @@ class DynamicPlaylistDraftViewModel @Inject constructor(
         _state.update { s -> s.copy(simple = s.simple.copy(customRange = range)) }
     }
 
-    fun savePlaylist(): Flow<SavePlaylistResult> = flow {
+    fun saveCurrentPlaylist(): Flow<SavePlaylistResult> = flow {
         val s = _state.value
         val validationError = validateDraft(s)
         if (validationError != null) {
@@ -253,13 +266,29 @@ class DynamicPlaylistDraftViewModel @Inject constructor(
         val filter = s.compileToFilterNode()
         val simpleState = if (s.createdMode == "SIMPLE") s.simple else null
         val result = runCatching {
-            repository.createDynamic(
-                name = s.draftName.ifBlank { "Smart Playlist" },
+            val name = s.draftName.ifBlank { "Smart Playlist" }
+            s.editingPlaylistId?.let { playlistId ->
+                repository.updateDynamic(
+                    playlistId = playlistId,
+                    name = name,
+                    filter = filter,
+                    mode = s.saveMode,
+                    createdMode = s.createdMode,
+                    sort = s.sort,
+                    simpleState = simpleState,
+                    defaultMode = s.defaultMode,
+                    overrideUserPreference = s.overrideUserPreference
+                )
+                playlistId
+            } ?: repository.createDynamic(
+                name = name,
                 filter = filter,
                 mode = s.saveMode,
                 createdMode = s.createdMode,
                 sort = s.sort,
-                simpleState = simpleState
+                simpleState = simpleState,
+                defaultMode = s.defaultMode,
+                overrideUserPreference = s.overrideUserPreference
             )
         }
         emit(
@@ -273,38 +302,33 @@ class DynamicPlaylistDraftViewModel @Inject constructor(
     fun loadForEdit(playlistId: Long) {
         _state.update { it.copy(editingPlaylistId = playlistId) }
         viewModelScope.launch {
-            repository.observeSpec(playlistId).collect { entity ->
-                if (entity != null) {
-                    val storedSort = repository.decodeSort(entity)
-                    val storedFilter = repository.decodeFilter(entity)
-                    val storedSimple = repository.decodeSimpleState(entity)
-                    val isSimple = entity.createdMode == "SIMPLE"
+            val (playlist, entity) = combine(
+                repository.observePlaylist(playlistId),
+                repository.observeSpec(playlistId)
+            ) { currentPlaylist, currentSpec -> currentPlaylist to currentSpec }
+                .first { (currentPlaylist, currentSpec) -> currentPlaylist != null && currentSpec != null }
+            val loadedPlaylist = playlist ?: return@launch
+            val loadedSpec = entity ?: return@launch
+            val storedSort = repository.decodeSort(loadedSpec)
+            val storedFilter = repository.decodeFilter(loadedSpec)
+            val storedSimple = repository.decodeSimpleState(loadedSpec)
+            val isSimple = loadedSpec.createdMode == "SIMPLE"
 
-                    _state.update { s ->
-                        s.copy(
-                            saveMode = entity.mode,
-                            createdMode = entity.createdMode,
-                            editingPlaylistId = playlistId,
-                            isEditLocked = true,
-                            sort = storedSort,
-                            simple = storedSimple ?: SimpleSectionsState(),
-                            advancedTree = if (!isSimple) storedFilter ?: FilterNode.And(emptyList())
-                                          else s.advancedTree
-                        )
-                    }
-                    return@collect
-                }
+            _state.update { s ->
+                s.copy(
+                    draftName = loadedPlaylist.name,
+                    saveMode = loadedSpec.mode,
+                    createdMode = loadedSpec.createdMode,
+                    editingPlaylistId = playlistId,
+                    isEditLocked = true,
+                    sort = storedSort,
+                    simple = storedSimple ?: SimpleSectionsState(),
+                    advancedTree = if (!isSimple) storedFilter ?: FilterNode.And(emptyList()) else s.advancedTree,
+                    defaultMode = loadedPlaylist.defaultMode,
+                    overrideUserPreference = loadedPlaylist.overrideUserPreference
+                )
             }
         }
-    }
-
-    fun updateExistingPlaylist(): Flow<Unit> = flow {
-        val s = _state.value
-        val id = s.editingPlaylistId ?: return@flow
-        val filter = s.compileToFilterNode()
-        val simpleState = if (s.createdMode == "SIMPLE") s.simple else null
-        repository.updateDynamic(id, filter, s.sort, simpleState)
-        emit(Unit)
     }
 
     fun promoteToAdvanced() {

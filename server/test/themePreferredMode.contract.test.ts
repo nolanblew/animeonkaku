@@ -19,7 +19,8 @@ describe("per-theme preferred audio mode contract", () => {
 
     expect(sql).toMatch(/ALTER TABLE\s+"theme_prefs"\s+ADD COLUMN\s+"preferred_mode"\s+text/i);
     expect(sql).toMatch(/CHECK.+preferred_mode.+TV_SIZE.+FULL_SIZE/is);
-    expect(journal.entries.at(-1)).toMatchObject({ idx: 22, tag: "0022_theme_preferred_mode" });
+    expect(journal.entries.find((entry) => entry.tag === "0022_theme_preferred_mode"))
+      .toMatchObject({ idx: 22, tag: "0022_theme_preferred_mode" });
     expect(snapshot.tables["public.theme_prefs"].columns.preferred_mode).toMatchObject({ notNull: false });
   });
 

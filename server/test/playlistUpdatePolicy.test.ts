@@ -5,6 +5,7 @@ describe("auto playlist update policy", () => {
   it("allows changing only the preferred version", () => {
     expect(autoPlaylistUpdateIsAllowed({ defaultMode: "FULL_SIZE", opTs: 10 })).toBe(true);
     expect(autoPlaylistUpdateIsAllowed({ defaultMode: "TV_SIZE" })).toBe(true);
+    expect(autoPlaylistUpdateIsAllowed({ overrideUserPreference: true })).toBe(true);
   });
 
   it("keeps auto playlist contents and identity read only", () => {

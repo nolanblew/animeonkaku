@@ -138,6 +138,7 @@ export interface PlaylistDto {
   name: string;
   entries: number[];
   defaultMode: PlaylistPlaybackMode;
+  overrideUserPreference: boolean;
   items: PlaylistItemDto[];
   isAuto: boolean;
   isDynamic: boolean;
@@ -184,6 +185,7 @@ export interface PlaylistInput {
   name?: string | undefined;
   entries?: number[] | undefined;
   defaultMode?: PlaylistPlaybackMode | undefined;
+  overrideUserPreference?: boolean | undefined;
   items?: PlaylistItemInput[] | undefined;
   dynamicSpecJson?: unknown;
   dynamicSortJson?: unknown;
@@ -195,6 +197,7 @@ export interface PlaylistCreateInput {
   name: string;
   entries?: number[] | undefined;
   defaultMode?: PlaylistPlaybackMode | undefined;
+  overrideUserPreference?: boolean | undefined;
   items?: PlaylistItemInput[] | undefined;
   dynamicSpecJson?: unknown;
   dynamicSortJson?: unknown;
@@ -330,6 +333,7 @@ const playlistCreateBody = z.object({
   name: z.string().min(1).max(100),
   entries: z.array(z.number().int().positive()).optional(),
   defaultMode: z.enum(["TV_SIZE", "FULL_SIZE"]).optional(),
+  overrideUserPreference: z.boolean().optional(),
   items: z.array(playlistItemSchema).optional(),
   dynamicSpecJson: z.unknown().optional(),
   dynamicSortJson: z.unknown().optional(),
@@ -342,6 +346,7 @@ const playlistUpdateBody = z
     name: z.string().min(1).max(100).optional(),
     entries: z.array(z.number().int().positive()).optional(),
     defaultMode: z.enum(["TV_SIZE", "FULL_SIZE"]).optional(),
+    overrideUserPreference: z.boolean().optional(),
     items: z.array(playlistItemSchema).optional(),
     dynamicSpecJson: z.unknown().optional(),
     dynamicSortJson: z.unknown().optional(),
@@ -354,6 +359,7 @@ const playlistUpdateBody = z
       value.name !== undefined ||
       value.entries !== undefined ||
       value.defaultMode !== undefined ||
+      value.overrideUserPreference !== undefined ||
       value.items !== undefined ||
       value.dynamicSpecJson !== undefined ||
       value.dynamicSortJson !== undefined ||

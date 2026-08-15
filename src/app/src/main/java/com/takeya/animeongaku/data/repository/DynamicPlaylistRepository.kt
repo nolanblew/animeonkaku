@@ -80,8 +80,11 @@ class DynamicPlaylistRepository @Inject constructor(
         mode: String,
         createdMode: String,
         sort: SortSpec = SortSpec.DEFAULT,
-        simpleState: SimpleSectionsState? = null
+        simpleState: SimpleSectionsState? = null,
+        defaultMode: String = "TV_SIZE",
+        overrideUserPreference: Boolean = false
     ): Long = withContext(Dispatchers.IO) {
+        require(defaultMode == "TV_SIZE" || defaultMode == "FULL_SIZE")
         val now = System.currentTimeMillis()
         val localId = if (serverSettingsStore.isConfigured) OfflineSync.nextTempId() else 0L
         val id = playlistDao.insertPlaylist(
@@ -91,6 +94,8 @@ class DynamicPlaylistRepository @Inject constructor(
                 createdAt = now,
                 isAuto = true,
                 gradientSeed = Random.nextInt(),
+                defaultMode = defaultMode,
+                overrideUserPreference = overrideUserPreference,
                 updatedAt = now,
                 deletedAt = null
             )
@@ -117,6 +122,8 @@ class DynamicPlaylistRepository @Inject constructor(
                 dynamicSpecJson = spec.toServerSpecPayload(),
                 dynamicSortJson = spec.sortJson?.let(::parseJson),
                 autoUpdate = autoUpdate,
+                defaultMode = defaultMode,
+                overrideUserPreference = overrideUserPreference,
                 opTs = now
             )
             syncEngine.pushPendingWrites()
@@ -127,19 +134,35 @@ class DynamicPlaylistRepository @Inject constructor(
     /** Update the filter (and optionally sort / simple state) on an existing dynamic playlist. Re-evaluates immediately. */
     suspend fun updateDynamic(
         playlistId: Long,
+        name: String,
         filter: FilterNode,
-        sort: SortSpec? = null,
-        simpleState: SimpleSectionsState? = null
+        mode: String,
+        createdMode: String,
+        sort: SortSpec,
+        simpleState: SimpleSectionsState?,
+        defaultMode: String,
+        overrideUserPreference: Boolean
     ) = withContext(Dispatchers.IO) {
+        require(defaultMode == "TV_SIZE" || defaultMode == "FULL_SIZE")
+        require(mode == "AUTO" || mode == "SNAPSHOT")
         val existing = specDao.getById(playlistId) ?: return@withContext
         val updated = existing.copy(
             filterJson = serializeFilter(filter),
-            sortJson = sort?.let(::serializeSort) ?: existing.sortJson,
-            simpleStateJson = simpleState?.let(::serializeSimpleState) ?: existing.simpleStateJson
+            mode = mode,
+            createdMode = createdMode,
+            sortJson = serializeSort(sort),
+            simpleStateJson = simpleState?.let(::serializeSimpleState),
+            serverManaged = serverSettingsStore.isConfigured && mode == "AUTO"
         )
         specDao.upsert(updated)
         val opTs = System.currentTimeMillis()
-        playlistDao.touchPlaylist(playlistId, opTs)
+        playlistDao.updateDynamicPlaylistMetadata(
+            playlistId,
+            name,
+            defaultMode,
+            overrideUserPreference,
+            opTs
+        )
         if (!updated.serverManaged) {
             refreshOne(playlistId)
         }
@@ -147,11 +170,13 @@ class DynamicPlaylistRepository @Inject constructor(
             val autoUpdate = updated.mode == "AUTO"
             syncEngine.enqueueDynamicPlaylistUpsert(
                 playlistId = playlistId,
-                name = null,
+                name = name,
                 entries = if (autoUpdate) null else playlistDao.getThemeIdsInPlaylist(playlistId),
                 dynamicSpecJson = updated.toServerSpecPayload(),
                 dynamicSortJson = updated.sortJson?.let(::parseJson),
                 autoUpdate = autoUpdate,
+                defaultMode = defaultMode,
+                overrideUserPreference = overrideUserPreference,
                 opTs = opTs
             )
             syncEngine.pushPendingWrites()
@@ -202,6 +227,9 @@ class DynamicPlaylistRepository @Inject constructor(
     /** Observe the spec for a given playlist (null if not dynamic). */
     fun observeSpec(playlistId: Long): Flow<DynamicPlaylistSpecEntity?> =
         specDao.observeById(playlistId)
+
+    fun observePlaylist(playlistId: Long): Flow<PlaylistEntity?> =
+        playlistDao.observePlaylist(playlistId)
 
     /** Decode a persisted spec's sort spec, falling back to the default. */
     fun decodeSort(entity: DynamicPlaylistSpecEntity): SortSpec =

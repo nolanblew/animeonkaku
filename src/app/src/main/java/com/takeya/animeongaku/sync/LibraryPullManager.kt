@@ -191,6 +191,7 @@ private fun OngakuPlaylistDto.toPlaylistEntity(): PlaylistEntity =
         createdAt = updatedAt,
         isAuto = isAuto || dynamicSpecJson != null,
         defaultMode = defaultMode,
+        overrideUserPreference = overrideUserPreference,
         updatedAt = updatedAt,
         deletedAt = updatedAt.takeIf { deleted }
     )

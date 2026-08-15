@@ -48,6 +48,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -435,7 +436,32 @@ fun PlaylistDetailScreen(
                             )
                         }
                     }
-                    Text("Used for playback and downloads when a theme has no override", style = MaterialTheme.typography.labelSmall, color = Mist200)
+                    Text(
+                        if (playlist?.overrideUserPreference == true) {
+                            "Used for playback and downloads even when a theme has a saved preference"
+                        } else {
+                            "Used for playback and downloads when a theme has no saved preference"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Mist200
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Override song preferences", style = MaterialTheme.typography.labelMedium, color = Mist100)
+                            Text(
+                                "Disliked versions are always excluded",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Mist200
+                            )
+                        }
+                        Switch(
+                            checked = playlist?.overrideUserPreference == true,
+                            onCheckedChange = viewModel::updateOverrideUserPreference
+                        )
+                    }
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(

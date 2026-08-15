@@ -29,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -57,6 +58,27 @@ import com.takeya.animeongaku.ui.player.MiniPlayerHeight
 import com.takeya.animeongaku.ui.theme.Rose500
 import kotlinx.coroutines.launch
 
+internal data class DynamicPlaylistSavePresentation(
+    val title: String,
+    val buttonLabel: String
+)
+
+internal fun dynamicPlaylistSavePresentation(
+    editingPlaylistId: Long?,
+    isSaving: Boolean
+): DynamicPlaylistSavePresentation {
+    val editing = editingPlaylistId != null
+    return DynamicPlaylistSavePresentation(
+        title = if (editing) "Edit Smart Playlist" else "New Smart Playlist",
+        buttonLabel = when {
+            isSaving && editing -> "Saving..."
+            isSaving -> "Creating..."
+            editing -> "Save Changes"
+            else -> "Create Playlist"
+        }
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DynamicPreviewScreen(
@@ -70,6 +92,7 @@ fun DynamicPreviewScreen(
     val coroutineScope = rememberCoroutineScope()
     var isSaving by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<String?>(null) }
+    val savePresentation = dynamicPlaylistSavePresentation(state.editingPlaylistId, isSaving)
 
     val backgroundBrush = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
 
@@ -97,7 +120,7 @@ fun DynamicPreviewScreen(
                 }
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = "New Smart Playlist",
+                    text = savePresentation.title,
                     color = Mist100,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
@@ -147,6 +170,13 @@ fun DynamicPreviewScreen(
                 onModeSelected = viewModel::setSaveMode
             )
 
+            PlaylistPlaybackPreferenceSelector(
+                selectedMode = state.defaultMode,
+                overrideUserPreference = state.overrideUserPreference,
+                onModeSelected = viewModel::setDefaultMode,
+                onOverrideChanged = viewModel::setOverrideUserPreference
+            )
+
             Spacer(modifier = Modifier.height(8.dp))
 
             // Create Playlist button
@@ -156,7 +186,7 @@ fun DynamicPreviewScreen(
                     saveError = null
                     coroutineScope.launch {
                         isSaving = true
-                        viewModel.savePlaylist().collect { result ->
+                        viewModel.saveCurrentPlaylist().collect { result ->
                             when (result) {
                                 is SavePlaylistResult.Success -> onPlaylistCreated(result.playlistId)
                                 is SavePlaylistResult.Failure -> {
@@ -184,13 +214,68 @@ fun DynamicPreviewScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                 }
                 Text(
-                    text = if (isSaving) "Creating..." else "Create Playlist",
+                    text = savePresentation.buttonLabel,
                     color = if (isSaving) Mist200 else Color.White,
                     fontWeight = FontWeight.SemiBold
                 )
             }
 
             Spacer(modifier = Modifier.height(MiniPlayerHeight + 32.dp))
+        }
+    }
+}
+
+@Composable
+private fun PlaylistPlaybackPreferenceSelector(
+    selectedMode: String,
+    overrideUserPreference: Boolean,
+    onModeSelected: (String) -> Unit,
+    onOverrideChanged: (Boolean) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "Preferred playlist version",
+            color = Mist100,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 16.sp
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("TV_SIZE" to "TV Size", "FULL_SIZE" to "Full Size").forEach { (mode, label) ->
+                val selected = selectedMode == mode
+                Card(
+                    onClick = { onModeSelected(mode) },
+                    modifier = Modifier.weight(1f),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (selected) Color(0xFF2A1520) else Color(0xFF181820)
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    border = if (selected) androidx.compose.foundation.BorderStroke(1.dp, Rose500) else null
+                ) {
+                    Text(
+                        text = label,
+                        color = if (selected) Rose500 else Mist100,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Override song preferences", color = Mist100, fontWeight = FontWeight.Medium)
+                Text(
+                    "Use the playlist choice even when a song prefers the other version. Dislikes are never overridden.",
+                    color = Mist200,
+                    fontSize = 13.sp
+                )
+            }
+            Switch(checked = overrideUserPreference, onCheckedChange = onOverrideChanged)
         }
     }
 }
