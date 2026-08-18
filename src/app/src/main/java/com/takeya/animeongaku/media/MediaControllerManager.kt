@@ -471,7 +471,11 @@ class MediaControllerManager @Inject constructor(
                                 .drop(1)
                                 .map { Unit }
                         )
-                            .collectLatest {
+                            .collectLatest { change ->
+                                if (change == PlaybackAvailabilityChange.ServerReachability(false)) {
+                                    _playbackState.update(PlaybackState::withServerUnavailable)
+                                    return@collectLatest
+                                }
                                 val ctrl = controller ?: return@collectLatest
                                 val npState = nowPlayingManager.state.value
                                 if (npState.nowPlayingEntries.isNotEmpty()) {
@@ -1084,13 +1088,21 @@ val repeatMode: Int
     get() = controller?.repeatMode ?: Player.REPEAT_MODE_OFF
 }
 
-/** Signals that the current queue may resolve to a different source or set of modes. */
+/** Distinguishes server transitions from local media changes so going offline does not
+ * rebuild the current server item out of the Media3 queue. */
+internal sealed interface PlaybackAvailabilityChange {
+    data class ServerReachability(val reachable: Boolean) : PlaybackAvailabilityChange
+    data object MediaInvalidation : PlaybackAvailabilityChange
+}
+
 internal fun playbackAvailabilityChanges(
     serverReachable: Flow<Boolean>,
     mediaInvalidations: Flow<Unit>
-): Flow<Unit> = merge(
-    serverReachable.distinctUntilChanged().drop(1).map { Unit },
-    mediaInvalidations
+): Flow<PlaybackAvailabilityChange> = merge(
+    serverReachable.distinctUntilChanged().drop(1).map {
+        PlaybackAvailabilityChange.ServerReachability(it)
+    },
+    mediaInvalidations.map { PlaybackAvailabilityChange.MediaInvalidation }
 )
 
 internal fun isQueueEntryAllowedByPreference(
@@ -1162,6 +1174,10 @@ data class MediaControllerConnectionState(
     val isReady: Boolean = false,
     val retryAttempt: Int = 0,
     val errorMessage: String? = null,
+)
+
+internal fun PlaybackState.withServerUnavailable(): PlaybackState = copy(
+    availableModes = setOfNotNull(actualMode)
 )
 
 internal fun PlaybackState.withResolvedPlayback(
