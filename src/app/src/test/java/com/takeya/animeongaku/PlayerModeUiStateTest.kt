@@ -84,6 +84,24 @@ class PlayerModeUiStateTest {
     }
 
     @Test
+    fun `offline unavailable media keeps preferred version as noninteractive status`() {
+        val state = derivePlayerModeUiState(
+            isTheme = true,
+            playbackState = PlaybackState(
+                preferredMode = PlaybackMode.TV_SIZE,
+                actualMode = null,
+                availableModes = emptySet(),
+                retainedIntentReason = RetainedIntentReason.EXACT_OFFLINE_MEDIA_MISSING
+            )
+        )
+
+        assertTrue(state.showsModeStatus())
+        assertEquals(PlaybackMode.TV_SIZE, state.actualMode)
+        assertEquals(listOf(PlaybackMode.TV_SIZE), state.options)
+        assertFalse(state.canChangeMode)
+    }
+
+    @Test
     fun `related songs never offer the mode chooser`() {
         val state = derivePlayerModeUiState(
             isTheme = false,
