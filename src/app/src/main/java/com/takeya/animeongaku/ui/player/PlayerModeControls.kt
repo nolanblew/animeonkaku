@@ -92,15 +92,14 @@ fun PlayerModeChip(
     onModeSelected: (PlaybackMode) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    if (!state.showsModeChip()) return
+    if (!state.showsModeStatus()) return
     val current = state.actualMode ?: state.options.first()
     val label = current.displayLabel()
     val retained = state.retainedIntentText
     var menuOpen by remember { mutableStateOf(false) }
 
     Box(modifier = modifier) {
-        Row(
-            modifier = Modifier
+        val rowModifier = Modifier
                 .semantics {
                     contentDescription = "Playback mode: $label"
                     // The retained-intent explanation no longer has a line of
@@ -110,14 +109,23 @@ fun PlayerModeChip(
                         liveRegion = LiveRegionMode.Polite
                     }
                 }
-                .minimumInteractiveComponentSize()
-                .heightIn(min = 48.dp)
-                .clip(RoundedCornerShape(50))
-                .clickable(
-                    role = Role.Button,
-                    onClickLabel = "Change playback mode"
-                ) { menuOpen = true }
-                .padding(horizontal = 2.dp, vertical = 2.dp),
+                .then(
+                    if (state.canChangeMode) {
+                        Modifier
+                            .minimumInteractiveComponentSize()
+                            .heightIn(min = 48.dp)
+                            .clip(RoundedCornerShape(50))
+                            .clickable(
+                                role = Role.Button,
+                                onClickLabel = "Change playback mode"
+                            ) { menuOpen = true }
+                    } else {
+                        Modifier.padding(vertical = 2.dp)
+                    }
+                )
+                .padding(horizontal = 2.dp, vertical = 2.dp)
+        Row(
+            modifier = rowModifier,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -126,12 +134,14 @@ fun PlayerModeChip(
                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
                 maxLines = 1
             )
-            Icon(
-                imageVector = Icons.Rounded.ArrowDropDown,
-                contentDescription = null,
-                tint = Mist200,
-                modifier = Modifier.size(18.dp)
-            )
+            if (state.canChangeMode) {
+                Icon(
+                    imageVector = Icons.Rounded.ArrowDropDown,
+                    contentDescription = null,
+                    tint = Mist200,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
         // Now Playing paints its own dark Ink/Mist palette regardless of the
         // system theme, but a DropdownMenu is a popup that reads the ambient
@@ -146,7 +156,10 @@ fun PlayerModeChip(
                 onSurfaceVariant = Mist200
             )
         ) {
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenu(
+                expanded = state.canChangeMode && menuOpen,
+                onDismissRequest = { menuOpen = false }
+            ) {
                 if (retained != null) {
                     Text(
                         text = retained,

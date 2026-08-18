@@ -26,6 +26,7 @@ import com.takeya.animeongaku.data.local.UserPreferenceEntity
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.network.ConnectivityMonitor
+import com.takeya.animeongaku.network.ServerReachabilityMonitor
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,8 +41,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -70,6 +76,7 @@ class MediaControllerManager @Inject constructor(
     private val userPreferencesRepository: UserPreferencesRepository,
     private val nowPlayingPersistence: NowPlayingPersistence,
     private val connectivityMonitor: ConnectivityMonitor,
+    private val serverReachabilityMonitor: ServerReachabilityMonitor,
     private val serverSettingsStore: ServerSettingsStore,
     private val imageLoader: ImageLoader,
     private val playbackResolutionCoordinator: PlaybackResolutionCoordinator,
@@ -457,8 +464,13 @@ class MediaControllerManager @Inject constructor(
                         // Rebuild the active queue when the next library delta writes its profile,
                         // including a same-queue-id TV/Full replacement, without waiting for a
                         // user queue mutation or an app restart.
-                        database.invalidationTracker
-                            .createFlow("theme_modes", "songs")
+                        playbackAvailabilityChanges(
+                            serverReachable = serverReachabilityMonitor.isReachable,
+                            mediaInvalidations = database.invalidationTracker
+                                .createFlow("theme_modes", "songs", "download_items")
+                                .drop(1)
+                                .map { Unit }
+                        )
                             .collectLatest {
                                 val ctrl = controller ?: return@collectLatest
                                 val npState = nowPlayingManager.state.value
@@ -1071,6 +1083,15 @@ class MediaControllerManager @Inject constructor(
 val repeatMode: Int
     get() = controller?.repeatMode ?: Player.REPEAT_MODE_OFF
 }
+
+/** Signals that the current queue may resolve to a different source or set of modes. */
+internal fun playbackAvailabilityChanges(
+    serverReachable: Flow<Boolean>,
+    mediaInvalidations: Flow<Unit>
+): Flow<Unit> = merge(
+    serverReachable.distinctUntilChanged().drop(1).map { Unit },
+    mediaInvalidations
+)
 
 internal fun isQueueEntryAllowedByPreference(
     entry: QueueEntry,

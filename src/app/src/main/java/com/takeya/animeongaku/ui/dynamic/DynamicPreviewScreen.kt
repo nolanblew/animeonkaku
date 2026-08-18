@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -29,7 +30,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -55,6 +55,7 @@ import com.takeya.animeongaku.ui.theme.Ink900
 import com.takeya.animeongaku.ui.theme.Mist100
 import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.player.MiniPlayerHeight
+import com.takeya.animeongaku.ui.common.PlaylistPlaybackSettingsSheet
 import com.takeya.animeongaku.ui.theme.Rose500
 import kotlinx.coroutines.launch
 
@@ -92,6 +93,7 @@ fun DynamicPreviewScreen(
     val coroutineScope = rememberCoroutineScope()
     var isSaving by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<String?>(null) }
+    var showPlaybackSettings by remember { mutableStateOf(false) }
     val savePresentation = dynamicPlaylistSavePresentation(state.editingPlaylistId, isSaving)
 
     val backgroundBrush = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
@@ -110,7 +112,10 @@ fun DynamicPreviewScreen(
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             // Header row
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 IconButton(onClick = onBack) {
                     Icon(
                         imageVector = Icons.Rounded.ArrowBack,
@@ -123,8 +128,12 @@ fun DynamicPreviewScreen(
                     text = savePresentation.title,
                     color = Mist100,
                     fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
                 )
+                IconButton(onClick = { showPlaybackSettings = true }) {
+                    Icon(Icons.Rounded.Settings, contentDescription = "Playlist settings", tint = Mist100)
+                }
             }
 
             // Cover art mosaic
@@ -168,13 +177,6 @@ fun DynamicPreviewScreen(
             SaveModeSelector(
                 selectedMode = state.saveMode,
                 onModeSelected = viewModel::setSaveMode
-            )
-
-            PlaylistPlaybackPreferenceSelector(
-                selectedMode = state.defaultMode,
-                overrideUserPreference = state.overrideUserPreference,
-                onModeSelected = viewModel::setDefaultMode,
-                onOverrideChanged = viewModel::setOverrideUserPreference
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -222,60 +224,15 @@ fun DynamicPreviewScreen(
 
             Spacer(modifier = Modifier.height(MiniPlayerHeight + 32.dp))
         }
-    }
-}
 
-@Composable
-private fun PlaylistPlaybackPreferenceSelector(
-    selectedMode: String,
-    overrideUserPreference: Boolean,
-    onModeSelected: (String) -> Unit,
-    onOverrideChanged: (Boolean) -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = "Preferred playlist version",
-            color = Mist100,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 16.sp
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("TV_SIZE" to "TV Size", "FULL_SIZE" to "Full Size").forEach { (mode, label) ->
-                val selected = selectedMode == mode
-                Card(
-                    onClick = { onModeSelected(mode) },
-                    modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (selected) Color(0xFF2A1520) else Color(0xFF181820)
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    border = if (selected) androidx.compose.foundation.BorderStroke(1.dp, Rose500) else null
-                ) {
-                    Text(
-                        text = label,
-                        color = if (selected) Rose500 else Mist100,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Override song preferences", color = Mist100, fontWeight = FontWeight.Medium)
-                Text(
-                    "Use the playlist choice even when a song prefers the other version. Dislikes are never overridden.",
-                    color = Mist200,
-                    fontSize = 13.sp
-                )
-            }
-            Switch(checked = overrideUserPreference, onCheckedChange = onOverrideChanged)
+        if (showPlaybackSettings) {
+            PlaylistPlaybackSettingsSheet(
+                selectedMode = state.defaultMode,
+                overrideUserPreference = state.overrideUserPreference,
+                onModeSelected = viewModel::setDefaultMode,
+                onOverrideChanged = viewModel::setOverrideUserPreference,
+                onDismiss = { showPlaybackSettings = false }
+            )
         }
     }
 }

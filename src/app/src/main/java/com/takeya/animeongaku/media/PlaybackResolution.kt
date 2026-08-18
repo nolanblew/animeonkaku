@@ -8,7 +8,7 @@ import com.takeya.animeongaku.data.local.ThemeModeDao
 import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.data.local.UserPreferenceDao
 import com.takeya.animeongaku.data.local.UserPreferenceEntity
-import com.takeya.animeongaku.network.ConnectivityMonitor
+import com.takeya.animeongaku.network.ServerReachabilityMonitor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -323,7 +323,7 @@ private fun String.toLocalUri(): String = when {
 @Singleton
 class PlaybackResolutionCoordinator @Inject constructor(
     private val resolver: PlaybackResolver,
-    private val connectivityMonitor: ConnectivityMonitor,
+    private val serverReachabilityMonitor: ServerReachabilityMonitor,
     private val downloadItemDao: DownloadItemDao,
     private val themeModeDao: ThemeModeDao,
     private val musicCatalogDao: MusicCatalogDao,
@@ -404,7 +404,7 @@ class PlaybackResolutionCoordinator @Inject constructor(
                 downloadItemDao.getByMediaKeys(request.mediaKeys.map { it.value })
             }
             val localMedia = completedLocalMedia(downloads)
-            val isOnline = connectivityMonitor.isOnline.value
+            val isOnline = serverReachabilityMonitor.isReachable.value
             hydratedEntries.map { hydratedEntry ->
                 val keys = hydratedEntry.possibleMediaKeys()
                 ResolutionSnapshot(
