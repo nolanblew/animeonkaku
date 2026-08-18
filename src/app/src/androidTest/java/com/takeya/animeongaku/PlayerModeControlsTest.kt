@@ -7,6 +7,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -76,7 +77,7 @@ class PlayerModeControlsTest {
     }
 
     @Test
-    fun chipIsAbsentWhenOnlyOneModeIsAvailable() {
+    fun singleModeIsShownAsNonInteractiveStatus() {
         composeRule.setContent {
             MaterialTheme {
                 PlayerModeChip(
@@ -91,7 +92,9 @@ class PlayerModeControlsTest {
             }
         }
 
-        composeRule.onNodeWithContentDescription("Playback mode: TV Size").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription("Playback mode: TV Size")
+            .assertIsDisplayed()
+            .assertHasNoClickAction()
     }
 
     @Test
