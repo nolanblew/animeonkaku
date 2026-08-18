@@ -3,6 +3,7 @@ package com.takeya.animeongaku.ui.player
 import android.content.res.Configuration
 import com.takeya.animeongaku.media.PlaybackMode
 import com.takeya.animeongaku.media.PlaybackState
+import com.takeya.animeongaku.media.RetainedIntentReason
 
 data class VideoContentWarning(
     val spoiler: Boolean,
@@ -66,9 +67,12 @@ fun derivePlayerModeUiState(
     playbackState: PlaybackState
 ): PlayerModeUiState {
     if (!isTheme || playbackState.queueId != currentQueueId) return PlayerModeUiState()
-    val options = themeModeOrder.filter(playbackState.availableModes::contains)
     val preferred = playbackState.preferredMode
-    val actual = playbackState.actualMode
+    val actual = playbackState.actualMode ?: preferred?.takeIf {
+        playbackState.retainedIntentReason == RetainedIntentReason.EXACT_OFFLINE_MEDIA_MISSING
+    }
+    val availableOptions = themeModeOrder.filter(playbackState.availableModes::contains)
+    val options = if (availableOptions.isEmpty() && actual != null) listOf(actual) else availableOptions
     val retainedText = if (
         playbackState.retainedIntentReason != null &&
         preferred != null && actual != null && preferred != actual
