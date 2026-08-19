@@ -56,7 +56,8 @@ data class PersistedNowPlayingState(
     val animeMapKeys: List<Long> = emptyList(),
     val queueVersion: Long = 0L,
     val positionMs: Long = 0L,
-    val repeatMode: Int = 0
+    val repeatMode: Int = 0,
+    val sessionAudioMode: String? = null
 )
 
 data class RestoredQueueState(
@@ -202,7 +203,10 @@ internal fun NowPlayingState.toPersistedState(
     animeMapKeys = animeMap.keys.toList(),
     queueVersion = queueVersion,
     positionMs = positionMs,
-    repeatMode = repeatMode
+    repeatMode = repeatMode,
+    sessionAudioMode = playbackIntent.sessionOverride
+        ?.takeIf(PlaybackMode::isAudioMode)
+        ?.name
 )
 
 private fun QueueEntry.toPersistedEntry(): PersistedQueueEntry = when (val playable = item) {
@@ -379,6 +383,14 @@ internal fun restorePersistedQueueState(
         contextLabel = persisted.contextLabel,
         animeMap = animeMap,
         queueVersion = persisted.queueVersion,
+        playbackIntent = PlaybackIntent(
+            sessionOverride = persisted.sessionAudioMode
+                ?.let { value -> PlaybackMode.entries.firstOrNull { it.name == value } }
+                ?.takeIf(PlaybackMode::isAudioMode)
+        ),
         isFullReload = true
     ).withUniqueHistoryEntries()
 }
+
+private fun PlaybackMode.isAudioMode(): Boolean =
+    this == PlaybackMode.TV_SIZE || this == PlaybackMode.FULL_SIZE
