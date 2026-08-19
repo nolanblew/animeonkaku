@@ -8,6 +8,7 @@ import com.takeya.animeongaku.media.PersistedQueueEntry
 import com.takeya.animeongaku.media.PlayableItem
 import com.takeya.animeongaku.media.PlayableKind
 import com.takeya.animeongaku.media.NowPlayingState
+import com.takeya.animeongaku.media.PlaybackIntent
 import com.takeya.animeongaku.media.QueueEntry
 import com.takeya.animeongaku.media.restorePersistedQueueState
 import com.takeya.animeongaku.media.toPersistedState
@@ -176,6 +177,50 @@ class NowPlayingPersistenceModelTest {
         )!!
 
         assertEquals(policy, restored.currentEntry!!.baseModePolicy)
+    }
+
+    @Test
+    fun `typed persistence restores current audio mode override`() {
+        listOf(PlaybackMode.TV_SIZE, PlaybackMode.FULL_SIZE).forEach { mode ->
+            val entry = QueueEntry(80, PlayableItem.Theme(theme(1)))
+            val persisted = NowPlayingState(
+                originalQueueEntries = listOf(entry),
+                nowPlayingEntries = listOf(entry),
+                playbackIntent = PlaybackIntent(sessionOverride = mode)
+            ).toPersistedState(0, 0)
+
+            val restored = restorePersistedQueueState(
+                persisted,
+                themes = mapOf(1L to theme(1)),
+                songs = emptyMap(),
+                releases = emptyMap(),
+                animeByKitsuId = emptyMap(),
+                animeMap = emptyMap()
+            )!!
+
+            assertEquals(mode, restored.playbackIntent.sessionOverride)
+        }
+    }
+
+    @Test
+    fun `typed persistence does not restore Video override`() {
+        val entry = QueueEntry(81, PlayableItem.Theme(theme(1)))
+        val persisted = NowPlayingState(
+            originalQueueEntries = listOf(entry),
+            nowPlayingEntries = listOf(entry),
+            playbackIntent = PlaybackIntent(sessionOverride = PlaybackMode.VIDEO)
+        ).toPersistedState(0, 0)
+
+        val restored = restorePersistedQueueState(
+            persisted,
+            themes = mapOf(1L to theme(1)),
+            songs = emptyMap(),
+            releases = emptyMap(),
+            animeByKitsuId = emptyMap(),
+            animeMap = emptyMap()
+        )!!
+
+        assertEquals(null, restored.playbackIntent.sessionOverride)
     }
 
     private fun theme(id: Long) = ThemeEntity(
