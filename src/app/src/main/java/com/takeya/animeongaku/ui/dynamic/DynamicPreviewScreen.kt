@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -54,8 +55,30 @@ import com.takeya.animeongaku.ui.theme.Ink900
 import com.takeya.animeongaku.ui.theme.Mist100
 import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.player.MiniPlayerHeight
+import com.takeya.animeongaku.ui.common.PlaylistPlaybackSettingsSheet
 import com.takeya.animeongaku.ui.theme.Rose500
 import kotlinx.coroutines.launch
+
+internal data class DynamicPlaylistSavePresentation(
+    val title: String,
+    val buttonLabel: String
+)
+
+internal fun dynamicPlaylistSavePresentation(
+    editingPlaylistId: Long?,
+    isSaving: Boolean
+): DynamicPlaylistSavePresentation {
+    val editing = editingPlaylistId != null
+    return DynamicPlaylistSavePresentation(
+        title = if (editing) "Edit Smart Playlist" else "New Smart Playlist",
+        buttonLabel = when {
+            isSaving && editing -> "Saving..."
+            isSaving -> "Creating..."
+            editing -> "Save Changes"
+            else -> "Create Playlist"
+        }
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,6 +93,8 @@ fun DynamicPreviewScreen(
     val coroutineScope = rememberCoroutineScope()
     var isSaving by remember { mutableStateOf(false) }
     var saveError by remember { mutableStateOf<String?>(null) }
+    var showPlaybackSettings by remember { mutableStateOf(false) }
+    val savePresentation = dynamicPlaylistSavePresentation(state.editingPlaylistId, isSaving)
 
     val backgroundBrush = Brush.verticalGradient(listOf(Ink900, Ink800, Ink700))
 
@@ -87,7 +112,10 @@ fun DynamicPreviewScreen(
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             // Header row
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 IconButton(onClick = onBack) {
                     Icon(
                         imageVector = Icons.Rounded.ArrowBack,
@@ -97,11 +125,15 @@ fun DynamicPreviewScreen(
                 }
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = "New Smart Playlist",
+                    text = savePresentation.title,
                     color = Mist100,
                     fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
                 )
+                IconButton(onClick = { showPlaybackSettings = true }) {
+                    Icon(Icons.Rounded.Settings, contentDescription = "Playlist settings", tint = Mist100)
+                }
             }
 
             // Cover art mosaic
@@ -156,7 +188,7 @@ fun DynamicPreviewScreen(
                     saveError = null
                     coroutineScope.launch {
                         isSaving = true
-                        viewModel.savePlaylist().collect { result ->
+                        viewModel.saveCurrentPlaylist().collect { result ->
                             when (result) {
                                 is SavePlaylistResult.Success -> onPlaylistCreated(result.playlistId)
                                 is SavePlaylistResult.Failure -> {
@@ -184,13 +216,23 @@ fun DynamicPreviewScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                 }
                 Text(
-                    text = if (isSaving) "Creating..." else "Create Playlist",
+                    text = savePresentation.buttonLabel,
                     color = if (isSaving) Mist200 else Color.White,
                     fontWeight = FontWeight.SemiBold
                 )
             }
 
             Spacer(modifier = Modifier.height(MiniPlayerHeight + 32.dp))
+        }
+
+        if (showPlaybackSettings) {
+            PlaylistPlaybackSettingsSheet(
+                selectedMode = state.defaultMode,
+                overrideUserPreference = state.overrideUserPreference,
+                onModeSelected = viewModel::setDefaultMode,
+                onOverrideChanged = viewModel::setOverrideUserPreference,
+                onDismiss = { showPlaybackSettings = false }
+            )
         }
     }
 }

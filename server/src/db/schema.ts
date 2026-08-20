@@ -427,6 +427,7 @@ export const playlists = pgTable(
     autoKind: text("auto_kind"), // KITSU_LIBRARY | CURRENTLY_WATCHING | LIKED_SONGS | null
     gradientSeed: integer("gradient_seed").notNull().default(0),
     defaultMode: text("default_mode").$type<PlaylistPlaybackMode>().notNull().default("TV_SIZE"),
+    overrideUserPreference: boolean("override_user_preference").notNull().default(false),
     // Dynamic (smart) playlists: server-authoritative spec + sort, materialized like auto
     // playlists when dynamicAutoUpdate is true. dynamicSpecJson is the filter tree; a
     // non-null spec marks the playlist as dynamic.

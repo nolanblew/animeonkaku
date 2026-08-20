@@ -73,15 +73,16 @@ internal fun resolveThemeDownloadMedia(
     canonicalSongUrl: String?,
     canonicalSongLoudness: LoudnessProfile? = null,
     preference: UserPreferenceEntity? = null,
-    fallbackMode: String = "TV_SIZE"
+    fallbackMode: String = "TV_SIZE",
+    overrideUserPreference: Boolean = false
 ): DownloadMediaSpec? {
     val tvUrl = descriptor?.tvSizeUrl?.takeIf(String::isNotBlank)
         ?: fallbackTvUrl.takeIf(String::isNotBlank)
     val full = resolveThemeFullSizeDownload(descriptor, canonicalSongUrl, canonicalSongLoudness)
-    val preferredMode = preference?.preferredMode ?: fallbackMode
+    val preferredMode = if (overrideUserPreference) fallbackMode else preference?.preferredMode ?: fallbackMode
     val tvAllowed = preference?.isDislikedTvSize != true
     val fullAllowed = preference?.isDislikedFullSize != true
-    val hasThemeDirective = preference?.preferredMode != null || !tvAllowed || !fullAllowed
+    val hasThemeDirective = (!overrideUserPreference && preference?.preferredMode != null) || !tvAllowed || !fullAllowed
 
     val orderedModes = when (preferredMode) {
         "FULL_SIZE" -> if (hasThemeDirective) listOf("FULL_SIZE", "TV_SIZE") else listOf("FULL_SIZE")
@@ -105,7 +106,8 @@ internal fun resolvePlaylistDownloadMedia(
     themeModes: Map<Long, ThemeModeEntity>,
     songUrls: Map<Long, String>,
     songLoudness: Map<Long, LoudnessProfile?> = emptyMap(),
-    themePreferences: Map<Long, UserPreferenceEntity> = emptyMap()
+    themePreferences: Map<Long, UserPreferenceEntity> = emptyMap(),
+    overrideUserPreference: Boolean = false
 ): List<DownloadMediaSpec> = entries.mapNotNull { entry ->
     when (entry.itemType) {
         PlaylistEntryEntity.ITEM_TYPE_SONG -> songUrls[entry.itemId]
@@ -122,7 +124,8 @@ internal fun resolvePlaylistDownloadMedia(
                 canonicalSongUrl = descriptor?.fullSizeSongId?.let(songUrls::get),
                 canonicalSongLoudness = descriptor?.fullSizeSongId?.let(songLoudness::get),
                 preference = themePreferences[entry.itemId],
-                fallbackMode = mode
+                fallbackMode = mode,
+                overrideUserPreference = overrideUserPreference
             )
         }
         else -> null

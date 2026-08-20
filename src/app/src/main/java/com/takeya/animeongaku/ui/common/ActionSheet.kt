@@ -22,6 +22,7 @@ import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material3.CircularProgressIndicator
@@ -83,6 +84,8 @@ data class ActionSheetConfig(
     val showUnskip: Boolean = false,
     val showRemoveFromQueue: Boolean = false,
     val showEditFilters: Boolean = false,
+    val showSettings: Boolean = false,
+    val settingsLabel: String = "Settings",
     val showRefresh: Boolean = false,
     val showDelete: Boolean = false,
     val deleteLabel: String = "Delete",
@@ -141,6 +144,7 @@ fun ActionSheet(
     onUnskip: () -> Unit = {},
     onRemoveFromQueue: () -> Unit = {},
     onEditFilters: () -> Unit = {},
+    onSettings: () -> Unit = {},
     onRefresh: () -> Unit = {},
     onDelete: () -> Unit = {},
     onCustomAction: (String) -> Unit = {}
@@ -375,6 +379,13 @@ fun ActionSheet(
                     icon = { Icon(Icons.Rounded.FilterList, contentDescription = null, tint = Mist100) },
                     label = "Edit filters",
                     onClick = { dismissThen(onEditFilters) }
+                )
+            }
+            if (config.showSettings) {
+                OptionRow(
+                    icon = { Icon(Icons.Rounded.Settings, contentDescription = null, tint = Mist100) },
+                    label = config.settingsLabel,
+                    onClick = { dismissThen(onSettings) }
                 )
             }
             if (config.showRefresh) {

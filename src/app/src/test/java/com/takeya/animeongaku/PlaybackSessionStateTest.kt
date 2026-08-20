@@ -131,6 +131,37 @@ class PlaybackSessionStateTest {
     }
 
     @Test
+    fun `restoring queue preserves audio override and refreshes remembered preference`() {
+        val storage = FakeSharedPreferences()
+        val preferences = PlaybackPreferences(storage)
+        val restoredManager = newManager(preferences)
+        manager.playItems("Restored", listOf(PlayableItem.Theme(theme(1))))
+        val persistedState = manager.state.value.copy(
+            playbackIntent = PlaybackIntent(
+                rememberedAudioMode = PlaybackMode.TV_SIZE,
+                sessionOverride = PlaybackMode.FULL_SIZE
+            )
+        )
+
+        restoredManager.restoreState(persistedState)
+
+        assertEquals(PlaybackMode.TV_SIZE, restoredManager.state.value.playbackIntent.rememberedAudioMode)
+        assertEquals(PlaybackMode.FULL_SIZE, restoredManager.state.value.playbackIntent.sessionOverride)
+    }
+
+    @Test
+    fun `restoring queue clears Video override`() {
+        manager.playItems("Restored", listOf(PlayableItem.Theme(theme(1))))
+        val persistedState = manager.state.value.copy(
+            playbackIntent = PlaybackIntent(sessionOverride = PlaybackMode.VIDEO)
+        )
+
+        manager.restoreState(persistedState)
+
+        assertNull(manager.state.value.playbackIntent.sessionOverride)
+    }
+
+    @Test
     fun `Related Audio cannot enter Theme session state`() {
         assertThrows(IllegalArgumentException::class.java) {
             manager.selectThemeMode(PlaybackMode.RELATED_AUDIO)

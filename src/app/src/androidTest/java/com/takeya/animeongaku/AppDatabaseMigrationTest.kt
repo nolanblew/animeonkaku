@@ -27,6 +27,33 @@ class AppDatabaseMigrationTest {
 
     @Test
     @Throws(IOException::class)
+    fun migrate26To27DefaultsPlaylistPreferenceOverrideOff() {
+        helper.createDatabase(DB_NAME, 26).apply {
+            execSQL(
+                """INSERT INTO playlists
+                    (id, name, createdAt, isAuto, gradientSeed, defaultMode, updatedAt, deletedAt)
+                    VALUES (7, 'Smart', 1, 1, 0, 'FULL_SIZE', 1, NULL)"""
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(
+            DB_NAME,
+            27,
+            true,
+            AppDatabase.MIGRATION_26_27
+        )
+
+        db.query("SELECT defaultMode, overrideUserPreference FROM playlists WHERE id = 7").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals("FULL_SIZE", cursor.getString(0))
+            assertEquals(0, cursor.getInt(1))
+        }
+        db.close()
+    }
+
+    @Test
+    @Throws(IOException::class)
     fun migrate25To26AddsNullablePreferredModeAndPreservesPreference() {
         helper.createDatabase(DB_NAME, 25).apply {
             execSQL(

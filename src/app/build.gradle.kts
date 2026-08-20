@@ -106,6 +106,7 @@ android {
 
     buildTypes {
         debug {
+            applicationIdSuffix = ".debug"
             buildConfigField("String", "DISPLAY_VERSION", "\"${getDevVersion()}\"")
             buildConfigField("boolean", "UPDATER_ENABLED", "false")
         }

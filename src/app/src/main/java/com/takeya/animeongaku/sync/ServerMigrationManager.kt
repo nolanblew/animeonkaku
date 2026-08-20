@@ -157,7 +157,9 @@ class ServerMigrationManager @Inject constructor(
             val response = ongakuApi.createPlaylist(
                 OngakuPlaylistRequest(
                     name = playlist.name,
-                    entries = store.themeIdsInPlaylist(playlist.id)
+                    entries = store.themeIdsInPlaylist(playlist.id),
+                    defaultMode = playlist.defaultMode,
+                    overrideUserPreference = playlist.overrideUserPreference
                 )
             )
             serverIdsByLocalId[playlist.id] = response.playlist.id
@@ -180,7 +182,9 @@ class ServerMigrationManager @Inject constructor(
                         entries = store.themeIdsInPlaylist(spec.playlistId),
                         dynamicSpecJson = payload,
                         dynamicSortJson = spec.sortJson?.let(::parseJsonField),
-                        autoUpdate = spec.mode == "AUTO"
+                        autoUpdate = spec.mode == "AUTO",
+                        defaultMode = playlist.defaultMode,
+                        overrideUserPreference = playlist.overrideUserPreference
                     )
                 )
             }

@@ -19,7 +19,8 @@ data class PlayableKey(
 @Immutable
 data class BaseModePolicy(
     val entryPolicy: ThemeModePolicy = ThemeModePolicy.INHERIT,
-    val playlistDefault: PlaybackMode? = null
+    val playlistDefault: PlaybackMode? = null,
+    val overrideUserPreference: Boolean = false
 ) {
     init {
         require(playlistDefault == null || playlistDefault == PlaybackMode.TV_SIZE || playlistDefault == PlaybackMode.FULL_SIZE) {

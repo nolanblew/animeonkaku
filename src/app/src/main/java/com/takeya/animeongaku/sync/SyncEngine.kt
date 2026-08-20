@@ -125,6 +125,7 @@ class SyncEngine @Inject constructor(
         dynamicSortJson: Any? = null,
         autoUpdate: Boolean? = null,
         defaultMode: String? = null,
+        overrideUserPreference: Boolean? = null,
         items: List<OngakuPlaylistItemRequest>? = null,
         opTs: Long = System.currentTimeMillis()
     ) {
@@ -134,6 +135,7 @@ class SyncEngine @Inject constructor(
             opType = PendingOpEntity.OP_CREATE,
             payload = playlistPayload(name, entries, dynamicSpecJson, dynamicSortJson, autoUpdate).toMutableMap().apply {
                 if (defaultMode != null) put("defaultMode", defaultMode)
+                if (overrideUserPreference != null) put("overrideUserPreference", overrideUserPreference)
                 if (items != null) put("items", items.map { mapOf(
                     "entryId" to it.entryId, "itemType" to it.itemType, "itemId" to it.itemId, "modeOverride" to it.modeOverride
                 ) })
@@ -174,6 +176,7 @@ class SyncEngine @Inject constructor(
     suspend fun enqueuePlaylistItems(
         playlistId: Long,
         defaultMode: String,
+        overrideUserPreference: Boolean,
         items: List<OngakuPlaylistItemRequest>,
         opTs: Long = System.currentTimeMillis()
     ) {
@@ -183,6 +186,7 @@ class SyncEngine @Inject constructor(
             opType = PendingOpEntity.OP_REORDER,
             payload = mapOf(
                 "defaultMode" to defaultMode,
+                "overrideUserPreference" to overrideUserPreference,
                 // Keep the legacy THEME-only projection for older servers/clients while the
                 // typed list remains authoritative for mixed playlists and entry policy.
                 "entries" to items.filter { it.itemType == PlaylistEntryEntity.ITEM_TYPE_THEME }.map { it.itemId },
@@ -214,6 +218,25 @@ class SyncEngine @Inject constructor(
         )
     }
 
+    suspend fun enqueuePlaylistPlaybackPolicy(
+        playlistId: Long,
+        defaultMode: String,
+        overrideUserPreference: Boolean,
+        opTs: Long = System.currentTimeMillis()
+    ) {
+        require(defaultMode == "TV_SIZE" || defaultMode == "FULL_SIZE")
+        enqueueSuperseding(
+            entityType = PendingOpEntity.ENTITY_PLAYLIST,
+            entityKey = playlistId.toString(),
+            opType = PendingOpEntity.OP_REORDER,
+            payload = mapOf(
+                "defaultMode" to defaultMode,
+                "overrideUserPreference" to overrideUserPreference
+            ),
+            opTs = opTs
+        )
+    }
+
     suspend fun enqueueDynamicPlaylistUpsert(
         playlistId: Long,
         name: String?,
@@ -221,13 +244,18 @@ class SyncEngine @Inject constructor(
         dynamicSpecJson: Any,
         dynamicSortJson: Any?,
         autoUpdate: Boolean,
+        defaultMode: String? = null,
+        overrideUserPreference: Boolean? = null,
         opTs: Long = System.currentTimeMillis()
     ) {
         enqueueSuperseding(
             entityType = PendingOpEntity.ENTITY_PLAYLIST,
             entityKey = playlistId.toString(),
             opType = PendingOpEntity.OP_UPSERT,
-            payload = playlistPayload(name, entries, dynamicSpecJson, dynamicSortJson, autoUpdate),
+            payload = playlistPayload(name, entries, dynamicSpecJson, dynamicSortJson, autoUpdate).toMutableMap().apply {
+                if (defaultMode != null) put("defaultMode", defaultMode)
+                if (overrideUserPreference != null) put("overrideUserPreference", overrideUserPreference)
+            },
             opTs = opTs
         )
     }
@@ -378,7 +406,8 @@ class SyncEngine @Inject constructor(
         val playlistId = op.entityKey.toLong()
         if (op.opType == PendingOpEntity.OP_REORDER &&
             store.isAutoDynamicPlaylist(playlistId) &&
-            payload["defaultMode"] == null
+            payload["defaultMode"] == null &&
+            payload["overrideUserPreference"] == null
         ) {
             return
         }
@@ -465,6 +494,7 @@ class SyncEngine @Inject constructor(
         return OngakuPlaylistRequest(
             name = this["name"] as? String,
             defaultMode = this["defaultMode"] as? String,
+            overrideUserPreference = this["overrideUserPreference"] as? Boolean,
             entries = if (serverOwnsEntries) {
                 null
             } else {
@@ -540,6 +570,7 @@ class RoomSyncEngineStore @Inject constructor(
                     isAuto = serverPlaylist.isAuto || serverPlaylist.dynamicSpecJson != null,
                     gradientSeed = local?.gradientSeed ?: 0,
                     defaultMode = serverPlaylist.defaultMode,
+                    overrideUserPreference = serverPlaylist.overrideUserPreference,
                     updatedAt = local?.updatedAt?.takeIf { locallyDeletedAt != null } ?: serverPlaylist.updatedAt,
                     deletedAt = locallyDeletedAt
                 )

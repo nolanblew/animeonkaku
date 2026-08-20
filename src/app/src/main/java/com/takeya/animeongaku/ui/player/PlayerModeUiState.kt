@@ -3,6 +3,7 @@ package com.takeya.animeongaku.ui.player
 import android.content.res.Configuration
 import com.takeya.animeongaku.media.PlaybackMode
 import com.takeya.animeongaku.media.PlaybackState
+import com.takeya.animeongaku.media.RetainedIntentReason
 
 data class VideoContentWarning(
     val spoiler: Boolean,
@@ -34,6 +35,7 @@ data class PlayerModeUiState(
     val videoContentWarning: VideoContentWarning? = null
 ) {
     val isVideo: Boolean get() = actualMode == PlaybackMode.VIDEO
+    val canChangeMode: Boolean get() = visible && options.size >= 2
 
     fun selectionDecision(mode: PlaybackMode): ModeSelectionDecision {
         if (!visible || mode !in options || mode == actualMode) return ModeSelectionDecision.Ignore
@@ -46,14 +48,12 @@ data class PlayerModeUiState(
     }
 }
 
-/**
- * A chooser with a single choice is not a control, and the Now Playing eyebrow
- * row it lives in is scarce space. A theme with no imported full song offers
- * only TV Size, so rendering a one-option control would add clutter to the most
- * common case without offering an action. The theme tag beside it still
- * identifies the track.
- */
-fun PlayerModeUiState.showsModeChip(): Boolean = visible && options.size >= 2
+/** A single available version is status text; two or more versions are a chooser. */
+fun PlayerModeUiState.showsModeStatus(): Boolean =
+    visible && actualMode != null && options.isNotEmpty()
+
+// Kept for callers/tests using the former name; it now means status visibility.
+fun PlayerModeUiState.showsModeChip(): Boolean = showsModeStatus()
 
 private val themeModeOrder = listOf(
     PlaybackMode.TV_SIZE,
@@ -67,9 +67,12 @@ fun derivePlayerModeUiState(
     playbackState: PlaybackState
 ): PlayerModeUiState {
     if (!isTheme || playbackState.queueId != currentQueueId) return PlayerModeUiState()
-    val options = themeModeOrder.filter(playbackState.availableModes::contains)
     val preferred = playbackState.preferredMode
-    val actual = playbackState.actualMode
+    val actual = playbackState.actualMode ?: preferred?.takeIf {
+        playbackState.retainedIntentReason == RetainedIntentReason.EXACT_OFFLINE_MEDIA_MISSING
+    }
+    val availableOptions = themeModeOrder.filter(playbackState.availableModes::contains)
+    val options = if (availableOptions.isEmpty() && actual != null) listOf(actual) else availableOptions
     val retainedText = if (
         playbackState.retainedIntentReason != null &&
         preferred != null && actual != null && preferred != actual

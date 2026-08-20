@@ -1,0 +1,1 @@
+ALTER TABLE "playlists" ADD COLUMN "override_user_preference" boolean DEFAULT false NOT NULL;

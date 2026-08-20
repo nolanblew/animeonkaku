@@ -254,6 +254,7 @@ class OngakuModelsTest {
               }],
               "playlists": [{
                 "id": 7, "name": "Mixed", "entries": [100], "defaultMode": "FULL_SIZE",
+                "overrideUserPreference": true,
                 "items": [
                   { "entryId": 70, "itemType": "THEME", "itemId": 100, "modeOverride": null },
                   { "entryId": 71, "itemType": "SONG", "itemId": 300, "modeOverride": null }
@@ -282,6 +283,7 @@ class OngakuModelsTest {
         assertTrue(response.prefs.single().dislikedTvSize)
         assertEquals(300L, response.songPrefs!!.single().songId)
         assertEquals("FULL_SIZE", response.playlists.single().defaultMode)
+        assertTrue(response.playlists.single().overrideUserPreference)
         assertEquals(listOf("THEME", "SONG"), response.playlists.single().items.map { it.itemType })
         assertEquals(2, response.musicCatalog!!.single().releases.single().tracks.single().trackNumber)
     }

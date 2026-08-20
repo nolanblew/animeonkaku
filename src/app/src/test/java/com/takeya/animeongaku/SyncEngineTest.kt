@@ -249,12 +249,18 @@ class SyncEngineTest {
         val api = SyncRecordingOngakuApi()
         val engine = syncEngine(store, api)
 
-        engine.enqueuePlaylistDefaultMode(playlistId = 88L, defaultMode = "FULL_SIZE", opTs = 41L)
+        engine.enqueuePlaylistPlaybackPolicy(
+            playlistId = 88L,
+            defaultMode = "FULL_SIZE",
+            overrideUserPreference = true,
+            opTs = 41L
+        )
         val result = engine.pushPendingWrites()
 
         assertEquals(1, result.opCount)
         assertEquals(88L, api.updatedPlaylistId)
         assertEquals("FULL_SIZE", api.updatedPlaylistRequest?.defaultMode)
+        assertEquals(true, api.updatedPlaylistRequest?.overrideUserPreference)
         assertNull(api.updatedPlaylistRequest?.entries)
         assertNull(api.updatedPlaylistRequest?.items)
     }

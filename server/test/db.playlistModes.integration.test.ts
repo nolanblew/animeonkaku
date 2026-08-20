@@ -17,6 +17,7 @@ describe.skipIf(!adminDatabaseUrl)("mixed playlist persistence (PostgreSQL)", ()
       const created = await service.createPlaylist("user-1", {
         name: "Mixed",
         defaultMode: "FULL_SIZE",
+        overrideUserPreference: true,
         opTs: 1_000,
         items: [
           { itemType: "THEME", itemId: 10, modeOverride: "FULL_SIZE" },
@@ -30,6 +31,7 @@ describe.skipIf(!adminDatabaseUrl)("mixed playlist persistence (PostgreSQL)", ()
       const replayed = await service.createPlaylist("user-1", {
         name: "Mixed",
         defaultMode: "FULL_SIZE",
+        overrideUserPreference: true,
         opTs: 1_000,
         items: [
           { itemType: "THEME", itemId: 10, modeOverride: "FULL_SIZE" },
@@ -49,6 +51,7 @@ describe.skipIf(!adminDatabaseUrl)("mixed playlist persistence (PostgreSQL)", ()
       });
       expect(updated?.items.map((item) => item.entryId)).toEqual([ids[2], ids[0], ids[1]]);
       expect(updated?.defaultMode).toBe("FULL_SIZE");
+      expect(updated?.overrideUserPreference).toBe(true);
 
       await expect(service.updatePlaylist("user-1", created.id, { opTs: 3_000, entries: [10] }))
         .rejects.toMatchObject<ApiError>({ statusCode: 409, code: "PLAYLIST_REQUIRES_NEW_CLIENT" });

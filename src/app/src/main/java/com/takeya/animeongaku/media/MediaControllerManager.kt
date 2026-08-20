@@ -26,6 +26,7 @@ import com.takeya.animeongaku.data.local.UserPreferenceEntity
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.network.ConnectivityMonitor
+import com.takeya.animeongaku.network.ServerReachabilityMonitor
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,8 +41,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -70,6 +76,7 @@ class MediaControllerManager @Inject constructor(
     private val userPreferencesRepository: UserPreferencesRepository,
     private val nowPlayingPersistence: NowPlayingPersistence,
     private val connectivityMonitor: ConnectivityMonitor,
+    private val serverReachabilityMonitor: ServerReachabilityMonitor,
     private val serverSettingsStore: ServerSettingsStore,
     private val imageLoader: ImageLoader,
     private val playbackResolutionCoordinator: PlaybackResolutionCoordinator,
@@ -457,9 +464,18 @@ class MediaControllerManager @Inject constructor(
                         // Rebuild the active queue when the next library delta writes its profile,
                         // including a same-queue-id TV/Full replacement, without waiting for a
                         // user queue mutation or an app restart.
-                        database.invalidationTracker
-                            .createFlow("theme_modes", "songs")
-                            .collectLatest {
+                        playbackAvailabilityChanges(
+                            serverReachable = serverReachabilityMonitor.isReachable,
+                            mediaInvalidations = database.invalidationTracker
+                                .createFlow("theme_modes", "songs", "download_items")
+                                .drop(1)
+                                .map { Unit }
+                        )
+                            .collectLatest { change ->
+                                if (change == PlaybackAvailabilityChange.ServerReachability(false)) {
+                                    _playbackState.update(PlaybackState::withServerUnavailable)
+                                    return@collectLatest
+                                }
                                 val ctrl = controller ?: return@collectLatest
                                 val npState = nowPlayingManager.state.value
                                 if (npState.nowPlayingEntries.isNotEmpty()) {
@@ -1072,6 +1088,23 @@ val repeatMode: Int
     get() = controller?.repeatMode ?: Player.REPEAT_MODE_OFF
 }
 
+/** Distinguishes server transitions from local media changes so going offline does not
+ * rebuild the current server item out of the Media3 queue. */
+internal sealed interface PlaybackAvailabilityChange {
+    data class ServerReachability(val reachable: Boolean) : PlaybackAvailabilityChange
+    data object MediaInvalidation : PlaybackAvailabilityChange
+}
+
+internal fun playbackAvailabilityChanges(
+    serverReachable: Flow<Boolean>,
+    mediaInvalidations: Flow<Unit>
+): Flow<PlaybackAvailabilityChange> = merge(
+    serverReachable.distinctUntilChanged().drop(1).map {
+        PlaybackAvailabilityChange.ServerReachability(it)
+    },
+    mediaInvalidations.map { PlaybackAvailabilityChange.MediaInvalidation }
+)
+
 internal fun isQueueEntryAllowedByPreference(
     entry: QueueEntry,
     actualMode: PlaybackMode?,
@@ -1141,6 +1174,10 @@ data class MediaControllerConnectionState(
     val isReady: Boolean = false,
     val retryAttempt: Int = 0,
     val errorMessage: String? = null,
+)
+
+internal fun PlaybackState.withServerUnavailable(): PlaybackState = copy(
+    availableModes = setOfNotNull(actualMode)
 )
 
 internal fun PlaybackState.withResolvedPlayback(
