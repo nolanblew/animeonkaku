@@ -795,6 +795,7 @@ class MediaControllerManager @Inject constructor(
         val desiredItems = desiredIds.mapNotNull(currentItemsById::get)
         if (desiredItems.size != desiredIds.size) return false
 
+        latestQueueSync.invalidate()
         applyDiffOps(ctrl, desiredItems, desiredIds, currentMediaId, desiredCurrentIndex)
         val descriptorsById = lastSyncedDescriptors.associateBy(PlaybackMediaDescriptor::mediaId)
         lastSyncedDescriptors = desiredIds.mapNotNull(descriptorsById::get)

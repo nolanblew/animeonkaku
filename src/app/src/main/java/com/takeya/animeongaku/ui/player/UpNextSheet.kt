@@ -114,7 +114,7 @@ fun UpNextSheet(
     npState: NowPlayingState,
     nowPlayingManager: NowPlayingManager,
     isOffline: Boolean = false,
-    downloadedMediaKeys: Set<MediaKey> = emptySet(),
+    offlinePlayableMediaKeys: Set<MediaKey> = emptySet(),
     dislikedThemeIds: Set<Long> = emptySet(),
     viewModel: PlayerViewModel,
     inline: Boolean = false,
@@ -139,7 +139,7 @@ fun UpNextSheet(
                 nowPlayingManager = nowPlayingManager,
                 listState = listState,
                 isOffline = isOffline,
-                downloadedMediaKeys = downloadedMediaKeys,
+                offlinePlayableMediaKeys = offlinePlayableMediaKeys,
                 dislikedThemeIds = dislikedThemeIds,
                 viewModel = viewModel,
                 onDismiss = onDismiss,
@@ -175,7 +175,7 @@ fun UpNextSheet(
             nowPlayingManager = nowPlayingManager,
             listState = listState,
             isOffline = isOffline,
-            downloadedMediaKeys = downloadedMediaKeys,
+            offlinePlayableMediaKeys = offlinePlayableMediaKeys,
             dislikedThemeIds = dislikedThemeIds,
             viewModel = viewModel,
             onDismiss = onDismiss,
@@ -202,7 +202,7 @@ private fun UpNextContent(
     nowPlayingManager: NowPlayingManager,
     listState: LazyListState,
     isOffline: Boolean = false,
-    downloadedMediaKeys: Set<MediaKey> = emptySet(),
+    offlinePlayableMediaKeys: Set<MediaKey> = emptySet(),
     dislikedThemeIds: Set<Long> = emptySet(),
     viewModel: PlayerViewModel,
     onDismiss: () -> Unit,
@@ -391,7 +391,7 @@ private fun UpNextContent(
                     val theme = entry.themeOrNull
                     val anime = entry.item.anime ?: theme?.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline &&
-                        !isExactOfflineAvailable(entry, downloadedMediaKeys, npState.playbackIntent)
+                        !isExactOfflineAvailable(entry, offlinePlayableMediaKeys, npState.playbackIntent)
                     val isDisliked = theme?.id in dislikedThemeIds
                     val key = historyKey(entry.queueId)
                     val isDragging = dragDropState.draggingItemKey == key
@@ -455,7 +455,7 @@ private fun UpNextContent(
                     val queueIdx = npState.indexOfQueueId(entry.queueId)
                     val anime = entry.item.anime ?: theme?.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline &&
-                        !isExactOfflineAvailable(entry, downloadedMediaKeys, npState.playbackIntent)
+                        !isExactOfflineAvailable(entry, offlinePlayableMediaKeys, npState.playbackIntent)
                     val isDisliked = theme?.id in dislikedThemeIds
                     val key = queueKey(entry.queueId)
                     val isDragging = dragDropState.draggingItemKey == key
@@ -503,7 +503,7 @@ private fun UpNextContent(
                     val queueIdx = npState.indexOfQueueId(entry.queueId)
                     val anime = entry.item.anime ?: theme?.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline &&
-                        !isExactOfflineAvailable(entry, downloadedMediaKeys, npState.playbackIntent)
+                        !isExactOfflineAvailable(entry, offlinePlayableMediaKeys, npState.playbackIntent)
                     val isDisliked = theme?.id in dislikedThemeIds
                     val key = queueKey(entry.queueId)
                     val isDragging = dragDropState.draggingItemKey == key

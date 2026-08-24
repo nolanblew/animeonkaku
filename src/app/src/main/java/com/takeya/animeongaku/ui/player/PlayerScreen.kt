@@ -153,7 +153,7 @@ fun PlayerScreen(
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
     val isServerReachable by viewModel.isServerReachable.collectAsStateWithLifecycle()
-    val downloadedMediaKeys by viewModel.downloadedMediaKeys.collectAsStateWithLifecycle()
+    val offlinePlayableMediaKeys by viewModel.offlinePlayableMediaKeys.collectAsStateWithLifecycle()
     val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
     val queuedThemeModesById by viewModel.queuedThemeModesById.collectAsStateWithLifecycle()
 
@@ -176,7 +176,7 @@ fun PlayerScreen(
             npState = npState,
             nowPlayingManager = nowPlayingManager,
             isOffline = !isServerReachable,
-            downloadedMediaKeys = downloadedMediaKeys,
+            offlinePlayableMediaKeys = offlinePlayableMediaKeys,
             dislikedThemeIds = dislikedThemeIds,
             viewModel = viewModel,
             inline = showQueueInline,

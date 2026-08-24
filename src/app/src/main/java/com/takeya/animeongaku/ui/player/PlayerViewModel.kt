@@ -17,6 +17,7 @@ import com.takeya.animeongaku.data.repository.MusicCatalogRepository
 import com.takeya.animeongaku.media.MediaControllerManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.NowPlayingState
+import com.takeya.animeongaku.media.OfflineMediaAvailability
 import com.takeya.animeongaku.media.PlaybackState
 import com.takeya.animeongaku.media.PlaybackMode
 import com.takeya.animeongaku.media.PlayableItem
@@ -49,7 +50,8 @@ class PlayerViewModel @Inject constructor(
     musicCatalogRepository: MusicCatalogRepository,
     val connectivityMonitor: ConnectivityMonitor,
     private val serverReachabilityMonitor: ServerReachabilityMonitor,
-    private val downloadManager: com.takeya.animeongaku.download.DownloadManager
+    private val downloadManager: com.takeya.animeongaku.download.DownloadManager,
+    offlineMediaAvailability: OfflineMediaAvailability,
 ) : ViewModel() {
     private val videoModeSessionTracker = VideoModeSessionTracker()
     val nowPlayingState: StateFlow<NowPlayingState> = nowPlayingManager.state
@@ -104,10 +106,8 @@ class PlayerViewModel @Inject constructor(
         .map { it.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
-    val downloadedMediaKeys: StateFlow<Set<com.takeya.animeongaku.media.MediaKey>> =
-        downloadManager.observeAllDownloads().map { downloads ->
-            com.takeya.animeongaku.media.completedLocalMedia(downloads).keys
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+    val offlinePlayableMediaKeys: StateFlow<Set<com.takeya.animeongaku.media.MediaKey>> =
+        offlineMediaAvailability.availableKeys
 
     val playlists: StateFlow<List<PlaylistWithCount>> = playlistDao.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

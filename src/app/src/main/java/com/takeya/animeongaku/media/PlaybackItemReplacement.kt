@@ -45,6 +45,10 @@ internal fun descriptorsAfterStructuralDiff(
 internal class LatestPlaybackQueueSync {
     private val generation = AtomicLong(0L)
 
+    fun invalidate() {
+        generation.incrementAndGet()
+    }
+
     suspend fun <T> runLatest(
         resolve: suspend () -> T,
         commit: (T) -> Unit

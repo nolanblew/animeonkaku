@@ -65,7 +65,7 @@ class ServerReachabilityMonitorTest {
     @Test
     fun `offline is unavailable and online probes detect server loss and recovery`() = runTest {
         val networkOnline = MutableStateFlow(false)
-        val probeResults = ArrayDeque(listOf(true, false, true))
+        val probeResults = ArrayDeque(listOf(true, false, false, true))
         val observed = mutableListOf<Boolean>()
         val job = launch(UnconfinedTestDispatcher(testScheduler)) {
             serverReachabilityFlow(
@@ -77,6 +77,8 @@ class ServerReachabilityMonitorTest {
 
         assertEquals(listOf(false), observed)
         networkOnline.value = true
+        runCurrent()
+        advanceTimeBy(100L)
         runCurrent()
         advanceTimeBy(100L)
         runCurrent()
