@@ -28,6 +28,22 @@ class PlaybackMetadataHydrationTest {
         assertEquals(-8.22, descriptor?.fullSizeLoudness?.gainDb ?: 0.0, 0.001)
     }
 
+    @Test
+    fun `temporarily missing Room descriptor preserves known queue media`() {
+        val existing = modes(gainDb = -4.0)
+        val entry = QueueEntry(
+            queueId = 99,
+            item = PlayableItem.Theme(theme = theme(), modeDescriptor = existing)
+        )
+
+        val hydrated = entry.withLatestMediaMetadata(
+            descriptorsByThemeId = emptyMap(),
+            songsById = emptyMap()
+        )
+
+        assertEquals(existing, (hydrated.item as PlayableItem.Theme).modeDescriptor)
+    }
+
     private fun theme() = ThemeEntity(
         id = 1,
         animeId = null,
