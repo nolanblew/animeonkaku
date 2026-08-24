@@ -31,9 +31,12 @@ class NowPlayingManager @Inject constructor(
     private var nextQueueEntryId: Long = 1L
 
     fun restoreState(state: NowPlayingState) {
+        val restoredAudioOverride = state.playbackIntent.sessionOverride
+            ?.takeIf { it == PlaybackMode.TV_SIZE || it == PlaybackMode.FULL_SIZE }
         val restored = state.withUniqueHistoryEntries().copy(
             playbackIntent = PlaybackIntent(
-                rememberedAudioMode = playbackPreferences.rememberedAudioMode
+                rememberedAudioMode = playbackPreferences.rememberedAudioMode,
+                sessionOverride = restoredAudioOverride
             )
         )
         nextQueueEntryId = restored.maxQueueEntryId + 1L

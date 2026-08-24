@@ -32,6 +32,12 @@ interface PlaylistWriteStore {
     suspend fun addItems(playlistId: Long, items: List<PlaylistWriteItem>) =
         addEntries(playlistId, items.map { it.itemId })
     suspend fun updateDefaultMode(playlistId: Long, defaultMode: String, updatedAt: Long) = Unit
+    suspend fun updatePlaybackPolicy(
+        playlistId: Long,
+        defaultMode: String,
+        overrideUserPreference: Boolean,
+        updatedAt: Long
+    ) = updateDefaultMode(playlistId, defaultMode, updatedAt)
     suspend fun updateItemMode(playlistId: Long, entryId: Long, modeOverride: String?) = Unit
 }
 
@@ -93,6 +99,7 @@ class RoomPlaylistWriteStore @Inject constructor(
                 createdAt = playlist.updatedAt,
                 isAuto = playlist.isAuto || playlist.dynamicSpecJson != null,
                 defaultMode = playlist.defaultMode,
+                overrideUserPreference = playlist.overrideUserPreference,
                 updatedAt = playlist.updatedAt,
                 deletedAt = playlist.updatedAt.takeIf { playlist.deleted }
             )
@@ -182,6 +189,13 @@ class RoomPlaylistWriteStore @Inject constructor(
     override suspend fun updateDefaultMode(playlistId: Long, defaultMode: String, updatedAt: Long) =
         playlistDao.updateDefaultMode(playlistId, defaultMode, updatedAt)
 
+    override suspend fun updatePlaybackPolicy(
+        playlistId: Long,
+        defaultMode: String,
+        overrideUserPreference: Boolean,
+        updatedAt: Long
+    ) = playlistDao.updatePlaybackPolicy(playlistId, defaultMode, overrideUserPreference, updatedAt)
+
     override suspend fun updateItemMode(playlistId: Long, entryId: Long, modeOverride: String?) =
         playlistDao.updateEntryMode(playlistId, entryId, modeOverride)
 }
@@ -263,13 +277,27 @@ class ServerPlaylistWriter @Inject constructor(
         )
 
     suspend fun updateDefaultMode(playlistId: Long, defaultMode: String) {
+        val current = store.playlistById(playlistId) ?: return
+        updatePlaybackPolicy(playlistId, defaultMode, current.overrideUserPreference)
+    }
+
+    suspend fun updateOverrideUserPreference(playlistId: Long, overrideUserPreference: Boolean) {
+        val current = store.playlistById(playlistId) ?: return
+        updatePlaybackPolicy(playlistId, current.defaultMode, overrideUserPreference)
+    }
+
+    private suspend fun updatePlaybackPolicy(
+        playlistId: Long,
+        defaultMode: String,
+        overrideUserPreference: Boolean
+    ) {
         require(defaultMode == "TV_SIZE" || defaultMode == "FULL_SIZE")
         val playlist = store.playlistById(playlistId) ?: return
         val opTs = System.currentTimeMillis()
-        store.updateDefaultMode(playlistId, defaultMode, opTs)
+        store.updatePlaybackPolicy(playlistId, defaultMode, overrideUserPreference, opTs)
         if (!serverSettingsStore.isConfigured) return
         if (playlist.isAuto) {
-            syncEngine.enqueuePlaylistDefaultMode(playlistId, defaultMode, opTs)
+            syncEngine.enqueuePlaylistPlaybackPolicy(playlistId, defaultMode, overrideUserPreference, opTs)
             syncEngine.pushPendingWrites()
         } else {
             syncPlaylistItems(playlistId)
@@ -318,7 +346,13 @@ class ServerPlaylistWriter @Inject constructor(
         val items = store.playlistItems(playlistId)
         val opTs = System.currentTimeMillis()
         store.touchPlaylist(playlistId, opTs)
-        syncEngine.enqueuePlaylistItems(playlistId, playlist.defaultMode, items.map(PlaylistWriteItem::toRequest), opTs)
+        syncEngine.enqueuePlaylistItems(
+            playlistId,
+            playlist.defaultMode,
+            playlist.overrideUserPreference,
+            items.map(PlaylistWriteItem::toRequest),
+            opTs
+        )
         syncEngine.pushPendingWrites()
     }
 

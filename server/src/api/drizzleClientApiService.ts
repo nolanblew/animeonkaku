@@ -74,7 +74,7 @@ import type {
 } from "./clientRoutes.js";
 
 export function autoPlaylistUpdateIsAllowed(input: PlaylistInput): boolean {
-  return input.defaultMode !== undefined &&
+  return (input.defaultMode !== undefined || input.overrideUserPreference !== undefined) &&
     input.name === undefined &&
     input.entries === undefined &&
     input.items === undefined &&
@@ -916,6 +916,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       const replay: PlaylistInput = {};
       if (input.entries !== undefined) replay.entries = input.entries;
       if (input.defaultMode !== undefined) replay.defaultMode = input.defaultMode;
+      if (input.overrideUserPreference !== undefined) replay.overrideUserPreference = input.overrideUserPreference;
       if (input.items !== undefined) replay.items = input.items;
       if (input.dynamicSpecJson !== undefined) replay.dynamicSpecJson = input.dynamicSpecJson;
       if (input.dynamicSortJson !== undefined) replay.dynamicSortJson = input.dynamicSortJson;
@@ -947,6 +948,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
           dynamicSortJson: stringifySpec(input.dynamicSortJson),
           dynamicSpecUpdatedAt: isDynamic ? now : null,
           defaultMode: input.defaultMode ?? "TV_SIZE",
+          overrideUserPreference: input.overrideUserPreference ?? false,
           mutationUpdatedAt: opDate,
           updatedAt: now,
         })
@@ -970,6 +972,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
       const replay: PlaylistInput = {};
       if (input.entries !== undefined) replay.entries = input.entries;
       if (input.defaultMode !== undefined) replay.defaultMode = input.defaultMode;
+      if (input.overrideUserPreference !== undefined) replay.overrideUserPreference = input.overrideUserPreference;
       if (input.items !== undefined) replay.items = input.items;
       if (input.dynamicSpecJson !== undefined) replay.dynamicSpecJson = input.dynamicSpecJson;
       if (input.dynamicSortJson !== undefined) replay.dynamicSortJson = input.dynamicSortJson;
@@ -1020,6 +1023,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     const set: Partial<typeof playlists.$inferInsert> = { updatedAt: now, mutationUpdatedAt: opDate };
     if (input.name !== undefined) set.name = input.name;
     if (input.defaultMode !== undefined) set.defaultMode = input.defaultMode;
+    if (input.overrideUserPreference !== undefined) set.overrideUserPreference = input.overrideUserPreference;
     if (input.autoUpdate !== undefined) set.dynamicAutoUpdate = input.autoUpdate;
     if (input.dynamicSortJson !== undefined) set.dynamicSortJson = stringifySpec(input.dynamicSortJson);
     if (input.dynamicSpecJson !== undefined) {
@@ -2324,6 +2328,7 @@ const playlistColumns = {
   id: playlists.id,
   name: playlists.name,
   defaultMode: playlists.defaultMode,
+  overrideUserPreference: playlists.overrideUserPreference,
   isAuto: playlists.isAuto,
   isDynamic: playlists.isDynamic,
   autoUpdate: playlists.dynamicAutoUpdate,
@@ -2338,6 +2343,7 @@ function playlistDto(
     id: number;
     name: string;
     defaultMode: "TV_SIZE" | "FULL_SIZE";
+    overrideUserPreference: boolean;
     isAuto: boolean;
     isDynamic: boolean;
     autoUpdate: boolean;
@@ -2353,6 +2359,7 @@ function playlistDto(
     name: row.name,
     entries: items.flatMap((item) => item.itemType === "THEME" ? [item.itemId] : []),
     defaultMode: row.defaultMode,
+    overrideUserPreference: row.overrideUserPreference,
     items,
     isAuto: row.isAuto,
     isDynamic: row.isDynamic,

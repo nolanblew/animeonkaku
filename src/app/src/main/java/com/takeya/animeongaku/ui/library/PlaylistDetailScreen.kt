@@ -86,6 +86,7 @@ import com.takeya.animeongaku.ui.common.BrowseVideoWarningDialog
 import com.takeya.animeongaku.ui.common.PendingSyncBanner
 import com.takeya.animeongaku.ui.common.PlaylistCoverArt
 import com.takeya.animeongaku.ui.common.PlaylistPickerSheet
+import com.takeya.animeongaku.ui.common.PlaylistPlaybackSettingsSheet
 import com.takeya.animeongaku.ui.common.displayInfo
 import com.takeya.animeongaku.ui.theme.Ink700
 import com.takeya.animeongaku.ui.theme.Ink800
@@ -116,6 +117,7 @@ fun PlaylistDetailScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var sheetRow by remember { mutableStateOf<PlaylistItemRow?>(null) }
     var showPlaylistSheet by remember { mutableStateOf(false) }
+    var showPlaybackSettings by remember { mutableStateOf(false) }
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
     var pickerSongId by remember { mutableStateOf<Long?>(null) }
     val allPlaylists by viewModel.playlists.collectAsStateWithLifecycle()
@@ -162,6 +164,8 @@ fun PlaylistDetailScreen(
                 showDownloading = anyDownloading && !allDownloaded,
                 showRemoveDownload = allDownloaded,
                 showEditFilters = isDynamic,
+                showSettings = true,
+                settingsLabel = "Playlist settings",
                 showRefresh = isDynamic && dynamicSpec?.mode == "SNAPSHOT",
                 showDelete = isDynamic || playlist?.isAuto != true,
                 deleteLabel = "Delete playlist",
@@ -178,8 +182,19 @@ fun PlaylistDetailScreen(
             onDownload = { viewModel.downloadPlaylist() },
             onRemoveDownload = { viewModel.removePlaylistDownload() },
             onEditFilters = { playlist?.id?.let { onEditFilters(it) } },
+            onSettings = { showPlaybackSettings = true },
             onRefresh = { viewModel.refreshDynamic() },
             onDelete = { showDeleteConfirm = true }
+        )
+    }
+
+    if (showPlaybackSettings) {
+        PlaylistPlaybackSettingsSheet(
+            selectedMode = playlist?.defaultMode ?: "TV_SIZE",
+            overrideUserPreference = playlist?.overrideUserPreference == true,
+            onModeSelected = viewModel::updateDefaultMode,
+            onOverrideChanged = viewModel::updateOverrideUserPreference,
+            onDismiss = { showPlaybackSettings = false }
         )
     }
 
@@ -423,22 +438,6 @@ fun PlaylistDetailScreen(
                             color = Rose500
                         )
                     }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text("Preferred playlist version", style = MaterialTheme.typography.labelMedium, color = Mist100)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("TV_SIZE" to "TV Size", "FULL_SIZE" to "Full Size").forEach { (mode, label) ->
-                            Text(
-                                label,
-                                color = if (playlist?.defaultMode == mode) Color.White else Mist200,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(if (playlist?.defaultMode == mode) Rose500 else Ink700)
-                                    .clickable { viewModel.updateDefaultMode(mode) }
-                                    .padding(horizontal = 12.dp, vertical = 7.dp)
-                            )
-                        }
-                    }
-                    Text("Used for playback and downloads when a theme has no override", style = MaterialTheme.typography.labelSmall, color = Mist200)
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(

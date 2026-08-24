@@ -63,6 +63,23 @@ interface PlaylistDao {
     @Query("UPDATE playlists SET defaultMode = :defaultMode, updatedAt = :updatedAt WHERE id = :playlistId")
     suspend fun updateDefaultMode(playlistId: Long, defaultMode: String, updatedAt: Long)
 
+    @Query("UPDATE playlists SET defaultMode = :defaultMode, overrideUserPreference = :overrideUserPreference, updatedAt = :updatedAt WHERE id = :playlistId")
+    suspend fun updatePlaybackPolicy(
+        playlistId: Long,
+        defaultMode: String,
+        overrideUserPreference: Boolean,
+        updatedAt: Long
+    )
+
+    @Query("UPDATE playlists SET name = :name, defaultMode = :defaultMode, overrideUserPreference = :overrideUserPreference, updatedAt = :updatedAt, deletedAt = NULL WHERE id = :playlistId")
+    suspend fun updateDynamicPlaylistMetadata(
+        playlistId: Long,
+        name: String,
+        defaultMode: String,
+        overrideUserPreference: Boolean,
+        updatedAt: Long
+    )
+
     @Query("SELECT COUNT(*) FROM playlist_entries WHERE playlistId = :playlistId")
     suspend fun countEntries(playlistId: Long): Int
 

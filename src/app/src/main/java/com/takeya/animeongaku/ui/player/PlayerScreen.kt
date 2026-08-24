@@ -550,8 +550,8 @@ fun PlayerScreen(
             horizontalAlignment = if (isExpandedThreshold) Alignment.CenterHorizontally else Alignment.Start
         ) {
             if (isExpandedThreshold) {
-                val showsModeChip = modeUiState.showsModeChip()
-                if (showsModeChip) {
+                val showsModeStatus = modeUiState.showsModeStatus()
+                if (showsModeStatus) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()

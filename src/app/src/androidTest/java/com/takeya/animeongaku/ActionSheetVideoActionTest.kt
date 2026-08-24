@@ -61,4 +61,30 @@ class ActionSheetVideoActionTest {
         composeRule.onNodeWithText("Play Video").assertDoesNotExist()
         composeRule.onNodeWithText("Play Full Size").assertDoesNotExist()
     }
+
+    @Test
+    fun playlistActionSheetOpensPlaylistSettings() {
+        var dismissed = 0
+        var openedSettings = 0
+        composeRule.setContent {
+            MaterialTheme {
+                ActionSheet(
+                    config = ActionSheetConfig(
+                        title = "Playlist",
+                        subtitle = "12 tracks",
+                        showSettings = true,
+                        settingsLabel = "Playlist settings"
+                    ),
+                    onDismiss = { dismissed++ },
+                    onSettings = { openedSettings++ }
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Playlist settings").assertIsDisplayed().performClick()
+        composeRule.runOnIdle {
+            assertEquals(1, dismissed)
+            assertEquals(1, openedSettings)
+        }
+    }
 }

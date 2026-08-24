@@ -96,7 +96,15 @@ class ServerMigrationManagerTest {
         assertEquals(1, result.uploadedSpecs)
         assertEquals(OngakuThemePrefPatch(liked = true, disliked = false, preferredMode = "FULL_SIZE"), api.prefWrites.single().second)
         assertEquals(listOf(10L, 10L, 10L), api.playEvents.map { it.themeId })
-        assertEquals(OngakuPlaylistRequest(name = "Manual", entries = listOf(10L, 11L)), api.createdPlaylists.single())
+        assertEquals(
+            OngakuPlaylistRequest(
+                name = "Manual",
+                entries = listOf(10L, 11L),
+                defaultMode = "TV_SIZE",
+                overrideUserPreference = false
+            ),
+            api.createdPlaylists.single()
+        )
         assertEquals(
             mapOf(
                 "filterJson" to mapOf("type" to "liked"),

@@ -177,6 +177,41 @@ class DownloadMediaResolutionTest {
     }
 
     @Test
+    fun `playlist override controls downloads unless that version is disliked`() {
+        val entry = PlaylistEntryEntity(7, 10, 0, 100, "THEME", 10, null)
+        val mode = ThemeModeEntity(10, "/tv/10", fullSizeSongId = 90, fullSizeUrl = "/songs/90")
+
+        assertEquals(
+            listOf(DownloadMediaSpec.themeTv(10, "/tv/10")),
+            resolvePlaylistDownloadMedia(
+                entries = listOf(entry),
+                playlistDefaultMode = "TV_SIZE",
+                overrideUserPreference = true,
+                themeModes = mapOf(10L to mode),
+                songUrls = mapOf(90L to "/songs/90"),
+                themePreferences = mapOf(10L to UserPreferenceEntity(10, preferredMode = "FULL_SIZE"))
+            )
+        )
+        assertEquals(
+            listOf(DownloadMediaSpec.song(90, "/songs/90")),
+            resolvePlaylistDownloadMedia(
+                entries = listOf(entry),
+                playlistDefaultMode = "TV_SIZE",
+                overrideUserPreference = true,
+                themeModes = mapOf(10L to mode),
+                songUrls = mapOf(90L to "/songs/90"),
+                themePreferences = mapOf(
+                    10L to UserPreferenceEntity(
+                        10,
+                        preferredMode = "TV_SIZE",
+                        isDislikedTvSize = true
+                    )
+                )
+            )
+        )
+    }
+
+    @Test
     fun `full requirement with no full song is unavailable rather than TV fallback`() {
         val entry = PlaylistEntryEntity(7, 10, 0, 100, "THEME", 10, "FULL_SIZE")
         val modes = mapOf(10L to ThemeModeEntity(10, "/tv/10"))

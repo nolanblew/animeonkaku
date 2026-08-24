@@ -162,6 +162,13 @@
       "when": 1786142117677,
       "tag": "0022_theme_preferred_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786829916866,
+      "tag": "0023_powerful_darkhawk",
+      "breakpoints": true
     }
   ]
 }

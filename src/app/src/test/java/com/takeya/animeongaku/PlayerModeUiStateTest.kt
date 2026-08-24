@@ -13,6 +13,7 @@ import com.takeya.animeongaku.ui.player.PLAYER_CONTENT_MARGIN_DP
 import com.takeya.animeongaku.ui.player.PLAYER_STACK_BELOW_ART_DP
 import com.takeya.animeongaku.ui.player.expandedPlayerArtworkSize
 import com.takeya.animeongaku.ui.player.isFullscreenVideo
+import com.takeya.animeongaku.ui.player.showsModeStatus
 import com.takeya.animeongaku.ui.player.showsModeChip
 import com.takeya.animeongaku.ui.player.videoControlsAutoHideDelayMillis
 import com.takeya.animeongaku.ui.player.VideoModeSessionTracker
@@ -55,7 +56,7 @@ class PlayerModeUiStateTest {
     }
 
     @Test
-    fun `a single available mode offers no chooser but two or more do`() {
+    fun `a single available mode shows status without a chooser while two or more are interactive`() {
         val tvOnly = derivePlayerModeUiState(
             isTheme = true,
             playbackState = PlaybackState(
@@ -65,10 +66,9 @@ class PlayerModeUiStateTest {
             )
         )
 
-        // The state is still "visible" — the mode is known — but a chooser with
-        // one choice is not a control, so the Now Playing eyebrow row omits it.
         assertTrue(tvOnly.visible)
-        assertFalse(tvOnly.showsModeChip())
+        assertTrue(tvOnly.showsModeStatus())
+        assertFalse(tvOnly.canChangeMode)
 
         val switchable = derivePlayerModeUiState(
             isTheme = true,
@@ -79,7 +79,26 @@ class PlayerModeUiStateTest {
             )
         )
 
-        assertTrue(switchable.showsModeChip())
+        assertTrue(switchable.showsModeStatus())
+        assertTrue(switchable.canChangeMode)
+    }
+
+    @Test
+    fun `offline unavailable media keeps preferred version as noninteractive status`() {
+        val state = derivePlayerModeUiState(
+            isTheme = true,
+            playbackState = PlaybackState(
+                preferredMode = PlaybackMode.TV_SIZE,
+                actualMode = null,
+                availableModes = emptySet(),
+                retainedIntentReason = RetainedIntentReason.EXACT_OFFLINE_MEDIA_MISSING
+            )
+        )
+
+        assertTrue(state.showsModeStatus())
+        assertEquals(PlaybackMode.TV_SIZE, state.actualMode)
+        assertEquals(listOf(PlaybackMode.TV_SIZE), state.options)
+        assertFalse(state.canChangeMode)
     }
 
     @Test

@@ -41,6 +41,27 @@ class PlaylistDownloadSyncTest {
     }
 
     @Test
+    fun `downloaded playlist refreshes when preference override changes`() = runTest {
+        val playlist = MutableStateFlow(PlaylistEntity(7, "Drive", 1, overrideUserPreference = false))
+        val entries = MutableStateFlow(listOf(PlaylistEntryEntity(
+            playlistId = 7,
+            themeId = 10,
+            orderIndex = 0,
+            entryId = 1,
+            itemType = "THEME",
+            itemId = 10
+        )))
+        val group = DownloadGroupEntity(3, DownloadGroupEntity.TYPE_PLAYLIST, "7", "Drive")
+
+        val emissions = async { playlistDownloadRefreshes(group, playlist, entries).take(2).toList() }
+        advanceUntilIdle()
+        playlist.value = playlist.value.copy(overrideUserPreference = true, updatedAt = 2)
+        advanceUntilIdle()
+
+        assertEquals(listOf(7L, 7L), emissions.await())
+    }
+
+    @Test
     fun `themes added to a downloaded playlist are returned for download`() {
         assertEquals(
             listOf(30L, 40L),

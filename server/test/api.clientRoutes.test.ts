@@ -33,6 +33,7 @@ class FakeClientApi implements ClientApiService {
     name: string;
     entries: number[];
     defaultMode: "TV_SIZE" | "FULL_SIZE";
+    overrideUserPreference: boolean;
     items: Array<{ entryId: number; itemType: "THEME" | "SONG"; itemId: number; modeOverride: "TV_SIZE" | "FULL_SIZE" | null }>;
     isAuto: boolean;
     isDynamic: boolean;
@@ -242,6 +243,7 @@ class FakeClientApi implements ClientApiService {
       name: "Liked Songs",
       entries: likedThemeIds,
       defaultMode: existing?.defaultMode ?? "TV_SIZE" as const,
+      overrideUserPreference: existing?.overrideUserPreference ?? false,
       items: likedThemeIds.map((itemId, index) => ({ entryId: index + 1, itemType: "THEME" as const, itemId, modeOverride: null })),
       isAuto: true,
       isDynamic: false,
@@ -296,6 +298,7 @@ class FakeClientApi implements ClientApiService {
       name: input.name,
       entries: items.flatMap((item) => item.itemType === "THEME" ? [item.itemId] : []),
       defaultMode: input.defaultMode ?? "TV_SIZE",
+      overrideUserPreference: (input as PlaylistCreateInput & { overrideUserPreference?: boolean }).overrideUserPreference ?? false,
       items,
       isAuto: false,
       isDynamic,
@@ -320,6 +323,7 @@ class FakeClientApi implements ClientApiService {
       name: input.name ?? existing.name,
       entries: items.flatMap((item) => item.itemType === "THEME" ? [item.itemId] : []),
       defaultMode: input.defaultMode ?? existing.defaultMode,
+      overrideUserPreference: (input as PlaylistInput & { overrideUserPreference?: boolean }).overrideUserPreference ?? existing.overrideUserPreference,
       items,
       dynamicSpecJson: input.dynamicSpecJson ?? existing.dynamicSpecJson,
       updatedAt: Date.now(),
@@ -767,12 +771,13 @@ describe("client API routes", () => {
       method: "POST",
       url: "/v1/playlists",
       headers: { authorization: `Bearer ${token}` },
-      payload: { name: "Mixed", defaultMode: "FULL_SIZE", items },
+      payload: { name: "Mixed", defaultMode: "FULL_SIZE", overrideUserPreference: true, items },
     });
 
     expect(response.statusCode).toBe(201);
     expect(response.json().playlist).toMatchObject({
       defaultMode: "FULL_SIZE",
+      overrideUserPreference: true,
       entries: [100, 101],
       items,
     });
