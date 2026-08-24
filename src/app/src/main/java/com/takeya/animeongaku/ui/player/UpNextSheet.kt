@@ -1,11 +1,13 @@
 package com.takeya.animeongaku.ui.player
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -37,15 +40,19 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.SheetValue
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.snapshotFlow
@@ -54,6 +61,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -66,6 +74,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
@@ -185,6 +194,9 @@ private fun queueKey(queueId: Long): String = "queue-$queueId"
 private fun queueIdFromKey(key: Any): Long? =
     (key as? String)?.removePrefix("queue-")?.toLongOrNull()
 
+internal fun canSwipeQueueEntryToRemove(queueIndex: Int, currentIndex: Int): Boolean =
+    queueIndex > currentIndex
+
 @Composable
 private fun UpNextContent(
     npState: NowPlayingState,
@@ -214,12 +226,17 @@ private fun UpNextContent(
     val dragDropState = rememberDragDropState(listState) { fromKey, toKey ->
         val fromQueueId = queueIdFromKey(fromKey)
         val toQueueId = queueIdFromKey(toKey)
-        val fromQueueIdx = fromQueueId?.let(npState::indexOfQueueId)
-        val toQueueIdx = toQueueId?.let(npState::indexOfQueueId)
+        val currentState = nowPlayingManager.state.value
+        val fromQueueIdx = fromQueueId?.let(currentState::indexOfQueueId)
+        val toQueueIdx = toQueueId?.let(currentState::indexOfQueueId)
         
         // Only allow moving items that are in the upcoming tracks section
-        if (fromQueueIdx != null && toQueueIdx != null && fromQueueIdx > npState.currentIndex && toQueueIdx > npState.currentIndex) {
-            nowPlayingManager.moveItem(fromQueueIdx, toQueueIdx)
+        if (
+            fromQueueId != null && toQueueId != null &&
+            fromQueueIdx != null && toQueueIdx != null &&
+            fromQueueIdx > currentState.currentIndex && toQueueIdx > currentState.currentIndex
+        ) {
+            nowPlayingManager.moveItemByQueueId(fromQueueId, toQueueId)
             true
         } else {
             false
@@ -443,21 +460,27 @@ private fun UpNextContent(
                     val isDisliked = theme?.id in dislikedThemeIds
                     val key = queueKey(entry.queueId)
                     val isDragging = dragDropState.draggingItemKey == key
-                    QueueTrackRow(
-                        item = entry.item,
-                        anime = anime,
-                        isHistory = false,
-                        isCurrent = false,
-                        isSuggested = false,
-                        isUnavailable = isUnavailable,
-                        isDisliked = isDisliked,
-                        onClick = { if (!isUnavailable && queueIdx >= 0) nowPlayingManager.skipTo(queueIdx) },
-                        onLongClick = { selectedActionEntry = entry },
+                    SwipeToRemoveQueueRow(
+                        queueIndex = queueIdx,
+                        currentIndex = npState.currentIndex,
+                        onRemove = { nowPlayingManager.removeFromQueue(queueIdx) },
                         modifier = Modifier
                             .then(if (isDragging) Modifier else Modifier.animateItem())
-                            .dragDropItem(dragDropState, key),
-                        dragModifier = Modifier.dragHandle(dragDropState, key)
-                    )
+                    ) {
+                        QueueTrackRow(
+                            item = entry.item,
+                            anime = anime,
+                            isHistory = false,
+                            isCurrent = false,
+                            isSuggested = false,
+                            isUnavailable = isUnavailable,
+                            isDisliked = isDisliked,
+                            onClick = { if (!isUnavailable && queueIdx >= 0) nowPlayingManager.skipTo(queueIdx) },
+                            onLongClick = { selectedActionEntry = entry },
+                            modifier = Modifier.dragDropItem(dragDropState, key),
+                            dragModifier = Modifier.dragHandle(dragDropState, key)
+                        )
+                    }
                 }
             }
 
@@ -485,21 +508,27 @@ private fun UpNextContent(
                     val isDisliked = theme?.id in dislikedThemeIds
                     val key = queueKey(entry.queueId)
                     val isDragging = dragDropState.draggingItemKey == key
-                    QueueTrackRow(
-                        item = entry.item,
-                        anime = anime,
-                        isHistory = false,
-                        isCurrent = false,
-                        isSuggested = entry.queueId in suggestedSet,
-                        isUnavailable = isUnavailable,
-                        isDisliked = isDisliked,
-                        onClick = { if (!isUnavailable && queueIdx >= 0) nowPlayingManager.skipTo(queueIdx) },
-                        onLongClick = { selectedActionEntry = entry },
+                    SwipeToRemoveQueueRow(
+                        queueIndex = queueIdx,
+                        currentIndex = npState.currentIndex,
+                        onRemove = { nowPlayingManager.removeFromQueue(queueIdx) },
                         modifier = Modifier
                             .then(if (isDragging) Modifier else Modifier.animateItem())
-                            .dragDropItem(dragDropState, key),
-                        dragModifier = Modifier.dragHandle(dragDropState, key)
-                    )
+                    ) {
+                        QueueTrackRow(
+                            item = entry.item,
+                            anime = anime,
+                            isHistory = false,
+                            isCurrent = false,
+                            isSuggested = entry.queueId in suggestedSet,
+                            isUnavailable = isUnavailable,
+                            isDisliked = isDisliked,
+                            onClick = { if (!isUnavailable && queueIdx >= 0) nowPlayingManager.skipTo(queueIdx) },
+                            onLongClick = { selectedActionEntry = entry },
+                            modifier = Modifier.dragDropItem(dragDropState, key),
+                            dragModifier = Modifier.dragHandle(dragDropState, key)
+                        )
+                    }
                 }
             }
 
@@ -518,6 +547,62 @@ private fun UpNextContent(
             onNext = viewModel.mediaControllerManager::seekToNext
         )
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeToRemoveQueueRow(
+    queueIndex: Int,
+    currentIndex: Int,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable RowScope.() -> Unit
+) {
+    val enabled = canSwipeQueueEntryToRemove(queueIndex, currentIndex)
+    val currentEnabled by rememberUpdatedState(enabled)
+    val currentOnRemove by rememberUpdatedState(onRemove)
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            when (value) {
+                SwipeToDismissBoxValue.EndToStart -> {
+                    if (currentEnabled) currentOnRemove()
+                    currentEnabled
+                }
+                SwipeToDismissBoxValue.StartToEnd -> false
+                SwipeToDismissBoxValue.Settled -> true
+            }
+        }
+    )
+    val trashScale by animateFloatAsState(
+        targetValue = if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) 1f else 0.72f,
+        label = "Queue remove icon scale"
+    )
+
+    SwipeToDismissBox(
+        state = dismissState,
+        modifier = modifier.fillMaxWidth(),
+        enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = enabled,
+        backgroundContent = {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFFD32F2F))
+                    .padding(end = 24.dp),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Delete,
+                    contentDescription = "Remove from queue",
+                    tint = Color.White,
+                    modifier = Modifier
+                        .size(26.dp)
+                        .scale(trashScale)
+                )
+            }
+        },
+        content = content
+    )
 }
 
 @Composable

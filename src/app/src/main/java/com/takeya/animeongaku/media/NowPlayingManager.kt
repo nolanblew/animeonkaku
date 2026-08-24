@@ -453,6 +453,14 @@ class NowPlayingManager @Inject constructor(
     /**
      * Move an item from one index to another in the queue.
      */
+    fun moveItemByQueueId(fromQueueId: Long, toQueueId: Long) {
+        val current = _state.value
+        val fromIndex = current.indexOfQueueId(fromQueueId)
+        val toIndex = current.indexOfQueueId(toQueueId)
+        if (fromIndex < 0 || toIndex < 0) return
+        moveItem(fromIndex, toIndex)
+    }
+
     fun moveItem(fromIndex: Int, toIndex: Int) {
         val current = _state.value
         if (fromIndex < 0 || fromIndex >= current.nowPlayingEntries.size) return
