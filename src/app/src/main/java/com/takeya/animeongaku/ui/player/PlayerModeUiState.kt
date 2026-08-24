@@ -52,7 +52,7 @@ fun serverAvailabilityMessage(
     isServerReachable: Boolean,
     hasCurrentItem: Boolean
 ): String? = if (!isServerReachable && hasCurrentItem) {
-    "Server unavailable · only downloaded songs can play"
+    "Server unavailable · downloaded and cached songs can play"
 } else {
     null
 }

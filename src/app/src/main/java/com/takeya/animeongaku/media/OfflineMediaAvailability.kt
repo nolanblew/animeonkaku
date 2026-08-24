@@ -1,5 +1,6 @@
 package com.takeya.animeongaku.media
 
+import androidx.media3.common.util.UnstableApi
 import com.takeya.animeongaku.data.local.DownloadItemDao
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 @Singleton
+@androidx.annotation.OptIn(UnstableApi::class)
 class OfflineMediaAvailability internal constructor(initialKeys: Set<MediaKey>) {
     private val available = AtomicReference(initialKeys)
     private val _availableKeys = MutableStateFlow(initialKeys)

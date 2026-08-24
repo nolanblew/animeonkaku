@@ -1,5 +1,6 @@
 package com.takeya.animeongaku.media
 
+import androidx.media3.common.util.UnstableApi
 import com.takeya.animeongaku.data.local.DownloadItemDao
 import com.takeya.animeongaku.data.local.DownloadItemEntity
 import com.takeya.animeongaku.data.local.LoudnessProfile
@@ -343,6 +344,7 @@ private fun String.toLocalUri(): String = when {
 
 /** Runtime snapshot adapter; all mode decisions remain inside [PlaybackResolver]. */
 @Singleton
+@androidx.annotation.OptIn(UnstableApi::class)
 class PlaybackResolutionCoordinator @Inject constructor(
     private val resolver: PlaybackResolver,
     private val serverReachabilityMonitor: ServerReachabilityMonitor,

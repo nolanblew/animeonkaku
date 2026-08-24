@@ -14,6 +14,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -37,7 +38,6 @@ class PreCacheManager @Inject constructor(
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var preCacheJob: Job? = null
     private var evictionJob: Job? = null
 
     fun start() {
@@ -59,21 +59,19 @@ class PreCacheManager @Inject constructor(
                         state.playbackIntent,
                     )
                 }
-                .collect { state ->
-                    // Cancel any in-flight pre-cache work
-                    preCacheJob?.cancel()
-                    preCacheJob = scope.launch {
-                        val resolved = playbackResolutionCoordinator.resolveAll(
-                            state.upcomingEntries.take(MAX_PRE_CACHE_TRACKS),
-                            state.playbackIntent,
-                        )
-                        preCacheTracks(
-                            resolved.asSequence()
-                                .filter { it.isPlayable && it.source == PlaybackSource.SERVER_AUDIO }
-                                .take(MAX_PRE_CACHE_TRACKS)
-                                .toList()
-                        )
-                    }
+                .collectLatest { state ->
+                    // collectLatest cancels and joins the prior writer before resolving a new
+                    // target set, preventing overlapping downloads for the same cache key.
+                    val resolved = playbackResolutionCoordinator.resolveAll(
+                        state.upcomingEntries.take(MAX_PRE_CACHE_TRACKS),
+                        state.playbackIntent,
+                    )
+                    preCacheTracks(
+                        resolved.asSequence()
+                            .filter { it.isPlayable && it.source == PlaybackSource.SERVER_AUDIO }
+                            .take(MAX_PRE_CACHE_TRACKS)
+                            .toList()
+                    )
                 }
         }
     }

@@ -29,7 +29,7 @@ class PlayerModeUiStateTest {
     @Test
     fun `server loss explains why only downloaded songs can play`() {
         assertEquals(
-            "Server unavailable · only downloaded songs can play",
+            "Server unavailable · downloaded and cached songs can play",
             serverAvailabilityMessage(isServerReachable = false, hasCurrentItem = true)
         )
         assertNull(serverAvailabilityMessage(isServerReachable = true, hasCurrentItem = true))
