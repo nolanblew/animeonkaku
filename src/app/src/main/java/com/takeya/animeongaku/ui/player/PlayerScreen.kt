@@ -152,7 +152,7 @@ fun PlayerScreen(
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
-    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
+    val isServerReachable by viewModel.isServerReachable.collectAsStateWithLifecycle()
     val downloadedMediaKeys by viewModel.downloadedMediaKeys.collectAsStateWithLifecycle()
     val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
     val queuedThemeModesById by viewModel.queuedThemeModesById.collectAsStateWithLifecycle()
@@ -175,7 +175,7 @@ fun PlayerScreen(
         UpNextSheet(
             npState = npState,
             nowPlayingManager = nowPlayingManager,
-            isOffline = !isOnline,
+            isOffline = !isServerReachable,
             downloadedMediaKeys = downloadedMediaKeys,
             dislikedThemeIds = dislikedThemeIds,
             viewModel = viewModel,
@@ -213,7 +213,7 @@ fun PlayerScreen(
                     showRelatedMusic = animeEntity?.kitsuId != null && hasRelatedMusic,
                     showDownload = item is PlayableItem.RelatedSong || theme != null,
                     showPlayVideo = theme != null && BrowseVideoActionPolicy.singleTheme(
-                        isOnline, queuedThemeModesById[theme.id]
+                        isServerReachable, queuedThemeModesById[theme.id]
                     ),
                     artistName = item.display.artist?.split(",")?.firstOrNull()?.trim(),
                     animeName = animeEntity?.title,
@@ -286,6 +286,10 @@ fun PlayerScreen(
     }.distinct()
     val upNextAnimeName = upNextItem?.display?.animeTitle ?: upNextItem?.display?.album ?: "Nothing queued"
     val upNextThemeTag = formatThemeTag(upNextTheme?.themeType)
+    val serverStatusMessage = serverAvailabilityMessage(
+        isServerReachable = isServerReachable,
+        hasCurrentItem = currentEntry != null
+    )
     val isExpanded = progress > 0.5f
     val configuration = LocalConfiguration.current
     val expandedArtworkSize = expandedPlayerArtworkSize(
@@ -564,6 +568,17 @@ fun PlayerScreen(
                             onModeSelected = onModeSelected
                         )
                     }
+                }
+                serverStatusMessage?.let { message ->
+                    Text(
+                        text = message,
+                        color = Ember400,
+                        style = MaterialTheme.typography.labelMedium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer { alpha = titlesAlpha }
+                    )
                 }
                 MarqueeText(
                     text = expandedTitle,
