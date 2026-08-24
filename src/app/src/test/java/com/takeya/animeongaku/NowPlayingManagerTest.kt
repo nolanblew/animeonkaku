@@ -596,6 +596,20 @@ class NowPlayingManagerTest {
     }
 
     @Test
+    fun `drag reorder resolves every move from stable queue ids`() {
+        manager.play("ctx", listOf(theme(1), theme(2), theme(3), theme(4)))
+        val entries = manager.state.value.nowPlayingEntries
+        val thirdQueueId = entries[2].queueId
+        val fourthQueueId = entries[3].queueId
+
+        manager.moveItemByQueueId(thirdQueueId, fourthQueueId)
+        manager.moveItemByQueueId(thirdQueueId, entries[1].queueId)
+
+        assertEquals(listOf(1L, 3L, 2L, 4L), manager.state.value.nowPlaying.map { it.id })
+        assertEquals(1L, manager.state.value.currentTheme?.id)
+    }
+
+    @Test
     fun `skipTo backward trims history so later forward skip does not duplicate keys`() {
         manager.play("ctx", listOf(theme(1), theme(2), theme(3)))
         manager.skipTo(2)
