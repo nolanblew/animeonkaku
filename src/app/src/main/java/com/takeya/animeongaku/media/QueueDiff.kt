@@ -28,6 +28,37 @@ fun computeQueueEntryOps(old: List<QueueEntry>, new: List<QueueEntry>): List<Que
     computeQueueOps(old.map { it.queueId.toString() }, new.map { it.queueId.toString() })
 
 /**
+ * Returns the already-resolved Media3 occurrence IDs in their next queue order when a state
+ * change is purely structural. This deliberately rejects additions and playback-intent changes:
+ * those need the normal resolver, while reorder/removal can retain the exact active sources.
+ */
+internal fun reusableResolvedQueueIdsForStructuralMutation(
+    previousQueueEntryIds: List<Long>,
+    previousResolvedMediaIds: List<String>,
+    previousCurrentQueueId: Long?,
+    previousIntent: PlaybackIntent,
+    nextQueueEntryIds: List<Long>,
+    nextCurrentQueueId: Long?,
+    nextIntent: PlaybackIntent
+): List<String>? {
+    if (previousCurrentQueueId == null || previousCurrentQueueId != nextCurrentQueueId) return null
+    if (previousIntent != nextIntent) return null
+
+    val previousQueueIds = previousQueueEntryIds.map(Long::toString)
+    val nextQueueIds = nextQueueEntryIds.map(Long::toString)
+    if (previousQueueIds.size != previousQueueIds.toSet().size) return null
+    if (nextQueueIds.size != nextQueueIds.toSet().size) return null
+    if (!previousQueueIds.toSet().containsAll(nextQueueIds)) return null
+
+    val resolvedIds = previousResolvedMediaIds.toSet()
+    if (resolvedIds.size != previousResolvedMediaIds.size) return null
+    if (!previousQueueIds.toSet().containsAll(resolvedIds)) return null
+
+    val reorderedResolvedIds = nextQueueIds.filter(resolvedIds::contains)
+    return reorderedResolvedIds.takeIf { previousCurrentQueueId.toString() in it }
+}
+
+/**
  * Computes a minimal sequence of [QueueOp]s that transforms [old] into [new].
  *
  * Strategy: strip the longest common prefix and suffix, then emit one op (or two) for the

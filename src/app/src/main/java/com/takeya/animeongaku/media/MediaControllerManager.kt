@@ -59,6 +59,12 @@ import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private data class SyncedQueueStructure(
+    val queueEntryIds: List<Long>,
+    val currentQueueId: Long?,
+    val playbackIntent: PlaybackIntent
+)
+
 /**
  * Single source of truth for the MediaController connection and queue synchronization.
  *
@@ -91,6 +97,7 @@ class MediaControllerManager @Inject constructor(
     private var lastSyncedMediaIds: List<String> = emptyList()
     private var lastSyncedDescriptors: List<PlaybackMediaDescriptor> = emptyList()
     private var resolvedItemsByQueueId: Map<Long, ResolvedPlaybackItem> = emptyMap()
+    private var lastSyncedQueueStructure: SyncedQueueStructure? = null
     private val latestQueueSync = LatestPlaybackQueueSync()
     private val videoFallbackAttempts = VideoFallbackAttemptRegistry()
     
@@ -711,6 +718,7 @@ class MediaControllerManager @Inject constructor(
         resolvedItemsByQueueId = desired.resolved.associateBy { it.queueId }
         lastSyncedVersion = npState.queueVersion
         lastConsumedPlayRequestGeneration = npState.playRequestGeneration
+        rememberQueueStructure(npState)
         return PlaybackMediaItems(desired.items, desired.currentIndex)
     }
 
@@ -726,6 +734,7 @@ class MediaControllerManager @Inject constructor(
         resolvedItemsByQueueId = desired.resolved.associateBy { it.queueId }
         lastSyncedVersion = npState.queueVersion
         lastConsumedPlayRequestGeneration = npState.playRequestGeneration
+        rememberQueueStructure(npState)
         return PlaybackMediaItems(desired.items, desired.currentIndex)
     }
 
@@ -750,11 +759,52 @@ class MediaControllerManager @Inject constructor(
         lastSyncedDescriptors = desired.descriptors
         lastSyncedVersion = npState.queueVersion
         lastConsumedPlayRequestGeneration = npState.playRequestGeneration
+        rememberQueueStructure(npState)
     }
 
     private suspend fun syncQueueToController(ctrl: MediaController, npState: NowPlayingState) {
         if (lastSyncedVersion == npState.queueVersion) return
+        if (reuseResolvedItemsForStructuralMutation(ctrl, npState)) return
         forceSyncQueue(ctrl, npState)
+    }
+
+    /** Reorders/removes exact Media3 items without resolving or replacing the active source. */
+    private fun reuseResolvedItemsForStructuralMutation(
+        ctrl: MediaController,
+        npState: NowPlayingState
+    ): Boolean {
+        val previous = lastSyncedQueueStructure ?: return false
+        val currentIds = ctrl.mediaIds()
+        if (currentIds != lastSyncedMediaIds) return false
+
+        val desiredIds = reusableResolvedQueueIdsForStructuralMutation(
+            previousQueueEntryIds = previous.queueEntryIds,
+            previousResolvedMediaIds = currentIds,
+            previousCurrentQueueId = previous.currentQueueId,
+            previousIntent = previous.playbackIntent,
+            nextQueueEntryIds = npState.nowPlayingEntries.map(QueueEntry::queueId),
+            nextCurrentQueueId = npState.currentEntry?.queueId,
+            nextIntent = npState.playbackIntent
+        ) ?: return false
+        val currentMediaId = ctrl.currentMediaItem?.mediaId ?: return false
+        val desiredCurrentIndex = desiredIds.indexOf(currentMediaId).takeIf { it >= 0 } ?: return false
+
+        val currentItemsById = (0 until ctrl.mediaItemCount)
+            .map(ctrl::getMediaItemAt)
+            .associateBy(MediaItem::mediaId)
+        val desiredItems = desiredIds.mapNotNull(currentItemsById::get)
+        if (desiredItems.size != desiredIds.size) return false
+
+        applyDiffOps(ctrl, desiredItems, desiredIds, currentMediaId, desiredCurrentIndex)
+        val descriptorsById = lastSyncedDescriptors.associateBy(PlaybackMediaDescriptor::mediaId)
+        lastSyncedDescriptors = desiredIds.mapNotNull(descriptorsById::get)
+        lastSyncedMediaIds = desiredIds
+        resolvedItemsByQueueId = resolvedItemsByQueueId.filterKeys { it.toString() in desiredIds }
+        lastSyncedVersion = npState.queueVersion
+        rememberQueueStructure(npState)
+        val currentQueueId = currentMediaId.toLongOrNull()
+        updatePlaybackModeState(currentQueueId, currentQueueId?.let(resolvedItemsByQueueId::get))
+        return true
     }
 
     /**
@@ -838,13 +888,23 @@ class MediaControllerManager @Inject constructor(
             desired.resolved.getOrNull(desiredCurrentIndex)
         )
         lastSyncedVersion = npState.queueVersion
+        rememberQueueStructure(npState)
     }
 
     private fun clearSyncedQueueState(queueVersion: Long) {
         lastSyncedMediaIds = emptyList()
         lastSyncedDescriptors = emptyList()
         resolvedItemsByQueueId = emptyMap()
+        lastSyncedQueueStructure = null
         lastSyncedVersion = queueVersion
+    }
+
+    private fun rememberQueueStructure(npState: NowPlayingState) {
+        lastSyncedQueueStructure = SyncedQueueStructure(
+            queueEntryIds = npState.nowPlayingEntries.map(QueueEntry::queueId),
+            currentQueueId = npState.currentEntry?.queueId,
+            playbackIntent = npState.playbackIntent
+        )
     }
 
     /**
