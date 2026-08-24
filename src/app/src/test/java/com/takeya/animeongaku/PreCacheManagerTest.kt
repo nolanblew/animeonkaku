@@ -143,8 +143,13 @@ class PreCacheManagerTest {
     }
 
     @Test
-    fun `unknown length falls back to key presence`() {
-        assertTrue(isCacheComplete(contentLength = -1L, cachedBytes = 1L))
+    fun `unknown length partial span is not treated as complete`() {
+        assertFalse(isCacheComplete(contentLength = -1L, cachedBytes = 1L, preCacheCompleted = false))
+    }
+
+    @Test
+    fun `unknown length requires a successful pre-cache completion marker`() {
+        assertTrue(isCacheComplete(contentLength = -1L, cachedBytes = 1L, preCacheCompleted = true))
     }
 
     private fun theme(
