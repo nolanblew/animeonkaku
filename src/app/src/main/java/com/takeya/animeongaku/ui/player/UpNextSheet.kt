@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -556,7 +555,7 @@ private fun SwipeToRemoveQueueRow(
     currentIndex: Int,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
-    content: @Composable RowScope.() -> Unit
+    content: @Composable () -> Unit
 ) {
     val enabled = canSwipeQueueEntryToRemove(queueIndex, currentIndex)
     val currentEnabled by rememberUpdatedState(enabled)
@@ -601,7 +600,15 @@ private fun SwipeToRemoveQueueRow(
                 )
             }
         },
-        content = content
+        content = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Ink900)
+            ) {
+                content()
+            }
+        }
     )
 }
 
