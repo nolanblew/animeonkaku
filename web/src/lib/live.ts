@@ -41,8 +41,8 @@ export interface LibraryLiveClientOptions {
 const LIVE_CATEGORIES: readonly LiveChangeCategory[] = ['library', 'playlist', 'profile']
 
 /**
- * Cookie-authenticated SSE with bounded reconnect and a slow delta-polling
- * safety net. It owns all timers and EventSource listeners so a logout or
+ * Cookie-authenticated SSE with bounded reconnect and a slow periodic
+ * delta-polling safety net. It owns all timers and EventSource listeners so a logout or
  * component unmount can synchronously tear the connection down.
  */
 export class LibraryLiveClient {
@@ -92,6 +92,7 @@ export class LibraryLiveClient {
     this.lastEventCursor = null
     this.reconnectAttempt = 0
     this.connect()
+    this.startFallbackPolling()
   }
 
   stop(): void {
@@ -133,7 +134,6 @@ export class LibraryLiveClient {
 
   private readonly handleOpen = (_event?: Event): void => {
     this.reconnectAttempt = 0
-    this.stopFallbackPolling()
   }
 
   private readonly handleReady = (event: MessageEvent): void => {
@@ -189,12 +189,6 @@ export class LibraryLiveClient {
   private startFallbackPolling(): void {
     if (this.pollTimer !== null) return
     this.pollTimer = setInterval(() => { void this.pollOnce() }, this.fallbackPollMs)
-  }
-
-  private stopFallbackPolling(): void {
-    if (this.pollTimer === null) return
-    clearInterval(this.pollTimer)
-    this.pollTimer = null
   }
 
   private async pollOnce(): Promise<void> {
