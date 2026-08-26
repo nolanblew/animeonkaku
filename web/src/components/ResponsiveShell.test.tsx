@@ -2,14 +2,13 @@ import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import { ResponsiveShell } from './ResponsiveShell'
+import { PlayerProvider } from '../player'
 
 describe('ResponsiveShell', () => {
   it('provides a mobile navigation toggle while retaining keyboard-accessible labels', () => {
     render(
       <MemoryRouter initialEntries={['/library']}>
-        <ResponsiveShell>
-          <h1>Library content</h1>
-        </ResponsiveShell>
+        <PlayerProvider><ResponsiveShell><h1>Library content</h1></ResponsiveShell></PlayerProvider>
       </MemoryRouter>,
     )
 

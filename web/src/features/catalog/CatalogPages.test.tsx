@@ -113,20 +113,20 @@ describe('catalog pages', () => {
   })
 
   it('filters and sorts a large library while rendering only the current page', async () => {
-    const manyAnime = Object.fromEntries(Array.from({ length: 200 }, (_, index) => {
+    const manyAnime = Object.fromEntries(Array.from({ length: 5_000 }, (_, index) => {
       const id = `anime-${index}`
-      return [id, anime(id, `Show ${String(index).padStart(3, '0')}`, index % 2 === 0 ? 'current' : 'completed')]
+      return [id, anime(id, `Show ${String(index).padStart(4, '0')}`, index % 2 === 0 ? 'current' : 'completed')]
     }))
     vi.mocked(useLibraryQuery).mockReturnValue({ library: { ...library, animeById: manyAnime }, status: 'success', isPending: false, isError: false, isSuccess: true, error: null } as never)
     renderWithQuery(<LibraryCatalogPage />)
 
     expect(screen.getAllByTestId('anime-card')).toHaveLength(24)
-    expect(screen.queryByRole('link', { name: /Show 199/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Show 4999/ })).not.toBeInTheDocument()
 
     const search = screen.getByRole('searchbox', { name: 'Filter library' })
-    await userEvent.type(search, 'Show 199')
+    await userEvent.type(search, 'Show 4999')
     expect(screen.getAllByTestId('anime-card')).toHaveLength(1)
-    expect(screen.getByRole('link', { name: 'Show 199' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Show 4999' })).toBeInTheDocument()
 
     await userEvent.clear(search)
     await userEvent.click(screen.getByRole('button', { name: /Load more anime/ }))
@@ -138,6 +138,55 @@ describe('catalog pages', () => {
     await userEvent.type(screen.getByRole('searchbox', { name: 'Filter library' }), 'does not exist')
     expect(screen.getByRole('heading', { name: 'No anime found' })).toBeInTheDocument()
     expect(screen.getByText(/Try a different search/)).toBeInTheDocument()
+  })
+
+  it('switches to bounded playable song and playlist library surfaces', async () => {
+    const onPlayTheme = vi.fn()
+    renderWithQuery(<LibraryCatalogPage onPlayTheme={onPlayTheme} />)
+    await userEvent.click(screen.getByRole('tab', { name: 'Songs' }))
+    expect(screen.getByRole('searchbox', { name: 'Filter songs' })).toBeInTheDocument()
+    await userEvent.click(screen.getAllByRole('button', { name: 'Play Opening' })[0]!)
+    expect(onPlayTheme).toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('tab', { name: 'Playlists' }))
+    expect(screen.getByText('No playlists match this view.')).toBeInTheDocument()
+  })
+
+  it('drills into artists, filters playlists, and exposes queue actions for songs', async () => {
+    const artistTheme = (id: number, name: string) => ({ ...theme(id, 'a', `Song ${id}`), artists: [{ name, asCharacter: null, alias: null }] })
+    const richLibrary = {
+      ...library,
+      themesById: { '10': artistTheme(10, 'Aimer'), '11': artistTheme(11, 'Aimer'), '12': artistTheme(12, 'LiSA') },
+      playlistsById: {
+        '7': { id: 7, name: 'Night drive', entries: [10], defaultMode: 'TV_SIZE', overrideUserPreference: false, items: [{ entryId: 1, itemType: 'THEME', itemId: 10, modeOverride: null }], isAuto: false, isDynamic: false, autoUpdate: false, updatedAt: 10, deleted: false, dynamicSpecJson: null, dynamicSortJson: null },
+      },
+    }
+    vi.mocked(useLibraryQuery).mockReturnValue({ library: richLibrary, status: 'success', isPending: false, isError: false, isSuccess: true, error: null } as never)
+    const onPlayTheme = vi.fn()
+    const onPlayNext = vi.fn()
+    const onAddToQueue = vi.fn()
+    renderWithQuery(<LibraryCatalogPage onPlayTheme={onPlayTheme} onPlayNext={onPlayNext} onAddToQueue={onAddToQueue} />)
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Artists' }))
+    await userEvent.click(screen.getByRole('button', { name: /Aimer.*2 themes/i }))
+    expect(screen.getByRole('heading', { name: 'Aimer' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /^Play Song/ })).toHaveLength(2)
+    await userEvent.click(screen.getByRole('button', { name: /all artists/i }))
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Filter artists' }), 'LiSA')
+    expect(screen.getByRole('button', { name: /LiSA.*1 theme/i })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Songs' }))
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Song 10' }))
+    expect(screen.getByRole('dialog', { name: 'Song 10 actions' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Play next' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add to queue' }))
+    expect(onPlayNext).toHaveBeenCalled()
+    expect(onAddToQueue).toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'Close actions' }))
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Playlists' }))
+    expect(screen.getByRole('link', { name: /Night drive/ })).toHaveAttribute('href', '/playlist/7')
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Filter playlists' }), 'missing')
+    expect(screen.getByText('No playlists match this view.')).toBeInTheDocument()
   })
 
   it('renders sanitized library loading and error states', () => {
@@ -163,6 +212,24 @@ describe('catalog pages', () => {
     expect(screen.getByText('Season One')).toBeInTheDocument()
     expect(apiClient.get).toHaveBeenCalledWith('/v1/anime/a', expect.anything())
     expect(apiClient.get).toHaveBeenCalledWith('/v1/anime/a/music', expect.anything())
+  })
+
+  it('plays themes and exposes the mobile library actions from anime detail', async () => {
+    const onPlayThemes = vi.fn()
+    const onPlayNext = vi.fn()
+    const opening = theme(1, 'a', 'Opening')
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ anime: anime('a', 'Frieren: Beyond Journey’s End', 'current'), themes: [opening] })
+      .mockResolvedValueOnce({ anime: { kitsuId: 'a', title: 'Frieren', titleEn: 'Frieren', posterUrl: '/frieren.jpg' }, releases: [] })
+
+    renderWithQuery(<Routes><Route path="/anime/:animeId" element={<AnimeDetailPage onPlayThemes={onPlayThemes} onPlayNext={onPlayNext} />} /></Routes>, ['/anime/a'])
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Play Opening' }))
+    expect(onPlayThemes).toHaveBeenCalledWith([opening], 0, false, 'https://images.example/a.jpg')
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Opening' }))
+    expect(screen.getByRole('dialog', { name: 'Opening actions' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Play next' }))
+    expect(onPlayNext).toHaveBeenCalledWith([opening], 'https://images.example/a.jpg')
   })
 
   it('keeps detail themes and releases useful when either detail request is empty', async () => {

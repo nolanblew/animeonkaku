@@ -4,7 +4,8 @@
 .player-video--visible { display: block; }
 .player-video-surface { width: 100%; min-height: 0; }
 .player-video-surface:has(.player-video--visible) { min-height: 3rem; }
-.player-now-playing { display: grid; max-width: 48rem; gap: 1rem; margin: 0 auto; padding: clamp(1rem, 4vw, 2.5rem); text-align: center; }
+.player-now-playing { display: grid; grid-template-columns: minmax(0, 1fr) minmax(16rem, 25rem); max-width: 78rem; gap: clamp(1rem, 3vw, 2.5rem); margin: 0 auto; padding: clamp(1rem, 4vw, 2.5rem); }
+.player-now-playing__stage { display: grid; min-width: 0; align-content: start; gap: 1rem; text-align: center; }
 .player-now-playing__artwork-wrap { display: grid; place-items: center; min-height: min(55vw, 22rem); }
 .player-now-playing__artwork { width: min(100%, 22rem); aspect-ratio: 1; border-radius: 1rem; object-fit: cover; box-shadow: 0 1rem 3rem rgba(0, 0, 0, .28); }
 .player-now-playing__artwork--fallback { display: grid; place-items: center; color: rgba(255,255,255,.85); font-size: 3rem; font-weight: 800; letter-spacing: -.08em; background: linear-gradient(145deg, #ea7795, #7259c7 48%, #2d4969); }
@@ -26,7 +27,8 @@
 .player-error { margin: 0; color: #ff9aaa; font-size: .84rem; }
 .player-loading, .player-muted { margin: 0; color: var(--muted, #aeb5c5); font-size: .8rem; }
 .player-mini-player { position: fixed; right: 0; bottom: 0; left: 0; z-index: 40; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(12rem, .9fr); align-items: center; gap: 1rem; min-height: 5.2rem; padding: .65rem clamp(.85rem, 3vw, 2rem); border-top: 1px solid var(--line, rgba(255,255,255,.1)); background: rgba(17, 19, 26, .96); box-shadow: 0 -.6rem 2rem rgba(0,0,0,.2); }
-.player-mini-player__track { display: flex; min-width: 0; align-items: center; gap: .65rem; }
+.player-mini-player__track { display: flex; min-width: 0; align-items: center; gap: .65rem; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.player-mini-player__track:disabled { cursor: default; }
 .player-mini-player__track img, .player-mini-player__artwork { width: 2.8rem; height: 2.8rem; flex: 0 0 auto; border-radius: .4rem; object-fit: cover; }
 .player-mini-player__artwork { display: grid; place-items: center; color: white; font-size: .65rem; font-weight: 800; background: linear-gradient(145deg, #ea7795, #7259c7); }
 .player-mini-player__meta { display: grid; min-width: 0; gap: .15rem; }
@@ -35,5 +37,17 @@
 .player-mini-player__controls { display: flex; align-items: center; gap: .35rem; }
 .player-mini-player__progress { display: grid; min-width: 0; align-items: center; gap: .35rem; color: var(--muted, #aeb5c5); font-size: .72rem; }
 .player-mini-player__empty { color: var(--muted, #aeb5c5); }
+.player-queue { min-width: 0; padding: 1rem; border: 1px solid var(--line, rgba(255,255,255,.1)); border-radius: 1rem; background: rgba(255,255,255,.035); }
+.player-queue__heading { display: grid; grid-template-columns: 1fr auto; align-items: end; margin-bottom: .75rem; }
+.player-queue__heading .player-eyebrow { grid-column: 1 / -1; }
+.player-queue__heading h2 { margin: 0; font-size: 1.25rem; }
+.player-queue__heading > span { color: var(--muted, #aeb5c5); font-size: .8rem; }
+.player-queue ol { display: grid; gap: .25rem; margin: 0; padding: 0; list-style: none; }
+.player-queue li button { display: grid; width: 100%; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .65rem; padding: .65rem; border: 0; border-radius: .65rem; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.player-queue li button:hover { background: rgba(255,255,255,.07); }
+.player-queue li button > span:nth-child(2) { display: grid; min-width: 0; gap: .15rem; }
+.player-queue li strong, .player-queue li small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.player-queue li small, .player-queue li time, .player-queue__index { color: var(--muted, #aeb5c5); font-size: .72rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+@media (max-width: 1000px) { .player-now-playing { grid-template-columns: 1fr; } .player-queue { max-height: 25rem; overflow: auto; } }
 @media (max-width: 700px) { .player-mini-player { grid-template-columns: minmax(0, 1fr) auto; } .player-mini-player__progress { position: absolute; right: .85rem; bottom: .15rem; left: .85rem; } .player-mini-player__progress span { display: none; } }

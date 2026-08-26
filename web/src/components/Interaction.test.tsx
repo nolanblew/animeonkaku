@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ErrorState, sanitizeErrorDetails } from './ErrorState'
 import { MiniPlayer } from './MiniPlayer'
 import { ResponsiveShell } from './ResponsiveShell'
+import { PlayerProvider } from '../player'
 
 describe('interaction and safe error surfaces', () => {
   it('redacts credentials and infrastructure details before showing diagnostics', () => {
@@ -20,7 +21,7 @@ describe('interaction and safe error surfaces', () => {
   })
 
   it('supports mobile navigation, profile menu, and global search submission', () => {
-    render(<MemoryRouter initialEntries={['/']}><ResponsiveShell><h1>Home content</h1></ResponsiveShell></MemoryRouter>)
+    render(<MemoryRouter initialEntries={['/']}><PlayerProvider><ResponsiveShell><h1>Home content</h1></ResponsiveShell></PlayerProvider></MemoryRouter>)
     fireEvent.click(screen.getByRole('button', { name: /open navigation/i }))
     expect(screen.getAllByRole('button', { name: /close navigation/i })).toHaveLength(2)
     fireEvent.click(screen.getByRole('button', { name: /anime fan.*connected/i }))

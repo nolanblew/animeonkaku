@@ -1,44 +1,33 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
-import { AnimePage, HomePage, LibraryPage, NowPlayingPage, PlaylistPage, SearchPage, ServerErrorPage, SettingsPage } from './Pages'
+import { NowPlayingPage, SearchPage, ServerErrorPage, SettingsPage } from './Pages'
+import { AppQueryProvider } from '../lib/query'
+import { PlayerProvider } from '../player'
 
 function renderRoute(element: React.ReactElement, path = '/', routePath = '*') {
-  return render(<MemoryRouter initialEntries={[path]}><Routes><Route path={routePath} element={element} /></Routes></MemoryRouter>)
+  return render(<AppQueryProvider><PlayerProvider><MemoryRouter initialEntries={[path]}><Routes><Route path={routePath} element={element} /></Routes></MemoryRouter></PlayerProvider></AppQueryProvider>)
 }
 
 describe('intentional route surfaces', () => {
   it.each([
-    ['library', LibraryPage, 'Library'],
-    ['settings', SettingsPage, 'Settings'],
+    ['settings', SettingsPage, 'Account settings'],
     ['error', ServerErrorPage, 'We’re tuning the signal'],
-  ])('renders the %s route skeleton', async (_route, Page, heading) => {
+  ])('renders the %s route', async (_route, Page, heading) => {
     renderRoute(<Page />)
     await waitFor(() => expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument())
-    expect(screen.getByText(/ready for server-backed content/i)).toBeInTheDocument()
   })
 
-  it('renders home and search previews with a query', async () => {
-    renderRoute(<HomePage />)
-    expect(screen.getByRole('heading', { name: /welcome back/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /play akebi/i })).toBeInTheDocument()
-
+  it('loads the routed query into functional search', async () => {
     renderRoute(<SearchPage />, '/search?q=naruto')
-    await waitFor(() => expect(screen.getByRole('heading', { name: /search for “naruto”/i })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('heading', { name: /^search$/i })).toBeInTheDocument())
+    expect(screen.getByRole('searchbox', { name: /search anime/i })).toHaveValue('naruto')
   })
 
-  it('keeps route identifiers visible while detailing anime and playlist skeletons', () => {
-    renderRoute(<AnimePage />, '/anime/16bit-sensation', '/anime/:animeId')
-    expect(screen.getByRole('heading', { name: /anime · 16bit-sensation/i })).toBeInTheDocument()
-
-    renderRoute(<PlaylistPage />, '/playlist/currently-watching', '/playlist/:playlistId')
-    expect(screen.getByRole('heading', { name: /currently watching/i })).toBeInTheDocument()
-  })
-
-  it('renders expanded now-playing shell with queue and controls', () => {
+  it('renders the functional now-playing controls', () => {
     renderRoute(<NowPlayingPage />)
-    expect(screen.getByRole('heading', { name: /pop life/i })).toBeInTheDocument()
-    expect(screen.getByRole('complementary', { name: /up next/i })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /queue/i })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('heading', { name: /^now playing$/i, level: 1 })).toBeInTheDocument()
+    expect(screen.getByText(/nothing playing/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /play current track/i })).toBeDisabled()
   })
 })

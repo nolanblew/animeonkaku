@@ -51,8 +51,11 @@ describe('playlist components', () => {
   it('supports accessible detail editing, reorder, remove, and delete confirmation', async () => {
     const onUpdate = vi.fn().mockResolvedValue(undefined)
     const onDelete = vi.fn().mockResolvedValue(undefined)
-    renderWithQuery(<PlaylistDetail playlist={playlist()} onUpdate={onUpdate} onDelete={onDelete} />)
+    const onPlay = vi.fn()
+    renderWithQuery(<PlaylistDetail playlist={playlist()} onUpdate={onUpdate} onDelete={onDelete} onPlay={onPlay} />)
     expect(screen.getByRole('heading', { name: /night drive/i })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /^play$/i }))
+    expect(onPlay).toHaveBeenCalledWith(expect.objectContaining({ id: 2 }), false)
     await userEvent.click(screen.getByRole('button', { name: /move .* up/i }))
     await userEvent.click(screen.getByRole('button', { name: /remove .* from playlist/i }))
     expect(onUpdate).toHaveBeenCalled()

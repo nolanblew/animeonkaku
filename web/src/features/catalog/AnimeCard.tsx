@@ -2,6 +2,7 @@ import { ArrowUpRight, Play } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { displayTitle, statusLabel } from './selectors'
 import type { CatalogAnime } from './types'
+import { browserAssetUrl } from '../../lib/assets'
 
 export function AnimeCard({ anime, themeCount }: { anime: CatalogAnime; themeCount?: number }) {
   const title = displayTitle(anime)
@@ -9,7 +10,7 @@ export function AnimeCard({ anime, themeCount }: { anime: CatalogAnime; themeCou
     <article className="catalog-anime-card" data-testid="anime-card">
       <Link className="catalog-anime-card__link" to={`/anime/${encodeURIComponent(anime.kitsuId)}`} aria-label={title}>
         <div className="catalog-anime-card__image">
-          {anime.posterUrl ? <img src={anime.posterUrl} alt="" loading="lazy" decoding="async" /> : <span aria-hidden="true">AO</span>}
+          {anime.posterUrl ? <img src={browserAssetUrl(anime.posterUrl)} alt="" loading="lazy" decoding="async" /> : <span aria-hidden="true">AO</span>}
           <span className="catalog-anime-card__overlay"><Play size={18} fill="currentColor" aria-hidden="true" /> Open anime</span>
         </div>
         <div className="catalog-anime-card__body">

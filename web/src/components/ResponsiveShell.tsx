@@ -11,8 +11,8 @@ import {
 import { useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Brand } from './BrandMark'
-import { MiniPlayer } from './MiniPlayer'
 import { useAuth } from '../auth/AuthProvider'
+import { MiniPlayerView } from '../player'
 
 const primaryNavigation = [
   { to: '/', label: 'Home', icon: House, end: true },
@@ -137,7 +137,7 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
           {children ?? <Outlet />}
         </main>
       </div>
-      {location.pathname !== '/now-playing' && <MiniPlayer />}
+      {location.pathname !== '/now-playing' && <MiniPlayerView onOpen={() => navigate('/now-playing')} />}
     </div>
   )
 }

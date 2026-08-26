@@ -3,9 +3,10 @@ import { usePlayer } from './PlayerProvider'
 
 export interface MiniPlayerViewProps {
   className?: string
+  onOpen?: () => void
 }
 
-export function MiniPlayerView({ className = '' }: MiniPlayerViewProps) {
+export function MiniPlayerView({ className = '', onOpen }: MiniPlayerViewProps) {
   const player = usePlayer()
   const current = player.currentItem
   if (!current) {
@@ -13,10 +14,10 @@ export function MiniPlayerView({ className = '' }: MiniPlayerViewProps) {
   }
   return (
     <section className={['player-mini-player', className].filter(Boolean).join(' ')} aria-label="Mini player" data-testid="mini-player-view">
-      <div className="player-mini-player__track">
+      <button className="player-mini-player__track" type="button" onClick={onOpen} disabled={!onOpen} aria-label={`Open now playing for ${current.title}`}>
         {current.artworkUrl ? <img src={current.artworkUrl} alt="" /> : <span className="player-mini-player__artwork" aria-hidden="true">AO</span>}
         <span className="player-mini-player__meta"><strong>{current.title}</strong><small>{current.artist ?? 'Anime Ongaku'}</small></span>
-      </div>
+      </button>
       <div className="player-mini-player__controls">
         <button type="button" className="player-icon-button" onClick={() => void player.previous()} aria-label="Previous track"><SkipBack size={16} aria-hidden="true" /></button>
         <button type="button" className="player-play-button player-play-button--small" onClick={() => void player.togglePlay()} aria-label={player.isPlaying ? 'Pause current track' : 'Play current track'}>{player.isPlaying ? <Pause size={17} fill="currentColor" aria-hidden="true" /> : <Play size={17} fill="currentColor" aria-hidden="true" />}</button>
@@ -32,4 +33,3 @@ function formatTime(value: number): string {
   const seconds = Math.floor(value)
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
-

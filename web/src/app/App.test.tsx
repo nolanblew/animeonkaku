@@ -81,7 +81,7 @@ describe('web player app shell', () => {
     ['/search?q=bleach', /search/i],
     ['/anime/16bit-sensation', /16bit sensation/i],
     ['/playlist/1', /currently watching/i],
-    ['/now-playing', /pop life/i],
+    ['/now-playing', /^now playing$/i],
     ['/settings', /settings/i],
   ])('loads the lazy route at %s', async (path, heading) => {
     render(

@@ -81,7 +81,7 @@ export interface PlayerProviderProps {
   /** Alias kept for callers that name the injected store explicitly. */
   store?: QueueStore
   mediaCache?: ManagedMediaCache
-  api?: Pick<ApiClient, 'url'>
+  api?: Pick<ApiClient, 'url'> & Partial<Pick<ApiClient, 'post'>>
   initialMode?: PlaybackMode
 }
 
@@ -114,6 +114,7 @@ export function PlayerProvider({
   const pendingSeekRef = useRef<{ from: PlaybackMode; to: PlaybackMode; time: number; queueId?: number } | null>(null)
   const shouldAutoplayRef = useRef(false)
   const callbacksRef = useRef<MediaCallbacks>({})
+  const recordedPlayQueueIdsRef = useRef(new Set<number>())
   const [mode, setModeState] = useState<PlaybackMode>(initialMode)
   const [isPlaying, setIsPlaying] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -336,6 +337,12 @@ export function PlayerProvider({
       if (event.currentTarget === activeMediaRef.current) {
         setIsPlaying(true)
         setIsLoading(false)
+        const queueId = currentEntry?.queueId
+        const playEvent = currentEntry ? createPlayEvent(currentEntry.item, modeRef.current) : undefined
+        if (queueId !== undefined && playEvent && api.post && !recordedPlayQueueIdsRef.current.has(queueId)) {
+          recordedPlayQueueIdsRef.current.add(queueId)
+          void api.post('/v1/plays', [playEvent]).catch(() => undefined)
+        }
       }
     },
     onPause: (event) => {
@@ -638,4 +645,28 @@ function clearMediaCache(cache: ManagedMediaCache | undefined): void {
   } catch {
     // Cache cleanup is best effort and must not interrupt unmount/logout.
   }
+}
+
+function createPlayEvent(item: QueueItem, mode: PlaybackMode) {
+  const candidate = item as PlayerQueueItem
+  const itemId = candidate.itemType === 'SONG' ? candidate.songId : candidate.themeId
+  if (!Number.isSafeInteger(itemId) || (itemId ?? 0) <= 0) return undefined
+  return {
+    clientEventId: createClientEventId(),
+    itemType: candidate.itemType,
+    itemId: itemId!,
+    actualMode: candidate.itemType === 'SONG' ? 'AUDIO' : mode,
+    playedAt: new Date().toISOString(),
+  }
+}
+
+function createClientEventId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  const bytes = new Uint8Array(16)
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') crypto.getRandomValues(bytes)
+  else for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256)
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }

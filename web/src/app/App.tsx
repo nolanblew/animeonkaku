@@ -6,6 +6,7 @@ import { ErrorState } from '../components/ErrorState'
 import { LoginPage } from '../pages/LoginPage'
 import { AuthProvider, useAuth } from '../auth/AuthProvider'
 import { AppQueryProvider, useLibraryQuery } from '../lib/query'
+import { PlayerProvider } from '../player'
 
 const HomePage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.HomePage })))
 const LibraryPage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.LibraryPage })))
@@ -62,5 +63,5 @@ function RequireAuth() {
 
 function AuthenticatedShell() {
   useLibraryQuery({ live: true })
-  return <ResponsiveShell />
+  return <PlayerProvider><ResponsiveShell /></PlayerProvider>
 }

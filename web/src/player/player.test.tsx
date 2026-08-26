@@ -215,6 +215,38 @@ describe('PlayerProvider', () => {
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent(/notallowederror|could not start/i))
   })
 
+  it('records one play event per queue occurrence without recounting resume', async () => {
+    const post = vi.fn(() => Promise.resolve({ accepted: 1 }))
+    const api = {
+      url: (path: string) => `/api${path}`,
+      post,
+    }
+    const store = new QueueStore()
+    store.play([mapThemeToQueueItem({
+      id: 44,
+      title: 'Counted Opening',
+      themeType: 'OP',
+      audioUrl: '/v1/media/audio/44',
+      artists: [],
+    } as never)])
+    renderPlayer(store, { api })
+    const audio = screen.getByTestId('player-audio')
+    await waitFor(() => expect(audio).toHaveAttribute('src', '/api/v1/media/audio/44'))
+
+    fireEvent.play(audio)
+    fireEvent.pause(audio)
+    fireEvent.play(audio)
+
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+    expect(post).toHaveBeenCalledWith('/v1/plays', [expect.objectContaining({
+      clientEventId: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+      itemType: 'THEME',
+      itemId: 44,
+      actualMode: 'TV_SIZE',
+      playedAt: expect.any(String),
+    })])
+  })
+
   it('switches TV to video while retaining position and restarts when switching to full size', async () => {
     const store = new QueueStore()
     store.play([item({ fullAudioUrl: '/v1/media/audio/full-1' })])
