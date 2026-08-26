@@ -2,6 +2,7 @@ package com.takeya.animeongaku
 
 import androidx.compose.material3.SwipeToDismissBoxValue
 import com.takeya.animeongaku.ui.player.canSwipeQueueEntryToRemove
+import com.takeya.animeongaku.ui.player.canQueueSwipeSettleToDismiss
 import com.takeya.animeongaku.ui.player.queueSwipeDismissThreshold
 import com.takeya.animeongaku.ui.player.shouldRemoveQueueEntryAfterSwipeSettles
 import org.junit.Assert.assertEquals
@@ -22,6 +23,24 @@ class QueueSwipePolicyTest {
     fun `queue swipe requires half of the row width on every screen size`() {
         assertEquals(180f, queueSwipeDismissThreshold(totalDistance = 360f), 0.001f)
         assertEquals(540f, queueSwipeDismissThreshold(totalDistance = 1080f), 0.001f)
+    }
+
+    @Test
+    fun `swipe velocity cannot bypass the required removal distance`() {
+        assertFalse(
+            canQueueSwipeSettleToDismiss(
+                enabled = true,
+                currentOffset = -400f,
+                totalDistance = 1300f
+            )
+        )
+        assertTrue(
+            canQueueSwipeSettleToDismiss(
+                enabled = true,
+                currentOffset = -700f,
+                totalDistance = 1300f
+            )
+        )
     }
 
     @Test
