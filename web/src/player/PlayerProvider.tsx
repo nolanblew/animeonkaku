@@ -353,7 +353,7 @@ export function PlayerProvider({
   }
 
   useEffect(() => {
-    const elements = [audioRef.current, videoRef.current].filter(Boolean) as HTMLMediaElement[]
+    const elements = [audioElement, videoElement].filter(Boolean) as HTMLMediaElement[]
     const events: Array<[string, keyof MediaCallbacks]> = [
       ['timeupdate', 'onTimeUpdate'],
       ['loadedmetadata', 'onLoadedMetadata'],
@@ -372,7 +372,7 @@ export function PlayerProvider({
         for (const [event] of events) element.removeEventListener(event, listeners.get(event)!)
       }
     }
-  }, [])
+  }, [audioElement, videoElement])
 
   useEffect(() => {
     const item = currentEntry?.item
