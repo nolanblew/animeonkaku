@@ -26,6 +26,12 @@ import {
   registerWebStaticHosting,
   sendIndex,
 } from "./web/staticHosting.js";
+import {
+  registerLiveRoutes,
+  type BrowserHomeService,
+  type LiveChangePublisher,
+  type LiveLibraryHub,
+} from "./web/liveRoutes.js";
 
 export interface AppDeps {
   authService: AuthService;
@@ -44,6 +50,11 @@ export interface AppDeps {
   webAuth?: {
     profile: UserProfileApi;
     secureCookies?: boolean;
+    publicOrigin?: string;
+  };
+  webLive?: {
+    hub: LiveLibraryHub;
+    home?: BrowserHomeService;
   };
   web?: {
     distPath: string;
@@ -71,9 +82,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     if (!request.url.startsWith("/api/") || !["POST", "PUT", "PATCH", "DELETE"].includes(request.method)) {
       return;
     }
+    if (request.headers.authorization?.startsWith("Bearer ")) return;
     const cookie = parseCookieHeader(request.headers.cookie ?? "").get(WEB_SESSION_COOKIE);
     if (!cookie) return;
-    if (!isSameOriginRequest(request)) {
+    if (!isSameOriginRequest(request, deps.webAuth?.publicOrigin)) {
       return reply.code(403).send(errorEnvelope("CSRF_ORIGIN_REQUIRED", "A same-origin request is required."));
     }
   });
@@ -93,7 +105,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof KitsuAuthError) {
-      return reply.code(401).send(errorEnvelope("KITSU_AUTH_FAILED", error.message));
+      request.log.warn({ errorName: error.name }, "Kitsu authentication failed");
+      return reply.code(401).send(errorEnvelope("KITSU_AUTH_FAILED", "Kitsu authentication failed."));
     }
     if (error instanceof ApiError) {
       return reply.code(error.statusCode).send(errorEnvelope(error.code, error.message));
@@ -136,19 +149,28 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 }
 
 function registerApiRoutes(app: FastifyInstance, deps: AppDeps, webPrefix: boolean): void {
+  const publishLiveChange: LiveChangePublisher | undefined = deps.webLive
+    ? (userId, categories) => {
+        deps.webLive!.hub.publish(userId, categories);
+      }
+    : undefined;
   if (webPrefix && deps.webAuth) {
     registerWebAuthRoutes(app, deps.authService, {
       profile: deps.webAuth.profile,
       onLogin: deps.onLogin,
       secureCookies: deps.webAuth.secureCookies,
+      publisher: publishLiveChange,
     });
+  }
+  if (webPrefix && deps.webLive) {
+    registerLiveRoutes(app, deps.authService, deps.webLive);
   }
   registerAuthRoutes(app, deps.authService, {
     onLogin: deps.onLogin,
     legacyLibraryImport: deps.legacyLibraryImport,
   });
   if (deps.clientApi) {
-    registerClientRoutes(app, deps.authService, deps.clientApi);
+    registerClientRoutes(app, deps.authService, deps.clientApi, { publisher: publishLiveChange });
   }
   if (deps.mediaApi) {
     registerMediaRoutes(app, deps.authService, deps.mediaApi);
@@ -168,19 +190,20 @@ function registerApiRoutes(app: FastifyInstance, deps: AppDeps, webPrefix: boole
   if (deps.musicOperator) registerMusicOperatorRoutes(app, deps.authService, deps.musicOperator);
 }
 
-function isSameOriginRequest(request: { headers: Record<string, string | string[] | undefined>; protocol: string }): boolean {
+function isSameOriginRequest(
+  request: { headers: Record<string, string | string[] | undefined>; protocol: string },
+  publicOrigin?: string,
+): boolean {
   const origin = firstHeader(request.headers.origin);
   const referer = firstHeader(request.headers.referer);
   const candidate = origin ?? referer;
   if (!candidate) return false;
   try {
     const candidateUrl = new URL(candidate);
-    const forwardedProto = firstHeader(request.headers["x-forwarded-proto"])?.split(",", 1)[0]?.trim();
-    const forwardedHost = firstHeader(request.headers["x-forwarded-host"])?.split(",", 1)[0]?.trim();
-    const protocol = forwardedProto || request.protocol;
-    const host = forwardedHost || firstHeader(request.headers.host);
+    if (publicOrigin) return candidateUrl.origin === new URL(publicOrigin).origin;
+    const host = firstHeader(request.headers.host);
     if (!host) return false;
-    return candidateUrl.origin === new URL(`${protocol}://${host}`).origin;
+    return candidateUrl.origin === new URL(`${request.protocol}://${host}`).origin;
   } catch {
     return false;
   }

@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { AuthService } from "../auth/service.js";
 import { ApiError } from "./errors.js";
 import { makeRequireAuth } from "./requireAuth.js";
+import type { LiveChangePublisher } from "../web/liveRoutes.js";
 
 export type AudioState = "READY" | "PENDING" | "FAILED" | "MISSING";
 export type LoudnessDto = {
@@ -371,10 +372,15 @@ const playlistDeleteQuery = z.object({
   opTs: z.coerce.number().int().nonnegative().optional(),
 });
 
+export interface ClientRouteOptions {
+  publisher?: LiveChangePublisher | undefined;
+}
+
 export function registerClientRoutes(
   fastify: FastifyInstance,
   authService: AuthService,
   service: ClientApiService,
+  options: ClientRouteOptions = {},
 ): void {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
   const requireAuth = makeRequireAuth(authService);
@@ -435,6 +441,7 @@ export function registerClientRoutes(
       const userId = request.auth!.user.kitsuUserId;
       const result = await service.addLibraryAnime(userId, request.body);
       await service.refreshAutoPlaylists(userId);
+      if (result.accepted) await options.publisher?.(userId, ["library"]);
       return result;
     },
   );
@@ -450,6 +457,7 @@ export function registerClientRoutes(
       );
       if (!removed) throw new ApiError(404, "NOT_FOUND", "Library entry not found.");
       await service.refreshAutoPlaylists(userId);
+      await options.publisher?.(userId, ["library"]);
       return reply.code(204).send();
     },
   );
@@ -469,6 +477,7 @@ export function registerClientRoutes(
       await service.ensureLibraryForThemeIds(userId, [request.params.id]);
       const pref = await service.updateThemePref(userId, request.params.id, request.body);
       await service.refreshAutoPlaylists(userId);
+      await options.publisher?.(userId, ["library"]);
       return pref;
     },
   );
@@ -486,6 +495,7 @@ export function registerClientRoutes(
       const userId = request.auth!.user.kitsuUserId;
       const pref = await service.updateSongPref(userId, request.params.id, request.body);
       await service.refreshAutoPlaylists(userId);
+      await options.publisher?.(userId, ["library"]);
       return pref;
     },
   );
@@ -497,6 +507,7 @@ export function registerClientRoutes(
       const deleted = await service.deleteSongPref(request.auth!.user.kitsuUserId, request.params.id, request.query.opTs ?? null);
       if (!deleted) throw new ApiError(404, "MUSIC_NOT_FOUND", "Song preference was not found.");
       await service.refreshAutoPlaylists(request.auth!.user.kitsuUserId);
+      await options.publisher?.(request.auth!.user.kitsuUserId, ["library"]);
       return reply.code(204).send();
     },
   );
@@ -511,6 +522,7 @@ export function registerClientRoutes(
       )));
       const result = await service.recordPlays(userId, request.body);
       await service.refreshAutoPlaylists(userId);
+      if (result.accepted > 0) await options.publisher?.(userId, ["library"]);
       return result;
     },
   );
@@ -541,6 +553,7 @@ export function registerClientRoutes(
     async (request, reply) => {
       const userId = request.auth!.user.kitsuUserId;
       const playlist = await service.createPlaylist(userId, request.body);
+      await options.publisher?.(userId, ["playlist"]);
       return reply.code(201).send({ playlist });
     },
   );
@@ -556,6 +569,7 @@ export function registerClientRoutes(
         request.body,
       );
       if (!playlist) throw new ApiError(404, "NOT_FOUND", "Playlist not found.");
+      await options.publisher?.(userId, ["playlist"]);
       return { playlist };
     },
   );
@@ -570,6 +584,7 @@ export function registerClientRoutes(
         request.body,
       );
       if (!playlist) throw new ApiError(404, "NOT_FOUND", "Playlist not found.");
+      await options.publisher?.(request.auth!.user.kitsuUserId, ["playlist"]);
       return { playlist };
     },
   );
@@ -584,6 +599,7 @@ export function registerClientRoutes(
         request.query.opTs ?? null,
       );
       if (!deleted) throw new ApiError(404, "NOT_FOUND", "Playlist not found.");
+      await options.publisher?.(request.auth!.user.kitsuUserId, ["playlist"]);
       return reply.code(204).send();
     },
   );

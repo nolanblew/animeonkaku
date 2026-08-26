@@ -24,6 +24,8 @@ import { JobPriority, JobQueue, JobWorker, PgJobRepository } from "./jobs/index.
 import { RealKitsuAuthClient } from "./kitsu/kitsuAuthClient.js";
 import { KitsuClient } from "./kitsu/kitsuClient.js";
 import { createJsonStdoutLogger, RecentLogStore } from "./logging.js";
+import { DrizzleBrowserHomeService } from "./web/homeService.js";
+import { LiveLibraryHub } from "./web/liveRoutes.js";
 import {
   AnimeMusicFetcherClient,
   createAnimeMusicFetcherUpstreamHttp,
@@ -102,6 +104,10 @@ const amfDeliveryRepo = new PgAmfDeliveryRepository(pool);
 const syncRepo = new DrizzleSyncRepository(db);
 const authRepo = new DrizzleAuthRepo(db);
 const profileService = new UserProfileService(new DrizzleUserProfileRepo(db), config.MEDIA_ROOT);
+// One process-wide hub fans out browser invalidation hints. It is registered
+// once under /api; its onClose hook owns stream/timer cleanup.
+const liveHub = new LiveLibraryHub();
+const browserHomeService = new DrizzleBrowserHomeService(db);
 
 // Each upstream host shares one politeness budget (bucket) and one breaker
 // across two lanes: "interactive" for request/response paths a client is
@@ -301,7 +307,10 @@ const app = buildApp({
   webAuth: {
     profile: profileService,
     secureCookies: config.NODE_ENV === "production",
+    ...(config.WEB_PUBLIC_ORIGIN ? { publicOrigin: config.WEB_PUBLIC_ORIGIN } : {}),
   },
+  webLive: { hub: liveHub, home: browserHomeService },
+  ...(config.WEB_DIST_PATH ? { web: { distPath: config.WEB_DIST_PATH } } : {}),
   health: {
     pingDb: async () => {
       await pool.query("SELECT 1");

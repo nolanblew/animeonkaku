@@ -10,8 +10,14 @@ export type LiveChangeCategory = "library" | "playlist" | "profile";
 
 const LIVE_CHANGE_CATEGORIES: readonly LiveChangeCategory[] = ["library", "playlist", "profile"];
 
+/** Callback used by committed mutation routes to invalidate browser state. */
+export type LiveChangePublisher = (
+  userId: string,
+  categories: readonly LiveChangeCategory[],
+) => void | Promise<void>;
+
 export interface LiveChangePublishOptions {
-  /** The `/v1/changes` cursor known by the writer, when available. */
+  /** The `/api/v1/changes` cursor known by the writer, when available. */
   sourceCursor?: number | undefined;
 }
 
@@ -102,8 +108,11 @@ export interface LiveLibraryHubOptions {
  * In-process fan-out for browser invalidation hints.
  *
  * It deliberately carries categories and cursors only. The browser follows an
- * event with the existing authenticated `/v1/changes` request, so this class
+ * event with the existing authenticated `/api/v1/changes` request, so this class
  * never performs external API calls or retains library records in memory.
+ * Background sync jobs intentionally do not publish completion hints when
+ * they have no reliable completion callback; the browser's bounded fallback
+ * polling continues to cover those changes.
  */
 export class LiveLibraryHub {
   private readonly heartbeatMs: number;
@@ -157,7 +166,7 @@ export class LiveLibraryHub {
 
     const subscriber: Subscriber = {
       transport,
-      changesPath: options.changesPath ?? "/v1/changes",
+      changesPath: options.changesPath ?? "/api/v1/changes",
       pending: null,
       blockedSince: null,
       closed: false,
@@ -383,7 +392,10 @@ export function registerLiveRoutes(
       startSse(reply);
       options.hub.subscribe(userId, reply.raw as unknown as LiveSseTransport, {
         lastEventId,
-        changesPath: request.url.startsWith("/api/") ? "/api/v1/changes" : "/v1/changes",
+        // Browser streams are only registered below the /api namespace. Keep
+        // this absolute API path in every event so reconnect/resync never falls
+        // back to the legacy bearer-only route.
+        changesPath: "/api/v1/changes",
       });
       return reply;
     },

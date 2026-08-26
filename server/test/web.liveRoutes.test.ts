@@ -135,7 +135,7 @@ describe("LiveLibraryHub", () => {
     expect(transport.writes[0]).toContain("event: ready");
     expect(transport.writes[0]).toContain('"resync":true');
     expect(transport.writes[0]).toContain('"sourceCursor":500');
-    expect(transport.writes[0]).toContain("/v1/changes?since=500");
+    expect(transport.writes[0]).toContain("/api/v1/changes?since=500");
     expect(hub.subscriberCount("stub-nolan")).toBe(1);
 
     transport.emit("close");

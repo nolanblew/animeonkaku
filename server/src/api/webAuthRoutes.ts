@@ -5,7 +5,8 @@ import { ApiError } from "./errors.js";
 import { makeRequireAuth, WEB_SESSION_COOKIE } from "./requireAuth.js";
 import { InvalidAvatarError, type UserProfileApi } from "../auth/profile.js";
 import type { AuthService, LoginResult } from "../auth/service.js";
-import { SESSION_TTL_MS } from "../auth/service.js";
+import { SESSION_IDLE_REAUTH_AFTER_MS } from "../auth/service.js";
+import type { LiveChangePublisher } from "../web/liveRoutes.js";
 
 const loginBody = z.object({
   username: z.string().min(1),
@@ -21,6 +22,7 @@ export interface WebAuthRouteOptions {
   profile: UserProfileApi;
   onLogin?: ((result: LoginResult) => Promise<void>) | undefined;
   secureCookies?: boolean | undefined;
+  publisher?: LiveChangePublisher | undefined;
 }
 
 /** Auth/profile routes used by the same-origin web client. */
@@ -58,7 +60,7 @@ export function registerWebAuthRoutes(
 
   app.post("/auth/logout", { preHandler: requireAuth }, async (request, reply) => {
     await authService.logout(request.auth!);
-    return clearSessionCookie(reply).code(204).send();
+    return clearSessionCookie(reply, options.secureCookies ?? false).code(204).send();
   });
 
   app.get("/auth/me", { preHandler: requireAuth }, async (request) => {
@@ -78,6 +80,7 @@ export function registerWebAuthRoutes(
           ? null
           : displayName,
       );
+      await options.publisher?.(request.auth!.user.kitsuUserId, ["profile"]);
       return { profile: publicProfile(profile) };
     },
   );
@@ -90,6 +93,7 @@ export function registerWebAuthRoutes(
         input.bytes,
         input.mimeType,
       );
+      await options.publisher?.(request.auth!.user.kitsuUserId, ["profile"]);
       return { profile: publicProfile(profile) };
     } catch (error) {
       if (error instanceof InvalidAvatarError) {
@@ -104,6 +108,7 @@ export function registerWebAuthRoutes(
 
   app.delete("/auth/profile/avatar", { preHandler: requireAuth }, async (request, reply) => {
     const profile = await options.profile.removeAvatar(request.auth!.user.kitsuUserId);
+    await options.publisher?.(request.auth!.user.kitsuUserId, ["profile"]);
     return reply.send({ profile: publicProfile(profile) });
   });
 
@@ -145,14 +150,15 @@ function setSessionCookie(reply: { header(name: string, value: string): unknown 
   const securePart = secure ? "; Secure" : "";
   reply.header(
     "Set-Cookie",
-    `${WEB_SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${securePart}`,
+    `${WEB_SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/api; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(SESSION_IDLE_REAUTH_AFTER_MS / 1000)}${securePart}`,
   );
 }
 
-function clearSessionCookie(reply: { header(name: string, value: string): any }): any {
+function clearSessionCookie(reply: { header(name: string, value: string): any }, secure: boolean): any {
+  const securePart = secure ? "; Secure" : "";
   return reply.header(
     "Set-Cookie",
-    `${WEB_SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT`,
+    `${WEB_SESSION_COOKIE}=; Path=/api; HttpOnly; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT${securePart}`,
   );
 }
 

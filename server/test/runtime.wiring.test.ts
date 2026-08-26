@@ -40,4 +40,14 @@ describe("server runtime wiring", () => {
     expect(source).toMatch(/new MediaStreamingService\(\{[\s\S]*musicCatalogEnabled:\s*config\.MUSIC_CATALOG_ENABLED[\s\S]*\}\)/);
     expect(source).toMatch(/new CachedProxyService\(\{[\s\S]*musicSearch:\s*\(userId, query\) => clientApi\.searchMusic\(userId, query\)[\s\S]*\}\)/);
   });
+
+  it("constructs one browser live hub and Drizzle home projection for the API app", async () => {
+    const source = await readFile(new URL("../src/index.ts", import.meta.url), "utf8");
+
+    expect(source).toContain('import { DrizzleBrowserHomeService } from "./web/homeService.js"');
+    expect(source).toContain('import { LiveLibraryHub } from "./web/liveRoutes.js"');
+    expect(source).toMatch(/const liveHub = new LiveLibraryHub\(\)/);
+    expect(source).toMatch(/const browserHomeService = new DrizzleBrowserHomeService\(db\)/);
+    expect(source).toContain("webLive: { hub: liveHub, home: browserHomeService }");
+  });
 });

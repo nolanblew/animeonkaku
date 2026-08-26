@@ -41,6 +41,15 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(8080),
   DATABASE_URL: z.string().min(1),
   MEDIA_ROOT: z.string().min(1),
+  WEB_DIST_PATH: z.preprocess(blankToUndefined, z.string().min(1).optional()),
+  WEB_PUBLIC_ORIGIN: z.preprocess(
+    blankToUndefined,
+    z.string().url().refine((value) => {
+      if (!URL.canParse(value)) return false;
+      const protocol = new URL(value).protocol;
+      return protocol === "http:" || protocol === "https:";
+    }, "Must be an absolute HTTP(S) URL.").optional(),
+  ),
   AMF_LIBRARY_ROOT: z.preprocess(blankToUndefined, z.string().min(1).optional()),
   KITSU_CLIENT_ID: z.preprocess(blankToUndefined, z.string().default(PUBLIC_KITSU_CLIENT_ID)),
   KITSU_CLIENT_SECRET: z.preprocess(
