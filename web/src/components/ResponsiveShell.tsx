@@ -51,7 +51,8 @@ function NavigationLink({
 export function ResponsiveShell({ children }: { children?: ReactNode }) {
   const auth = useAuth()
   const [navigationOpen, setNavigationOpen] = useState(false)
-  const [profileOpen, setProfileOpen] = useState(false)
+  const [sidebarProfileOpen, setSidebarProfileOpen] = useState(false)
+  const [topbarProfileOpen, setTopbarProfileOpen] = useState(false)
   const [query, setQuery] = useState('')
   const navigate = useNavigate()
   const location = useLocation()
@@ -92,15 +93,15 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
         </nav>
 
         <div className="sidebar__footer">
-          <button className="profile-button" type="button" onClick={() => setProfileOpen((open) => !open)} aria-expanded={profileOpen}>
+          <button className="profile-button" type="button" onClick={() => setSidebarProfileOpen((open) => !open)} aria-expanded={sidebarProfileOpen} aria-haspopup="menu">
             <span className="avatar" aria-hidden="true">{avatarUrl ? <img src={avatarUrl} alt="" /> : <UserRound size={18} />}</span>
             <span className="profile-button__copy"><strong>{displayName}</strong><small>{auth.firstSync.status === 'syncing' ? 'Syncing library…' : 'Connected'}</small></span>
             <span className="profile-button__chevron" aria-hidden="true">⌄</span>
           </button>
-          {profileOpen && (
+          {sidebarProfileOpen && (
             <div className="profile-menu" role="menu">
-              <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); navigate('/settings') }}>Account settings</button>
-              <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); void auth.logout().then(() => navigate('/login', { replace: true })).catch(() => navigate('/login', { replace: true })) }}>Sign out</button>
+              <button type="button" role="menuitem" onClick={() => { setSidebarProfileOpen(false); navigate('/settings') }}>Account settings</button>
+              <button type="button" role="menuitem" onClick={() => { setSidebarProfileOpen(false); void auth.logout().then(() => navigate('/login', { replace: true })).catch(() => navigate('/login', { replace: true })) }}>Sign out</button>
             </div>
           )}
         </div>
@@ -126,9 +127,15 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
               <span className="notification-dot" aria-hidden="true" />
               <Bell size={19} aria-hidden="true" />
             </button>
-            <button className="topbar__avatar" type="button" aria-label="Open profile menu" onClick={() => setProfileOpen((open) => !open)}>
+            <button className="topbar__avatar" type="button" aria-label="Open profile menu" aria-expanded={topbarProfileOpen} aria-haspopup="menu" onClick={() => setTopbarProfileOpen((open) => !open)}>
               {avatarUrl ? <img src={avatarUrl} alt="" /> : <UserRound size={19} />}
             </button>
+            {topbarProfileOpen && (
+              <div className="profile-menu topbar__profile-menu" role="menu">
+                <button type="button" role="menuitem" onClick={() => { setTopbarProfileOpen(false); navigate('/settings') }}>Account settings</button>
+                <button type="button" role="menuitem" onClick={() => { setTopbarProfileOpen(false); void auth.logout().then(() => navigate('/login', { replace: true })).catch(() => navigate('/login', { replace: true })) }}>Sign out</button>
+              </div>
+            )}
           </div>
         </header>
 

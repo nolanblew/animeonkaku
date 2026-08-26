@@ -66,8 +66,9 @@ a { color: inherit; text-decoration: none; }
 .global-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); }
 .global-search input::placeholder { color: #8e95a7; }
 .global-search kbd { padding: .15rem .35rem; border: 1px solid var(--line); border-radius: .25rem; color: var(--subtle); font-size: .7rem; white-space: nowrap; }
-.topbar__actions { display: flex; align-items: center; gap: .7rem; margin-left: auto; }
+.topbar__actions { position: relative; display: flex; align-items: center; gap: .7rem; margin-left: auto; }
 .topbar__avatar { width: 2.3rem; height: 2.3rem; border: 1px solid rgba(255,255,255,.23); cursor: pointer; }
+.topbar__profile-menu { top: calc(100% + .65rem); right: 0; bottom: auto; left: auto; z-index: 10; min-width: 12.5rem; }
 .notification-dot { position: absolute; width: .4rem; height: .4rem; margin: -.65rem 0 0 1rem; border-radius: 50%; background: var(--coral); }
 .mobile-menu-button { display: none; }
 .main-content { max-width: 94rem; margin: 0 auto; padding: clamp(1.3rem, 3vw, 3.25rem) clamp(1.2rem, 4vw, 3.1rem); }
