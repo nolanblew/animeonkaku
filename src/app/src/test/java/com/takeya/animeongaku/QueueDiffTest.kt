@@ -345,6 +345,26 @@ class QueueDiffTest {
     }
 
     @Test
+    fun `cold startup expands queue before moving current to a distant restored index`() {
+        val old = ids("current")
+        val restoredPrefix = (0 until 63).map { "before-$it" }
+        val new = restoredPrefix + "current" + ids("after-1", "after-2")
+
+        val ops = computeQueueOpsPreservingCurrent(
+            old = old,
+            new = new,
+            currentMediaId = "current",
+            desiredCurrentIndex = 63
+        )
+
+        assertEquals(new, apply(old, ops))
+        assertFalse(
+            "Cold-start queue sync must retain the active Media3 occurrence",
+            removedIds(old, ops).contains("current")
+        )
+    }
+
+    @Test
     fun `mixed insert and remove falls back to Remove + Add`() {
         val old = ids("a", "b", "c", "d", "e")
         val new = ids("a", "x", "y", "z", "e")
