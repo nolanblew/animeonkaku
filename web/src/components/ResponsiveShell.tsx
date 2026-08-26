@@ -14,6 +14,7 @@ import { useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Brand } from './BrandMark'
 import { MiniPlayer } from './MiniPlayer'
+import { useAuth } from '../auth/AuthProvider'
 
 const primaryNavigation = [
   { to: '/', label: 'Home', icon: House, end: true },
@@ -55,11 +56,14 @@ function NavigationLink({
 }
 
 export function ResponsiveShell({ children }: { children?: ReactNode }) {
+  const auth = useAuth()
   const [navigationOpen, setNavigationOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [query, setQuery] = useState('')
   const navigate = useNavigate()
   const location = useLocation()
+  const displayName = auth.user?.displayName || auth.user?.username || 'Anime Fan'
+  const avatarUrl = auth.user?.avatarUrl
 
   const closeNavigation = () => setNavigationOpen(false)
   const submitSearch = (event: React.FormEvent<HTMLFormElement>) => {
@@ -103,14 +107,14 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
 
         <div className="sidebar__footer">
           <button className="profile-button" type="button" onClick={() => setProfileOpen((open) => !open)} aria-expanded={profileOpen}>
-            <span className="avatar" aria-hidden="true"><UserRound size={18} /></span>
-            <span className="profile-button__copy"><strong>Anime Fan</strong><small>Connected</small></span>
+            <span className="avatar" aria-hidden="true">{avatarUrl ? <img src={avatarUrl} alt="" /> : <UserRound size={18} />}</span>
+            <span className="profile-button__copy"><strong>{displayName}</strong><small>{auth.firstSync.status === 'syncing' ? 'Syncing library…' : 'Connected'}</small></span>
             <span className="profile-button__chevron" aria-hidden="true">⌄</span>
           </button>
           {profileOpen && (
             <div className="profile-menu" role="menu">
               <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); navigate('/settings') }}>Account settings</button>
-              <button type="button" role="menuitem" onClick={() => setProfileOpen(false)}>Sign out</button>
+              <button type="button" role="menuitem" onClick={() => { setProfileOpen(false); void auth.logout().then(() => navigate('/login', { replace: true })).catch(() => navigate('/login', { replace: true })) }}>Sign out</button>
             </div>
           )}
         </div>
@@ -137,12 +141,13 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
               <Bell size={19} aria-hidden="true" />
             </button>
             <button className="topbar__avatar" type="button" aria-label="Open profile menu" onClick={() => setProfileOpen((open) => !open)}>
-              <UserRound size={19} />
+              {avatarUrl ? <img src={avatarUrl} alt="" /> : <UserRound size={19} />}
             </button>
           </div>
         </header>
 
         <main className="main-content" id="main-content" tabIndex={-1}>
+          {auth.firstSync.status === 'syncing' && <p className="sync-status" role="status">Syncing your library…</p>}
           {children ?? <Outlet />}
         </main>
       </div>

@@ -39,6 +39,11 @@ export class ApiClient {
     this.fetcher = options.fetcher ?? fetch
   }
 
+  /** Resolves an API path without exposing or storing any session material. */
+  url(path: string): string {
+    return joinUrl(this.baseUrl, path)
+  }
+
   async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers)
     headers.set('Accept', 'application/json')
@@ -51,7 +56,7 @@ export class ApiClient {
 
     let response: Response
     try {
-      response = await this.fetcher(joinUrl(this.baseUrl, path), {
+      response = await this.fetcher(this.url(path), {
         ...init,
         body,
         credentials: 'include',
@@ -61,8 +66,9 @@ export class ApiClient {
       throw new ApiError(0, 'The service could not be reached. Check your connection and try again.')
     }
 
+    const requestId = response.headers.get('x-request-id') ?? undefined
+
     if (!response.ok) {
-      const requestId = response.headers.get('x-request-id') ?? undefined
       throw new ApiError(response.status, 'The service could not complete that request.', requestId)
     }
 
@@ -70,7 +76,11 @@ export class ApiClient {
 
     const contentType = response.headers.get('content-type') ?? ''
     if (!contentType.includes('json')) return (await response.text()) as T
-    return (await response.json()) as T
+    try {
+      return (await response.json()) as T
+    } catch {
+      throw new ApiError(response.status, 'The service returned an invalid response.', requestId)
+    }
   }
 
   get<T>(path: string, init?: RequestInit): Promise<T> {
@@ -79,6 +89,14 @@ export class ApiClient {
 
   post<T>(path: string, body?: JsonValue, init?: RequestInit): Promise<T> {
     return this.request<T>(path, { ...init, method: 'POST', body: body as BodyInit | null | undefined })
+  }
+
+  postRaw<T>(path: string, body: BodyInit, init?: RequestInit): Promise<T> {
+    return this.request<T>(path, { ...init, method: 'POST', body })
+  }
+
+  patch<T>(path: string, body?: JsonValue, init?: RequestInit): Promise<T> {
+    return this.request<T>(path, { ...init, method: 'PATCH', body: body as BodyInit | null | undefined })
   }
 }
 

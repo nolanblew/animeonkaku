@@ -1,11 +1,13 @@
 import { Eye, EyeOff, LockKeyhole, Server, UserRound } from 'lucide-react'
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { apiClient } from '../lib/api'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Brand, BrandMark } from '../components/BrandMark'
+import { useAuth } from '../auth/AuthProvider'
 
 export function LoginPage() {
+  const auth = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -17,8 +19,10 @@ export function LoginPage() {
     setError('')
     setPending(true)
     try {
-      await apiClient.post('/auth/login', { username, password })
-      navigate('/')
+      await auth.login(username, password)
+      setPassword('')
+      const from = typeof location.state?.from === 'string' ? location.state.from : null
+      navigate(typeof from === 'string' && from.startsWith('/') ? from : '/')
     } catch {
       setError('We could not sign you in. Check your details and try again.')
     } finally {

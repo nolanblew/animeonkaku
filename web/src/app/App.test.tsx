@@ -1,7 +1,26 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
+import { apiClient } from '../lib/api'
+import { queryClient } from '../lib/query'
+
+const authenticatedMe = {
+  user: { kitsuUserId: 'fan-1', username: 'fan', displayName: 'Anime Fan', avatarUrl: null },
+  kitsuAuthState: 'OK',
+  lastSyncAt: 100,
+  devices: [],
+}
+
+beforeEach(() => {
+  queryClient.clear()
+  vi.spyOn(apiClient, 'get').mockImplementation(async (path) => {
+    if (path === '/auth/me') return authenticatedMe
+    return { serverTime: 100, anime: [], themes: [], prefs: [], songPrefs: [], playlists: [] }
+  })
+})
+
+afterEach(() => vi.restoreAllMocks())
 
 describe('web player app shell', () => {
   it('renders the accessible shell regions and navigation', async () => {
@@ -26,6 +45,18 @@ describe('web player app shell', () => {
 
     await waitFor(() => expect(screen.getByRole('heading', { name: /welcome back/i })).toBeInTheDocument())
     expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: /primary/i })).not.toBeInTheDocument()
+  })
+
+  it('redirects unauthenticated users to login before rendering protected routes', async () => {
+    vi.mocked(apiClient.get).mockRejectedValueOnce(Object.assign(new Error('unauthorized'), { status: 401 }))
+    render(
+      <MemoryRouter initialEntries={['/library']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: /welcome back/i })).toBeInTheDocument())
     expect(screen.queryByRole('navigation', { name: /primary/i })).not.toBeInTheDocument()
   })
 

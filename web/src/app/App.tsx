@@ -1,9 +1,11 @@
 import { lazy, Suspense } from 'react'
-import { Route, Routes } from 'react-router-dom'
+import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import { AppErrorBoundary } from './ErrorBoundary'
 import { ResponsiveShell } from '../components/ResponsiveShell'
 import { ErrorState } from '../components/ErrorState'
 import { LoginPage } from '../pages/LoginPage'
+import { AuthProvider, useAuth } from '../auth/AuthProvider'
+import { AppQueryProvider, useLibraryQuery } from '../lib/query'
 
 const HomePage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.HomePage })))
 const LibraryPage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.LibraryPage })))
@@ -19,23 +21,44 @@ function RouteLoading() {
 
 export function App() {
   return (
-    <AppErrorBoundary>
-      <Suspense fallback={<RouteLoading />}>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route element={<ResponsiveShell />}>
-            <Route index element={<HomePage />} />
-            <Route path="library" element={<LibraryPage />} />
-            <Route path="search" element={<SearchPage />} />
-            <Route path="anime/:animeId" element={<AnimePage />} />
-            <Route path="playlist/:playlistId" element={<PlaylistPage />} />
-            <Route path="now-playing" element={<NowPlayingPage />} />
-            <Route path="settings" element={<SettingsPage />} />
-            <Route path="error" element={<ErrorState details="The server returned an unexpected response." />} />
-            <Route path="*" element={<ErrorState kind="not-found" details="No route matched the requested path." />} />
-          </Route>
-        </Routes>
-      </Suspense>
-    </AppErrorBoundary>
+    <AppQueryProvider>
+      <AuthProvider>
+        <AppErrorBoundary>
+          <Suspense fallback={<RouteLoading />}>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route element={<RequireAuth />}>
+                <Route element={<AuthenticatedShell />}>
+                  <Route index element={<HomePage />} />
+                  <Route path="library" element={<LibraryPage />} />
+                  <Route path="search" element={<SearchPage />} />
+                  <Route path="anime/:animeId" element={<AnimePage />} />
+                  <Route path="playlist/:playlistId" element={<PlaylistPage />} />
+                  <Route path="now-playing" element={<NowPlayingPage />} />
+                  <Route path="settings" element={<SettingsPage />} />
+                  <Route path="error" element={<ErrorState details="The server returned an unexpected response." />} />
+                  <Route path="*" element={<ErrorState kind="not-found" details="No route matched the requested path." />} />
+                </Route>
+              </Route>
+            </Routes>
+          </Suspense>
+        </AppErrorBoundary>
+      </AuthProvider>
+    </AppQueryProvider>
   )
+}
+
+function RequireAuth() {
+  const auth = useAuth()
+  const location = useLocation()
+  if (auth.status === 'loading') return <RouteLoading />
+  if (auth.status !== 'authenticated') {
+    return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}${location.hash}` }} />
+  }
+  return <Outlet />
+}
+
+function AuthenticatedShell() {
+  useLibraryQuery()
+  return <ResponsiveShell />
 }
