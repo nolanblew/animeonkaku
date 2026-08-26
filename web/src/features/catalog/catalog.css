@@ -1,0 +1,109 @@
+.catalog-page { gap: 2.5rem; }
+.catalog-page__header { display: flex; align-items: flex-end; justify-content: space-between; gap: 2rem; }
+.catalog-page__header > div:first-child { max-width: 48rem; }
+.catalog-page__header h1 { margin-bottom: .7rem; }
+.catalog-page__header p:not(.eyebrow) { margin: 0; max-width: 44rem; color: var(--muted); line-height: 1.55; }
+.catalog-page__stat { display: grid; justify-items: end; gap: .1rem; padding: .75rem 0; color: var(--muted); }
+.catalog-page__stat strong { color: var(--text); font-size: 2rem; line-height: 1; }
+.catalog-page__stat span { font-size: .78rem; }
+.catalog-section { display: grid; gap: 1.05rem; }
+.catalog-section__heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; }
+.catalog-section__heading h2 { margin: 0; font-size: clamp(1.35rem, 2vw, 1.75rem); }
+.catalog-section__heading p:not(.eyebrow) { margin: .35rem 0 0; color: var(--muted); font-size: .86rem; }
+.catalog-section__count { color: var(--cyan); font-size: .8rem; white-space: nowrap; }
+.catalog-section__link, .catalog-back-link { display: inline-flex; align-items: center; gap: .35rem; color: var(--cyan); font-size: .82rem; font-weight: 700; }
+.catalog-home-grid, .catalog-anime-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 1rem; }
+.catalog-home-grid { grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr)); }
+.catalog-anime-card { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: .85rem; background: rgba(19, 23, 31, .74); transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease; }
+.catalog-anime-card:hover { transform: translateY(-3px); border-color: rgba(71, 217, 232, .42); box-shadow: 0 14px 35px rgba(0,0,0,.2); }
+.catalog-anime-card__link { display: block; height: 100%; }
+.catalog-anime-card__image { position: relative; display: grid; aspect-ratio: 2 / 3; place-items: center; overflow: hidden; background: linear-gradient(145deg, #e87995, #6457ad 52%, #1c5267); color: rgba(255,255,255,.78); font-size: 1.5rem; font-weight: 800; }
+.catalog-anime-card__image img { width: 100%; height: 100%; object-fit: cover; transition: transform .35s ease; }
+.catalog-anime-card:hover .catalog-anime-card__image img { transform: scale(1.04); }
+.catalog-anime-card__overlay { position: absolute; right: .55rem; bottom: .55rem; left: .55rem; display: flex; align-items: center; justify-content: center; gap: .35rem; padding: .48rem; border: 1px solid rgba(255,255,255,.2); border-radius: .45rem; background: rgba(9,11,16,.75); color: white; font-size: .72rem; font-weight: 800; opacity: 0; transform: translateY(5px); transition: opacity .2s, transform .2s; }
+.catalog-anime-card:hover .catalog-anime-card__overlay, .catalog-anime-card:focus-within .catalog-anime-card__overlay { opacity: 1; transform: translateY(0); }
+.catalog-anime-card__body { display: grid; gap: .4rem; padding: .75rem .8rem .85rem; }
+.catalog-anime-card h3 { overflow: hidden; margin: 0; font-size: .9rem; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-anime-card p { overflow: hidden; margin: 0; color: var(--muted); font-size: .73rem; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-anime-card__meta { display: flex; min-width: 0; align-items: center; gap: .4rem; color: var(--subtle); font-size: .68rem; }
+.catalog-anime-card__meta span:first-child { overflow: hidden; color: var(--cyan); text-overflow: ellipsis; white-space: nowrap; }
+.catalog-anime-card__meta span:nth-child(2) { margin-left: auto; white-space: nowrap; }
+.catalog-anime-card__meta svg { flex: 0 0 auto; margin-left: auto; }
+.catalog-playlist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: .8rem; }
+.catalog-playlist-card { display: flex; min-width: 0; align-items: center; gap: .85rem; padding: .9rem; border: 1px solid var(--line); border-radius: .75rem; background: rgba(18, 22, 30, .7); transition: border-color .18s, background .18s; }
+.catalog-playlist-card:hover { border-color: rgba(71,217,232,.4); background: rgba(27, 33, 44, .9); }
+.catalog-playlist-card__icon { display: inline-grid; width: 2.7rem; height: 2.7rem; flex: 0 0 auto; place-items: center; border-radius: .6rem; background: linear-gradient(145deg, rgba(255,94,118,.8), rgba(93,82,189,.85)); }
+.catalog-playlist-card > span:nth-child(2) { display: grid; min-width: 0; flex: 1; gap: .25rem; }
+.catalog-playlist-card strong, .catalog-playlist-card small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-playlist-card strong { font-size: .9rem; }
+.catalog-playlist-card small { color: var(--muted); font-size: .75rem; }
+.catalog-toolbar { display: flex; align-items: center; gap: .65rem; padding: .65rem; border: 1px solid var(--line); border-radius: .8rem; background: rgba(18, 22, 30, .7); }
+.catalog-search, .catalog-select { display: flex; min-width: 0; align-items: center; gap: .55rem; color: var(--muted); }
+.catalog-search { flex: 1; padding-inline: .55rem; }
+.catalog-search input, .catalog-select select { min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); }
+.catalog-search input { width: 100%; }
+.catalog-search input::placeholder { color: var(--subtle); }
+.catalog-select { padding: .62rem .7rem; border-left: 1px solid var(--line); }
+.catalog-select select { cursor: pointer; }
+.catalog-select option { color: #111; }
+.catalog-load-more { justify-self: center; margin-top: .25rem; }
+.catalog-load-more span { color: var(--muted); font-size: .75rem; font-weight: 500; }
+.catalog-empty { margin: 0; padding: 1.3rem; border: 1px dashed var(--line-strong); border-radius: .75rem; color: var(--muted); text-align: center; }
+.catalog-empty--large { display: grid; min-height: 14rem; place-items: center; align-content: center; gap: .4rem; }
+.catalog-empty--large h2 { margin: 0; }
+.catalog-empty--large p { margin: 0 0 .35rem; color: var(--muted); }
+.catalog-status { display: flex; min-height: 50vh; align-items: center; justify-content: center; gap: .7rem; color: var(--muted); }
+.catalog-status--error { display: flex; min-height: 18rem; justify-content: flex-start; padding: 2rem; border: 1px solid rgba(255,94,118,.26); border-radius: 1rem; background: rgba(255,94,118,.05); color: var(--coral); }
+.catalog-status--error > div { flex: 1; }
+.catalog-status h2 { margin: 0 0 .3rem; color: var(--text); }
+.catalog-status p { margin: 0; color: var(--muted); }
+.catalog-status__details { margin-top: .8rem; color: var(--muted); font-size: .8rem; }
+.catalog-status__details pre { max-width: 36rem; overflow: auto; margin-top: .55rem; white-space: pre-wrap; }
+.catalog-detail { gap: 1.65rem; }
+.catalog-detail__hero { display: grid; grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr); align-items: center; gap: clamp(1.5rem, 4vw, 3.4rem); padding: clamp(1rem, 3vw, 2rem); border: 1px solid var(--line); border-radius: 1rem; background: radial-gradient(circle at 75% 15%, rgba(111,70,111,.24), transparent 48%), rgba(16,19,26,.8); }
+.catalog-detail__poster { display: grid; aspect-ratio: 2 / 3; place-items: center; overflow: hidden; border-radius: .75rem; background: linear-gradient(145deg, #e87995, #6457ad 52%, #1c5267); color: rgba(255,255,255,.78); font-size: 2rem; font-weight: 800; box-shadow: var(--shadow); }
+.catalog-detail__poster img { width: 100%; height: 100%; object-fit: cover; }
+.catalog-detail__copy h1 { max-width: 50rem; margin-bottom: .6rem; }
+.catalog-detail__alt-title { margin: 0 0 1rem; color: var(--muted); font-size: 1.05rem; }
+.catalog-detail__facts, .catalog-detail__genres { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.catalog-detail__facts { margin-bottom: 1rem; color: var(--muted); font-size: .82rem; }
+.catalog-detail__facts span, .catalog-detail__genres span { display: inline-flex; align-items: center; gap: .3rem; padding: .35rem .55rem; border: 1px solid var(--line); border-radius: .35rem; }
+.catalog-detail__facts span:first-child { border-color: rgba(71,217,232,.3); color: var(--cyan); }
+.catalog-detail__genres span { border-color: rgba(255,255,255,.1); color: var(--subtle); font-size: .73rem; }
+.catalog-theme-list { display: grid; gap: .4rem; }
+.catalog-theme-row { display: flex; min-width: 0; align-items: center; gap: .85rem; padding: .75rem; border: 1px solid var(--line); border-radius: .65rem; background: rgba(19,23,31,.65); }
+.catalog-theme-row__art { display: inline-grid; width: 2.7rem; height: 2.7rem; flex: 0 0 auto; place-items: center; border-radius: .45rem; background: linear-gradient(145deg, rgba(255,94,118,.9), rgba(93,82,189,.9)); }
+.catalog-theme-row > div { min-width: 0; flex: 1; }
+.catalog-theme-row h3, .catalog-theme-row p { overflow: hidden; margin: 0; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-theme-row h3 { font-size: .88rem; }
+.catalog-theme-row p { margin-top: .22rem; color: var(--muted); font-size: .76rem; }
+.catalog-theme-row__state { color: var(--cyan); font-size: .72rem; text-transform: capitalize; }
+.catalog-release-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: .8rem; }
+.catalog-release-card { display: flex; min-width: 0; align-items: center; gap: .8rem; padding: .8rem; border: 1px solid var(--line); border-radius: .65rem; background: rgba(19,23,31,.65); }
+.catalog-release-card img, .catalog-release-card__art { width: 3.7rem; height: 3.7rem; flex: 0 0 auto; border-radius: .45rem; object-fit: cover; }
+.catalog-release-card__art { display: inline-grid; place-items: center; background: linear-gradient(145deg, #e87995, #6457ad); }
+.catalog-release-card > div { min-width: 0; }
+.catalog-release-card h3, .catalog-release-card p, .catalog-release-card small { overflow: hidden; margin: 0; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-release-card h3 { font-size: .86rem; }
+.catalog-release-card p { margin-top: .24rem; color: var(--muted); font-size: .73rem; }
+.catalog-release-card small { display: block; margin-top: .28rem; color: var(--subtle); font-size: .68rem; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; clip-path: inset(50%); }
+@media (max-width: 760px) {
+  .catalog-page__header { align-items: flex-start; flex-direction: column; gap: 1.2rem; }
+  .catalog-page__stat { align-items: start; }
+  .catalog-toolbar { align-items: stretch; flex-wrap: wrap; }
+  .catalog-search { flex-basis: 100%; padding-bottom: .4rem; }
+  .catalog-select { flex: 1; border-top: 1px solid var(--line); border-left: 0; padding-top: .7rem; }
+  .catalog-select + .catalog-select { border-left: 1px solid var(--line); }
+  .catalog-detail__hero { grid-template-columns: 7.5rem minmax(0, 1fr); gap: 1rem; padding: 1rem; }
+  .catalog-detail__copy h1 { font-size: clamp(1.7rem, 7vw, 2.35rem); }
+  .catalog-detail__facts { gap: .3rem; }
+  .catalog-detail__facts span { font-size: .7rem; }
+}
+@media (max-width: 430px) {
+  .catalog-home-grid, .catalog-anime-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
+  .catalog-home-grid .catalog-anime-card__body, .catalog-anime-grid .catalog-anime-card__body { padding: .6rem; }
+  .catalog-anime-card__meta span:nth-child(2), .catalog-anime-card__meta svg { display: none; }
+  .catalog-detail__hero { grid-template-columns: 1fr; }
+  .catalog-detail__poster { width: min(56vw, 14rem); justify-self: center; }
+}
