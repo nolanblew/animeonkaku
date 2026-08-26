@@ -80,6 +80,7 @@ export function queueItemAudioUrl(item: QueueItem, mode: PlaybackMode): string |
     if (candidate.itemType === 'THEME') return undefined
     return candidate.audioUrl || candidate.tvAudioUrl
   }
+  if (candidate.itemType === 'SONG') return undefined
   return candidate.tvAudioUrl || candidate.audioUrl || candidate.fullAudioUrl
 }
 
