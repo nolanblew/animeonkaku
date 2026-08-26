@@ -80,6 +80,13 @@ describe('player views', () => {
     expect(state.player.seek).toHaveBeenCalledWith(10)
   })
 
+  it('replaces the artwork stage instead of stacking fallback art above video', () => {
+    render(<NowPlayingView />)
+
+    expect(screen.queryByText('AO')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Video surface')).toBeInTheDocument()
+  })
+
   it('renders bounded empty states without enabling transport controls', () => {
     state.player.currentItem = undefined
     state.player.videoAvailable = false
