@@ -36,7 +36,9 @@ export class ApiClient {
 
   constructor(options: ApiClientOptions = {}) {
     this.baseUrl = options.baseUrl ?? import.meta.env.VITE_API_BASE_URL ?? '/api'
-    this.fetcher = options.fetcher ?? fetch
+    // Keep native fetch as a bare call. Some browser implementations reject a
+    // Web API function when it is later invoked as an ApiClient object method.
+    this.fetcher = options.fetcher ?? ((input, init) => fetch(input, init))
   }
 
   /** Resolves an API path without exposing or storing any session material. */

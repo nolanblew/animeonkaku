@@ -18,6 +18,15 @@ describe('ApiClient', () => {
     expect(new Headers(request?.headers).get('Accept')).toBe('application/json')
   })
 
+  it('invokes the native fetch function without binding the ApiClient as its receiver', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(function (this: unknown) {
+      if (this !== undefined) throw new TypeError('Illegal invocation')
+      return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    })
+
+    await expect(new ApiClient().get('/auth/me')).resolves.toEqual({ ok: true })
+  })
+
   it('normalizes non-success responses into an API error without exposing the body', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response('database password leaked', { status: 500, statusText: 'Server Error' }),
