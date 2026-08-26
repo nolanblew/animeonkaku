@@ -1,5 +1,6 @@
 package com.takeya.animeongaku.media
 
+import androidx.media3.common.util.UnstableApi
 import com.takeya.animeongaku.data.local.DownloadItemDao
 import com.takeya.animeongaku.data.local.DownloadItemEntity
 import com.takeya.animeongaku.data.local.LoudnessProfile
@@ -8,6 +9,7 @@ import com.takeya.animeongaku.data.local.ThemeModeDao
 import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.data.local.UserPreferenceDao
 import com.takeya.animeongaku.data.local.UserPreferenceEntity
+import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.network.ServerReachabilityMonitor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -93,7 +95,8 @@ class PlaybackResolver @Inject constructor() {
         isOnline: Boolean,
         localMedia: Map<MediaKey, LocalMediaFile>,
         preferredThemeMode: PlaybackMode? = null,
-        themePreference: UserPreferenceEntity? = null
+        themePreference: UserPreferenceEntity? = null,
+        cachedServerMedia: Set<MediaKey> = emptySet(),
     ): ResolvedPlaybackItem = when (val item = entry.item) {
         is PlayableItem.Theme -> resolveTheme(
             entry,
@@ -102,9 +105,10 @@ class PlaybackResolver @Inject constructor() {
             isOnline,
             localMedia,
             preferredThemeMode,
-            themePreference
+            themePreference,
+            cachedServerMedia,
         )
-        is PlayableItem.RelatedSong -> resolveRelatedSong(entry, item, isOnline, localMedia)
+        is PlayableItem.RelatedSong -> resolveRelatedSong(entry, item, isOnline, localMedia, cachedServerMedia)
     }
 
     fun resolveVideoFailureFallback(
@@ -112,9 +116,17 @@ class PlaybackResolver @Inject constructor() {
         intent: PlaybackIntent,
         isOnline: Boolean,
         localMedia: Map<MediaKey, LocalMediaFile>,
-        themePreference: UserPreferenceEntity? = null
+        themePreference: UserPreferenceEntity? = null,
+        cachedServerMedia: Set<MediaKey> = emptySet(),
     ): ResolvedPlaybackItem {
-        val preferred = resolve(entry, intent, isOnline, localMedia, themePreference = themePreference)
+        val preferred = resolve(
+            entry,
+            intent,
+            isOnline,
+            localMedia,
+            themePreference = themePreference,
+            cachedServerMedia = cachedServerMedia,
+        )
         if (entry.item !is PlayableItem.Theme || preferred.preferredMode != PlaybackMode.VIDEO) {
             return preferred
         }
@@ -123,7 +135,8 @@ class PlaybackResolver @Inject constructor() {
             intent.copy(sessionOverride = PlaybackMode.TV_SIZE),
             isOnline,
             localMedia,
-            themePreference = themePreference
+            themePreference = themePreference,
+            cachedServerMedia = cachedServerMedia,
         )
         return if (audioCandidate.actualMode in setOf(PlaybackMode.TV_SIZE, PlaybackMode.FULL_SIZE)) {
             audioCandidate.copy(
@@ -149,7 +162,8 @@ class PlaybackResolver @Inject constructor() {
         isOnline: Boolean,
         localMedia: Map<MediaKey, LocalMediaFile>,
         preferredThemeMode: PlaybackMode?,
-        themePreference: UserPreferenceEntity?
+        themePreference: UserPreferenceEntity?,
+        cachedServerMedia: Set<MediaKey>,
     ): ResolvedPlaybackItem {
         val descriptor = item.modeDescriptor
         require(preferredThemeMode == null || preferredThemeMode == PlaybackMode.TV_SIZE || preferredThemeMode == PlaybackMode.FULL_SIZE)
@@ -183,9 +197,15 @@ class PlaybackResolver @Inject constructor() {
         val videoUrl = descriptor?.videoUrl?.takeIf(String::isNotBlank)
 
         fun hasLocal(key: MediaKey?): Boolean = key != null && localMedia[key]?.filePath?.isNotBlank() == true
+        fun hasCachedServerMedia(key: MediaKey?, url: String?): Boolean =
+            key != null && url != null && key in cachedServerMedia
         val availableModes = buildSet {
-            if (tvAllowed && (hasLocal(tvKey) || (isOnline && tvUrl != null))) add(PlaybackMode.TV_SIZE)
-            if (fullAllowed && (hasLocal(fullKey) || (isOnline && fullUrl != null))) add(PlaybackMode.FULL_SIZE)
+            if (tvAllowed && (hasLocal(tvKey) || hasCachedServerMedia(tvKey, tvUrl) || (isOnline && tvUrl != null))) {
+                add(PlaybackMode.TV_SIZE)
+            }
+            if (fullAllowed && (hasLocal(fullKey) || hasCachedServerMedia(fullKey, fullUrl) || (isOnline && fullUrl != null))) {
+                add(PlaybackMode.FULL_SIZE)
+            }
             if (isOnline && videoUrl != null) add(PlaybackMode.VIDEO)
         }
 
@@ -272,11 +292,14 @@ class PlaybackResolver @Inject constructor() {
         entry: QueueEntry,
         item: PlayableItem.RelatedSong,
         isOnline: Boolean,
-        localMedia: Map<MediaKey, LocalMediaFile>
+        localMedia: Map<MediaKey, LocalMediaFile>,
+        cachedServerMedia: Set<MediaKey>,
     ): ResolvedPlaybackItem {
         val key = MediaKey.songAudio(item.song.id)
         val local = localMedia[key]?.takeIf { it.filePath.isNotBlank() }
-        val onlineUri = item.song.audioUrl.takeIf { isOnline && it.isNotBlank() }
+        val serverUri = item.song.audioUrl.takeIf(String::isNotBlank)
+        val serverPlayable = isOnline || key in cachedServerMedia
+        val onlineUri = serverUri.takeIf { serverPlayable }
         val uri = local?.filePath?.toLocalUri() ?: onlineUri
         val available = if (uri != null) setOf(PlaybackMode.RELATED_AUDIO) else emptySet()
         return ResolvedPlaybackItem(
@@ -321,13 +344,16 @@ private fun String.toLocalUri(): String = when {
 
 /** Runtime snapshot adapter; all mode decisions remain inside [PlaybackResolver]. */
 @Singleton
+@androidx.annotation.OptIn(UnstableApi::class)
 class PlaybackResolutionCoordinator @Inject constructor(
     private val resolver: PlaybackResolver,
     private val serverReachabilityMonitor: ServerReachabilityMonitor,
     private val downloadItemDao: DownloadItemDao,
     private val themeModeDao: ThemeModeDao,
     private val musicCatalogDao: MusicCatalogDao,
-    private val userPreferenceDao: UserPreferenceDao
+    private val userPreferenceDao: UserPreferenceDao,
+    private val audioCacheProvider: AudioCacheProvider,
+    private val serverSettingsStore: ServerSettingsStore,
 ) {
     suspend fun resolve(entry: QueueEntry, intent: PlaybackIntent): ResolvedPlaybackItem {
         val snapshot = snapshots(listOf(entry)).single()
@@ -337,7 +363,8 @@ class PlaybackResolutionCoordinator @Inject constructor(
             snapshot.isOnline,
             snapshot.localMedia,
             snapshot.preferredThemeMode,
-            snapshot.themePreference
+            snapshot.themePreference,
+            snapshot.cachedServerMedia,
         )
     }
 
@@ -357,7 +384,8 @@ class PlaybackResolutionCoordinator @Inject constructor(
                 snapshot.isOnline,
                 snapshot.localMedia,
                 snapshot.preferredThemeMode,
-                snapshot.themePreference
+                snapshot.themePreference,
+                snapshot.cachedServerMedia,
             )
         }
     }
@@ -372,7 +400,8 @@ class PlaybackResolutionCoordinator @Inject constructor(
             intent,
             snapshot.isOnline,
             snapshot.localMedia,
-            snapshot.themePreference
+            snapshot.themePreference,
+            snapshot.cachedServerMedia,
         )
     }
 
@@ -404,6 +433,12 @@ class PlaybackResolutionCoordinator @Inject constructor(
                 downloadItemDao.getByMediaKeys(request.mediaKeys.map { it.value })
             }
             val localMedia = completedLocalMedia(downloads)
+            val cachedServerMedia = hydratedEntries
+                .flatMap { it.serverAudioCandidates(serverSettingsStore.serverBaseUrl).entries }
+                .filterTo(linkedSetOf()) { (mediaKey, url) ->
+                    audioCacheProvider.isFullyCached(url, mediaKey)
+                }
+                .mapTo(linkedSetOf()) { it.key }
             val isOnline = serverReachabilityMonitor.isReachable.value
             hydratedEntries.map { hydratedEntry ->
                 val keys = hydratedEntry.possibleMediaKeys()
@@ -420,7 +455,8 @@ class PlaybackResolutionCoordinator @Inject constructor(
                             }
                         },
                     themePreference = (hydratedEntry.item as? PlayableItem.Theme)
-                        ?.theme?.id?.let(preferredModesByThemeId::get)
+                        ?.theme?.id?.let(preferredModesByThemeId::get),
+                    cachedServerMedia = cachedServerMedia.filterTo(linkedSetOf()) { it in keys },
                 )
             }
         }
@@ -431,7 +467,8 @@ private data class ResolutionSnapshot(
     val isOnline: Boolean,
     val localMedia: Map<MediaKey, LocalMediaFile>,
     val preferredThemeMode: PlaybackMode?,
-    val themePreference: UserPreferenceEntity?
+    val themePreference: UserPreferenceEntity?,
+    val cachedServerMedia: Set<MediaKey>,
 )
 
 internal fun QueueEntry.withLatestMediaMetadata(
@@ -440,7 +477,7 @@ internal fun QueueEntry.withLatestMediaMetadata(
 ): QueueEntry {
     val refreshedItem = when (val playable = item) {
         is PlayableItem.Theme -> playable.copy(
-            modeDescriptor = descriptorsByThemeId[playable.theme.id]
+            modeDescriptor = descriptorsByThemeId[playable.theme.id] ?: playable.modeDescriptor
         )
         is PlayableItem.RelatedSong -> playable.copy(
             song = songsById[playable.song.id] ?: playable.song
@@ -465,3 +502,22 @@ internal fun QueueEntry.possibleMediaKeys(): Set<MediaKey> = when (val playable 
     }
     is PlayableItem.RelatedSong -> setOf(MediaKey.songAudio(playable.song.id))
 }
+
+internal fun QueueEntry.serverAudioCandidates(activeServerBaseUrl: String?): Map<MediaKey, String> =
+    when (val playable = item) {
+        is PlayableItem.Theme -> buildMap {
+            val descriptor = playable.modeDescriptor
+            val tvUrl = descriptor?.tvSizeUrl?.takeIf(String::isNotBlank)
+                ?: playable.theme.audioUrl.takeIf(String::isNotBlank)
+            tvUrl?.let { put(MediaKey.themeTv(playable.theme.id), rewriteServerMediaUrl(it, activeServerBaseUrl)) }
+            descriptor?.fullSizeSongId?.let { songId ->
+                descriptor.fullSizeUrl?.takeIf(String::isNotBlank)?.let { url ->
+                    put(MediaKey.songAudio(songId), rewriteServerMediaUrl(url, activeServerBaseUrl))
+                }
+            }
+        }
+        is PlayableItem.RelatedSong -> mapOf(
+            MediaKey.songAudio(playable.song.id) to
+                rewriteServerMediaUrl(playable.song.audioUrl, activeServerBaseUrl)
+        ).filterValues(String::isNotBlank)
+    }

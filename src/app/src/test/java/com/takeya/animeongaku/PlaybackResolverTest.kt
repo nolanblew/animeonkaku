@@ -194,6 +194,43 @@ class PlaybackResolverTest {
     }
 
     @Test
+    fun `offline exact pre-cached full size remains playable from server cache`() {
+        val fullKey = MediaKey.songAudio(10)
+
+        val cached = resolver.resolve(
+            entry = themeEntry(modes(tv = true, full = true, video = true)),
+            intent = PlaybackIntent(PlaybackMode.FULL_SIZE),
+            isOnline = false,
+            localMedia = emptyMap(),
+            cachedServerMedia = setOf(fullKey)
+        )
+
+        assertEquals(PlaybackMode.FULL_SIZE, cached.preferredMode)
+        assertEquals(PlaybackMode.FULL_SIZE, cached.actualMode)
+        assertEquals(PlaybackSource.SERVER_AUDIO, cached.source)
+        assertEquals("https://server/song/10", cached.uri)
+        assertEquals(setOf(PlaybackMode.FULL_SIZE), cached.availableModes)
+    }
+
+    @Test
+    fun `offline exact pre-cached related song remains playable from server cache`() {
+        val song = SongEntity(88, "OST", "Composer", audioUrl = "https://server/song/88")
+        val key = MediaKey.songAudio(88)
+
+        val cached = resolver.resolve(
+            entry = QueueEntry(9, PlayableItem.RelatedSong(song)),
+            intent = PlaybackIntent(),
+            isOnline = false,
+            localMedia = emptyMap(),
+            cachedServerMedia = setOf(key)
+        )
+
+        assertEquals(PlaybackMode.RELATED_AUDIO, cached.actualMode)
+        assertEquals(PlaybackSource.SERVER_AUDIO, cached.source)
+        assertEquals("https://server/song/88", cached.uri)
+    }
+
+    @Test
     fun `online exact local file wins over server URI`() {
         val key = MediaKey.songAudio(10)
         val result = resolver.resolve(

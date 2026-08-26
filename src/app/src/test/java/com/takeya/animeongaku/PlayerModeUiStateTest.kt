@@ -7,6 +7,7 @@ import com.takeya.animeongaku.media.RetainedIntentReason
 import com.takeya.animeongaku.ui.player.ModeSelectionDecision
 import com.takeya.animeongaku.ui.player.VideoContentWarning
 import com.takeya.animeongaku.ui.player.derivePlayerModeUiState
+import com.takeya.animeongaku.ui.player.serverAvailabilityMessage
 import com.takeya.animeongaku.ui.player.PLAYER_ARTWORK_MAX_DP
 import com.takeya.animeongaku.ui.player.PLAYER_ARTWORK_MIN_DP
 import com.takeya.animeongaku.ui.player.PLAYER_CONTENT_MARGIN_DP
@@ -25,6 +26,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlayerModeUiStateTest {
+    @Test
+    fun `server loss explains why only downloaded songs can play`() {
+        assertEquals(
+            "Server unavailable · downloaded and cached songs can play",
+            serverAvailabilityMessage(isServerReachable = false, hasCurrentItem = true)
+        )
+        assertNull(serverAvailabilityMessage(isServerReachable = true, hasCurrentItem = true))
+        assertNull(serverAvailabilityMessage(isServerReachable = false, hasCurrentItem = false))
+    }
+
     @Test
     fun `related songs never expose the Theme mode selector`() {
         val state = derivePlayerModeUiState(
@@ -227,6 +238,28 @@ class PlayerModeUiStateTest {
 
         // A very short window still leaves recognisable artwork.
         assertEquals(PLAYER_ARTWORK_MIN_DP.dp, expandedPlayerArtworkSize(411.dp, 100.dp))
+    }
+
+    @Test
+    fun `side panel artwork can yield further in a short landscape window`() {
+        val shortPanelMinimum = 72.dp
+
+        assertEquals(
+            135.dp,
+            expandedPlayerArtworkSize(
+                screenWidth = 360.dp,
+                availableHeight = 680.dp,
+                minimumArtworkSize = shortPanelMinimum
+            )
+        )
+        assertEquals(
+            shortPanelMinimum,
+            expandedPlayerArtworkSize(
+                screenWidth = 360.dp,
+                availableHeight = 600.dp,
+                minimumArtworkSize = shortPanelMinimum
+            )
+        )
     }
 
     @Test

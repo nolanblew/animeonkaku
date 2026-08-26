@@ -229,6 +229,31 @@ class PlaybackQueueModeUpdateTest {
     }
 
     @Test
+    fun `structural queue mutation invalidates an older full resolution`() = runTest {
+        val sync = LatestPlaybackQueueSync()
+        val resolutionStarted = CompletableDeferred<Unit>()
+        val allowResolution = CompletableDeferred<Unit>()
+        val commits = mutableListOf<String>()
+
+        val stale = launch {
+            sync.runLatest(
+                resolve = {
+                    resolutionStarted.complete(Unit)
+                    allowResolution.await()
+                    "stale"
+                },
+                commit = commits::add
+            )
+        }
+        resolutionStarted.await()
+        sync.invalidate()
+        allowResolution.complete(Unit)
+        stale.join()
+
+        assertTrue(commits.isEmpty())
+    }
+
+    @Test
     fun `failed fallback attempt releases occurrence for later retry`() {
         val attempts = VideoFallbackAttemptRegistry()
 

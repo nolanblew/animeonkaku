@@ -28,6 +28,37 @@ fun computeQueueEntryOps(old: List<QueueEntry>, new: List<QueueEntry>): List<Que
     computeQueueOps(old.map { it.queueId.toString() }, new.map { it.queueId.toString() })
 
 /**
+ * Returns the already-resolved Media3 occurrence IDs in their next queue order when a state
+ * change is purely structural. This deliberately rejects additions and playback-intent changes:
+ * those need the normal resolver, while reorder/removal can retain the exact active sources.
+ */
+internal fun reusableResolvedQueueIdsForStructuralMutation(
+    previousQueueEntryIds: List<Long>,
+    previousResolvedMediaIds: List<String>,
+    previousCurrentQueueId: Long?,
+    previousIntent: PlaybackIntent,
+    nextQueueEntryIds: List<Long>,
+    nextCurrentQueueId: Long?,
+    nextIntent: PlaybackIntent
+): List<String>? {
+    if (previousCurrentQueueId == null || previousCurrentQueueId != nextCurrentQueueId) return null
+    if (previousIntent != nextIntent) return null
+
+    val previousQueueIds = previousQueueEntryIds.map(Long::toString)
+    val nextQueueIds = nextQueueEntryIds.map(Long::toString)
+    if (previousQueueIds.size != previousQueueIds.toSet().size) return null
+    if (nextQueueIds.size != nextQueueIds.toSet().size) return null
+    if (!previousQueueIds.toSet().containsAll(nextQueueIds)) return null
+
+    val resolvedIds = previousResolvedMediaIds.toSet()
+    if (resolvedIds.size != previousResolvedMediaIds.size) return null
+    if (!previousQueueIds.toSet().containsAll(resolvedIds)) return null
+
+    val reorderedResolvedIds = nextQueueIds.filter(resolvedIds::contains)
+    return reorderedResolvedIds.takeIf { previousCurrentQueueId.toString() in it }
+}
+
+/**
  * Computes a minimal sequence of [QueueOp]s that transforms [old] into [new].
  *
  * Strategy: strip the longest common prefix and suffix, then emit one op (or two) for the
@@ -127,13 +158,11 @@ fun computeQueueOpsPreservingCurrent(
 
     val ops = mutableListOf<QueueOp>()
     val working = old.toMutableList()
-    if (oldCurrentIndex != desiredCurrentIndex) {
-        ops += QueueOp.Move(oldCurrentIndex, desiredCurrentIndex)
-        val current = working.removeAt(oldCurrentIndex)
-        working.add(desiredCurrentIndex, current)
-    }
-
-    val beforeOld = working.subList(0, desiredCurrentIndex).toList()
+    // Reconcile the prefix before touching the suffix. Adding/removing entries before the
+    // active occurrence naturally shifts it to [desiredCurrentIndex] without removing it.
+    // This also handles cold startup, where Media3 may contain only the current item while
+    // the restored authoritative queue places that item far beyond the controller's size.
+    val beforeOld = working.subList(0, oldCurrentIndex).toList()
     val beforeNew = new.subList(0, desiredCurrentIndex)
     val beforeOps = computeQueueOps(beforeOld, beforeNew)
     ops += beforeOps

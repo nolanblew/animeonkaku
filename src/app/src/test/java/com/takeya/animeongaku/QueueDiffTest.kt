@@ -3,15 +3,80 @@ package com.takeya.animeongaku
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.media.QueueOp
 import com.takeya.animeongaku.media.QueueEntry
+import com.takeya.animeongaku.media.PlaybackIntent
+import com.takeya.animeongaku.media.PlaybackMode
 import com.takeya.animeongaku.media.computeQueueOps
 import com.takeya.animeongaku.media.computeQueueEntryOps
 import com.takeya.animeongaku.media.computeQueueOpsPreservingCurrent
+import com.takeya.animeongaku.media.reusableResolvedQueueIdsForStructuralMutation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class QueueDiffTest {
+    @Test
+    fun `reordering upcoming entries reuses resolved Full or Video media`() {
+        val reusableIds = reusableResolvedQueueIdsForStructuralMutation(
+            previousQueueEntryIds = listOf(10L, 11L, 12L, 13L),
+            previousResolvedMediaIds = ids("10", "11", "12", "13"),
+            previousCurrentQueueId = 11L,
+            previousIntent = PlaybackIntent(sessionOverride = PlaybackMode.FULL_SIZE),
+            nextQueueEntryIds = listOf(10L, 11L, 13L, 12L),
+            nextCurrentQueueId = 11L,
+            nextIntent = PlaybackIntent(sessionOverride = PlaybackMode.FULL_SIZE)
+        )
+
+        assertEquals(ids("10", "11", "13", "12"), reusableIds)
+    }
+
+    @Test
+    fun `removing an upcoming entry reuses resolved media without touching current`() {
+        val reusableIds = reusableResolvedQueueIdsForStructuralMutation(
+            previousQueueEntryIds = listOf(20L, 21L, 22L, 23L),
+            previousResolvedMediaIds = ids("20", "21", "22", "23"),
+            previousCurrentQueueId = 21L,
+            previousIntent = PlaybackIntent(sessionOverride = PlaybackMode.VIDEO),
+            nextQueueEntryIds = listOf(20L, 21L, 23L),
+            nextCurrentQueueId = 21L,
+            nextIntent = PlaybackIntent(sessionOverride = PlaybackMode.VIDEO)
+        )
+
+        assertEquals(ids("20", "21", "23"), reusableIds)
+    }
+
+    @Test
+    fun `new entries and mode changes require fresh resolution`() {
+        val previousQueueIds = listOf(30L, 31L, 32L)
+        val previousResolvedIds = ids("30", "31", "32")
+        val fullIntent = PlaybackIntent(sessionOverride = PlaybackMode.FULL_SIZE)
+
+        assertEquals(
+            null,
+            reusableResolvedQueueIdsForStructuralMutation(
+                previousQueueEntryIds = previousQueueIds,
+                previousResolvedMediaIds = previousResolvedIds,
+                previousCurrentQueueId = 30L,
+                previousIntent = fullIntent,
+                nextQueueEntryIds = listOf(30L, 31L, 32L, 33L),
+                nextCurrentQueueId = 30L,
+                nextIntent = fullIntent
+            )
+        )
+        assertEquals(
+            null,
+            reusableResolvedQueueIdsForStructuralMutation(
+                previousQueueEntryIds = previousQueueIds,
+                previousResolvedMediaIds = previousResolvedIds,
+                previousCurrentQueueId = 30L,
+                previousIntent = fullIntent,
+                nextQueueEntryIds = previousQueueIds,
+                nextCurrentQueueId = 30L,
+                nextIntent = PlaybackIntent(sessionOverride = PlaybackMode.TV_SIZE)
+            )
+        )
+    }
+
 
     @Test
     fun `typed queue diff uses occurrence ids not playable ids`() {
@@ -276,6 +341,26 @@ class QueueDiffTest {
         assertFalse(
             "Queue diff must preserve the playing item so shuffle does not restart it",
             removedIds(old, ops).contains("q4")
+        )
+    }
+
+    @Test
+    fun `cold startup expands queue before moving current to a distant restored index`() {
+        val old = ids("current")
+        val restoredPrefix = (0 until 63).map { "before-$it" }
+        val new = restoredPrefix + "current" + ids("after-1", "after-2")
+
+        val ops = computeQueueOpsPreservingCurrent(
+            old = old,
+            new = new,
+            currentMediaId = "current",
+            desiredCurrentIndex = 63
+        )
+
+        assertEquals(new, apply(old, ops))
+        assertFalse(
+            "Cold-start queue sync must retain the active Media3 occurrence",
+            removedIds(old, ops).contains("current")
         )
     }
 

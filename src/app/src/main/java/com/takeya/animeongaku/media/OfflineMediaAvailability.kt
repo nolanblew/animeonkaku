@@ -1,5 +1,6 @@
 package com.takeya.animeongaku.media
 
+import androidx.media3.common.util.UnstableApi
 import com.takeya.animeongaku.data.local.DownloadItemDao
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
@@ -8,17 +9,30 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 @Singleton
+@androidx.annotation.OptIn(UnstableApi::class)
 class OfflineMediaAvailability internal constructor(initialKeys: Set<MediaKey>) {
     private val available = AtomicReference(initialKeys)
+    private val _availableKeys = MutableStateFlow(initialKeys)
+    val availableKeys: StateFlow<Set<MediaKey>> = _availableKeys.asStateFlow()
 
     @Inject
-    constructor(downloadItemDao: DownloadItemDao) : this(emptySet()) {
+    constructor(
+        downloadItemDao: DownloadItemDao,
+        audioCacheProvider: AudioCacheProvider,
+    ) : this(emptySet()) {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-            downloadItemDao.observeAll().collectLatest { items ->
-                available.set(completedLocalMedia(items).keys)
+            combine(downloadItemDao.observeAll(), audioCacheProvider.cachedMediaKeys) { items, cached ->
+                completedLocalMedia(items).keys + cached
+            }.collectLatest { keys ->
+                available.set(keys)
+                _availableKeys.value = keys
             }
         }
     }

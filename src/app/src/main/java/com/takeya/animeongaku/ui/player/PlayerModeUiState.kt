@@ -48,6 +48,15 @@ data class PlayerModeUiState(
     }
 }
 
+fun serverAvailabilityMessage(
+    isServerReachable: Boolean,
+    hasCurrentItem: Boolean
+): String? = if (!isServerReachable && hasCurrentItem) {
+    "Server unavailable · downloaded and cached songs can play"
+} else {
+    null
+}
+
 /** A single available version is status text; two or more versions are a chooser. */
 fun PlayerModeUiState.showsModeStatus(): Boolean =
     visible && actualMode != null && options.isNotEmpty()

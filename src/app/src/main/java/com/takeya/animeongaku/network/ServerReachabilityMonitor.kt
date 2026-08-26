@@ -2,6 +2,7 @@ package com.takeya.animeongaku.network
 
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import java.util.concurrent.TimeUnit
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
@@ -9,6 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,21 +21,51 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
+import kotlin.coroutines.resume
 
 internal fun serverReachabilityFlow(
     networkOnline: Flow<Boolean>,
     probe: suspend () -> Boolean,
-    probeIntervalMs: Long
+    probeIntervalMs: Long,
+    failuresBeforeUnavailable: Int = 2,
+    failureRetryIntervalMs: Long = probeIntervalMs,
 ): Flow<Boolean> = channelFlow {
+    require(failuresBeforeUnavailable > 0)
     networkOnline.distinctUntilChanged().collectLatest { online ->
         if (!online) {
             send(false)
         } else {
+            var consecutiveFailures = 0
             while (currentCoroutineContext().isActive) {
-                send(runCatching { probe() }.getOrDefault(false))
-                delay(probeIntervalMs)
+                val reachable = try {
+                    probe()
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: Exception) {
+                    false
+                }
+                if (reachable) {
+                    consecutiveFailures = 0
+                    send(true)
+                    delay(probeIntervalMs)
+                } else {
+                    consecutiveFailures++
+                    if (consecutiveFailures >= failuresBeforeUnavailable) send(false)
+                    delay(
+                        if (consecutiveFailures < failuresBeforeUnavailable) {
+                            failureRetryIntervalMs
+                        } else {
+                            probeIntervalMs
+                        }
+                    )
+                }
             }
         }
     }
@@ -51,8 +83,13 @@ class ServerReachabilityMonitor @Inject constructor(
     @Named("base") baseClient: OkHttpClient
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val probeDispatcher = Dispatcher().apply {
+        maxRequests = 2
+        maxRequestsPerHost = 2
+    }
     private val probeClient = baseClient.newBuilder()
         .apply { interceptors().removeAll { it is RetryInterceptor } }
+        .dispatcher(probeDispatcher)
         .connectTimeout(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .readTimeout(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .callTimeout(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -65,20 +102,36 @@ class ServerReachabilityMonitor @Inject constructor(
             serverReachabilityFlow(
                 networkOnline = connectivityMonitor.isOnline,
                 probe = ::probeServer,
-                probeIntervalMs = PROBE_INTERVAL_MS
+                probeIntervalMs = PROBE_INTERVAL_MS,
+                failureRetryIntervalMs = FAILURE_RETRY_INTERVAL_MS,
             ).collect { _isReachable.value = it }
         }
     }
 
-    private fun probeServer(): Boolean {
+    private suspend fun probeServer(): Boolean {
         val baseUrl = serverSettingsStore.serverBaseHttpUrl() ?: return false
         val healthUrl = baseUrl.resolve("healthz") ?: return false
         val request = Request.Builder().url(healthUrl).get().build()
-        return probeClient.newCall(request).execute().use { response -> response.isSuccessful }
+        val call = probeClient.newCall(request)
+        return suspendCancellableCoroutine { continuation ->
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (continuation.isActive) continuation.resume(false)
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    response.use {
+                        if (continuation.isActive) continuation.resume(it.isSuccessful)
+                    }
+                }
+            })
+        }
     }
 
     private companion object {
         const val PROBE_INTERVAL_MS = 10_000L
+        const val FAILURE_RETRY_INTERVAL_MS = 1_000L
         const val PROBE_TIMEOUT_SECONDS = 3L
     }
 }

@@ -73,6 +73,8 @@ import com.takeya.animeongaku.ui.theme.Ink900
 import com.takeya.animeongaku.ui.theme.Mist100
 import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.theme.Rose500
+import com.takeya.animeongaku.ui.adaptive.AdaptiveWindowSize
+import com.takeya.animeongaku.ui.adaptive.LocalAdaptiveLayoutInfo
 
 @Composable
 fun ArtistDetailScreen(
@@ -82,6 +84,7 @@ fun ArtistDetailScreen(
     showLibraryBadges: Boolean = true,
     viewModel: ArtistDetailViewModel = hiltViewModel()
 ) {
+    val adaptiveLayout = LocalAdaptiveLayoutInfo.current
     val themes by viewModel.themes.collectAsStateWithLifecycle()
     val catalogTracks by viewModel.catalogTracks.collectAsStateWithLifecycle()
     val topSongs by viewModel.topSongs.collectAsStateWithLifecycle()
@@ -230,7 +233,9 @@ fun ArtistDetailScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(260.dp)
+                        .height(
+                            if (adaptiveLayout.windowSize == AdaptiveWindowSize.Compact) 260.dp else 320.dp
+                        )
                         .background(
                             Brush.verticalGradient(
                                 listOf(Rose500.copy(alpha = 0.25f), Ink900)
@@ -267,7 +272,9 @@ fun ArtistDetailScreen(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(100.dp)
+                                .size(
+                                    if (adaptiveLayout.windowSize == AdaptiveWindowSize.Compact) 100.dp else 132.dp
+                                )
                                 .clip(CircleShape)
                                 .background(
                                     Brush.linearGradient(listOf(Rose500.copy(alpha = 0.4f), Ink800)),

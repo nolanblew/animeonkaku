@@ -17,10 +17,12 @@ import com.takeya.animeongaku.data.repository.MusicCatalogRepository
 import com.takeya.animeongaku.media.MediaControllerManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.NowPlayingState
+import com.takeya.animeongaku.media.OfflineMediaAvailability
 import com.takeya.animeongaku.media.PlaybackState
 import com.takeya.animeongaku.media.PlaybackMode
 import com.takeya.animeongaku.media.PlayableItem
 import com.takeya.animeongaku.network.ConnectivityMonitor
+import com.takeya.animeongaku.network.ServerReachabilityMonitor
 import com.takeya.animeongaku.ui.common.BrowseVideoActionPolicy
 import com.takeya.animeongaku.ui.common.BrowseVideoStartRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -47,7 +49,9 @@ class PlayerViewModel @Inject constructor(
     private val userPreferencesRepository: UserPreferencesRepository,
     musicCatalogRepository: MusicCatalogRepository,
     val connectivityMonitor: ConnectivityMonitor,
-    private val downloadManager: com.takeya.animeongaku.download.DownloadManager
+    private val serverReachabilityMonitor: ServerReachabilityMonitor,
+    private val downloadManager: com.takeya.animeongaku.download.DownloadManager,
+    offlineMediaAvailability: OfflineMediaAvailability,
 ) : ViewModel() {
     private val videoModeSessionTracker = VideoModeSessionTracker()
     val nowPlayingState: StateFlow<NowPlayingState> = nowPlayingManager.state
@@ -61,6 +65,7 @@ class PlayerViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlayerModeUiState())
 
     val isOnline: StateFlow<Boolean> = connectivityMonitor.isOnline
+    val isServerReachable: StateFlow<Boolean> = serverReachabilityMonitor.isReachable
 
     val hasRelatedMusic: StateFlow<Boolean> = nowPlayingState
         .map { it.currentEntry?.item?.anime?.kitsuId.orEmpty() }
@@ -83,7 +88,7 @@ class PlayerViewModel @Inject constructor(
         val theme = entry.themeOrNull ?: return null
         val animeMap = entry.item.anime?.let { anime -> theme.animeId?.let { mapOf(it to anime) } }
             ?: theme.animeId?.let { id -> state.animeMap[id]?.let { mapOf(id to it) } }.orEmpty()
-        return BrowseVideoActionPolicy.request(isOnline.value, "Theme", listOf(theme), queuedThemeModesById.value, animeMap)
+        return BrowseVideoActionPolicy.request(isServerReachable.value, "Theme", listOf(theme), queuedThemeModesById.value, animeMap)
     }
 
     fun startQueuedThemeVideo(queueId: Long, request: BrowseVideoStartRequest): Boolean {
@@ -93,7 +98,7 @@ class PlayerViewModel @Inject constructor(
         val animeMap = entry.item.anime?.let { anime -> theme.animeId?.let { mapOf(it to anime) } }
             ?: theme.animeId?.let { id -> state.animeMap[id]?.let { mapOf(id to it) } }.orEmpty()
         return request.startIfStillValid(
-            nowPlayingManager, isOnline.value, listOf(theme), queuedThemeModesById.value, "Theme", animeMap
+            nowPlayingManager, isServerReachable.value, listOf(theme), queuedThemeModesById.value, "Theme", animeMap
         )
     }
 
@@ -101,10 +106,8 @@ class PlayerViewModel @Inject constructor(
         .map { it.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
-    val downloadedMediaKeys: StateFlow<Set<com.takeya.animeongaku.media.MediaKey>> =
-        downloadManager.observeAllDownloads().map { downloads ->
-            com.takeya.animeongaku.media.completedLocalMedia(downloads).keys
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+    val offlinePlayableMediaKeys: StateFlow<Set<com.takeya.animeongaku.media.MediaKey>> =
+        offlineMediaAvailability.availableKeys
 
     val playlists: StateFlow<List<PlaylistWithCount>> = playlistDao.observePlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

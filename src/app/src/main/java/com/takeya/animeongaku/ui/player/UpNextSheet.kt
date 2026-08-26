@@ -1,5 +1,6 @@
 package com.takeya.animeongaku.ui.player
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,24 +24,35 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.SheetValue
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxState
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.snapshotFlow
@@ -49,6 +61,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -61,6 +74,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import coil.compose.AsyncImage
 import com.takeya.animeongaku.data.local.AnimeEntity
 import com.takeya.animeongaku.data.local.primaryArtworkUrls
@@ -71,6 +85,7 @@ import com.takeya.animeongaku.media.NowPlayingState
 import com.takeya.animeongaku.media.MediaKey
 import com.takeya.animeongaku.media.isExactOfflineAvailable
 import com.takeya.animeongaku.media.PlayableItem
+import com.takeya.animeongaku.media.PlaybackState
 import com.takeya.animeongaku.ui.common.MarqueeText
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
@@ -100,9 +115,10 @@ fun UpNextSheet(
     npState: NowPlayingState,
     nowPlayingManager: NowPlayingManager,
     isOffline: Boolean = false,
-    downloadedMediaKeys: Set<MediaKey> = emptySet(),
+    offlinePlayableMediaKeys: Set<MediaKey> = emptySet(),
     dislikedThemeIds: Set<Long> = emptySet(),
     viewModel: PlayerViewModel,
+    inline: Boolean = false,
     onDismiss: () -> Unit
 ) {
     // State is owned by the sheet so every open starts fresh. Seeding
@@ -112,6 +128,28 @@ fun UpNextSheet(
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = upNextCurrentRowListIndex(npState.historyEntries.size)
     )
+
+    if (inline) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Ink900)
+        ) {
+            UpNextContent(
+                npState = npState,
+                nowPlayingManager = nowPlayingManager,
+                listState = listState,
+                isOffline = isOffline,
+                offlinePlayableMediaKeys = offlinePlayableMediaKeys,
+                dislikedThemeIds = dislikedThemeIds,
+                viewModel = viewModel,
+                onDismiss = onDismiss,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+        return
+    }
+
     var sheetHeightPx by remember { mutableIntStateOf(0) }
     val sheetStateHolder = remember { mutableStateOf<SheetState?>(null) }
     val sheetState = rememberModalBottomSheetState(
@@ -138,7 +176,7 @@ fun UpNextSheet(
             nowPlayingManager = nowPlayingManager,
             listState = listState,
             isOffline = isOffline,
-            downloadedMediaKeys = downloadedMediaKeys,
+            offlinePlayableMediaKeys = offlinePlayableMediaKeys,
             dislikedThemeIds = dislikedThemeIds,
             viewModel = viewModel,
             onDismiss = onDismiss,
@@ -156,13 +194,31 @@ private fun queueKey(queueId: Long): String = "queue-$queueId"
 private fun queueIdFromKey(key: Any): Long? =
     (key as? String)?.removePrefix("queue-")?.toLongOrNull()
 
+internal fun canSwipeQueueEntryToRemove(queueIndex: Int, currentIndex: Int): Boolean =
+    queueIndex > currentIndex
+
+internal fun queueSwipeDismissThreshold(totalDistance: Float): Float =
+    totalDistance * 0.50f
+
+internal fun canQueueSwipeSettleToDismiss(
+    enabled: Boolean,
+    currentOffset: Float,
+    totalDistance: Float
+): Boolean =
+    enabled && currentOffset <= -queueSwipeDismissThreshold(totalDistance)
+
+internal fun shouldRemoveQueueEntryAfterSwipeSettles(
+    enabled: Boolean,
+    settledValue: SwipeToDismissBoxValue
+): Boolean = enabled && settledValue == SwipeToDismissBoxValue.EndToStart
+
 @Composable
 private fun UpNextContent(
     npState: NowPlayingState,
     nowPlayingManager: NowPlayingManager,
     listState: LazyListState,
     isOffline: Boolean = false,
-    downloadedMediaKeys: Set<MediaKey> = emptySet(),
+    offlinePlayableMediaKeys: Set<MediaKey> = emptySet(),
     dislikedThemeIds: Set<Long> = emptySet(),
     viewModel: PlayerViewModel,
     onDismiss: () -> Unit,
@@ -172,6 +228,7 @@ private fun UpNextContent(
     val currentEntry = npState.currentEntry
     val upcoming = npState.upcomingEntries
     val queuedModes by viewModel.queuedThemeModesById.collectAsStateWithLifecycle()
+    val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
     var pendingVideo by remember { mutableStateOf<Pair<Long, BrowseVideoStartRequest>?>(null) }
 
     pendingVideo?.let { (queueId, request) ->
@@ -184,12 +241,17 @@ private fun UpNextContent(
     val dragDropState = rememberDragDropState(listState) { fromKey, toKey ->
         val fromQueueId = queueIdFromKey(fromKey)
         val toQueueId = queueIdFromKey(toKey)
-        val fromQueueIdx = fromQueueId?.let(npState::indexOfQueueId)
-        val toQueueIdx = toQueueId?.let(npState::indexOfQueueId)
+        val currentState = nowPlayingManager.state.value
+        val fromQueueIdx = fromQueueId?.let(currentState::indexOfQueueId)
+        val toQueueIdx = toQueueId?.let(currentState::indexOfQueueId)
         
         // Only allow moving items that are in the upcoming tracks section
-        if (fromQueueIdx != null && toQueueIdx != null && fromQueueIdx > npState.currentIndex && toQueueIdx > npState.currentIndex) {
-            nowPlayingManager.moveItem(fromQueueIdx, toQueueIdx)
+        if (
+            fromQueueId != null && toQueueId != null &&
+            fromQueueIdx != null && toQueueIdx != null &&
+            fromQueueIdx > currentState.currentIndex && toQueueIdx > currentState.currentIndex
+        ) {
+            nowPlayingManager.moveItemByQueueId(fromQueueId, toQueueId)
             true
         } else {
             false
@@ -324,7 +386,8 @@ private fun UpNextContent(
         LazyColumn(
             state = listState,
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f)
+                .fillMaxWidth()
                 .nestedScroll(blockSheetDismissScroll)
         ) {
             // History section
@@ -344,7 +407,7 @@ private fun UpNextContent(
                     val theme = entry.themeOrNull
                     val anime = entry.item.anime ?: theme?.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline &&
-                        !isExactOfflineAvailable(entry, downloadedMediaKeys, npState.playbackIntent)
+                        !isExactOfflineAvailable(entry, offlinePlayableMediaKeys, npState.playbackIntent)
                     val isDisliked = theme?.id in dislikedThemeIds
                     val key = historyKey(entry.queueId)
                     val isDragging = dragDropState.draggingItemKey == key
@@ -408,25 +471,31 @@ private fun UpNextContent(
                     val queueIdx = npState.indexOfQueueId(entry.queueId)
                     val anime = entry.item.anime ?: theme?.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline &&
-                        !isExactOfflineAvailable(entry, downloadedMediaKeys, npState.playbackIntent)
+                        !isExactOfflineAvailable(entry, offlinePlayableMediaKeys, npState.playbackIntent)
                     val isDisliked = theme?.id in dislikedThemeIds
                     val key = queueKey(entry.queueId)
                     val isDragging = dragDropState.draggingItemKey == key
-                    QueueTrackRow(
-                        item = entry.item,
-                        anime = anime,
-                        isHistory = false,
-                        isCurrent = false,
-                        isSuggested = false,
-                        isUnavailable = isUnavailable,
-                        isDisliked = isDisliked,
-                        onClick = { if (!isUnavailable && queueIdx >= 0) nowPlayingManager.skipTo(queueIdx) },
-                        onLongClick = { selectedActionEntry = entry },
+                    SwipeToRemoveQueueRow(
+                        queueIndex = queueIdx,
+                        currentIndex = npState.currentIndex,
+                        onRemove = { nowPlayingManager.removeFromQueue(queueIdx) },
                         modifier = Modifier
                             .then(if (isDragging) Modifier else Modifier.animateItem())
-                            .dragDropItem(dragDropState, key),
-                        dragModifier = Modifier.dragHandle(dragDropState, key)
-                    )
+                    ) {
+                        QueueTrackRow(
+                            item = entry.item,
+                            anime = anime,
+                            isHistory = false,
+                            isCurrent = false,
+                            isSuggested = false,
+                            isUnavailable = isUnavailable,
+                            isDisliked = isDisliked,
+                            onClick = { if (!isUnavailable && queueIdx >= 0) nowPlayingManager.skipTo(queueIdx) },
+                            onLongClick = { selectedActionEntry = entry },
+                            modifier = Modifier.dragDropItem(dragDropState, key),
+                            dragModifier = Modifier.dragHandle(dragDropState, key)
+                        )
+                    }
                 }
             }
 
@@ -450,30 +519,171 @@ private fun UpNextContent(
                     val queueIdx = npState.indexOfQueueId(entry.queueId)
                     val anime = entry.item.anime ?: theme?.animeId?.let { npState.animeMap[it] }
                     val isUnavailable = isOffline &&
-                        !isExactOfflineAvailable(entry, downloadedMediaKeys, npState.playbackIntent)
+                        !isExactOfflineAvailable(entry, offlinePlayableMediaKeys, npState.playbackIntent)
                     val isDisliked = theme?.id in dislikedThemeIds
                     val key = queueKey(entry.queueId)
                     val isDragging = dragDropState.draggingItemKey == key
-                    QueueTrackRow(
-                        item = entry.item,
-                        anime = anime,
-                        isHistory = false,
-                        isCurrent = false,
-                        isSuggested = entry.queueId in suggestedSet,
-                        isUnavailable = isUnavailable,
-                        isDisliked = isDisliked,
-                        onClick = { if (!isUnavailable && queueIdx >= 0) nowPlayingManager.skipTo(queueIdx) },
-                        onLongClick = { selectedActionEntry = entry },
+                    SwipeToRemoveQueueRow(
+                        queueIndex = queueIdx,
+                        currentIndex = npState.currentIndex,
+                        onRemove = { nowPlayingManager.removeFromQueue(queueIdx) },
                         modifier = Modifier
                             .then(if (isDragging) Modifier else Modifier.animateItem())
-                            .dragDropItem(dragDropState, key),
-                        dragModifier = Modifier.dragHandle(dragDropState, key)
-                    )
+                    ) {
+                        QueueTrackRow(
+                            item = entry.item,
+                            anime = anime,
+                            isHistory = false,
+                            isCurrent = false,
+                            isSuggested = entry.queueId in suggestedSet,
+                            isUnavailable = isUnavailable,
+                            isDisliked = isDisliked,
+                            onClick = { if (!isUnavailable && queueIdx >= 0) nowPlayingManager.skipTo(queueIdx) },
+                            onLongClick = { selectedActionEntry = entry },
+                            modifier = Modifier.dragDropItem(dragDropState, key),
+                            dragModifier = Modifier.dragHandle(dragDropState, key)
+                        )
+                    }
                 }
             }
 
             item {
                 Spacer(modifier = Modifier.height(40.dp))
+            }
+        }
+
+        QueueTransportBar(
+            playbackState = playbackState,
+            onPrevious = viewModel.mediaControllerManager::seekToPrevious,
+            onPlayPause = {
+                if (playbackState.isPlaying) viewModel.mediaControllerManager.pause()
+                else viewModel.mediaControllerManager.play()
+            },
+            onNext = viewModel.mediaControllerManager::seekToNext
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeToRemoveQueueRow(
+    queueIndex: Int,
+    currentIndex: Int,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val enabled = canSwipeQueueEntryToRemove(queueIndex, currentIndex)
+    val currentEnabled by rememberUpdatedState(enabled)
+    val currentOnRemove by rememberUpdatedState(onRemove)
+    var rowWidthPx by remember { mutableIntStateOf(0) }
+    lateinit var dismissState: SwipeToDismissBoxState
+    dismissState = rememberSwipeToDismissBoxState(
+        positionalThreshold = ::queueSwipeDismissThreshold,
+        confirmValueChange = { value ->
+            when (value) {
+                SwipeToDismissBoxValue.EndToStart -> canQueueSwipeSettleToDismiss(
+                    enabled = currentEnabled,
+                    currentOffset = dismissState.requireOffset(),
+                    totalDistance = rowWidthPx.toFloat()
+                )
+                SwipeToDismissBoxValue.StartToEnd -> false
+                SwipeToDismissBoxValue.Settled -> true
+            }
+        }
+    )
+    LaunchedEffect(dismissState.currentValue) {
+        if (
+            shouldRemoveQueueEntryAfterSwipeSettles(
+                enabled = currentEnabled,
+                settledValue = dismissState.currentValue
+            )
+        ) {
+            currentOnRemove()
+        }
+    }
+    val trashScale by animateFloatAsState(
+        targetValue = if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) 1f else 0.72f,
+        label = "Queue remove icon scale"
+    )
+
+    SwipeToDismissBox(
+        state = dismissState,
+        modifier = modifier
+            .fillMaxWidth()
+            .onSizeChanged { rowWidthPx = it.width },
+        enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = enabled,
+        backgroundContent = {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFFD32F2F))
+                    .padding(end = 24.dp),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Delete,
+                    contentDescription = "Remove from queue",
+                    tint = Color.White,
+                    modifier = Modifier
+                        .size(26.dp)
+                        .scale(trashScale)
+                )
+            }
+        },
+        content = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Ink900)
+            ) {
+                content()
+            }
+        }
+    )
+}
+
+@Composable
+private fun QueueTransportBar(
+    playbackState: PlaybackState,
+    onPrevious: () -> Unit,
+    onPlayPause: () -> Unit,
+    onNext: () -> Unit
+) {
+    val duration = playbackState.durationMs.coerceAtLeast(1L)
+    val progress = (playbackState.positionMs.toFloat() / duration).coerceIn(0f, 1f)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Ink800.copy(alpha = 0.96f))
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier.fillMaxWidth(),
+            color = Rose500,
+            trackColor = Ink700
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onPrevious, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", tint = Mist100)
+            }
+            IconButton(onClick = onPlayPause, modifier = Modifier.size(56.dp)) {
+                Icon(
+                    if (playbackState.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = "Play or pause",
+                    tint = Mist100,
+                    modifier = Modifier.size(34.dp)
+                )
+            }
+            IconButton(onClick = onNext, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Rounded.SkipNext, contentDescription = "Next", tint = Mist100)
             }
         }
     }

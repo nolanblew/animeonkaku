@@ -269,7 +269,7 @@ fun LibraryScreen(
                 LibraryTab.Playlists -> {
                     Box(modifier = Modifier.fillMaxSize()) {
                         LazyVerticalGrid(
-                            columns = GridCells.Fixed(2),
+                            columns = GridCells.Adaptive(minSize = 220.dp),
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -460,7 +460,7 @@ fun LibraryScreen(
                         }
                     } else {
                         LazyVerticalGrid(
-                            columns = GridCells.Fixed(2),
+                            columns = GridCells.Adaptive(minSize = 180.dp),
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -502,7 +502,7 @@ fun LibraryScreen(
                         }
                     } else {
                         LazyVerticalGrid(
-                            columns = GridCells.Fixed(3),
+                            columns = GridCells.Adaptive(minSize = 150.dp),
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),

@@ -35,6 +35,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Repeat
@@ -78,6 +79,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.constraintlayout.compose.ExperimentalMotionApi
 import androidx.constraintlayout.compose.MotionLayout
 import androidx.constraintlayout.compose.MotionScene
@@ -116,9 +118,14 @@ fun PlayerScreen(
     onSwipeUpHandled: () -> Unit = {},
     onExpand: () -> Unit = {},
     onCollapse: () -> Unit = {},
+    onRequestFullscreen: (() -> Unit)? = null,
     onOpenAnime: (String) -> Unit = {},
     onOpenRelatedMusic: (String) -> Unit = {},
     onOpenArtist: (String) -> Unit = {},
+    playerWidth: Dp? = null,
+    playerHeight: Dp? = null,
+    minimumArtworkSize: Dp = PLAYER_ARTWORK_MIN_DP.dp,
+    showQueueInline: Boolean = false,
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -145,8 +152,8 @@ fun PlayerScreen(
     var pickerThemeIds by remember { mutableStateOf<List<Long>?>(null) }
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
-    val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
-    val downloadedMediaKeys by viewModel.downloadedMediaKeys.collectAsStateWithLifecycle()
+    val isServerReachable by viewModel.isServerReachable.collectAsStateWithLifecycle()
+    val offlinePlayableMediaKeys by viewModel.offlinePlayableMediaKeys.collectAsStateWithLifecycle()
     val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
     val queuedThemeModesById by viewModel.queuedThemeModesById.collectAsStateWithLifecycle()
 
@@ -168,12 +175,14 @@ fun PlayerScreen(
         UpNextSheet(
             npState = npState,
             nowPlayingManager = nowPlayingManager,
-            isOffline = !isOnline,
-            downloadedMediaKeys = downloadedMediaKeys,
+            isOffline = !isServerReachable,
+            offlinePlayableMediaKeys = offlinePlayableMediaKeys,
             dislikedThemeIds = dislikedThemeIds,
             viewModel = viewModel,
+            inline = showQueueInline,
             onDismiss = { showUpNext = false }
         )
+        if (showQueueInline) return
     }
 
     if (showPlayerSheet) {
@@ -204,7 +213,7 @@ fun PlayerScreen(
                     showRelatedMusic = animeEntity?.kitsuId != null && hasRelatedMusic,
                     showDownload = item is PlayableItem.RelatedSong || theme != null,
                     showPlayVideo = theme != null && BrowseVideoActionPolicy.singleTheme(
-                        isOnline, queuedThemeModesById[theme.id]
+                        isServerReachable, queuedThemeModesById[theme.id]
                     ),
                     artistName = item.display.artist?.split(",")?.firstOrNull()?.trim(),
                     animeName = animeEntity?.title,
@@ -277,11 +286,16 @@ fun PlayerScreen(
     }.distinct()
     val upNextAnimeName = upNextItem?.display?.animeTitle ?: upNextItem?.display?.album ?: "Nothing queued"
     val upNextThemeTag = formatThemeTag(upNextTheme?.themeType)
+    val serverStatusMessage = serverAvailabilityMessage(
+        isServerReachable = isServerReachable,
+        hasCurrentItem = currentEntry != null
+    )
     val isExpanded = progress > 0.5f
     val configuration = LocalConfiguration.current
     val expandedArtworkSize = expandedPlayerArtworkSize(
-        configuration.screenWidthDp.dp,
-        configuration.screenHeightDp.dp
+        playerWidth ?: configuration.screenWidthDp.dp,
+        playerHeight ?: configuration.screenHeightDp.dp,
+        minimumArtworkSize
     )
     val artHorizontalInset = if (modeUiState.isVideo) 0 else PLAYER_CONTENT_MARGIN_DP
     val fullscreenVideo = isFullscreenVideo(
@@ -370,17 +384,26 @@ fun PlayerScreen(
             }
         }
 
-        Row(modifier = Modifier.layoutId("topBar"), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            IconButton(onClick = onCollapse) {
+        Box(modifier = Modifier.layoutId("topBar").fillMaxWidth()) {
+            IconButton(onClick = onCollapse, modifier = Modifier.align(Alignment.CenterStart)) {
                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Collapse player", tint = Rose500)
             }
             Text(
                 text = "Now Playing",
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                color = Mist100
+                color = Mist100,
+                maxLines = 1,
+                modifier = Modifier.align(Alignment.Center)
             )
-            IconButton(onClick = { showPlayerSheet = true }) {
-                Icon(Icons.Rounded.MoreVert, "More options", tint = Rose500)
+            Row(modifier = Modifier.align(Alignment.CenterEnd)) {
+                if (onRequestFullscreen != null) {
+                    IconButton(onClick = onRequestFullscreen, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Rounded.Fullscreen, "Expand player full screen", tint = Rose500)
+                    }
+                }
+                IconButton(onClick = { showPlayerSheet = true }, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Rounded.MoreVert, "More options", tint = Rose500)
+                }
             }
         }
 
@@ -545,6 +568,17 @@ fun PlayerScreen(
                             onModeSelected = onModeSelected
                         )
                     }
+                }
+                serverStatusMessage?.let { message ->
+                    Text(
+                        text = message,
+                        color = Ember400,
+                        style = MaterialTheme.typography.labelMedium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer { alpha = titlesAlpha }
+                    )
                 }
                 MarqueeText(
                     text = expandedTitle,
@@ -877,12 +911,13 @@ internal const val PLAYER_ARTWORK_MAX_DP = 400
  */
 internal fun expandedPlayerArtworkSize(
     screenWidth: androidx.compose.ui.unit.Dp,
-    availableHeight: androidx.compose.ui.unit.Dp
+    availableHeight: androidx.compose.ui.unit.Dp,
+    minimumArtworkSize: androidx.compose.ui.unit.Dp = PLAYER_ARTWORK_MIN_DP.dp
 ): androidx.compose.ui.unit.Dp {
     val widthBound = (screenWidth - (PLAYER_CONTENT_MARGIN_DP * 2).dp).coerceAtLeast(0.dp)
     val heightBound = availableHeight - PLAYER_STACK_BELOW_ART_DP.dp
     return minOf(widthBound, heightBound)
-        .coerceIn(PLAYER_ARTWORK_MIN_DP.dp, PLAYER_ARTWORK_MAX_DP.dp)
+        .coerceIn(minimumArtworkSize, PLAYER_ARTWORK_MAX_DP.dp)
 }
 
 @Composable

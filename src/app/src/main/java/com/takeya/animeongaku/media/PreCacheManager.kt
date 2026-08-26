@@ -4,9 +4,7 @@ import android.util.Log
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.datasource.cache.CacheKeyFactory
 import androidx.media3.datasource.cache.CacheWriter
-import androidx.media3.datasource.cache.ContentMetadata
 import com.takeya.animeongaku.download.DownloadPreferences
 import com.takeya.animeongaku.network.ConnectivityMonitor
 import kotlinx.coroutines.CoroutineScope
@@ -16,6 +14,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -39,7 +38,6 @@ class PreCacheManager @Inject constructor(
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var preCacheJob: Job? = null
     private var evictionJob: Job? = null
 
     fun start() {
@@ -61,21 +59,24 @@ class PreCacheManager @Inject constructor(
                         state.playbackIntent,
                     )
                 }
-                .collect { state ->
-                    // Cancel any in-flight pre-cache work
-                    preCacheJob?.cancel()
-                    preCacheJob = scope.launch {
-                        val resolved = playbackResolutionCoordinator.resolveAll(
-                            state.upcomingEntries.take(MAX_PRE_CACHE_TRACKS),
-                            state.playbackIntent,
-                        )
-                        preCacheTracks(upcomingPlaybackUrls(resolved, MAX_PRE_CACHE_TRACKS))
-                    }
+                .collectLatest { state ->
+                    // collectLatest cancels and joins the prior writer before resolving a new
+                    // target set, preventing overlapping downloads for the same cache key.
+                    val resolved = playbackResolutionCoordinator.resolveAll(
+                        state.upcomingEntries.take(MAX_PRE_CACHE_TRACKS),
+                        state.playbackIntent,
+                    )
+                    preCacheTracks(
+                        resolved.asSequence()
+                            .filter { it.isPlayable && it.source == PlaybackSource.SERVER_AUDIO }
+                            .take(MAX_PRE_CACHE_TRACKS)
+                            .toList()
+                    )
                 }
         }
     }
 
-    private suspend fun preCacheTracks(audioUrls: List<String>) {
+    private suspend fun preCacheTracks(items: List<ResolvedPlaybackItem>) {
         if (!shouldPreCacheOnNetwork(
                 wifiOnly = downloadPreferences.wifiOnly,
                 isUnmetered = connectivityMonitor.isUnmetered.value,
@@ -84,10 +85,11 @@ class PreCacheManager @Inject constructor(
             Log.d(TAG, "Skipping pre-cache on a metered network")
             return
         }
-        for (url in audioUrls) {
+        for (item in items) {
             kotlin.coroutines.coroutineContext.ensureActive()
+            val url = item.uri?.let(audioCacheProvider::canonicalServerMediaUrl) ?: continue
 
-            if (isCached(url)) {
+            if (audioCacheProvider.isFullyCached(url, item.mediaKey)) {
                 Log.d(TAG, "Already cached: $url")
                 continue
             }
@@ -105,6 +107,7 @@ class PreCacheManager @Inject constructor(
                     /* temporaryBuffer= */ null,
                     /* progressListener= */ null
                 ).cache()
+                audioCacheProvider.markPreCacheComplete(url, item.mediaKey)
                 Log.d(TAG, "Pre-cached successfully: $url")
             } catch (e: java.util.concurrent.CancellationException) {
                 throw e // Propagate cancellation
@@ -113,25 +116,6 @@ class PreCacheManager @Inject constructor(
                 // Don't retry immediately — move on to next track
             }
         }
-    }
-
-    private fun isCached(url: String): Boolean {
-        val cache = audioCacheProvider.cache
-        val dataSpec = DataSpec.Builder()
-            .setUri(url)
-            .build()
-        val key = CacheKeyFactory.DEFAULT.buildCacheKey(dataSpec)
-        val contentLength = ContentMetadata.getContentLength(cache.getContentMetadata(key))
-
-        if (contentLength >= 0) {
-            val cachedBytes = if (cache.isCached(key, 0, contentLength)) contentLength else 0L
-            return isCacheComplete(contentLength, cachedBytes)
-        }
-
-        return isCacheComplete(
-            contentLength = contentLength,
-            cachedBytes = if (cache.keys.contains(key)) 1L else 0L
-        )
     }
 
     private fun startPeriodicEviction() {
@@ -152,6 +136,7 @@ class PreCacheManager @Inject constructor(
                 state.playbackIntent,
             )
             val nowPlayingUrls = protectedPlaybackUrls(resolved)
+                .mapTo(mutableSetOf(), audioCacheProvider::canonicalServerMediaUrl)
 
             val now = System.currentTimeMillis()
             val keysToEvict = mutableListOf<String>()
@@ -173,7 +158,7 @@ class PreCacheManager @Inject constructor(
             }
 
             for (key in keysToEvict) {
-                cache.removeResource(key)
+                audioCacheProvider.removeResource(key)
                 Log.d(TAG, "Evicted stale cache: $key")
             }
 
@@ -221,10 +206,14 @@ internal fun protectedPlaybackUrls(
     .mapNotNull { it.uri }
     .toSet()
 
-internal fun isCacheComplete(contentLength: Long, cachedBytes: Long): Boolean {
+internal fun isCacheComplete(
+    contentLength: Long,
+    cachedBytes: Long,
+    preCacheCompleted: Boolean = false,
+): Boolean {
     return if (contentLength >= 0L) {
         cachedBytes >= contentLength
     } else {
-        cachedBytes > 0L
+        cachedBytes > 0L && preCacheCompleted
     }
 }
