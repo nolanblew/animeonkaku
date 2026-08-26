@@ -96,4 +96,26 @@ describe('ManagedMediaCache', () => {
       'https://ongaku.test/new-2',
     ])
   })
+
+  it('reads playback media only from its session-owned audio bucket', async () => {
+    const storage = new FakeStorage()
+    const first = new ManagedMediaCache({
+      storage,
+      namespace: 'account-one',
+      fetcher: async (url) => new Response(`first:${url}`, { status: 200 }),
+      baseUrl: 'https://ongaku.test/',
+    })
+    const second = new ManagedMediaCache({
+      storage,
+      namespace: 'account-two',
+      fetcher: async (url) => new Response(`second:${url}`, { status: 200 }),
+      baseUrl: 'https://ongaku.test/',
+    })
+
+    await first.reconcile({ imageUrls: [], nextAudioUrls: ['/next-song'] })
+
+    expect(first.audioCacheName).not.toBe(second.audioCacheName)
+    expect(await (await first.matchAudio('/next-song'))?.text()).toContain('first:')
+    expect(await second.matchAudio('/next-song')).toBeUndefined()
+  })
 })
