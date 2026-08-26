@@ -1,11 +1,12 @@
 import type { ErrorInfo, ReactNode } from 'react'
 import { Component } from 'react'
+import { useLocation } from 'react-router-dom'
 import { ErrorState } from '../components/ErrorState'
 
 interface Props { children: ReactNode }
 interface State { error: Error | null }
 
-export class AppErrorBoundary extends Component<Props, State> {
+class AppErrorBoundaryImpl extends Component<Props, State> {
   state: State = { error: null }
 
   static getDerivedStateFromError(error: Error): State {
@@ -20,4 +21,10 @@ export class AppErrorBoundary extends Component<Props, State> {
     if (this.state.error) return <ErrorState details={this.state.error} />
     return this.props.children
   }
+}
+
+export function AppErrorBoundary({ children }: Props) {
+  const location = useLocation()
+  const routeKey = `${location.pathname}${location.search}${location.hash}`
+  return <AppErrorBoundaryImpl key={routeKey}>{children}</AppErrorBoundaryImpl>
 }
