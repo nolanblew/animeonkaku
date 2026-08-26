@@ -17,9 +17,9 @@ export function NowPlayingView({ className = '' }: NowPlayingViewProps) {
   return (
     <section className={rootClass} aria-label="Now playing" data-testid="now-playing-view">
       <div className="player-now-playing__stage">
-        <div className="player-now-playing__artwork-wrap">
-          {current?.artworkUrl && player.mode !== 'VIDEO' ? <img className="player-now-playing__artwork" src={current.artworkUrl} alt="" /> : <div className="player-now-playing__artwork player-now-playing__artwork--fallback" aria-hidden="true">AO</div>}
-        </div>
+        {player.mode !== 'VIDEO' && <div className="player-now-playing__artwork-wrap">
+          {current?.artworkUrl ? <img className="player-now-playing__artwork" src={current.artworkUrl} alt="" /> : <div className="player-now-playing__artwork player-now-playing__artwork--fallback" aria-hidden="true">AO</div>}
+        </div>}
         <div className="player-video-surface" ref={player.registerVideoSurface} data-testid="now-playing-video-surface" aria-label="Video surface" />
         <div className="player-now-playing__copy"><p className="player-eyebrow">Now playing</p><h2>{title}</h2><p>{artist}</p></div>
         <div className="player-now-playing__progress"><span aria-live="off">{formatTime(player.currentTime)}</span><input type="range" min="0" max={Math.max(0, player.duration)} step="0.1" value={Math.min(player.currentTime, Math.max(0, player.duration))} onChange={(event) => player.seek(Number(event.currentTarget.value))} aria-label="Seek" disabled={!current} /><span aria-live="off">{formatTime(player.duration)}</span></div>
