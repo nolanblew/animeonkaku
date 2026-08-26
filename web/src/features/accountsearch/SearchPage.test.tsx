@@ -1,0 +1,154 @@
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { apiClient } from '../../lib/api'
+import { useLibraryQuery } from '../../lib/query'
+import { createEmptyLibrary, type NormalizedLibrary } from '../../lib/library'
+import { SearchPage, findLibraryMatches, MAX_LIBRARY_RESULTS } from './SearchPage'
+import { parseMusicSearchResponse } from './search'
+
+vi.mock('../../lib/api', () => ({
+  apiClient: { get: vi.fn() },
+}))
+
+vi.mock('../../lib/query', () => ({
+  useLibraryQuery: vi.fn(),
+}))
+
+const mockedGet = vi.mocked(apiClient.get)
+const mockedUseLibraryQuery = vi.mocked(useLibraryQuery)
+
+function libraryWithRecords(): NormalizedLibrary {
+  const library = createEmptyLibrary()
+  return {
+    ...library,
+    animeById: {
+      a1: {
+        kitsuId: 'a1', animeThemesId: null, title: 'Naruto', titleEn: 'Naruto', titleRomaji: null,
+        titleJa: null, posterUrl: null, coverUrl: null, watchingStatus: 'CURRENT', subtype: 'TV',
+        startDate: null, endDate: null, episodeCount: 220, ageRating: null, averageRating: null,
+        userRating: null, libraryUpdatedAt: null, slug: 'naruto', genres: ['Action'], updatedAt: 1, deleted: false,
+      },
+      deleted: {
+        kitsuId: 'deleted', animeThemesId: null, title: 'Naruto Deleted', titleEn: null, titleRomaji: null,
+        titleJa: null, posterUrl: null, coverUrl: null, watchingStatus: null, subtype: null,
+        startDate: null, endDate: null, episodeCount: null, ageRating: null, averageRating: null,
+        userRating: null, libraryUpdatedAt: null, slug: null, genres: [], updatedAt: 2, deleted: true,
+      },
+    },
+    themesById: {
+      '2': {
+        id: 2, animeThemesAnimeId: 1, kitsuAnimeIds: ['a1'], title: 'Blue Bird', themeType: 'OP',
+        artists: [{ name: 'Ikimonogakari', asCharacter: null, alias: null }], audioUrl: '/audio',
+        videoUrl: null, audioState: 'READY', durationSeconds: 90, fileSize: null,
+        mediaModes: { tvSize: { url: '/audio', durationSeconds: 90, fileSize: null }, fullSize: null, video: null },
+        updatedAt: 1, deleted: false,
+      },
+    },
+    playlistsById: {
+      '3': {
+        id: 3, name: 'Naruto Favorites', entries: [], defaultMode: 'TV_SIZE', overrideUserPreference: false,
+        items: [], isAuto: false, isDynamic: false, autoUpdate: false, updatedAt: 1, deleted: false,
+        dynamicSpecJson: null, dynamicSortJson: null,
+      },
+    },
+  }
+}
+
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
+
+beforeEach(() => {
+  mockedGet.mockReset()
+  mockedUseLibraryQuery.mockReturnValue({ library: libraryWithRecords() } as ReturnType<typeof useLibraryQuery>)
+})
+
+describe('findLibraryMatches', () => {
+  it('matches active anime, themes, and playlists with per-kind bounds', () => {
+    const library = libraryWithRecords()
+    const matches = findLibraryMatches(library, 'naruto')
+
+    expect(matches.anime).toHaveLength(1)
+    expect(matches.anime[0].title).toBe('Naruto')
+    expect(matches.playlists[0].name).toBe('Naruto Favorites')
+    expect(matches.themes).toHaveLength(0)
+
+    const large = { ...library, animeById: Object.fromEntries(Array.from({ length: 100 }, (_, index) => [String(index), { ...library.animeById.a1, kitsuId: String(index), title: `Naruto ${index}` }])) }
+    expect(findLibraryMatches(large, 'naruto').anime).toHaveLength(MAX_LIBRARY_RESULTS.anime)
+  })
+
+  it('normalizes nested and malformed server payloads without throwing', () => {
+    expect(parseMusicSearchResponse({ music: { releases: [{ release: { title: 'Album' } }], tracks: [{ track: { title: 'Song' } }] } }).releases).toHaveLength(1)
+    expect(parseMusicSearchResponse({ releases: 'not an array', tracks: null })).toEqual({ releases: [], tracks: [] })
+  })
+})
+
+describe('SearchPage', () => {
+  it('reads the router query, debounces the server request, and combines bounded local matches', async () => {
+    vi.useFakeTimers()
+    mockedGet.mockResolvedValue({
+      tracks: [{ anime: { title: 'Naruto' }, releaseTitle: 'Best Collection', track: { id: 10, title: 'Blue Bird', artistCredit: 'Ikimonogakari' } }],
+      releases: [{ anime: [{ title: 'Naruto' }], release: { id: 20, title: 'Naruto Collection', artistCredit: 'Various', tracks: [] } }],
+    })
+
+    const onPlayTrack = vi.fn()
+    render(<MemoryRouter initialEntries={['/search?q=naruto']}><SearchPage onPlayTrack={onPlayTrack} /></MemoryRouter>)
+    expect(screen.getByRole('heading', { name: 'Search' })).toBeInTheDocument()
+    expect(screen.getByText('Naruto Favorites')).toBeInTheDocument()
+    expect(mockedGet).not.toHaveBeenCalled()
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(299) })
+    expect(mockedGet).not.toHaveBeenCalled()
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    expect(mockedGet).toHaveBeenCalledWith('/v1/search?q=naruto')
+    await act(async () => { await vi.runAllTimersAsync(); await Promise.resolve() })
+    expect(screen.getByText('Blue Bird')).toBeInTheDocument()
+    expect(screen.getByText('Naruto Collection')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Play Blue Bird' }))
+    expect(onPlayTrack).toHaveBeenCalledWith(expect.objectContaining({ releaseTitle: 'Best Collection' }))
+  })
+
+  it('links local anime and playlists and delegates local theme playback', () => {
+    const library = libraryWithRecords()
+    library.animeById.a1.title = 'Blue Naruto'
+    library.playlistsById['3'].name = 'Blue Favorites'
+    const onPlayTheme = vi.fn()
+    mockedGet.mockResolvedValue({ releases: [], tracks: [] })
+    render(<MemoryRouter initialEntries={['/search?q=blue']}><SearchPage library={library} onPlayTheme={onPlayTheme} /></MemoryRouter>)
+
+    expect(screen.getByRole('link', { name: 'Blue Naruto' })).toHaveAttribute('href', '/anime/a1')
+    expect(screen.getByRole('link', { name: 'Blue Favorites' })).toHaveAttribute('href', '/playlist/3')
+    fireEvent.click(screen.getByRole('button', { name: 'Play Blue Bird' }))
+    expect(onPlayTheme).toHaveBeenCalledWith(expect.objectContaining({ id: 2, title: 'Blue Bird' }))
+  })
+
+  it('does not call the server for an empty query and explains the empty state', () => {
+    render(<MemoryRouter initialEntries={['/search']}><SearchPage /></MemoryRouter>)
+    expect(screen.getByText(/search your anime soundtrack/i)).toBeInTheDocument()
+    expect(mockedGet).not.toHaveBeenCalled()
+  })
+
+  it('shows loading and a sanitized error without exposing raw service details', async () => {
+    vi.useFakeTimers()
+    let rejectRequest: ((reason?: unknown) => void) | undefined
+    mockedGet.mockReturnValue(new Promise((_resolve, reject) => { rejectRequest = reject }))
+
+    render(<MemoryRouter initialEntries={['/search?q=broken']}><SearchPage /></MemoryRouter>)
+    await act(async () => { await vi.advanceTimersByTimeAsync(300) })
+    expect(screen.getByRole('status')).toHaveTextContent(/searching/i)
+    await act(async () => { rejectRequest?.(new Error('SQL password leaked')); await Promise.resolve() })
+    expect(screen.getByRole('alert')).toHaveTextContent(/could not complete search/i)
+    expect(screen.queryByText(/SQL password leaked/i)).not.toBeInTheDocument()
+  })
+
+  it('shows a useful no-results state after an empty server response', async () => {
+    vi.useFakeTimers()
+    mockedGet.mockResolvedValue({ releases: [], tracks: [] })
+    mockedUseLibraryQuery.mockReturnValue({ library: createEmptyLibrary() } as ReturnType<typeof useLibraryQuery>)
+    render(<MemoryRouter initialEntries={['/search?q=unknown']}><SearchPage /></MemoryRouter>)
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); await Promise.resolve() })
+    expect(screen.getByText(/no matches found/i)).toBeInTheDocument()
+  })
+})
