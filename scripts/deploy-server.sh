@@ -71,7 +71,10 @@ fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 server_dir="$repo_root/server"
+web_dir="$repo_root/web"
 remote_docker_dir="$remote_docker_root/$app_name"
+remote_server_dir="$remote_docker_dir/server"
+remote_web_dir="$remote_docker_dir/web"
 remote_data_dir="$remote_data_root/$app_name"
 remote_archive="/tmp/$app_name-deploy.tgz"
 
@@ -81,7 +84,10 @@ case $(quote_sh "$remote_docker_dir") in
   $(quote_sh "${remote_docker_root%/}")/*) ;;
   *) echo \"Refusing to deploy outside $remote_docker_root: $remote_docker_dir\" >&2; exit 2 ;;
 esac
-mkdir -p $(quote_sh "$remote_docker_dir") $(quote_sh "$remote_data_dir/media") $(quote_sh "$remote_data_dir/postgres")
+mkdir -p $(quote_sh "$remote_server_dir") $(quote_sh "$remote_web_dir") $(quote_sh "$remote_data_dir/media") $(quote_sh "$remote_data_dir/postgres")
+if [ -f $(quote_sh "$remote_docker_dir/.env") ] && [ ! -f $(quote_sh "$remote_server_dir/.env") ]; then
+  cp $(quote_sh "$remote_docker_dir/.env") $(quote_sh "$remote_server_dir/.env")
+fi
 "
 
 if [ "$dry_run" -eq 1 ]; then
@@ -106,12 +112,15 @@ if command -v rsync >/dev/null 2>&1; then
   if [ "$dry_run" -eq 1 ]; then
     rsync_args+=(--dry-run --itemize-changes)
   fi
-  rsync "${rsync_args[@]}" "$server_dir/" "$ssh_target:$remote_docker_dir/"
+  rsync "${rsync_args[@]}" "$server_dir/" "$ssh_target:$remote_server_dir/"
+  rsync "${rsync_args[@]}" "$web_dir/" "$ssh_target:$remote_web_dir/"
 else
   archive_path="${TMPDIR:-/tmp}/$app_name-deploy.tgz"
-  tar -czf "$archive_path" -C "$server_dir" \
-    Dockerfile docker-compose.yml docker-compose.lan.yml package.json package-lock.json \
-    tsconfig.json drizzle src .dockerignore .env.example README.md
+  tar -czf "$archive_path" \
+    --exclude=server/node_modules --exclude=server/dist --exclude=server/test \
+    --exclude=server/.env --exclude='server/.env.*' \
+    --exclude=web/node_modules --exclude=web/dist --exclude=web/coverage \
+    -C "$repo_root" server web .dockerignore
   if [ "$dry_run" -eq 1 ]; then
     echo "Dry run: would upload $archive_path to $ssh_target:$remote_archive and extract into $remote_docker_dir"
   else
@@ -119,7 +128,7 @@ else
     ssh "$ssh_target" "
 set -eu
 cd $(quote_sh "$remote_docker_dir")
-rm -rf src drizzle dist
+rm -rf server/src server/drizzle server/dist web
 tar -xzf $(quote_sh "$remote_archive")
 rm -f $(quote_sh "$remote_archive")
 "
@@ -129,9 +138,9 @@ fi
 
 if [ -n "$env_file" ]; then
   if [ "$dry_run" -eq 1 ]; then
-    echo "Dry run: would copy $env_file to $ssh_target:$remote_docker_dir/.env"
+    echo "Dry run: would copy $env_file to $ssh_target:$remote_server_dir/.env"
   else
-    scp "$env_file" "$ssh_target:$remote_docker_dir/.env"
+    scp "$env_file" "$ssh_target:$remote_server_dir/.env"
   fi
 fi
 
@@ -142,11 +151,11 @@ fi
 
 remote_deploy="
 set -eu
-cd $(quote_sh "$remote_docker_dir")
+cd $(quote_sh "$remote_server_dir")
 export ONGAKU_DATA_ROOT=$(quote_sh "$remote_data_dir")
 export ONGAKU_SERVER_HOST_PORT=$(quote_sh "$host_port")
 if [ ! -f .env ] && [ \"$allow_default_env\" != \"1\" ]; then
-  echo \"Missing $remote_docker_dir/.env. Pass --env-file <path> once, or use --allow-default-env intentionally.\" >&2
+  echo \"Missing $remote_server_dir/.env. Pass --env-file <path> once, or use --allow-default-env intentionally.\" >&2
   exit 3
 fi
 if docker compose version >/dev/null 2>&1; then

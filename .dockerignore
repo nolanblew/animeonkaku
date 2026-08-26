@@ -1,0 +1,13 @@
+.git
+.codex
+**/node_modules
+**/dist
+**/coverage
+**/artifacts
+server/.env
+server/.env.*
+server/test
+web/src/**/*.test.*
+src
+planning
+prototypes
