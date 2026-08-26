@@ -7,6 +7,7 @@ import {
   PlayerProvider,
   mapSongToQueueItem,
   mapThemeToQueueItem,
+  queueItemAudioUrl,
   resolveAudioUrl,
   usePlayer,
 } from './index'
@@ -92,6 +93,8 @@ describe('queue item mappings and protected media URLs', () => {
     })
     expect(mapped.itemType).toBe('SONG')
     expect(mapped.audioUrl).toBe('/v1/media/audio/song-8')
+    expect(queueItemAudioUrl(mapped, 'TV_SIZE')).toBeUndefined()
+    expect(queueItemAudioUrl(mapped, 'FULL_SIZE')).toBe('/v1/media/audio/song-8')
     expect(resolveAudioUrl(mapped.audioUrl!)).toBe('/api/v1/media/audio/song-8')
     expect(resolveAudioUrl('https://cdn.example/song.m4a')).toBe('https://cdn.example/song.m4a')
   })
