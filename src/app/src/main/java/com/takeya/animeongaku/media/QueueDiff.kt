@@ -158,13 +158,11 @@ fun computeQueueOpsPreservingCurrent(
 
     val ops = mutableListOf<QueueOp>()
     val working = old.toMutableList()
-    if (oldCurrentIndex != desiredCurrentIndex) {
-        ops += QueueOp.Move(oldCurrentIndex, desiredCurrentIndex)
-        val current = working.removeAt(oldCurrentIndex)
-        working.add(desiredCurrentIndex, current)
-    }
-
-    val beforeOld = working.subList(0, desiredCurrentIndex).toList()
+    // Reconcile the prefix before touching the suffix. Adding/removing entries before the
+    // active occurrence naturally shifts it to [desiredCurrentIndex] without removing it.
+    // This also handles cold startup, where Media3 may contain only the current item while
+    // the restored authoritative queue places that item far beyond the controller's size.
+    val beforeOld = working.subList(0, oldCurrentIndex).toList()
     val beforeNew = new.subList(0, desiredCurrentIndex)
     val beforeOps = computeQueueOps(beforeOld, beforeNew)
     ops += beforeOps
