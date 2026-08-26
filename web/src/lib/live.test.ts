@@ -111,4 +111,28 @@ describe('LibraryLiveClient', () => {
     expect(fetchMock).toHaveBeenCalledWith('/v1/changes?since=9')
     client.stop()
   })
+
+  it('periodically reconciles deltas even while the live stream is healthy', async () => {
+    vi.useFakeTimers()
+    const fetchChanges = vi.fn().mockResolvedValue({ serverTime: 52, anime: [], themes: [], prefs: [], songPrefs: [], playlists: [] })
+    const onChanges = vi.fn()
+    const client = new LibraryLiveClient({
+      eventSourceFactory: (url, options) => new FakeEventSource(url, options),
+      fetchChanges,
+      onChange: vi.fn(),
+      onChanges,
+      fallbackPollMs: 50,
+    })
+
+    client.start(41)
+    FakeEventSource.instances[0]!.onopen?.()
+    await vi.advanceTimersByTimeAsync(50)
+
+    expect(fetchChanges).toHaveBeenCalledWith(41)
+    expect(onChanges).toHaveBeenCalledWith(expect.objectContaining({ serverTime: 52 }))
+
+    client.stop()
+    await vi.advanceTimersByTimeAsync(500)
+    expect(fetchChanges).toHaveBeenCalledTimes(1)
+  })
 })
