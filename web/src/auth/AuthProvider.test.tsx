@@ -23,7 +23,7 @@ function Probe() {
 
 function renderAuth() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={queryClient}><AuthProvider><Probe /></AuthProvider></QueryClientProvider>)
+  return { ...render(<QueryClientProvider client={queryClient}><AuthProvider><Probe /></AuthProvider></QueryClientProvider>), queryClient }
 }
 
 afterEach(() => vi.restoreAllMocks())
@@ -48,7 +48,10 @@ describe('AuthProvider', () => {
     const patch = vi.spyOn(apiClient, 'patch').mockResolvedValue({ profile: { displayName: 'Nolan', avatarUrl: null } })
     const postRaw = vi.spyOn(apiClient, 'postRaw').mockResolvedValue({ profile: { displayName: 'Nolan', avatarUrl: '/api/auth/profile/avatar' } })
     const request = vi.spyOn(apiClient, 'request').mockResolvedValue({ profile: { displayName: 'Nolan', avatarUrl: null } })
-    renderAuth()
+    const { queryClient } = renderAuth()
+    queryClient.setQueryData(['playlists'], [{ id: 7, name: 'Previous account' }])
+    queryClient.setQueryData(['playlist', 7], { id: 7, name: 'Previous account' })
+    queryClient.setQueryData(['home'], { sections: [{ id: 'private' }] })
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'))
 
     const user = userEvent.setup()
@@ -70,5 +73,8 @@ describe('AuthProvider', () => {
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'))
     expect(post).toHaveBeenLastCalledWith('/auth/logout')
     expect(get).toHaveBeenCalled()
+    expect(queryClient.getQueryData(['playlists'])).toBeUndefined()
+    expect(queryClient.getQueryData(['playlist', 7])).toBeUndefined()
+    expect(queryClient.getQueryData(['home'])).toBeUndefined()
   })
 })
