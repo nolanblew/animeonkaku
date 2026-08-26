@@ -21,6 +21,11 @@ import { registerMusicOperatorRoutes, type MusicOperatorApiService } from "./mus
 import { registerWebAuthRoutes, registerWebBodyParsers } from "./api/webAuthRoutes.js";
 import { parseCookieHeader, WEB_SESSION_COOKIE } from "./api/requireAuth.js";
 import type { UserProfileApi } from "./auth/profile.js";
+import {
+  isSpaNavigationRequest,
+  registerWebStaticHosting,
+  sendIndex,
+} from "./web/staticHosting.js";
 
 export interface AppDeps {
   authService: AuthService;
@@ -39,6 +44,9 @@ export interface AppDeps {
   webAuth?: {
     profile: UserProfileApi;
     secureCookies?: boolean;
+  };
+  web?: {
+    distPath: string;
   };
   onLogin?: (result: LoginResult) => Promise<void>;
   /**
@@ -104,7 +112,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     return reply.code(500).send(errorEnvelope("INTERNAL", "Internal server error."));
   });
 
-  app.setNotFoundHandler((_request, reply) => {
+  app.setNotFoundHandler((request, reply) => {
+    if (deps.web && isSpaNavigationRequest(request)) return sendIndex(reply);
     reply.code(404).send(errorEnvelope("NOT_FOUND", "Route not found."));
   });
 
@@ -121,6 +130,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     },
     { prefix: "/api" },
   );
+  if (deps.web) registerWebStaticHosting(app, deps.web.distPath);
 
   return app;
 }
