@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { apiClient } from '../lib/api'
 
 export const AUTH_QUERY_KEY = ['auth', 'me'] as const
+const ACCOUNT_QUERY_PREFIXES = [['library'], ['playlists'], ['playlist'], ['home'], ['anime'], ['anime-music']] as const
 
 export interface AuthProfile {
   displayName: string | null
@@ -127,7 +128,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoginSession(null)
       setHasLoggedOut(true)
       setFirstSync({ status: 'idle', mode: null, syncMode: null, isNewUser: false })
-      queryClient.removeQueries({ queryKey: ['library'] })
+      for (const queryKey of ACCOUNT_QUERY_PREFIXES) queryClient.removeQueries({ queryKey })
+      queryClient.getMutationCache().clear()
       queryClient.removeQueries({ queryKey: AUTH_QUERY_KEY })
     }
     if (failure) throw failure
