@@ -95,6 +95,7 @@ export function useLibraryQuery(options: UseLibraryQueryOptions = {}) {
 export function invalidateCategories(categories: readonly LiveChangeCategory[], client: QueryClient = queryClient): void {
   if (categories.includes('library') || categories.includes('playlist')) {
     void client.invalidateQueries({ queryKey: LIBRARY_QUERY_KEY })
+    void client.invalidateQueries({ queryKey: ['home'] })
   }
   if (categories.includes('playlist')) {
     void client.invalidateQueries({ queryKey: ['playlists'] })
