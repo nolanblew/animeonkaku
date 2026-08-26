@@ -18,6 +18,9 @@ import type { LegacyLibraryImportService } from "./legacyLibraryImport.js";
 import { registerSyncRoutes, type SyncApiService } from "./api/syncRoutes.js";
 import { registerMusicRequestRoutes, type MusicRequestService } from "./music/requests/index.js";
 import { registerMusicOperatorRoutes, type MusicOperatorApiService } from "./music/operator/index.js";
+import { registerWebAuthRoutes, registerWebBodyParsers } from "./api/webAuthRoutes.js";
+import { parseCookieHeader, WEB_SESSION_COOKIE } from "./api/requireAuth.js";
+import type { UserProfileApi } from "./auth/profile.js";
 
 export interface AppDeps {
   authService: AuthService;
@@ -33,6 +36,10 @@ export interface AppDeps {
   musicSearchSettings?: MusicSearchSettingsApi;
   adminDashboard?: AdminDashboardApi;
   adminPassword?: string;
+  webAuth?: {
+    profile: UserProfileApi;
+    secureCookies?: boolean;
+  };
   onLogin?: (result: LoginResult) => Promise<void>;
   /**
    * Fires after every request that carried a valid session (post-response, so
@@ -43,10 +50,25 @@ export interface AppDeps {
 }
 
 export function buildApp(deps: AppDeps): FastifyInstance {
-  const app = Fastify({ logger: deps.logger ?? false });
+  const app = Fastify({ logger: deps.logger ?? false, bodyLimit: 3 * 1024 * 1024 });
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+  registerWebBodyParsers(app);
+
+  // Cookies are automatically attached by browsers, so every state-changing
+  // /api request carrying the web session must prove same-origin intent. A
+  // bearer-authenticated Android request is unaffected by this check.
+  app.addHook("onRequest", async (request, reply) => {
+    if (!request.url.startsWith("/api/") || !["POST", "PUT", "PATCH", "DELETE"].includes(request.method)) {
+      return;
+    }
+    const cookie = parseCookieHeader(request.headers.cookie ?? "").get(WEB_SESSION_COOKIE);
+    if (!cookie) return;
+    if (!isSameOriginRequest(request)) {
+      return reply.code(403).send(errorEnvelope("CSRF_ORIGIN_REQUIRED", "A same-origin request is required."));
+    }
+  });
 
   if (deps.onAuthenticatedRequest) {
     const onAuthenticatedRequest = deps.onAuthenticatedRequest;
@@ -91,10 +113,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     if (!deps.adminPassword) throw new Error("ADMIN_PASSWORD is required when the admin dashboard is enabled.");
     registerAdminRoutes(app, deps.musicSearchSettings, deps.adminPassword, deps.adminDashboard);
   }
-  registerApiRoutes(app, deps);
+  registerApiRoutes(app, deps, false);
   app.register(
     (api, _opts, done) => {
-      registerApiRoutes(api, deps);
+      registerApiRoutes(api, deps, true);
       done();
     },
     { prefix: "/api" },
@@ -103,7 +125,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   return app;
 }
 
-function registerApiRoutes(app: FastifyInstance, deps: AppDeps): void {
+function registerApiRoutes(app: FastifyInstance, deps: AppDeps, webPrefix: boolean): void {
+  if (webPrefix && deps.webAuth) {
+    registerWebAuthRoutes(app, deps.authService, {
+      profile: deps.webAuth.profile,
+      onLogin: deps.onLogin,
+      secureCookies: deps.webAuth.secureCookies,
+    });
+  }
   registerAuthRoutes(app, deps.authService, {
     onLogin: deps.onLogin,
     legacyLibraryImport: deps.legacyLibraryImport,
@@ -127,4 +156,26 @@ function registerApiRoutes(app: FastifyInstance, deps: AppDeps): void {
     registerMusicRequestRoutes(app, deps.authService, deps.musicRequests);
   }
   if (deps.musicOperator) registerMusicOperatorRoutes(app, deps.authService, deps.musicOperator);
+}
+
+function isSameOriginRequest(request: { headers: Record<string, string | string[] | undefined>; protocol: string }): boolean {
+  const origin = firstHeader(request.headers.origin);
+  const referer = firstHeader(request.headers.referer);
+  const candidate = origin ?? referer;
+  if (!candidate) return false;
+  try {
+    const candidateUrl = new URL(candidate);
+    const forwardedProto = firstHeader(request.headers["x-forwarded-proto"])?.split(",", 1)[0]?.trim();
+    const forwardedHost = firstHeader(request.headers["x-forwarded-host"])?.split(",", 1)[0]?.trim();
+    const protocol = forwardedProto || request.protocol;
+    const host = forwardedHost || firstHeader(request.headers.host);
+    if (!host) return false;
+    return candidateUrl.origin === new URL(`${protocol}://${host}`).origin;
+  } catch {
+    return false;
+  }
+}
+
+function firstHeader(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }

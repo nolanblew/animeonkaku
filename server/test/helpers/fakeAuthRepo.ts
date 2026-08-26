@@ -5,8 +5,11 @@ import {
   UpsertUserInput,
   UserRecord,
 } from "../../src/auth/types.js";
+import type { UserProfile, UserProfileRepo } from "../../src/auth/profile.js";
 
 interface StoredUser extends UserRecord {
+  displayName: string | null;
+  avatarPath: string | null;
   kitsuAccessToken: string;
   kitsuRefreshToken: string | null;
 }
@@ -15,7 +18,7 @@ interface StoredSession extends SessionRecord {
   tokenHash: string;
 }
 
-export class FakeAuthRepo implements AuthRepo {
+export class FakeAuthRepo implements AuthRepo, UserProfileRepo {
   users = new Map<string, StoredUser>();
   sessions = new Map<number, StoredSession>();
   private nextSessionId = 1;
@@ -25,6 +28,8 @@ export class FakeAuthRepo implements AuthRepo {
     const user: StoredUser = {
       kitsuUserId: input.kitsuUserId,
       username: input.username,
+      displayName: existing?.displayName ?? null,
+      avatarPath: existing?.avatarPath ?? null,
       kitsuAuthState: "OK",
       lastSyncAt: existing?.lastSyncAt ?? null,
       kitsuAccessToken: input.kitsuAccessToken,
@@ -77,5 +82,18 @@ export class FakeAuthRepo implements AuthRepo {
 
   async listSessions(userId: string): Promise<SessionRecord[]> {
     return [...this.sessions.values()].filter((s) => s.userId === userId);
+  }
+
+  async getUserProfile(userId: string): Promise<UserProfile | null> {
+    const user = this.users.get(userId);
+    return user ? { displayName: user.displayName, avatarPath: user.avatarPath } : null;
+  }
+
+  async updateUserProfile(userId: string, patch: Partial<UserProfile>): Promise<UserProfile | null> {
+    const user = this.users.get(userId);
+    if (!user) return null;
+    if (patch.displayName !== undefined) user.displayName = patch.displayName;
+    if (patch.avatarPath !== undefined) user.avatarPath = patch.avatarPath;
+    return { displayName: user.displayName, avatarPath: user.avatarPath };
   }
 }

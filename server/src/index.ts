@@ -12,6 +12,7 @@ import { CachedProxyService } from "./api/proxyRoutes.js";
 import { UpstreamProxyService } from "./api/upstreamProxyService.js";
 import { AuthService } from "./auth/service.js";
 import { DrizzleAuthRepo } from "./auth/drizzleAuthRepo.js";
+import { DrizzleUserProfileRepo, UserProfileService } from "./auth/profile.js";
 import { StubKitsuAuthClient } from "./auth/stubKitsuAuthClient.js";
 import { loadConfig } from "./config.js";
 import { createDb } from "./db/client.js";
@@ -99,6 +100,8 @@ const fullSizeReimportHandlers = createFullSizeReimportHandlers({
 });
 const amfDeliveryRepo = new PgAmfDeliveryRepository(pool);
 const syncRepo = new DrizzleSyncRepository(db);
+const authRepo = new DrizzleAuthRepo(db);
+const profileService = new UserProfileService(new DrizzleUserProfileRepo(db), config.MEDIA_ROOT);
 
 // Each upstream host shares one politeness budget (bucket) and one breaker
 // across two lanes: "interactive" for request/response paths a client is
@@ -292,9 +295,13 @@ const deviceActivitySync = new DeviceActivitySyncTrigger({ queue: jobQueue });
 
 const app = buildApp({
   authService: new AuthService(
-    new DrizzleAuthRepo(db),
+    authRepo,
     kitsuAuthClient,
   ),
+  webAuth: {
+    profile: profileService,
+    secureCookies: config.NODE_ENV === "production",
+  },
   health: {
     pingDb: async () => {
       await pool.query("SELECT 1");
