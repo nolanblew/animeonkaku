@@ -40,6 +40,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Text
@@ -198,6 +199,13 @@ internal fun canSwipeQueueEntryToRemove(queueIndex: Int, currentIndex: Int): Boo
 
 internal fun queueSwipeDismissThreshold(totalDistance: Float): Float =
     totalDistance * 0.50f
+
+internal fun canQueueSwipeSettleToDismiss(
+    enabled: Boolean,
+    currentOffset: Float,
+    totalDistance: Float
+): Boolean =
+    enabled && currentOffset <= -queueSwipeDismissThreshold(totalDistance)
 
 internal fun shouldRemoveQueueEntryAfterSwipeSettles(
     enabled: Boolean,
@@ -568,11 +576,17 @@ private fun SwipeToRemoveQueueRow(
     val enabled = canSwipeQueueEntryToRemove(queueIndex, currentIndex)
     val currentEnabled by rememberUpdatedState(enabled)
     val currentOnRemove by rememberUpdatedState(onRemove)
-    val dismissState = rememberSwipeToDismissBoxState(
+    var rowWidthPx by remember { mutableIntStateOf(0) }
+    lateinit var dismissState: SwipeToDismissBoxState
+    dismissState = rememberSwipeToDismissBoxState(
         positionalThreshold = ::queueSwipeDismissThreshold,
         confirmValueChange = { value ->
             when (value) {
-                SwipeToDismissBoxValue.EndToStart -> currentEnabled
+                SwipeToDismissBoxValue.EndToStart -> canQueueSwipeSettleToDismiss(
+                    enabled = currentEnabled,
+                    currentOffset = dismissState.requireOffset(),
+                    totalDistance = rowWidthPx.toFloat()
+                )
                 SwipeToDismissBoxValue.StartToEnd -> false
                 SwipeToDismissBoxValue.Settled -> true
             }
@@ -595,7 +609,9 @@ private fun SwipeToRemoveQueueRow(
 
     SwipeToDismissBox(
         state = dismissState,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .onSizeChanged { rowWidthPx = it.width },
         enableDismissFromStartToEnd = false,
         enableDismissFromEndToStart = enabled,
         backgroundContent = {
