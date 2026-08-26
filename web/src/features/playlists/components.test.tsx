@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import type { PlaylistDto } from '../../lib/library'
-import { PlaylistDetail, PlaylistList, PlaylistManager } from './components'
+import { PlaylistDetail, PlaylistEditor, PlaylistList, PlaylistManager } from './components'
 
 const playlist = (overrides: Partial<PlaylistDto> = {}): PlaylistDto => ({
   id: 2,
@@ -67,5 +67,54 @@ describe('playlist components', () => {
     await userEvent.click(screen.getByRole('button', { name: /new playlist/i }))
     expect(screen.getByRole('dialog', { name: /create playlist/i })).toBeInTheDocument()
     expect(screen.getByLabelText(/dynamic playlist/i)).toBeInTheDocument()
+  })
+
+  it('lets users switch to nested include/exclude logic, reorder sort keys, and choose snapshot mode', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    renderWithQuery(<PlaylistEditor onSubmit={onSubmit} />)
+    await userEvent.type(screen.getByRole('textbox', { name: /playlist name/i }), 'Smart mix')
+    await userEvent.click(screen.getByRole('checkbox', { name: /dynamic playlist/i }))
+    await userEvent.click(screen.getByRole('button', { name: /move sort key 2 up/i }))
+    await userEvent.click(screen.getByRole('radio', { name: /advanced logic/i }))
+    expect(screen.getByRole('heading', { name: /include rules/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /exclude rules/i })).toBeInTheDocument()
+    const exclude = screen.getByRole('heading', { name: /exclude rules/i }).closest('section')
+    expect(exclude).not.toBeNull()
+    await userEvent.click(within(exclude as HTMLElement).getByRole('button', { name: /add rule/i }))
+    expect(screen.getByText(/excluded/i)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /add group/i }))
+    expect(screen.getByText(/or group/i)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('radio', { name: /snapshot these tracks/i }))
+    expect(screen.getByText(/current tracks are kept as a fixed snapshot/i)).toBeInTheDocument()
+    expect(screen.getByText(/expert json \(recovery\)/i)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /create playlist/i }))
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      dynamicSortJson: { keys: [{ attribute: 'TITLE', direction: 'ASC' }, { attribute: 'WATCHED_DATE', direction: 'DESC' }] },
+      autoUpdate: false,
+    }))
+  })
+
+  it('loads an existing mobile/server envelope into structured controls and saves a compatible payload', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    renderWithQuery(<PlaylistEditor playlist={playlist({
+      isDynamic: true,
+      autoUpdate: true,
+      dynamicSpecJson: {
+        filterJson: { type: 'and', children: [{ type: 'not', child: { type: 'liked' } }] },
+        mode: 'AUTO',
+        createdMode: 'ADVANCED',
+        schemaVersion: 1,
+        simpleStateJson: null,
+      },
+      dynamicSortJson: { keys: [{ attribute: 'TITLE', direction: 'ASC' }] },
+    })} onSubmit={onSubmit} />)
+    expect(screen.getByRole('radio', { name: /advanced logic/i })).toBeChecked()
+    expect(screen.getByText(/not \/ excluded/i)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /save changes/i }))
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      dynamicSpecJson: expect.objectContaining({ mode: 'AUTO', createdMode: 'ADVANCED', schemaVersion: 1 }),
+      dynamicSortJson: { keys: [{ attribute: 'TITLE', direction: 'ASC' }] },
+      autoUpdate: true,
+    }))
   })
 })

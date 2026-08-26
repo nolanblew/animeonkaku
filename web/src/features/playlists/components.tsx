@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { PlaylistDto, PlaylistPlaybackMode } from '../../lib/library'
-import { buildPlaylistUpdate, formatJsonEditorValue, normalizePlaylistItems, parseJsonEditorValue, removePlaylistItem, reorderPlaylistItems, sanitizePlaylistName, validatePlaylistForm, type PlaylistEditorValues, type PlaylistEntryModel, type PlaylistFormErrors, type PlaylistUpdateInput } from './model'
+import { DynamicPlaylistBuilder } from './dynamicBuilder'
+import { buildPlaylistUpdate, createDefaultSimpleFilter, DEFAULT_ADVANCED_FILTER, DEFAULT_SORT_SPEC, deserializeDynamicSpec, deserializeSortSpec, formatJsonEditorValue, normalizePlaylistItems, parseJsonEditorValue, removePlaylistItem, reorderPlaylistItems, sanitizePlaylistName, validatePlaylistForm, type DynamicCreatedMode, type DynamicPlaylistMode, type FilterNodeJson, type PlaylistEditorValues, type PlaylistEntryModel, type PlaylistFormErrors, type PlaylistUpdateInput, type SimpleFilterState, type SortSpecJson } from './model'
 import type { PlaylistCreateInput } from './api'
 import './playlists.css'
 
@@ -76,6 +77,12 @@ const emptyEditorValues: PlaylistEditorValues = {
 export function PlaylistEditor({ playlist, onSubmit, onCancel }: PlaylistEditorProps) {
   const [values, setValues] = useState<PlaylistEditorValues>(() => playlist ? editorValuesFor(playlist) : emptyEditorValues)
   const [items, setItems] = useState<PlaylistEntryModel[]>(() => playlist ? normalizePlaylistItems(playlist) : [])
+  const initialStructured = structuredEditorFor(playlist)
+  const [createdMode, setCreatedMode] = useState<DynamicCreatedMode>(initialStructured.createdMode)
+  const [dynamicMode, setDynamicMode] = useState<DynamicPlaylistMode>(initialStructured.dynamicMode)
+  const [simpleFilter, setSimpleFilter] = useState<SimpleFilterState>(initialStructured.simpleFilter)
+  const [advancedFilter, setAdvancedFilter] = useState<FilterNodeJson>(initialStructured.advancedFilter)
+  const [sortSpec, setSortSpec] = useState<SortSpecJson>(initialStructured.sortSpec)
   const [errors, setErrors] = useState<PlaylistFormErrors>({})
   const [saving, setSaving] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -83,6 +90,12 @@ export function PlaylistEditor({ playlist, onSubmit, onCancel }: PlaylistEditorP
   useEffect(() => {
     setValues(playlist ? editorValuesFor(playlist) : emptyEditorValues)
     setItems(playlist ? normalizePlaylistItems(playlist) : [])
+    const next = structuredEditorFor(playlist)
+    setCreatedMode(next.createdMode)
+    setDynamicMode(next.dynamicMode)
+    setSimpleFilter(next.simpleFilter)
+    setAdvancedFilter(next.advancedFilter)
+    setSortSpec(next.sortSpec)
   }, [playlist])
 
   const isCreate = playlist === undefined
@@ -90,14 +103,23 @@ export function PlaylistEditor({ playlist, onSubmit, onCancel }: PlaylistEditorP
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    const nextErrors = validatePlaylistForm(values)
+    const submitValues: PlaylistEditorValues = {
+      ...values,
+      createdMode,
+      dynamicMode,
+      simpleFilter,
+      advancedFilter,
+      sortSpec,
+      autoUpdate: dynamicMode === 'AUTO',
+    }
+    const nextErrors = validatePlaylistForm(submitValues)
     setErrors(nextErrors)
     setSubmitError(null)
     if (Object.keys(nextErrors).length > 0) return
     setSaving(true)
     try {
-      const update = buildPlaylistUpdate(values, items)
-      await onSubmit(isCreate ? { ...update, name: sanitizePlaylistName(values.name) } : update)
+      const update = buildPlaylistUpdate(submitValues, items)
+      await onSubmit(isCreate ? { ...update, name: sanitizePlaylistName(submitValues.name) } : update)
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : 'Could not save playlist.')
     } finally {
@@ -113,13 +135,29 @@ export function PlaylistEditor({ playlist, onSubmit, onCancel }: PlaylistEditorP
         <label className="playlist-field"><span>Default playback</span><select value={values.defaultMode} onChange={(event) => setValue('defaultMode', event.target.value as PlaylistPlaybackMode)}><option value="TV_SIZE">TV size</option><option value="FULL_SIZE">Full size</option></select></label>
         <label className="playlist-check"><input type="checkbox" checked={values.overrideUserPreference} onChange={(event) => setValue('overrideUserPreference', event.target.checked)} /><span>Use this mode over song preferences</span></label>
       </div>
-      <label className="playlist-check"><input aria-label="Dynamic playlist" type="checkbox" checked={values.isDynamic === true} onChange={(event) => setValue('isDynamic', event.target.checked)} /><span>Dynamic playlist (smart collection)</span></label>
+      <label className="playlist-check"><input aria-label="Dynamic playlist" type="checkbox" checked={values.isDynamic === true} onChange={(event) => { const checked = event.target.checked; setValue('isDynamic', checked); if (checked && !values.createdMode) { setCreatedMode('SIMPLE'); setValue('createdMode', 'SIMPLE') } }} /><span>Dynamic playlist (smart collection)</span></label>
       {values.isDynamic === true && <div className="playlist-editor__advanced">
-        <label className="playlist-check"><input type="checkbox" checked={values.autoUpdate} onChange={(event) => setValue('autoUpdate', event.target.checked)} /><span>Update automatically when the library changes</span></label>
-        <JsonEditor label="Filter JSON" value={values.dynamicSpecJson} error={errors.dynamicSpecJson} onChange={(value) => setValue('dynamicSpecJson', value)} placeholder={'{\n  "type": "liked"\n}'} />
-        <JsonEditor label="Sort JSON" value={values.dynamicSortJson} error={errors.dynamicSortJson} onChange={(value) => setValue('dynamicSortJson', value)} placeholder={'{\n  "keys": [{ "attribute": "TITLE", "direction": "ASC" }]\n}'} />
+        <DynamicPlaylistBuilder
+          createdMode={createdMode}
+          simpleFilter={simpleFilter}
+          advancedFilter={advancedFilter}
+          sortSpec={sortSpec}
+          dynamicMode={dynamicMode}
+          onCreatedModeChange={(mode) => { setCreatedMode(mode); setValue('createdMode', mode) }}
+          onSimpleFilterChange={(next) => { setSimpleFilter(next); setValue('simpleFilter', next) }}
+          onAdvancedFilterChange={(next) => { setAdvancedFilter(next); setValue('advancedFilter', next) }}
+          onSortSpecChange={(next) => { setSortSpec(next); setValue('sortSpec', next) }}
+          onDynamicModeChange={(mode) => { setDynamicMode(mode); setValue('dynamicMode', mode); setValue('autoUpdate', mode === 'AUTO') }}
+        />
+        <details className="playlist-expert-json">
+          <summary>Expert JSON (recovery)</summary>
+          <p className="playlist-muted">Use this only to recover a server/mobile spec the builder does not recognize. Structured controls remain the primary editor.</p>
+          <JsonEditor label="Filter JSON" value={values.dynamicSpecJson} error={errors.dynamicSpecJson} onChange={(value) => { setValue('dynamicSpecJson', value); setValue('useExpertJson', true) }} placeholder={'{\n  "filterJson": { "type": "liked" },\n  "mode": "AUTO"\n}'} />
+          <JsonEditor label="Sort JSON" value={values.dynamicSortJson} error={errors.dynamicSortJson} onChange={(value) => { setValue('dynamicSortJson', value); setValue('useExpertJson', true) }} placeholder={'{\n  "keys": [{ "attribute": "TITLE", "direction": "ASC" }]\n}'} />
+          {values.useExpertJson === true && <button type="button" className="playlist-button" onClick={() => setValue('useExpertJson', false)}>Return to builder controls</button>}
+        </details>
       </div>}
-      {!isCreate && <PlaylistItemsEditor items={items} onChange={setItems} />}
+      {!isCreate && <PlaylistItemsEditor items={items} onChange={setItems} readOnly={Boolean(playlist?.isDynamic && dynamicMode === 'AUTO')} />}
       {submitError && <p className="playlist-field__error" role="alert">{submitError}</p>}
       <button type="submit" className="playlist-button playlist-button--primary" disabled={saving}>{saving ? 'Saving…' : isCreate ? 'Create playlist' : 'Save changes'}</button>
     </form>
@@ -217,6 +255,32 @@ function editorValuesFor(playlist: PlaylistDto): PlaylistEditorValues {
     dynamicSpecJson: formatJsonEditorValue(playlist.dynamicSpecJson),
     dynamicSortJson: formatJsonEditorValue(playlist.dynamicSortJson),
     isDynamic: playlist.isDynamic,
+  }
+}
+
+function structuredEditorFor(playlist?: PlaylistDto): {
+  createdMode: DynamicCreatedMode
+  dynamicMode: DynamicPlaylistMode
+  simpleFilter: SimpleFilterState
+  advancedFilter: FilterNodeJson
+  sortSpec: SortSpecJson
+} {
+  if (!playlist?.isDynamic) {
+    return {
+      createdMode: 'SIMPLE',
+      dynamicMode: 'AUTO',
+      simpleFilter: createDefaultSimpleFilter(),
+      advancedFilter: DEFAULT_ADVANCED_FILTER,
+      sortSpec: DEFAULT_SORT_SPEC,
+    }
+  }
+  const spec = deserializeDynamicSpec(playlist.dynamicSpecJson)
+  return {
+    createdMode: spec.createdMode,
+    dynamicMode: playlist.autoUpdate ? 'AUTO' : spec.mode === 'SNAPSHOT' ? 'SNAPSHOT' : 'SNAPSHOT',
+    simpleFilter: spec.simpleFilter ?? createDefaultSimpleFilter(),
+    advancedFilter: spec.filter,
+    sortSpec: playlist.dynamicSortJson === null ? spec.sort : deserializeSortSpec(playlist.dynamicSortJson),
   }
 }
 
