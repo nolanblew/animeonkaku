@@ -1,7 +1,8 @@
-import { useSearchParams, useParams } from 'react-router-dom'
+import { useNavigate, useSearchParams, useParams } from 'react-router-dom'
 import { ListMusic, MonitorPlay, Settings2, Sparkles } from 'lucide-react'
 import { RouteSkeleton, SearchPreview } from '../components/RouteSkeleton'
 import { AnimeDetailPage, HomeCatalogPage, LibraryCatalogPage } from '../features/catalog'
+import { PlaylistDetail, PlaylistFeatureMessage, PlaylistManager, usePlaylist, usePlaylistMutations, usePlaylists } from '../features/playlists'
 
 export function HomePage() {
   return <HomeCatalogPage />
@@ -22,7 +23,21 @@ export function AnimePage() {
 
 export function PlaylistPage() {
   const { playlistId } = useParams()
-  return <RouteSkeleton eyebrow="Playlist" title={playlistId ? playlistId.replaceAll('-', ' ') : 'Playlist'} description="Playlist tracks and playback actions will be wired to the server catalog here." icon={ListMusic} />
+  const navigate = useNavigate()
+  const id = playlistId && /^\d+$/.test(playlistId) ? Number(playlistId) : null
+  const query = usePlaylist(id)
+  const mutations = usePlaylistMutations()
+  if (id === null) return <RouteSkeleton eyebrow="Playlist" title="Playlist not found" description="Open a playlist from your library to continue." icon={ListMusic} />
+  if (query.isPending) return <PlaylistFeatureMessage>Loading playlist…</PlaylistFeatureMessage>
+  if (query.isError) return <PlaylistFeatureMessage>Could not load this playlist. Try again in a moment.</PlaylistFeatureMessage>
+  if (!query.playlist) return <RouteSkeleton eyebrow="Playlist" title="Playlist not found" description="This playlist may have been removed on another device." icon={ListMusic} />
+  return <PlaylistDetail playlist={query.playlist} onUpdate={mutations.update} onDelete={async (playlist) => { await mutations.remove(playlist); navigate('/playlists', { replace: true }) }} onBack={() => navigate('/playlists')} />
+}
+
+export function PlaylistsPage() {
+  const query = usePlaylists()
+  const mutations = usePlaylistMutations()
+  return <section className="page" aria-labelledby="playlists-page-title"><h1 id="playlists-page-title" className="sr-only">Playlists</h1><PlaylistManager playlists={query.playlists} state={query.isPending ? 'loading' : query.isError ? 'error' : query.playlists.length === 0 ? 'empty' : 'ready'} error={query.isError ? 'Could not load playlists.' : undefined} onCreate={mutations.create} onUpdate={mutations.update} onDelete={mutations.remove} /></section>
 }
 
 export function NowPlayingPage() {

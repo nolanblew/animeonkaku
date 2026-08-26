@@ -27,6 +27,11 @@ beforeEach(() => {
       themes: [],
     }
     if (path === '/v1/anime/16bit-sensation/music') return { anime: { kitsuId: '16bit-sensation', title: '16bit Sensation', titleEn: null, posterUrl: null }, releases: [] }
+    if (path === '/v1/playlists') return [{
+      id: 1, name: 'Currently Watching', entries: [], defaultMode: 'TV_SIZE', overrideUserPreference: false,
+      items: [], isAuto: false, isDynamic: false, autoUpdate: true, updatedAt: 100, deleted: false,
+      dynamicSpecJson: null, dynamicSortJson: null,
+    }]
     return { serverTime: 100, anime: [], themes: [], prefs: [], songPrefs: [], playlists: [] }
   })
 })
@@ -75,7 +80,7 @@ describe('web player app shell', () => {
     ['/library', /library/i],
     ['/search?q=bleach', /search/i],
     ['/anime/16bit-sensation', /16bit sensation/i],
-    ['/playlist/currently-watching', /currently watching/i],
+    ['/playlist/1', /currently watching/i],
     ['/now-playing', /pop life/i],
     ['/settings', /settings/i],
   ])('loads the lazy route at %s', async (path, heading) => {

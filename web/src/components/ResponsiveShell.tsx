@@ -1,11 +1,9 @@
 import {
-  Clock3,
   Bell,
   House,
   LibraryBig,
   ListMusic,
   Menu,
-  Music2,
   Search,
   UserRound,
   X,
@@ -20,12 +18,7 @@ const primaryNavigation = [
   { to: '/', label: 'Home', icon: House, end: true },
   { to: '/search', label: 'Search', icon: Search },
   { to: '/library', label: 'Library', icon: LibraryBig },
-]
-
-const playlistNavigation = [
-  { to: '/playlist/currently-watching', label: 'Currently Watching', icon: Clock3 },
-  { to: '/playlist/liked', label: '6 Months & Liked', icon: UserRound },
-  { to: '/playlist/anime-tracks', label: 'Anime Tracks', icon: Music2 },
+  { to: '/playlists', label: 'Playlists', icon: ListMusic },
 ]
 
 function NavigationLink({
@@ -93,13 +86,6 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
         <nav className="sidebar__nav" aria-label="Primary">
           <div className="nav-group">
             {primaryNavigation.map((item) => (
-              <NavigationLink key={item.to} {...item} onNavigate={closeNavigation} />
-            ))}
-          </div>
-          <div className="nav-divider" />
-          <div className="nav-group nav-group--playlists">
-            <p className="nav-heading">Your playlists</p>
-            {playlistNavigation.map((item) => (
               <NavigationLink key={item.to} {...item} onNavigate={closeNavigation} />
             ))}
           </div>

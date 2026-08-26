@@ -12,6 +12,7 @@ const LibraryPage = lazy(async () => import('../pages/Pages').then((module) => (
 const SearchPage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.SearchPage })))
 const AnimePage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.AnimePage })))
 const PlaylistPage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.PlaylistPage })))
+const PlaylistsPage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.PlaylistsPage })))
 const NowPlayingPage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.NowPlayingPage })))
 const SettingsPage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.SettingsPage })))
 
@@ -34,6 +35,7 @@ export function App() {
                   <Route path="search" element={<SearchPage />} />
                   <Route path="anime/:animeId" element={<AnimePage />} />
                   <Route path="playlist/:playlistId" element={<PlaylistPage />} />
+                  <Route path="playlists" element={<PlaylistsPage />} />
                   <Route path="now-playing" element={<NowPlayingPage />} />
                   <Route path="settings" element={<SettingsPage />} />
                   <Route path="error" element={<ErrorState details="The server returned an unexpected response." />} />
