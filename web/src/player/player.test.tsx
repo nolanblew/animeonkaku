@@ -149,6 +149,19 @@ describe('PlayerProvider', () => {
     expect(screen.getByTestId('player-video')).toHaveAttribute('src', 'https://cdn.example/only.webm')
   })
 
+  it('rebinds media events after the video element moves into the now-playing surface', async () => {
+    const store = new QueueStore()
+    store.play([item({ id: 'first' }), item({ id: 'second', title: 'Second Theme' })])
+    renderPlayer(store)
+
+    await act(async () => { fireEvent.click(screen.getAllByRole('button', { name: /^video$/i })[1]) })
+    const video = screen.getByTestId('player-video')
+    expect(screen.getByTestId('now-playing-video-surface')).toContainElement(video)
+
+    await act(async () => { fireEvent.ended(video) })
+    expect(screen.getByTestId('current')).toHaveTextContent('2')
+  })
+
   it('registers OS media-session metadata, actions, and a position state', async () => {
     const handlers = new Map<string, ((details?: unknown) => void) | null>()
     const session = {
