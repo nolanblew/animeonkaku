@@ -32,6 +32,16 @@ describe('interaction and safe error surfaces', () => {
     expect(screen.getByRole('heading', { name: /home content/i })).toBeInTheDocument()
   })
 
+  it('anchors the compact top-bar profile menu beside the button that opened it', () => {
+    render(<MemoryRouter initialEntries={['/']}><PlayerProvider><ResponsiveShell><h1>Home content</h1></ResponsiveShell></PlayerProvider></MemoryRouter>)
+
+    fireEvent.click(screen.getByRole('button', { name: /open profile menu/i }))
+
+    const menu = screen.getByRole('menu')
+    expect(menu).toHaveClass('topbar__profile-menu')
+    expect(menu.closest('.topbar__actions')).not.toBeNull()
+  })
+
   it('opens now playing from the mini-player track', () => {
     render(<MemoryRouter initialEntries={['/']}><MiniPlayer /></MemoryRouter>)
     expect(screen.getByRole('region', { name: /mini player/i })).toBeInTheDocument()
