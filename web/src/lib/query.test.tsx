@@ -44,6 +44,7 @@ describe('AppQueryProvider', () => {
       invalidateCategories(['library', 'playlist'])
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ['library'] })
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ['playlists'] })
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ['home'] })
     })
   })
 })
