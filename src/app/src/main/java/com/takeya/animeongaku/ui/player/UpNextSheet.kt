@@ -196,6 +196,14 @@ private fun queueIdFromKey(key: Any): Long? =
 internal fun canSwipeQueueEntryToRemove(queueIndex: Int, currentIndex: Int): Boolean =
     queueIndex > currentIndex
 
+internal fun queueSwipeDismissThreshold(totalDistance: Float): Float =
+    totalDistance * 0.50f
+
+internal fun shouldRemoveQueueEntryAfterSwipeSettles(
+    enabled: Boolean,
+    settledValue: SwipeToDismissBoxValue
+): Boolean = enabled && settledValue == SwipeToDismissBoxValue.EndToStart
+
 @Composable
 private fun UpNextContent(
     npState: NowPlayingState,
@@ -561,17 +569,25 @@ private fun SwipeToRemoveQueueRow(
     val currentEnabled by rememberUpdatedState(enabled)
     val currentOnRemove by rememberUpdatedState(onRemove)
     val dismissState = rememberSwipeToDismissBoxState(
+        positionalThreshold = ::queueSwipeDismissThreshold,
         confirmValueChange = { value ->
             when (value) {
-                SwipeToDismissBoxValue.EndToStart -> {
-                    if (currentEnabled) currentOnRemove()
-                    currentEnabled
-                }
+                SwipeToDismissBoxValue.EndToStart -> currentEnabled
                 SwipeToDismissBoxValue.StartToEnd -> false
                 SwipeToDismissBoxValue.Settled -> true
             }
         }
     )
+    LaunchedEffect(dismissState.currentValue) {
+        if (
+            shouldRemoveQueueEntryAfterSwipeSettles(
+                enabled = currentEnabled,
+                settledValue = dismissState.currentValue
+            )
+        ) {
+            currentOnRemove()
+        }
+    }
     val trashScale by animateFloatAsState(
         targetValue = if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) 1f else 0.72f,
         label = "Queue remove icon scale"
