@@ -59,6 +59,6 @@ function RequireAuth() {
 }
 
 function AuthenticatedShell() {
-  useLibraryQuery()
+  useLibraryQuery({ live: true })
   return <ResponsiveShell />
 }

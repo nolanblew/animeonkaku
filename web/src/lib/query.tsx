@@ -23,6 +23,8 @@ export const LIBRARY_QUERY_KEY = ['library'] as const
 
 export interface UseLibraryQueryOptions {
   enabled?: boolean
+  /** The authenticated shell owns the single process-wide SSE connection. */
+  live?: boolean
 }
 
 /**
@@ -34,6 +36,7 @@ export function useLibraryQuery(options: UseLibraryQueryOptions = {}) {
   const client = useQueryClient()
   const auth = useAuth()
   const queryEnabled = options.enabled === true || (options.enabled !== false && auth.status === 'authenticated')
+  const liveEnabled = options.live === true
   const query = useQuery<NormalizedLibrary>({
     queryKey: LIBRARY_QUERY_KEY,
     enabled: queryEnabled,
@@ -68,7 +71,7 @@ export function useLibraryQuery(options: UseLibraryQueryOptions = {}) {
   }, [client])
 
   useEffect(() => {
-    if (!queryEnabled || userId === null) return undefined
+    if (!queryEnabled || !liveEnabled || userId === null) return undefined
     const live = new LibraryLiveClient({
       url: apiClient.url('/v1/library/live'),
       initialCursor: client.getQueryData<NormalizedLibrary>(LIBRARY_QUERY_KEY)?.cursor ?? null,
@@ -84,7 +87,7 @@ export function useLibraryQuery(options: UseLibraryQueryOptions = {}) {
     return () => {
       live.stop()
     }
-  }, [auth.logout, categoryHandler, client, queryEnabled, userId])
+  }, [auth.logout, categoryHandler, client, liveEnabled, queryEnabled, userId])
 
   return { ...query, library: query.data ?? null }
 }

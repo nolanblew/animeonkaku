@@ -1,13 +1,14 @@
 import { useSearchParams, useParams } from 'react-router-dom'
-import { ListMusic, LibraryBig, MonitorPlay, Settings2, Sparkles } from 'lucide-react'
-import { RouteSkeleton, HomePreview, SearchPreview } from '../components/RouteSkeleton'
+import { ListMusic, MonitorPlay, Settings2, Sparkles } from 'lucide-react'
+import { RouteSkeleton, SearchPreview } from '../components/RouteSkeleton'
+import { AnimeDetailPage, HomeCatalogPage, LibraryCatalogPage } from '../features/catalog'
 
 export function HomePage() {
-  return <RouteSkeleton eyebrow="Good evening" title="Welcome back" description="A focused home for the anime themes you love."><HomePreview /></RouteSkeleton>
+  return <HomeCatalogPage />
 }
 
 export function LibraryPage() {
-  return <RouteSkeleton eyebrow="Your collection" title="Library" description="Your synced anime and saved themes will live here." icon={LibraryBig} />
+  return <LibraryCatalogPage />
 }
 
 export function SearchPage() {
@@ -16,8 +17,7 @@ export function SearchPage() {
 }
 
 export function AnimePage() {
-  const { animeId } = useParams()
-  return <RouteSkeleton eyebrow="Anime" title={animeId ? `Anime · ${animeId}` : 'Anime detail'} description="Anime artwork, metadata, and opening and ending themes will appear here." />
+  return <AnimeDetailPage />
 }
 
 export function PlaylistPage() {

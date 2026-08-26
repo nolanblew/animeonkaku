@@ -16,6 +16,17 @@ beforeEach(() => {
   queryClient.clear()
   vi.spyOn(apiClient, 'get').mockImplementation(async (path) => {
     if (path === '/auth/me') return authenticatedMe
+    if (path.startsWith('/v1/home')) return { serverTime: 100, continueWatching: [], recentlyAdded: [], playlists: [], nextCursor: null }
+    if (path === '/v1/anime/16bit-sensation') return {
+      anime: {
+        kitsuId: '16bit-sensation', title: '16bit Sensation', titleEn: null, titleRomaji: null, titleJa: null,
+        posterUrl: null, coverUrl: null, watchingStatus: 'CURRENT', subtype: 'TV', startDate: '2023-10-05',
+        endDate: null, episodeCount: 13, ageRating: null, averageRating: null, userRating: null,
+        libraryUpdatedAt: 100, slug: null, genres: [], updatedAt: 100, deleted: false, animeThemesId: 1,
+      },
+      themes: [],
+    }
+    if (path === '/v1/anime/16bit-sensation/music') return { anime: { kitsuId: '16bit-sensation', title: '16bit Sensation', titleEn: null, posterUrl: null }, releases: [] }
     return { serverTime: 100, anime: [], themes: [], prefs: [], songPrefs: [], playlists: [] }
   })
 })
@@ -63,7 +74,7 @@ describe('web player app shell', () => {
   it.each([
     ['/library', /library/i],
     ['/search?q=bleach', /search/i],
-    ['/anime/16bit-sensation', /anime · 16bit-sensation/i],
+    ['/anime/16bit-sensation', /16bit sensation/i],
     ['/playlist/currently-watching', /currently watching/i],
     ['/now-playing', /pop life/i],
     ['/settings', /settings/i],
