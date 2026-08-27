@@ -11,6 +11,27 @@ describe('interaction and safe error surfaces', () => {
     expect(sanitizeErrorDetails(new Error('token=abc password=hunter2 postgres://admin:secret@db'))).toBe('token: [redacted] password: [redacted] postgres://[redacted]')
   })
 
+  it('redacts quoted JSON secret fields without exposing their values', () => {
+    const sanitized = sanitizeErrorDetails('{"password":"hunter2","accessToken":"access-value","client_secret":"client-value","note":"safe"}')
+    expect(sanitized).toContain('"password":"[redacted]"')
+    expect(sanitized).toContain('"accessToken":"[redacted]"')
+    expect(sanitized).toContain('"client_secret":"[redacted]"')
+    expect(sanitized).toContain('"note":"safe"')
+    expect(sanitized).not.toMatch(/hunter2|access-value|client-value/)
+  })
+
+  it('redacts Bearer credentials', () => {
+    const sanitized = sanitizeErrorDetails('Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.secret-signature')
+    expect(sanitized).toContain('Bearer [redacted]')
+    expect(sanitized).not.toContain('eyJhbGciOiJIUzI1NiJ9.secret-signature')
+  })
+
+  it('redacts sensitive URL query parameters', () => {
+    const sanitized = sanitizeErrorDetails('https://example.test/callback?access_token=access-value&api_key=api-value&state=keep-this')
+    expect(sanitized).not.toMatch(/access-value|api-value/)
+    expect(sanitized).toContain('state=keep-this')
+  })
+
   it('shows a server retry action and expandable safe details', () => {
     const reload = vi.fn()
     render(<MemoryRouter><ErrorState details={new Error('secret=hidden')} onRetry={reload} /></MemoryRouter>)
