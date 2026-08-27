@@ -109,7 +109,10 @@ describe('playlist components', () => {
     expect(screen.getByRole('heading', { name: /what kind of playlist/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /manual playlist/i })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /smart playlist/i }))
-    expect(screen.getByRole('navigation', { name: /smart playlist steps/i })).toHaveTextContent('DetailsRulesReview')
+    const steps = screen.getByRole('navigation', { name: /smart playlist steps/i })
+    expect(steps).toHaveTextContent('Details')
+    expect(steps).toHaveTextContent('Rules')
+    expect(steps).toHaveTextContent('Review')
     expect(screen.getByRole('textbox', { name: /playlist name/i })).toBeInTheDocument()
   })
 
@@ -119,7 +122,7 @@ describe('playlist components', () => {
     await userEvent.click(screen.getByRole('button', { name: /manual playlist/i }))
     await userEvent.type(screen.getByRole('textbox', { name: /playlist name/i }), 'Favorites')
     await userEvent.click(screen.getByRole('button', { name: /create playlist/i }))
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ name: 'Favorites', isDynamic: false }))
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ name: 'Favorites', dynamicSpecJson: null }))
   })
 
   it('lets users switch to nested include/exclude logic, reorder sort keys, and choose snapshot mode', async () => {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { ArrowLeft, ArrowRight, Check, ListPlus, Sparkles } from 'lucide-react'
 import type { PlaylistDto, PlaylistPlaybackMode } from '../../lib/library'
 import { DynamicPlaylistBuilder } from './dynamicBuilder'
 import { buildPlaylistUpdate, createDefaultSimpleFilter, DEFAULT_ADVANCED_FILTER, DEFAULT_SORT_SPEC, deserializeDynamicSpec, deserializeSortSpec, formatJsonEditorValue, normalizePlaylistItems, parseJsonEditorValue, removePlaylistItem, reorderPlaylistItems, sanitizePlaylistName, validatePlaylistForm, type DynamicCreatedMode, type DynamicPlaylistMode, type FilterNodeJson, type PlaylistEditorValues, type PlaylistEntryModel, type PlaylistFormErrors, type PlaylistUpdateInput, type SimpleFilterState, type SortSpecJson } from './model'
@@ -104,6 +105,8 @@ export function PlaylistEditor({ playlist, onSubmit, onCancel }: PlaylistEditorP
   const [errors, setErrors] = useState<PlaylistFormErrors>({})
   const [saving, setSaving] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [creationKind, setCreationKind] = useState<'MANUAL' | 'SMART' | null>(() => playlist ? (playlist.isDynamic ? 'SMART' : 'MANUAL') : null)
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1)
 
   useEffect(() => {
     setValues(playlist ? editorValuesFor(playlist) : emptyEditorValues)
@@ -114,10 +117,22 @@ export function PlaylistEditor({ playlist, onSubmit, onCancel }: PlaylistEditorP
     setSimpleFilter(next.simpleFilter)
     setAdvancedFilter(next.advancedFilter)
     setSortSpec(next.sortSpec)
+    setCreationKind(playlist ? (playlist.isDynamic ? 'SMART' : 'MANUAL') : null)
+    setWizardStep(1)
   }, [playlist])
 
   const isCreate = playlist === undefined
   const setValue = <K extends keyof PlaylistEditorValues>(key: K, value: PlaylistEditorValues[K]) => setValues((current) => ({ ...current, [key]: value }))
+  const chooseKind = (kind: 'MANUAL' | 'SMART') => {
+    setCreationKind(kind)
+    setValue('isDynamic', kind === 'SMART')
+    if (kind === 'SMART') { setCreatedMode('SIMPLE'); setValue('createdMode', 'SIMPLE') }
+  }
+  const continueToRules = () => {
+    if (sanitizePlaylistName(values.name).length === 0) { setErrors({ name: 'Give this playlist a name.' }); return }
+    setErrors({})
+    setWizardStep(2)
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -145,16 +160,34 @@ export function PlaylistEditor({ playlist, onSubmit, onCancel }: PlaylistEditorP
     }
   }
 
+  if (isCreate && creationKind === null) return (
+    <section className="playlist-type-picker" aria-labelledby="playlist-type-title">
+      <div className="playlist-editor__heading"><div><p className="playlist-eyebrow">New collection</p><h2 id="playlist-type-title">What kind of playlist?</h2><p>Start simple, or let Anime Ongaku keep a smart mix up to date for you.</p></div>{onCancel && <button type="button" className="playlist-button playlist-button--quiet" onClick={onCancel}>Cancel</button>}</div>
+      <div className="playlist-type-picker__choices">
+        <button type="button" onClick={() => chooseKind('MANUAL')}><span className="playlist-type-picker__icon"><ListPlus aria-hidden="true" /></span><span><strong>Manual playlist</strong><small>You choose and arrange every track. Best for favorites, parties, and hand-picked sets.</small></span><ArrowRight aria-hidden="true" /></button>
+        <button type="button" onClick={() => chooseKind('SMART')}><span className="playlist-type-picker__icon playlist-type-picker__icon--smart"><Sparkles aria-hidden="true" /></span><span><strong>Smart playlist</strong><small>Build rules from anime, theme, rating, genre, and listening data. It can update itself.</small></span><ArrowRight aria-hidden="true" /></button>
+      </div>
+    </section>
+  )
+
+  const isSmartCreate = isCreate && creationKind === 'SMART'
+  const showDetails = !isSmartCreate || wizardStep === 1
+  const showRules = values.isDynamic === true && (!isSmartCreate || wizardStep === 2)
+  const showReview = isSmartCreate && wizardStep === 3
   return (
     <form className="playlist-editor" onSubmit={submit} noValidate>
-      <div className="playlist-editor__heading"><div><p className="playlist-eyebrow">{isCreate ? 'New collection' : 'Playlist settings'}</p><h2>{isCreate ? 'Create playlist' : 'Edit playlist'}</h2></div>{onCancel && <button type="button" className="playlist-button playlist-button--quiet" onClick={onCancel}>Cancel</button>}</div>
-      <label className="playlist-field"><span>Name</span><input aria-label="Playlist name" value={values.name} maxLength={100} onChange={(event) => setValue('name', event.target.value)} autoComplete="off" />{errors.name && <small className="playlist-field__error">{errors.name}</small>}</label>
-      <div className="playlist-editor__grid">
-        <label className="playlist-field"><span>Default playback</span><select value={values.defaultMode} onChange={(event) => setValue('defaultMode', event.target.value as PlaylistPlaybackMode)}><option value="TV_SIZE">TV size</option><option value="FULL_SIZE">Full size</option></select></label>
-        <label className="playlist-check"><input type="checkbox" checked={values.overrideUserPreference} onChange={(event) => setValue('overrideUserPreference', event.target.checked)} /><span>Use this mode over song preferences</span></label>
-      </div>
-      <label className="playlist-check"><input aria-label="Dynamic playlist" type="checkbox" checked={values.isDynamic === true} onChange={(event) => { const checked = event.target.checked; setValue('isDynamic', checked); if (checked && !values.createdMode) { setCreatedMode('SIMPLE'); setValue('createdMode', 'SIMPLE') } }} /><span>Dynamic playlist (smart collection)</span></label>
-      {values.isDynamic === true && <div className="playlist-editor__advanced">
+      <div className="playlist-editor__heading"><div><p className="playlist-eyebrow">{isSmartCreate ? 'Smart playlist builder' : isCreate ? 'Manual playlist' : 'Playlist settings'}</p><h2>{showReview ? 'Review & create' : isSmartCreate ? wizardStep === 1 ? 'Name your smart playlist' : 'Choose what belongs' : isCreate ? 'Create playlist' : 'Edit playlist'}</h2></div>{onCancel && <button type="button" className="playlist-button playlist-button--quiet" onClick={onCancel}>Cancel</button>}</div>
+      {isSmartCreate && <SmartPlaylistSteps current={wizardStep} onSelect={setWizardStep} />}
+      {showDetails && <div className="playlist-editor__step-panel">
+        <p className="playlist-muted">Give the collection a recognizable name and choose how tracks should play by default.</p>
+        <label className="playlist-field"><span>Name</span><input aria-label="Playlist name" value={values.name} maxLength={100} onChange={(event) => setValue('name', event.target.value)} autoComplete="off" placeholder={creationKind === 'SMART' ? 'Late-night openings' : 'My favorites'} />{errors.name && <small className="playlist-field__error">{errors.name}</small>}</label>
+        <div className="playlist-editor__grid">
+          <label className="playlist-field"><span>Default playback</span><select value={values.defaultMode} onChange={(event) => setValue('defaultMode', event.target.value as PlaylistPlaybackMode)}><option value="TV_SIZE">TV size</option><option value="FULL_SIZE">Full size</option></select></label>
+          <label className="playlist-check"><input type="checkbox" checked={values.overrideUserPreference} onChange={(event) => setValue('overrideUserPreference', event.target.checked)} /><span>Use this mode over song preferences</span></label>
+        </div>
+      </div>}
+      {!isCreate && <label className="playlist-check"><input aria-label="Dynamic playlist" type="checkbox" checked={values.isDynamic === true} onChange={(event) => { const checked = event.target.checked; setValue('isDynamic', checked); if (checked && !values.createdMode) { setCreatedMode('SIMPLE'); setValue('createdMode', 'SIMPLE') } }} /><span>Dynamic playlist (smart collection)</span></label>}
+      {showRules && <div className="playlist-editor__advanced">
         <DynamicPlaylistBuilder
           createdMode={createdMode}
           simpleFilter={simpleFilter}
@@ -167,6 +200,10 @@ export function PlaylistEditor({ playlist, onSubmit, onCancel }: PlaylistEditorP
           onSortSpecChange={(next) => { setSortSpec(next); setValue('sortSpec', next) }}
           onDynamicModeChange={(mode) => { setDynamicMode(mode); setValue('dynamicMode', mode); setValue('autoUpdate', mode === 'AUTO') }}
         />
+      </div>}
+      {showReview && <section className="playlist-review" aria-labelledby="playlist-review-title">
+        <div className="playlist-review__summary"><span><Sparkles aria-hidden="true" /></span><div><h3 id="playlist-review-title">{values.name}</h3><p>{createdMode === 'SIMPLE' ? 'Simple rules' : 'Advanced nested logic'} · {dynamicMode === 'AUTO' ? 'Auto-updating' : 'Snapshot'} · {values.defaultMode === 'FULL_SIZE' ? 'Full size' : 'TV size'}</p></div><Check aria-hidden="true" /></div>
+        <p className="playlist-muted">You can edit the rules, their priority order, and update behavior later from playlist settings.</p>
         <details className="playlist-expert-json">
           <summary>Expert JSON (recovery)</summary>
           <p className="playlist-muted">Use this only to recover a server/mobile spec the builder does not recognize. Structured controls remain the primary editor.</p>
@@ -174,12 +211,19 @@ export function PlaylistEditor({ playlist, onSubmit, onCancel }: PlaylistEditorP
           <JsonEditor label="Sort JSON" value={values.dynamicSortJson} error={errors.dynamicSortJson} onChange={(value) => { setValue('dynamicSortJson', value); setValue('useExpertJson', true) }} placeholder={'{\n  "keys": [{ "attribute": "TITLE", "direction": "ASC" }]\n}'} />
           {values.useExpertJson === true && <button type="button" className="playlist-button" onClick={() => setValue('useExpertJson', false)}>Return to builder controls</button>}
         </details>
-      </div>}
+      </section>}
       {!isCreate && <PlaylistItemsEditor items={items} onChange={setItems} readOnly={Boolean(playlist?.isDynamic && dynamicMode === 'AUTO')} />}
       {submitError && <p className="playlist-field__error" role="alert">{submitError}</p>}
-      <button type="submit" className="playlist-button playlist-button--primary" disabled={saving}>{saving ? 'Saving…' : isCreate ? 'Create playlist' : 'Save changes'}</button>
+      {isSmartCreate && wizardStep === 1 && <div className="playlist-editor__wizard-actions"><button type="button" className="playlist-button" onClick={() => setCreationKind(null)}><ArrowLeft size={16} /> Back</button><button type="button" className="playlist-button playlist-button--primary" onClick={continueToRules}>Continue to rules <ArrowRight size={16} /></button></div>}
+      {isSmartCreate && wizardStep === 2 && <div className="playlist-editor__wizard-actions"><button type="button" className="playlist-button" onClick={() => setWizardStep(1)}><ArrowLeft size={16} /> Details</button><button type="button" className="playlist-button playlist-button--primary" onClick={() => setWizardStep(3)}>Review playlist <ArrowRight size={16} /></button></div>}
+      {(!isSmartCreate || wizardStep === 3) && <div className="playlist-editor__wizard-actions">{isSmartCreate && <button type="button" className="playlist-button" onClick={() => setWizardStep(2)}><ArrowLeft size={16} /> Rules</button>}<button type="submit" className="playlist-button playlist-button--primary" disabled={saving}>{saving ? 'Saving…' : isCreate ? 'Create playlist' : 'Save changes'}</button></div>}
     </form>
   )
+}
+
+function SmartPlaylistSteps({ current, onSelect }: { current: 1 | 2 | 3; onSelect: (step: 1 | 2 | 3) => void }) {
+  const steps = ['Details', 'Rules', 'Review'] as const
+  return <nav className="playlist-wizard-steps" aria-label="Smart playlist steps">{steps.map((label, index) => { const step = (index + 1) as 1 | 2 | 3; return <button key={label} type="button" aria-current={current === step ? 'step' : undefined} onClick={() => step < current && onSelect(step)} disabled={step > current}><span>{step < current ? <Check size={13} /> : step}</span>{label}</button> })}</nav>
 }
 
 function JsonEditor({ label, value, error, onChange, placeholder }: { label: string; value: string; error?: string; onChange: (value: string) => void; placeholder: string }) {
