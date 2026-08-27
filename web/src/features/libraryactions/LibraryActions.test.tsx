@@ -79,6 +79,30 @@ describe('TrackActionMenu', () => {
     await userEvent.click(screen.getByRole('menuitem', { name: 'Remove from playlist' }))
     expect(onRemove).toHaveBeenCalledOnce()
   })
+
+  it('persists song thumbs and saves the same song to existing or new playlists', async () => {
+    const request = vi.spyOn(apiClient, 'request').mockResolvedValue({ playlist: { id: 5, name: 'Road trip' } })
+    const get = vi.spyOn(apiClient, 'get').mockResolvedValue([{ id: 5, name: 'Road trip', entries: [], items: [], defaultMode: 'TV_SIZE', overrideUserPreference: false, isAuto: false, isDynamic: false, autoUpdate: false, updatedAt: 1, deleted: false, dynamicSpecJson: null, dynamicSortJson: null }])
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue({ playlist: { id: 6, name: 'New mix' } })
+    renderWithQuery(<TrackActionMenu item={{ itemType: 'SONG', itemId: 91, title: 'Full song' }} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Like' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Dislike' }))
+    await waitFor(() => expect(request).toHaveBeenCalledWith('/v1/prefs/songs/91', expect.objectContaining({ method: 'PUT' })))
+
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Full song' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Save to playlist' }))
+    expect(await screen.findByRole('dialog', { name: 'Save to playlist' })).toBeInTheDocument()
+    expect(get).toHaveBeenCalled()
+    await userEvent.click((await screen.findByText('Road trip')).closest('button')!)
+    await waitFor(() => expect(request).toHaveBeenCalledWith('/v1/playlists/5', expect.objectContaining({ method: 'PUT' })))
+
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Full song' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Save to playlist' }))
+    await userEvent.type(await screen.findByRole('textbox', { name: 'New playlist name' }), 'New mix')
+    await userEvent.click(screen.getByRole('button', { name: 'Create playlist' }))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/v1/playlists', expect.objectContaining({ name: 'New mix', items: [{ itemType: 'SONG', itemId: 91, modeOverride: null }] })))
+  })
 })
 
 describe('ThemeActionSheet', () => {

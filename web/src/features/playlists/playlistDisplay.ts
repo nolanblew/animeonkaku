@@ -1,5 +1,5 @@
 import { browserAssetUrl } from '../../lib/assets'
-import type { NormalizedLibrary, PlaylistDto } from '../../lib/library'
+import type { NormalizedLibrary, PlaylistDto, PlaylistPlaybackMode } from '../../lib/library'
 
 export interface PlaylistDisplayItem {
   key: string
@@ -8,6 +8,13 @@ export interface PlaylistDisplayItem {
   artworkUrl: string | null
   durationSeconds: number | null
   available: boolean
+  itemType: 'THEME' | 'SONG'
+  itemId: number
+  modeOverride: PlaylistPlaybackMode | null
+  liked: boolean
+  disliked: boolean
+  hasFullSize: boolean
+  hasVideo: boolean
 }
 
 export function resolvePlaylistDisplayItems(playlist: PlaylistDto, library: NormalizedLibrary | null | undefined): PlaylistDisplayItem[] {
@@ -19,7 +26,7 @@ export function resolvePlaylistDisplayItems(playlist: PlaylistDto, library: Norm
     const key = `${item.entryId ?? index}:${item.itemType}:${item.itemId}`
     if (item.itemType === 'THEME') {
       const theme = library?.themesById[String(item.itemId)]
-      if (!theme || theme.deleted) return unavailableItem(key)
+      if (!theme || theme.deleted) return unavailableItem(key, item.itemType, item.itemId, item.modeOverride)
       const anime = theme.kitsuAnimeIds.map((id) => library?.animeById[id]).find((candidate) => candidate && !candidate.deleted)
       return {
         key,
@@ -28,6 +35,13 @@ export function resolvePlaylistDisplayItems(playlist: PlaylistDto, library: Norm
         artworkUrl: browserAssetUrl(anime?.posterUrl ?? anime?.coverUrl) ?? null,
         durationSeconds: theme.durationSeconds,
         available: theme.audioState === 'READY',
+        itemType: item.itemType,
+        itemId: item.itemId,
+        modeOverride: item.modeOverride,
+        liked: library?.prefsByThemeId[String(item.itemId)]?.liked ?? false,
+        disliked: library?.prefsByThemeId[String(item.itemId)]?.disliked ?? false,
+        hasFullSize: Boolean(theme.mediaModes.fullSize),
+        hasVideo: Boolean(theme.mediaModes.video),
       }
     }
 
@@ -42,13 +56,20 @@ export function resolvePlaylistDisplayItems(playlist: PlaylistDto, library: Norm
           artworkUrl: browserAssetUrl(release.artworkUrl ?? catalog.anime.posterUrl) ?? null,
           durationSeconds: song.durationSeconds,
           available: Boolean(song.audioUrl),
+          itemType: item.itemType,
+          itemId: item.itemId,
+          modeOverride: null,
+          liked: library?.songPrefsById[String(item.itemId)]?.liked ?? false,
+          disliked: library?.songPrefsById[String(item.itemId)]?.disliked ?? false,
+          hasFullSize: true,
+          hasVideo: false,
         }
       }
     }
-    return unavailableItem(key)
+    return unavailableItem(key, item.itemType, item.itemId, item.modeOverride)
   })
 }
 
-function unavailableItem(key: string): PlaylistDisplayItem {
-  return { key, title: 'Unavailable track', subtitle: 'This item is no longer available in the catalog.', artworkUrl: null, durationSeconds: null, available: false }
+function unavailableItem(key: string, itemType: 'THEME' | 'SONG', itemId: number, modeOverride: PlaylistPlaybackMode | null): PlaylistDisplayItem {
+  return { key, title: 'Unavailable track', subtitle: 'This item is no longer available in the catalog.', artworkUrl: null, durationSeconds: null, available: false, itemType, itemId, modeOverride, liked: false, disliked: false, hasFullSize: false, hasVideo: false }
 }

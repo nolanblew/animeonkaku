@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Check, Heart, ListMusic, Play, Plus, ThumbsDown, ThumbsUp, X } from 'lucide-react'
+import { Check, ListMusic, Music2, Play, Plus, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 import { listManualPlaylists } from './api'
 import { useLibraryActions } from './hooks'
 import type { PlaylistDto, PlaylistPlaybackMode } from '../../lib/library'
@@ -94,7 +94,7 @@ export function ThemeActionSheet({
     <>
       <div className="library-actions__scrim" onClick={onClose} aria-hidden="true" />
       <section className="library-actions" role="dialog" aria-modal="true" aria-label={`${title} actions`}>
-        <header className="library-actions__header"><div className="library-actions__art" aria-hidden="true"><Heart size={22} fill="currentColor" /></div><div><h2 id="theme-actions-title">{title}</h2><p>{subtitle}</p></div><button className="library-actions__close" type="button" aria-label="Close actions" onClick={onClose}><X size={20} /></button></header>
+        <header className="library-actions__header"><div className="library-actions__art" aria-hidden="true"><Music2 size={22} /></div><div><h2 id="theme-actions-title">{title}</h2><p>{subtitle}</p></div><button className="library-actions__close" type="button" aria-label="Close actions" onClick={onClose}><X size={20} /></button></header>
         <div className="library-actions__primary"><ActionButton icon={<Play size={18} fill="currentColor" />} label="Play now" onClick={onPlay} /><ActionButton icon={<Play size={18} />} label="Play next" onClick={onPlayNext} /><ActionButton icon={<ListMusic size={18} />} label="Add to queue" onClick={onAddToQueue} /><ActionButton icon={<Plus size={18} />} label="Save to playlist" onClick={() => setPlaylistOpen(true)} /></div>
         <div className="library-actions__list">
           <ActionRow icon={<ThumbsUp size={18} />} label={liked ? 'Remove like' : 'Like'} busy={actions.pendingAction === 'preference'} onClick={() => { void actions.updateThemePreference(themeId, { liked: !liked }).catch(() => undefined) }} />

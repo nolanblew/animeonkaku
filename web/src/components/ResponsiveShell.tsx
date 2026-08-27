@@ -143,7 +143,7 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
         </div>
       </aside>
 
-      <div className="content-frame">
+      <div className={location.pathname === '/now-playing' ? 'content-frame content-frame--player' : 'content-frame'}>
         <header className="topbar">
           <button className="mobile-menu-button icon-button" type="button" aria-label="Open navigation" aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}>
             <Menu size={22} />
@@ -176,7 +176,7 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
           </div>
         </header>
 
-        <main className="main-content" id="main-content" tabIndex={-1}>
+        <main className={location.pathname === '/now-playing' ? 'main-content main-content--player' : 'main-content'} id="main-content" tabIndex={-1}>
           {auth.firstSync.status === 'syncing' && <p className="sync-status" role="status">Syncing your library…</p>}
           {children ?? <Outlet />}
         </main>

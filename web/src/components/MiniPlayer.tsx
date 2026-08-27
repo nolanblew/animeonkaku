@@ -1,5 +1,4 @@
 import {
-  Heart,
   ListMusic,
   Maximize2,
   Pause,
@@ -7,6 +6,8 @@ import {
   Shuffle,
   SkipBack,
   SkipForward,
+  ThumbsDown,
+  ThumbsUp,
   Volume2,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -49,9 +50,8 @@ export function MiniPlayer() {
       </div>
 
       <div className="mini-player__actions">
-        <button className="icon-button icon-button--quiet hide-narrow" type="button" aria-label="Like track">
-          <Heart size={18} />
-        </button>
+        <button className="icon-button icon-button--quiet hide-narrow" type="button" aria-label="Dislike"><ThumbsDown size={18} /></button>
+        <button className="icon-button icon-button--quiet hide-narrow" type="button" aria-label="Like"><ThumbsUp size={18} /></button>
         <button className="icon-button icon-button--quiet hide-narrow" type="button" aria-label="Volume">
           <Volume2 size={18} />
         </button>

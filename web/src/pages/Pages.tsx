@@ -52,7 +52,7 @@ export function PlaylistPage() {
   if (query.isPending) return <PlaylistFeatureMessage>Loading playlist…</PlaylistFeatureMessage>
   if (query.isError) return <PlaylistFeatureMessage>Could not load this playlist. Try again in a moment.</PlaylistFeatureMessage>
   if (!query.playlist) return <RouteSkeleton eyebrow="Playlist" title="Playlist not found" description="This playlist may have been removed on another device." icon={ListMusic} />
-  return <PlaylistDetail playlist={query.playlist} library={library} onUpdate={mutations.update} onDelete={async (playlist) => { await mutations.remove(playlist); navigate('/playlists', { replace: true }) }} onBack={() => navigate('/playlists')} onPlay={library ? (playlist, shuffle) => playPlaylist(player, library, playlist, shuffle) : undefined} onPlayItem={library ? (playlist, index) => playPlaylist(player, library, playlist, false, index) : undefined} />
+  return <PlaylistDetail playlist={query.playlist} library={library} onUpdate={mutations.update} onDelete={async (playlist) => { await mutations.remove(playlist); navigate('/playlists', { replace: true }) }} onBack={() => navigate('/playlists')} onPlay={library ? (playlist, shuffle) => playPlaylist(player, library, playlist, shuffle) : undefined} onPlayItem={library ? (playlist, index) => playPlaylist(player, library, playlist, false, index) : undefined} onPlayNextItem={library ? (playlist, index) => enqueuePlaylistItem(player, library, playlist, index, 'next') : undefined} onAddToQueueItem={library ? (playlist, index) => enqueuePlaylistItem(player, library, playlist, index, 'append') : undefined} />
 }
 
 export function PlaylistsPage() {
@@ -137,6 +137,23 @@ function resolveBrowserAsset(value: string | null | undefined): string | undefin
 }
 
 function playPlaylist(player: PlayerContextValue, library: NormalizedLibrary, playlist: PlaylistDto, shuffle: boolean, startIndex = 0): void {
+  const queueItems = playlistQueueItems(library, playlist)
+  const playableItems = queueItems.slice(Math.max(0, Math.min(startIndex, queueItems.length - 1))).filter((item): item is PlayerQueueItem => item !== null)
+  if (playableItems.length === 0) return
+  player.playItem(playableItems[0]!, { contextLabel: playlist.name })
+  if (playableItems.length > 1) player.queue.addToQueue(playableItems.slice(1))
+  if (shuffle && playableItems.length > 1) player.setShuffle(true)
+}
+
+function enqueuePlaylistItem(player: PlayerContextValue, library: NormalizedLibrary, playlist: PlaylistDto, index: number, position: 'next' | 'append'): void {
+  const item = playlistQueueItems(library, playlist)[index]
+  if (!item) return
+  if (!player.currentItem) { player.playItem(item, { contextLabel: playlist.name }); return }
+  if (position === 'next') player.queue.playNext([item])
+  else player.queue.addToQueue([item])
+}
+
+function playlistQueueItems(library: NormalizedLibrary, playlist: PlaylistDto): Array<PlayerQueueItem | null> {
   const items = playlist.items.length > 0
     ? playlist.items
     : playlist.entries.map((itemId, index) => ({ entryId: index + 1, itemType: 'THEME' as const, itemId, modeOverride: null }))
@@ -144,23 +161,18 @@ function playPlaylist(player: PlayerContextValue, library: NormalizedLibrary, pl
   for (const [animeId, catalog] of Object.entries(library.musicCatalogByAnimeId)) {
     for (const release of catalog.releases) for (const song of release.tracks) songs.set(song.id, { song, artworkUrl: release.artworkUrl, animeId })
   }
-  const queueItems = items.flatMap((item): PlayerQueueItem[] => {
+  return items.map((item): PlayerQueueItem | null => {
     if (item.itemType === 'SONG') {
       const found = songs.get(item.itemId)
-      return found ? [mapSongToQueueItem(found.song, { artworkUrl: resolveBrowserAsset(found.artworkUrl), animeId: found.animeId })] : []
+      return found ? mapSongToQueueItem(found.song, { artworkUrl: resolveBrowserAsset(found.artworkUrl), animeId: found.animeId }) : null
     }
     const theme = library.themesById[String(item.itemId)]
-    if (!theme || theme.deleted) return []
+    if (!theme || theme.deleted) return null
     const anime = theme.kitsuAnimeIds.map((id) => library.animeById[id]).find((entry) => entry && !entry.deleted)
     const preferredMode = library.prefsByThemeId[String(theme.id)]?.preferredMode
     const mode = item.modeOverride ?? (playlist.overrideUserPreference ? playlist.defaultMode : preferredMode ?? playlist.defaultMode)
-    return [mapThemeToQueueItem(theme, { artworkUrl: resolveBrowserAsset(anime?.posterUrl ?? anime?.coverUrl), animeId: anime?.kitsuId, mode })]
+    return mapThemeToQueueItem(theme, { artworkUrl: resolveBrowserAsset(anime?.posterUrl ?? anime?.coverUrl), animeId: anime?.kitsuId, mode })
   })
-  const playableItems = queueItems.slice(Math.max(0, Math.min(startIndex, queueItems.length - 1)))
-  if (playableItems.length === 0) return
-  player.playItem(playableItems[0]!, { contextLabel: playlist.name })
-  if (playableItems.length > 1) player.queue.addToQueue(playableItems.slice(1))
-  if (shuffle && playableItems.length > 1) player.setShuffle(true)
 }
 
 export function ServerErrorPage() {

@@ -1,5 +1,5 @@
 import { apiClient, type JsonValue } from '../../lib/api'
-import type { PlaylistDto, PlaylistPlaybackMode, ThemePrefDto } from '../../lib/library'
+import type { PlaylistDto, PlaylistPlaybackMode, SongPrefDto, ThemePrefDto } from '../../lib/library'
 
 export interface ThemePreferencePatch {
   liked?: boolean
@@ -7,6 +7,11 @@ export interface ThemePreferencePatch {
   dislikedTvSize?: boolean
   dislikedFullSize?: boolean
   preferredMode?: PlaylistPlaybackMode | null
+}
+
+export interface SongPreferencePatch {
+  liked?: boolean
+  disliked?: boolean
 }
 
 export interface PlaylistItemInput {
@@ -27,6 +32,15 @@ export interface PlaylistCreateInput {
 export function updateThemePreference(themeId: number, patch: ThemePreferencePatch): Promise<ThemePrefDto> {
   assertPositiveId(themeId, 'Theme id')
   return apiClient.request<ThemePrefDto>(`/v1/prefs/themes/${themeId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+}
+
+export function updateSongPreference(songId: number, patch: SongPreferencePatch): Promise<SongPrefDto> {
+  assertPositiveId(songId, 'Song id')
+  return apiClient.request<SongPrefDto>(`/v1/prefs/songs/${songId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
@@ -54,24 +68,30 @@ export async function addThemesToPlaylist(
   themeIds: readonly number[],
   modeOverride: PlaylistPlaybackMode | null = null,
 ): Promise<PlaylistDto> {
+  return addItemsToPlaylist(playlistId, themeIds.map((itemId) => ({ itemType: 'THEME', itemId, modeOverride })))
+}
+
+export async function addItemsToPlaylist(playlistId: number, additions: readonly PlaylistItemInput[]): Promise<PlaylistDto> {
   assertPositiveId(playlistId, 'Playlist id')
   const playlist = (await listManualPlaylists()).find((item) => item.id === playlistId)
   if (!playlist) throw new Error('Playlist was not found.')
   const existingItems = playlist.items.length > 0
     ? playlist.items
     : playlist.entries.map((itemId) => ({ entryId: undefined, itemType: 'THEME' as const, itemId, modeOverride: null }))
-  const additions = themeIds
-    .filter((themeId) => Number.isInteger(themeId) && themeId > 0)
-    .map((itemId) => ({ itemType: 'THEME' as const, itemId, modeOverride }))
-  return updatePlaylistItems(playlistId, [...existingItems, ...additions])
+  const validAdditions = additions
+    .filter((item) => Number.isInteger(item.itemId) && item.itemId > 0)
+    .map((item) => ({ itemType: item.itemType, itemId: item.itemId, modeOverride: item.itemType === 'SONG' ? null : item.modeOverride }))
+  return updatePlaylistItems(playlistId, [...existingItems, ...validAdditions])
 }
 
 export async function createPlaylistWithThemes(input: { name: string; themeIds: readonly number[]; modeOverride?: PlaylistPlaybackMode | null }): Promise<PlaylistDto> {
+  return createPlaylistWithItems({ name: input.name, items: input.themeIds.map((itemId) => ({ itemType: 'THEME', itemId, modeOverride: input.modeOverride ?? null })) })
+}
+
+export async function createPlaylistWithItems(input: { name: string; items: readonly PlaylistItemInput[] }): Promise<PlaylistDto> {
   const name = input.name.trim()
   if (!name) throw new Error('Playlist name is required.')
-  const items = input.themeIds
-    .filter((themeId) => Number.isInteger(themeId) && themeId > 0)
-    .map((itemId) => ({ itemType: 'THEME' as const, itemId, modeOverride: input.modeOverride ?? null }))
+  const items = input.items.filter((item) => Number.isInteger(item.itemId) && item.itemId > 0).map((item) => ({ itemType: item.itemType, itemId: item.itemId, modeOverride: item.itemType === 'SONG' ? null : item.modeOverride }))
   const response = await apiClient.post<{ playlist: PlaylistDto }>('/v1/playlists', {
     name,
     items,

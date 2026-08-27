@@ -8,6 +8,7 @@ import type { PlaylistCreateInput } from './api'
 import { useLibraryQuery } from '../../lib/query'
 import { PlaylistArtwork, playlistArtworkUrls } from './PlaylistArtwork'
 import { resolvePlaylistDisplayItems } from './playlistDisplay'
+import { TrackActionMenu } from '../libraryactions'
 import './playlists.css'
 
 export type PlaylistListState = 'loading' | 'ready' | 'empty' | 'error'
@@ -266,9 +267,11 @@ export interface PlaylistDetailProps {
   onBack?: () => void
   onPlay?: (playlist: PlaylistDto, shuffle: boolean) => void
   onPlayItem?: (playlist: PlaylistDto, index: number) => void
+  onPlayNextItem?: (playlist: PlaylistDto, index: number) => void
+  onAddToQueueItem?: (playlist: PlaylistDto, index: number) => void
 }
 
-export function PlaylistDetail({ playlist, library: providedLibrary, onUpdate, onDelete, onBack, onPlay, onPlayItem }: PlaylistDetailProps) {
+export function PlaylistDetail({ playlist, library: providedLibrary, onUpdate, onDelete, onBack, onPlay, onPlayItem, onPlayNextItem, onAddToQueueItem }: PlaylistDetailProps) {
   const queriedLibrary = useLibraryQuery({ enabled: false }).library
   const library = providedLibrary ?? queriedLibrary
   const rows = useMemo(() => resolvePlaylistDisplayItems(playlist, library), [library, playlist])
@@ -286,6 +289,10 @@ export function PlaylistDetail({ playlist, library: providedLibrary, onUpdate, o
       setDeleting(false)
       setConfirmingDelete(false)
     }
+  }
+  const removeItem = async (index: number) => {
+    const sourceItems = playlist.items.length > 0 ? playlist.items : playlist.entries.map((itemId, itemIndex) => ({ entryId: itemIndex + 1, itemType: 'THEME' as const, itemId, modeOverride: null }))
+    await onUpdate(playlist.id, { items: sourceItems.filter((_, itemIndex) => itemIndex !== index) })
   }
 
   return (
@@ -308,7 +315,7 @@ export function PlaylistDetail({ playlist, library: providedLibrary, onUpdate, o
       {error && <p className="playlist-field__error" role="alert">{error}</p>}
       <section className="playlist-track-section" aria-labelledby="playlist-tracks-title">
         <div className="playlist-items__heading"><div><p className="playlist-eyebrow">Playlist sequence</p><h2 id="playlist-tracks-title">Tracks</h2></div><span>{rows.length}</span></div>
-        {rows.length === 0 ? <p className="playlist-muted">This playlist is empty. Add tracks from a song’s action menu.</p> : <ol className="playlist-track-list">{rows.map((row, index) => <li key={row.key} className={!row.available ? 'playlist-track-row playlist-track-row--unavailable' : 'playlist-track-row'}><span className="playlist-track-row__number">{index + 1}</span><button type="button" className="playlist-track-row__play" onClick={() => onPlayItem?.(playlist, index)} disabled={!row.available || !onPlayItem} aria-label={`Play ${row.title}`}>{row.artworkUrl ? <img src={row.artworkUrl} alt="" loading="lazy" /> : <span aria-hidden="true"><Music2 size={20} /></span>}<i aria-hidden="true"><Play size={17} fill="currentColor" /></i></button><span className="playlist-track-row__copy"><strong>{row.title}</strong><small>{row.subtitle}</small></span><span className="playlist-track-row__mode">{row.available ? playlist.defaultMode === 'FULL_SIZE' ? 'Full size' : 'TV size' : 'Unavailable'}</span><time>{formatPlaylistDuration(row.durationSeconds)}</time></li>)}</ol>}
+        {rows.length === 0 ? <p className="playlist-muted">This playlist is empty. Add tracks from a song’s action menu.</p> : <ol className="playlist-track-list">{rows.map((row, index) => <li key={row.key} className={!row.available ? 'playlist-track-row playlist-track-row--unavailable' : 'playlist-track-row'}><span className="playlist-track-row__number">{index + 1}</span><button type="button" className="playlist-track-row__play" onClick={() => onPlayItem?.(playlist, index)} disabled={!row.available || !onPlayItem} aria-label={`Play ${row.title}`}>{row.artworkUrl ? <img src={row.artworkUrl} alt="" loading="lazy" /> : <span aria-hidden="true"><Music2 size={20} /></span>}<i aria-hidden="true"><Play size={17} fill="currentColor" /></i></button><span className="playlist-track-row__copy"><strong>{row.title}</strong><small>{row.subtitle}</small></span><span className="playlist-track-row__features">{row.available ? <>{row.hasFullSize && row.itemType === 'THEME' && <span>Full size</span>}{row.hasVideo && <span>Video</span>}</> : <span>Unavailable</span>}</span><time>{formatPlaylistDuration(row.durationSeconds)}</time><TrackActionMenu menuOnly item={{ itemType: row.itemType, itemId: row.itemId, title: row.title, modeOverride: row.modeOverride }} liked={row.liked} disliked={row.disliked} onPlayNext={row.available && onPlayNextItem ? () => onPlayNextItem(playlist, index) : undefined} onAddToQueue={row.available && onAddToQueueItem ? () => onAddToQueueItem(playlist, index) : undefined} onRemove={!playlist.isAuto ? () => { void removeItem(index) } : undefined} /></li>)}</ol>}
       </section>
       {editorOpen && <div className="playlist-dialog-backdrop"><div className="playlist-dialog" role="dialog" aria-modal="true" aria-labelledby="playlist-edit-dialog-title"><PlaylistEditor playlist={playlist} onCancel={() => setEditorOpen(false)} onSubmit={async (input) => { await onUpdate(playlist.id, input as Partial<PlaylistUpdateInput> & { items?: PlaylistUpdateInput['items'] }); setEditorOpen(false) }} /></div></div>}
       {confirmingDelete && <div className="playlist-dialog-backdrop"><div className="playlist-dialog playlist-dialog--confirm" role="dialog" aria-modal="true" aria-labelledby="playlist-delete-dialog-title"><h2 id="playlist-delete-dialog-title">Delete playlist?</h2><p>This removes “{playlist.name}” from your library. The tracks themselves will stay available.</p><div className="playlist-dialog__actions"><button type="button" className="playlist-button" onClick={() => setConfirmingDelete(false)} disabled={deleting}>Keep playlist</button><button type="button" className="playlist-button playlist-button--danger" onClick={confirmDelete} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete'}</button></div></div></div>}

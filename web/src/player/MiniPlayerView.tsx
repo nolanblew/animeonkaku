@@ -1,6 +1,7 @@
-import { Heart, ListMusic, Maximize, MoreHorizontal, Pause, Play, Repeat2, Shuffle, SkipBack, SkipForward, Volume2 } from 'lucide-react'
+import { ListMusic, Maximize, Pause, Play, Repeat2, Shuffle, SkipBack, SkipForward, Volume2 } from 'lucide-react'
 import { useState } from 'react'
 import { usePlayer } from './PlayerProvider'
+import { CurrentTrackActions } from './CurrentTrackActions'
 
 export interface MiniPlayerViewProps {
   className?: string
@@ -9,7 +10,6 @@ export interface MiniPlayerViewProps {
 
 export function MiniPlayerView({ className = '', onOpen }: MiniPlayerViewProps) {
   const player = usePlayer()
-  const [liked, setLiked] = useState(false)
   const [volume, setVolume] = useState(100)
   const current = player.currentItem
   if (!current) {
@@ -28,8 +28,7 @@ export function MiniPlayerView({ className = '', onOpen }: MiniPlayerViewProps) 
           {current.artworkUrl ? <img className="player-shared-artwork" src={current.artworkUrl} alt="" /> : <span className="player-mini-player__artwork player-shared-artwork" aria-hidden="true">AO</span>}
           <span className="player-mini-player__meta"><strong>{current.title}</strong><small>{current.artist ?? current.album ?? 'Anime Ongaku'}</small></span>
         </button>
-        <button type="button" className="player-icon-button player-icon-button--quiet" aria-label={liked ? 'Unlike track' : 'Like track'} aria-pressed={liked} onClick={() => setLiked((value) => !value)}><Heart size={18} fill={liked ? 'currentColor' : 'none'} /></button>
-        <button type="button" className="player-icon-button player-icon-button--quiet" aria-label="More playback actions"><MoreHorizontal size={19} /></button>
+        <CurrentTrackActions />
       </div>
       <div className="player-mini-player__transport">
         <div className="player-mini-player__controls">
