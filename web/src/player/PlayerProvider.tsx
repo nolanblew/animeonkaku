@@ -80,6 +80,7 @@ export interface PlayerContextValue extends PlayerState {
   cycleRepeat(): RepeatMode
   setRepeat(mode: RepeatMode): void
   skipTo(index: number): void
+  isQueueEntryEligible(queueId: number): boolean
   unskipEntry(queueId: number): void
   requestFullscreen(): Promise<void>
 }
@@ -617,6 +618,15 @@ export function PlayerProvider({
     if (typeof target.requestFullscreen === 'function') await target.requestFullscreen()
   }, [videoAvailable, videoSurface])
 
+  const isQueueEntryEligible = useCallback((queueId: number): boolean => {
+    const entry = queueState.nowPlayingEntries.find((candidate) => candidate.queueId === queueId)
+    return Boolean(entry && isQueueEntryAllowedByPreference(
+      entry,
+      preferenceSnapshot,
+      new Set(queueState.unskippedEntryIds),
+    ))
+  }, [preferenceSnapshot, queueState.nowPlayingEntries, queueState.unskippedEntryIds])
+
   const value = useMemo<PlayerContextValue>(() => ({
     queue,
     queueStore: queue,
@@ -653,9 +663,10 @@ export function PlayerProvider({
     cycleRepeat: () => queue.cycleRepeatMode(),
     setRepeat: (repeat) => { queue.setRepeatMode(repeat) },
     skipTo: (index) => { requestAutoplayFor(); queue.skipTo(index) },
+    isQueueEntryEligible,
     unskipEntry: (queueId) => { queue.unskipEntry(queueId) },
     requestFullscreen,
-  }), [activeSourceUrl, audioElement, currentEntry, currentItem, duration, error, fullSizeAvailable, isEnded, isLoading, isPlaying, mode, next, pause, play, playItem, playItems, playSong, playTheme, previous, queue, queueState, requestAutoplayFor, requestFullscreen, seek, setMode, togglePlay, tvSizeAvailable, videoAvailable, videoElement])
+  }), [activeSourceUrl, audioElement, currentEntry, currentItem, duration, error, fullSizeAvailable, isEnded, isLoading, isPlaying, isQueueEntryEligible, mode, next, pause, play, playItem, playItems, playSong, playTheme, previous, queue, queueState, requestAutoplayFor, requestFullscreen, seek, setMode, togglePlay, tvSizeAvailable, videoAvailable, videoElement])
 
   return (
     <PlayerContext.Provider value={value}>

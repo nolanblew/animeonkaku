@@ -101,6 +101,7 @@ function PlaybackQueue() {
       </div>
       {menuEntry && <div className="player-queue__menu" role="menu" aria-label={`${menuEntry.item.title} queue actions`}>
         <strong>{menuEntry.item.title}</strong>
+        {!player.isQueueEntryEligible(menuEntry.queueId) && <button type="button" role="menuitem" onClick={() => { player.queue.unskipEntry(menuEntry.queueId); setMenuEntryId(null) }}>Play this disliked item</button>}
         <button type="button" role="menuitem" onClick={() => { player.queue.moveToPlayNext(menuEntry.queueId); setMenuEntryId(null) }}>Play next</button>
         <button type="button" role="menuitem" onClick={() => { player.queue.addToQueue([menuEntry.item]); setMenuEntryId(null) }}>Add another to queue</button>
         <button type="button" role="menuitem" className="player-queue__danger" onClick={() => { player.queue.removeEntry(menuEntry.queueId); setMenuEntryId(null) }}><Trash2 size={15} /> Remove from queue</button>
