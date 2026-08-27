@@ -18,6 +18,7 @@ const PlaylistPage = lazy(async () => import('../pages/Pages').then((module) => 
 const PlaylistsPage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.PlaylistsPage })))
 const NowPlayingPage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.NowPlayingPage })))
 const SettingsPage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.SettingsPage })))
+const SyncPage = lazy(async () => import('../features/sync/SyncPage').then((module) => ({ default: module.SyncPage })))
 
 function RouteLoading() {
   return <div className="route-loading" role="status" aria-live="polite"><span className="spinner" /> Loading Anime Ongaku…</div>
@@ -42,6 +43,7 @@ export function App() {
                   <Route path="playlists" element={<PlaylistsPage />} />
                   <Route path="now-playing" element={<NowPlayingPage />} />
                   <Route path="settings" element={<SettingsPage />} />
+                  <Route path="sync" element={<SyncPage />} />
                   <Route path="error" element={<ErrorState details="The server returned an unexpected response." />} />
                   <Route path="*" element={<ErrorState kind="not-found" details="No route matched the requested path." />} />
                 </Route>
@@ -60,6 +62,9 @@ function RequireAuth() {
   if (auth.status === 'loading') return <RouteLoading />
   if (auth.status !== 'authenticated') {
     return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}${location.hash}` }} />
+  }
+  if (auth.firstSync.status === 'syncing' && location.pathname !== '/sync') {
+    return <Navigate to="/sync" replace state={{ from: `${location.pathname}${location.search}${location.hash}` }} />
   }
   return <Outlet />
 }

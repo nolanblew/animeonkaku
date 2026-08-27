@@ -1,6 +1,6 @@
 import { Camera, LogOut, Save, Settings2, Trash2, UserRound } from 'lucide-react'
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthProvider'
 import './accountsearch.css'
 
@@ -113,6 +113,12 @@ export function SettingsPage() {
         <section className="account-settings-card" aria-labelledby="account-title">
           <div className="account-settings-card__heading"><div><p className="account-settings-card__eyebrow">Account</p><h2 id="account-title">Connection details</h2></div></div>
           <dl className="account-settings-details"><div><dt>Username</dt><dd>{account.username}</dd></div><div><dt>Kitsu user ID</dt><dd>{account.kitsuUserId}</dd></div><div><dt>Kitsu connection</dt><dd>{auth.me?.kitsuAuthState ?? 'Connected'}</dd></div><div><dt>Last library sync</dt><dd>{syncDate}</dd></div></dl>
+        </section>
+
+        <section className="account-settings-card account-settings-card--wide" aria-labelledby="sync-management-title">
+          <div className="account-settings-card__heading"><div><p className="account-settings-card__eyebrow">Library</p><h2 id="sync-management-title">Kitsu library sync</h2></div></div>
+          <p className="account-settings-help">Review progress, retry an interrupted import, or request a full library re-sync.</p>
+          <NavLink className="account-settings-button" to="/sync">Manage library sync</NavLink>
         </section>
 
         <section className="account-settings-card account-settings-card--wide" aria-labelledby="devices-title">

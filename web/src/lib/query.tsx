@@ -55,10 +55,6 @@ export function useLibraryQuery(options: UseLibraryQueryOptions = {}) {
   })
 
   const userId = auth.user?.kitsuUserId ?? null
-  const markInitialSyncReady = auth.markInitialSyncReady
-  useEffect(() => {
-    if (query.isSuccess) markInitialSyncReady()
-  }, [markInitialSyncReady, query.isSuccess])
 
   useEffect(() => {
     if (getStatus(query.error) === 401) void auth.logout().catch(() => undefined)

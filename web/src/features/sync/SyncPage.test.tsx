@@ -121,7 +121,7 @@ describe('SyncPage authenticated Kitsu sync lifecycle', () => {
     renderPage()
 
     expect(await screen.findByText(/delta sync/i)).toBeInTheDocument()
-    expect(screen.getByText(/sync complete/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /sync complete/i })).toBeInTheDocument()
     expect(screen.getByText(/10\s*(mapped|themes)/i)).toBeInTheDocument()
     await waitFor(() => expect(auth.markInitialSyncReady).toHaveBeenCalledTimes(1))
   })
@@ -169,7 +169,7 @@ describe('SyncPage authenticated Kitsu sync lifecycle', () => {
     const post = vi.spyOn(apiClient, 'post').mockResolvedValue({ jobId: 19 })
     renderPage()
 
-    expect(await screen.findByText(/sync failed|could not complete/i)).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /sync failed|could not complete/i })).toBeInTheDocument()
     expect(screen.getByText(/60\s*\/\s*100/)).toBeInTheDocument()
     expect(screen.getByText('One Piece')).toBeInTheDocument()
     expect(screen.getByText('Bleach')).toBeInTheDocument()
