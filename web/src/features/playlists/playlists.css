@@ -158,6 +158,8 @@
 .playlist-track-section .playlist-items__heading h2 { margin: 0; font-size: clamp(1.4rem,2vw,1.8rem); }
 .playlist-track-list { display: grid; margin: 0; padding: 0; list-style: none; }
 .playlist-track-row { position: relative; display: grid; min-width: 0; grid-template-columns: 2rem 3.25rem minmax(0,1fr) auto 3.3rem 2.5rem; align-items: center; gap: .75rem; padding: .62rem .55rem; border-bottom: 1px solid rgba(255,255,255,.075); transition: background .16s; }
+.playlist-track-row--reorderable { grid-template-columns: 2rem 3.25rem minmax(0,1fr) auto 3.3rem max-content 2.5rem; }
+.playlist-track-row__reorder { display: flex; gap: .3rem; }
 .playlist-track-row:hover { background: rgba(255,255,255,.045); }
 .playlist-track-row__number { color: var(--subtle); font-size: .78rem; text-align: center; }
 .playlist-track-row__play { position: relative; width: 3.25rem; height: 3.25rem; overflow: hidden; padding: 0; border: 0; border-radius: .42rem; background: linear-gradient(145deg,#d86489,#554f9c); color: white; cursor: pointer; }
@@ -174,5 +176,5 @@
 .playlist-track-row__features > span { padding: .32rem .55rem; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: .68rem; }
 .playlist-track-row time { color: var(--subtle); font-size: .72rem; text-align: right; }
 .playlist-track-row--unavailable { opacity: .62; }
-@media (max-width: 760px) { .playlist-detail__hero { min-height: auto; grid-template-columns: 8rem minmax(0,1fr); align-items: center; } .playlist-detail__copy h1 { font-size: clamp(2rem,7vw,3rem); } .playlist-track-row { grid-template-columns: 1.5rem 3rem minmax(0,1fr) 3rem 2.5rem; } .playlist-track-row__features { display: none; } }
+@media (max-width: 760px) { .playlist-detail__hero { min-height: auto; grid-template-columns: 8rem minmax(0,1fr); align-items: center; } .playlist-detail__copy h1 { font-size: clamp(2rem,7vw,3rem); } .playlist-track-row { grid-template-columns: 1.5rem 3rem minmax(0,1fr) 3rem 2.5rem; } .playlist-track-row--reorderable { grid-template-columns: 1.5rem 3rem minmax(0,1fr) 3rem max-content 2.5rem; } .playlist-track-row__features { display: none; } }
 @media (max-width: 520px) { .playlist-detail__hero { grid-template-columns: 1fr; } .playlist-detail__collage { width: min(64vw,14rem); } .playlist-detail__actions .playlist-button--danger { margin-left: 0; } }

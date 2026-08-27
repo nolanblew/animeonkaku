@@ -19,10 +19,21 @@ export interface TrackActionMenuProps {
   menuOnly?: boolean
   onPlayNext?: () => void
   onAddToQueue?: () => void
+  onReplaceQueue?: () => void
+  onPlayVideo?: () => void
+  onGoToArtist?: () => void
+  onGoToAnime?: () => void
+  onRelatedMusic?: () => void
+  onSetPreferredMode?: (mode: PlaylistPlaybackMode) => void
+  hasFullSize?: boolean
+  preferredMode?: PlaylistPlaybackMode | null
+  artistName?: string | null
+  animeName?: string | null
   onRemove?: () => void
+  removeLabel?: string
 }
 
-export function TrackActionMenu({ item, liked = false, disliked = false, menuOnly = false, onPlayNext, onAddToQueue, onRemove }: TrackActionMenuProps) {
+export function TrackActionMenu({ item, liked = false, disliked = false, menuOnly = false, onPlayNext, onAddToQueue, onReplaceQueue, onPlayVideo, onGoToArtist, onGoToAnime, onRelatedMusic, onSetPreferredMode, hasFullSize = false, preferredMode = null, artistName, animeName, onRemove, removeLabel = 'Remove from playlist' }: TrackActionMenuProps) {
   const actions = useLibraryActions()
   const [open, setOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -67,9 +78,15 @@ export function TrackActionMenu({ item, liked = false, disliked = false, menuOnl
       {open && <div className="track-actions__menu" role="menu" aria-label={`${item.title} actions`}>
         {onPlayNext && <button type="button" role="menuitem" onClick={() => runAndClose(onPlayNext)}>Play next</button>}
         {onAddToQueue && <button type="button" role="menuitem" onClick={() => runAndClose(onAddToQueue)}>Add to queue</button>}
+        {onReplaceQueue && <button type="button" role="menuitem" onClick={() => runAndClose(onReplaceQueue)}>Replace queue</button>}
         <button type="button" role="menuitem" onClick={() => void openPicker()}>Save to playlist</button>
+        {onPlayVideo && <button type="button" role="menuitem" onClick={() => runAndClose(onPlayVideo)}>Play Video</button>}
+        {onGoToArtist && <button type="button" role="menuitem" onClick={() => runAndClose(onGoToArtist)}>{artistName ? `Go to ${artistName}` : 'Go to artist'}</button>}
+        {onGoToAnime && <button type="button" role="menuitem" onClick={() => runAndClose(onGoToAnime)}>{animeName ? `Go to ${animeName}` : 'Go to anime'}</button>}
+        {onRelatedMusic && <button type="button" role="menuitem" onClick={() => runAndClose(onRelatedMusic)}>Related Music</button>}
+        {item.itemType === 'THEME' && hasFullSize && onSetPreferredMode && <button type="button" role="menuitem" onClick={() => runAndClose(() => onSetPreferredMode(preferredMode === 'FULL_SIZE' ? 'TV_SIZE' : 'FULL_SIZE'))}>{preferredMode === 'FULL_SIZE' ? 'Prefer TV Size' : 'Prefer Full Size'}</button>}
         {menuOnly && <><button type="button" role="menuitem" onClick={() => { updatePreference('liked', !liked); setOpen(false) }}>{liked ? 'Remove like' : 'Like'}</button><button type="button" role="menuitem" onClick={() => { updatePreference('disliked', !disliked); setOpen(false) }}>{disliked ? 'Remove dislike' : 'Dislike'}</button></>}
-        {onRemove && <button type="button" role="menuitem" className="track-actions__danger" onClick={() => runAndClose(onRemove)}>Remove from playlist</button>}
+        {onRemove && <button type="button" role="menuitem" className="track-actions__danger" onClick={() => runAndClose(onRemove)}>{removeLabel}</button>}
       </div>}
       {actions.actionError && <span className="sr-only" role="alert">{actions.actionError}</span>}
     </div>

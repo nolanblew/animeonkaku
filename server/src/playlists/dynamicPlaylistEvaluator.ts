@@ -16,9 +16,10 @@ type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /**
  * Materializes user dynamic (smart) playlists server-side, mirroring the device's
- * FilterEvaluator so the same spec yields the same entries on every device. Only auto-update
- * dynamic playlists are recomputed; snapshot dynamic playlists keep whatever entries were last
- * written. The candidate theme set is the user's mapped library (same universe the device sees).
+ * FilterEvaluator so the same spec yields the same entries on every device. Auto-update dynamic
+ * playlists are recomputed by normal sync/write paths; snapshot dynamic playlists are included
+ * only when an explicit refresh action opts in. The candidate theme set is the user's mapped
+ * library (same universe the device sees).
  *
  * Device-only dimensions (downloaded) are broad no-ops server-side; Android applies them as a
  * view-time overlay using local download state.
@@ -29,15 +30,15 @@ export class DrizzleDynamicPlaylistEvaluator {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  /** Re-materialize the user's auto-update dynamic playlists; `playlistId` limits it to one. */
-  async refresh(userId: string, playlistId?: number): Promise<void> {
+  /** Re-materialize the user's dynamic playlists; snapshots are opt-in for explicit refresh actions. */
+  async refresh(userId: string, playlistId?: number, options: { includeSnapshots?: boolean } = {}): Promise<void> {
     const conditions = [
       eq(playlists.userId, userId),
       eq(playlists.isAuto, false),
       eq(playlists.isDynamic, true),
-      eq(playlists.dynamicAutoUpdate, true),
       isNull(playlists.deletedAt),
     ];
+    if (!options.includeSnapshots) conditions.push(eq(playlists.dynamicAutoUpdate, true));
     if (playlistId !== undefined) conditions.push(eq(playlists.id, playlistId));
     await this.db.transaction(async (tx) => {
       // Serialize overlapping refresh triggers before loading evaluation state.

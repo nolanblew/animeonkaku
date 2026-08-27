@@ -4,6 +4,7 @@ import {
   createPlaylist,
   deletePlaylist,
   listPlaylists,
+  refreshPlaylistSnapshot,
   updatePlaylist,
   updatePlaylistSpec,
 } from './api'
@@ -28,6 +29,8 @@ describe('playlist API adapter', () => {
     expect(request).toHaveBeenCalledWith('/v1/playlists/2', expect.objectContaining({ method: 'PUT' }))
     await updatePlaylistSpec(2, { filterJson: { type: 'liked' } })
     expect(request).toHaveBeenLastCalledWith('/v1/playlists/2/spec', expect.objectContaining({ method: 'PUT' }))
+    await refreshPlaylistSnapshot(2)
+    expect(request).toHaveBeenLastCalledWith('/v1/playlists/2/refresh', expect.objectContaining({ method: 'POST' }))
   })
 
   it('uses DELETE and rejects non-positive ids before making a request', async () => {

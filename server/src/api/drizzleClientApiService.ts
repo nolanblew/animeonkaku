@@ -1070,6 +1070,13 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
     return this.updatePlaylist(userId, id, { dynamicSpecJson: spec });
   }
 
+  async refreshPlaylistSnapshot(userId: string, id: number): Promise<PlaylistDto | null> {
+    const playlist = await this.findPlaylist(userId, id);
+    if (!playlist || playlist.isAuto || !playlist.isDynamic || playlist.autoUpdate) return null;
+    await this.dynamicPlaylistEvaluator.refresh(userId, id, { includeSnapshots: true });
+    return this.findPlaylist(userId, id);
+  }
+
   async deletePlaylist(userId: string, id: number, opTs: number | null = null): Promise<boolean> {
     const existing = await this.mutablePlaylistRow(userId, id);
     if (!existing) return false;

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { ArrowLeft, ArrowRight, Check, ListPlus, Music2, Pencil, Play, Shuffle, Sparkles, Trash2 } from 'lucide-react'
 import type { NormalizedLibrary, PlaylistDto, PlaylistPlaybackMode } from '../../lib/library'
 import { DynamicPlaylistBuilder } from './dynamicBuilder'
-import { buildPlaylistUpdate, createDefaultSimpleFilter, DEFAULT_ADVANCED_FILTER, DEFAULT_SORT_SPEC, deserializeDynamicSpec, deserializeSortSpec, formatJsonEditorValue, normalizePlaylistItems, parseJsonEditorValue, removePlaylistItem, reorderPlaylistItems, sanitizePlaylistName, validatePlaylistForm, type DynamicCreatedMode, type DynamicPlaylistMode, type FilterNodeJson, type PlaylistEditorValues, type PlaylistEntryModel, type PlaylistFormErrors, type PlaylistUpdateInput, type SimpleFilterState, type SortSpecJson } from './model'
+import { buildPlaylistUpdate, createDefaultSimpleFilter, DEFAULT_ADVANCED_FILTER, DEFAULT_SORT_SPEC, deserializeDynamicSpec, deserializeSortSpec, formatJsonEditorValue, normalizePlaylistItems, parseJsonEditorValue, removePlaylistItem, reorderPlaylistItems, sanitizePlaylistName, toPlaylistItemInputs, validatePlaylistForm, type DynamicCreatedMode, type DynamicPlaylistMode, type FilterNodeJson, type PlaylistEditorValues, type PlaylistEntryModel, type PlaylistFormErrors, type PlaylistUpdateInput, type SimpleFilterState, type SortSpecJson } from './model'
 import type { PlaylistCreateInput } from './api'
 import { useLibraryQuery } from '../../lib/query'
 import { PlaylistArtwork, playlistArtworkUrls } from './PlaylistArtwork'
@@ -269,17 +269,23 @@ export interface PlaylistDetailProps {
   onPlayItem?: (playlist: PlaylistDto, index: number) => void
   onPlayNextItem?: (playlist: PlaylistDto, index: number) => void
   onAddToQueueItem?: (playlist: PlaylistDto, index: number) => void
+  onPlayNext?: (playlist: PlaylistDto) => void
+  onAddToQueue?: (playlist: PlaylistDto) => void
+  onReplaceQueue?: (playlist: PlaylistDto) => void
+  onRefresh?: (playlist: PlaylistDto) => Promise<unknown> | unknown
 }
 
-export function PlaylistDetail({ playlist, library: providedLibrary, onUpdate, onDelete, onBack, onPlay, onPlayItem, onPlayNextItem, onAddToQueueItem }: PlaylistDetailProps) {
+export function PlaylistDetail({ playlist, library: providedLibrary, onUpdate, onDelete, onBack, onPlay, onPlayItem, onPlayNextItem, onAddToQueueItem, onPlayNext, onAddToQueue, onReplaceQueue, onRefresh }: PlaylistDetailProps) {
   const queriedLibrary = useLibraryQuery({ enabled: false }).library
   const library = providedLibrary ?? queriedLibrary
   const rows = useMemo(() => resolvePlaylistDisplayItems(playlist, library), [library, playlist])
+  const editableItems = useMemo(() => normalizePlaylistItems(playlist), [playlist])
   const artworkUrls = useMemo(() => playlistArtworkUrls(playlist, library), [library, playlist])
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
 
   const confirmDelete = async () => {
     setDeleting(true)
@@ -294,6 +300,27 @@ export function PlaylistDetail({ playlist, library: providedLibrary, onUpdate, o
     const sourceItems = playlist.items.length > 0 ? playlist.items : playlist.entries.map((itemId, itemIndex) => ({ entryId: itemIndex + 1, itemType: 'THEME' as const, itemId, modeOverride: null }))
     await onUpdate(playlist.id, { items: sourceItems.filter((_, itemIndex) => itemIndex !== index) })
   }
+  const moveItem = async (index: number, delta: -1 | 1) => {
+    if (playlist.isAuto || playlist.isDynamic) return
+    const current = editableItems[index]
+    if (!current) return
+    const reordered = reorderPlaylistItems(editableItems, current.key, delta)
+    if (reordered[index]?.key === current.key) return
+    setError(null)
+    try {
+      await onUpdate(playlist.id, { items: toPlaylistItemInputs(reordered) })
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : 'Could not reorder playlist.')
+    }
+  }
+  const refreshSnapshot = async () => {
+    if (!onRefresh || !isSnapshotPlaylist(playlist)) return
+    setRefreshing(true)
+    setError(null)
+    try { await onRefresh(playlist) } catch (refreshError) {
+      setError(refreshError instanceof Error ? refreshError.message : 'Could not refresh playlist.')
+    } finally { setRefreshing(false) }
+  }
 
   return (
     <section className="playlist-detail playlist-detail--catalog" aria-labelledby="playlist-detail-title">
@@ -307,6 +334,10 @@ export function PlaylistDetail({ playlist, library: providedLibrary, onUpdate, o
           <p>{rows.length} {rows.length === 1 ? 'track' : 'tracks'} · {playlist.defaultMode === 'FULL_SIZE' ? 'Full size' : 'TV size'} default{playlist.isDynamic && playlist.autoUpdate ? ' · Auto-updating' : ''}</p>
           <div className="playlist-detail__actions">
             {onPlay && <><button type="button" className="playlist-button playlist-button--primary" onClick={() => onPlay(playlist, false)} disabled={rows.length === 0}><Play size={17} fill="currentColor" /> Play all</button><button type="button" className="playlist-button" onClick={() => onPlay(playlist, true)} disabled={rows.length === 0}><Shuffle size={17} /> Shuffle</button></>}
+            {onPlayNext && <button type="button" className="playlist-button" onClick={() => onPlayNext(playlist)} disabled={rows.length === 0}>Play next</button>}
+            {onAddToQueue && <button type="button" className="playlist-button" onClick={() => onAddToQueue(playlist)} disabled={rows.length === 0}>Add to queue</button>}
+            {onReplaceQueue && <button type="button" className="playlist-button" onClick={() => onReplaceQueue(playlist)} disabled={rows.length === 0}>Replace queue</button>}
+            {onRefresh && isSnapshotPlaylist(playlist) && <button type="button" className="playlist-button" onClick={() => void refreshSnapshot()} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh now'}</button>}
             {!playlist.isAuto && <button type="button" className="playlist-button" onClick={() => setEditorOpen(true)}><Pencil size={16} /> Edit</button>}
             {!playlist.isAuto && <button type="button" className="playlist-button playlist-button--danger" aria-label="Delete playlist" onClick={() => setConfirmingDelete(true)}><Trash2 size={16} /> Delete</button>}
           </div>
@@ -315,7 +346,7 @@ export function PlaylistDetail({ playlist, library: providedLibrary, onUpdate, o
       {error && <p className="playlist-field__error" role="alert">{error}</p>}
       <section className="playlist-track-section" aria-labelledby="playlist-tracks-title">
         <div className="playlist-items__heading"><div><p className="playlist-eyebrow">Playlist sequence</p><h2 id="playlist-tracks-title">Tracks</h2></div><span>{rows.length}</span></div>
-        {rows.length === 0 ? <p className="playlist-muted">This playlist is empty. Add tracks from a song’s action menu.</p> : <ol className="playlist-track-list">{rows.map((row, index) => <li key={row.key} className={!row.available ? 'playlist-track-row playlist-track-row--unavailable' : 'playlist-track-row'}><span className="playlist-track-row__number">{index + 1}</span><button type="button" className="playlist-track-row__play" onClick={() => onPlayItem?.(playlist, index)} disabled={!row.available || !onPlayItem} aria-label={`Play ${row.title}`}>{row.artworkUrl ? <img src={row.artworkUrl} alt="" loading="lazy" /> : <span aria-hidden="true"><Music2 size={20} /></span>}<i aria-hidden="true"><Play size={17} fill="currentColor" /></i></button><span className="playlist-track-row__copy"><strong>{row.title}</strong><small>{row.subtitle}</small></span><span className="playlist-track-row__features">{row.available ? <>{row.hasFullSize && row.itemType === 'THEME' && <span>Full size</span>}{row.hasVideo && <span>Video</span>}</> : <span>Unavailable</span>}</span><time>{formatPlaylistDuration(row.durationSeconds)}</time><TrackActionMenu menuOnly item={{ itemType: row.itemType, itemId: row.itemId, title: row.title, modeOverride: row.modeOverride }} liked={row.liked} disliked={row.disliked} onPlayNext={row.available && onPlayNextItem ? () => onPlayNextItem(playlist, index) : undefined} onAddToQueue={row.available && onAddToQueueItem ? () => onAddToQueueItem(playlist, index) : undefined} onRemove={!playlist.isAuto ? () => { void removeItem(index) } : undefined} /></li>)}</ol>}
+        {rows.length === 0 ? <p className="playlist-muted">This playlist is empty. Add tracks from a song’s action menu.</p> : <ol className="playlist-track-list">{rows.map((row, index) => <li key={row.key} className={['playlist-track-row', !row.available && 'playlist-track-row--unavailable', !playlist.isAuto && !playlist.isDynamic && 'playlist-track-row--reorderable'].filter(Boolean).join(' ')}><span className="playlist-track-row__number">{index + 1}</span><button type="button" className="playlist-track-row__play" onClick={() => onPlayItem?.(playlist, index)} disabled={!row.available || !onPlayItem} aria-label={`Play ${row.title}`}>{row.artworkUrl ? <img src={row.artworkUrl} alt="" loading="lazy" /> : <span aria-hidden="true"><Music2 size={20} /></span>}<i aria-hidden="true"><Play size={17} fill="currentColor" /></i></button><span className="playlist-track-row__copy"><strong>{row.title}</strong><small>{row.subtitle}</small></span><span className="playlist-track-row__features">{row.available ? <>{row.hasFullSize && row.itemType === 'THEME' && <span>Full size</span>}{row.hasVideo && <span>Video</span>}</> : <span>Unavailable</span>}</span><time>{formatPlaylistDuration(row.durationSeconds)}</time>{!playlist.isAuto && !playlist.isDynamic && <span className="playlist-track-row__reorder"><button type="button" className="playlist-icon-button" aria-label={`Move ${row.title} up`} disabled={index === 0} onClick={() => void moveItem(index, -1)}>↑</button><button type="button" className="playlist-icon-button" aria-label={`Move ${row.title} down`} disabled={index === rows.length - 1} onClick={() => void moveItem(index, 1)}>↓</button></span>}<TrackActionMenu menuOnly item={{ itemType: row.itemType, itemId: row.itemId, title: row.title, modeOverride: row.modeOverride }} liked={row.liked} disliked={row.disliked} onPlayNext={row.available && onPlayNextItem ? () => onPlayNextItem(playlist, index) : undefined} onAddToQueue={row.available && onAddToQueueItem ? () => onAddToQueueItem(playlist, index) : undefined} onRemove={!playlist.isAuto ? () => { void removeItem(index) } : undefined} /></li>)}</ol>}
       </section>
       {editorOpen && <div className="playlist-dialog-backdrop"><div className="playlist-dialog" role="dialog" aria-modal="true" aria-labelledby="playlist-edit-dialog-title"><PlaylistEditor playlist={playlist} onCancel={() => setEditorOpen(false)} onSubmit={async (input) => { await onUpdate(playlist.id, input as Partial<PlaylistUpdateInput> & { items?: PlaylistUpdateInput['items'] }); setEditorOpen(false) }} /></div></div>}
       {confirmingDelete && <div className="playlist-dialog-backdrop"><div className="playlist-dialog playlist-dialog--confirm" role="dialog" aria-modal="true" aria-labelledby="playlist-delete-dialog-title"><h2 id="playlist-delete-dialog-title">Delete playlist?</h2><p>This removes “{playlist.name}” from your library. The tracks themselves will stay available.</p><div className="playlist-dialog__actions"><button type="button" className="playlist-button" onClick={() => setConfirmingDelete(false)} disabled={deleting}>Keep playlist</button><button type="button" className="playlist-button playlist-button--danger" onClick={confirmDelete} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete'}</button></div></div></div>}
@@ -327,6 +358,10 @@ function formatPlaylistDuration(value: number | null): string {
   if (!value || value <= 0) return '—'
   const seconds = Math.floor(value)
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+}
+
+function isSnapshotPlaylist(playlist: PlaylistDto): boolean {
+  return playlist.isDynamic && !playlist.autoUpdate && deserializeDynamicSpec(playlist.dynamicSpecJson).mode === 'SNAPSHOT'
 }
 
 export interface PlaylistManagerProps extends Omit<PlaylistListProps, 'onCreate'> {

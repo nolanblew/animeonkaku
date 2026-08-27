@@ -24,6 +24,7 @@ class FakeClientApi implements ClientApiService {
   ensureUserDataCalls: string[] = [];
   ensureThemeCalls: Array<{ userId: string; themeIds: number[] }> = [];
   autoRefreshes: string[] = [];
+  snapshotRefreshes: Array<{ userId: string; id: number }> = [];
   events: string[] = [];
   prefs = new Map<number, { liked: boolean; disliked: boolean; dislikedTvSize: boolean; dislikedFullSize: boolean; preferredMode: "TV_SIZE" | "FULL_SIZE" | null; playCount: number; lastPlayedAt: number | null }>();
   songPrefs = new Map<number, { liked: boolean; disliked: boolean; playCount: number; lastPlayedAt: number | null }>();
@@ -336,6 +337,15 @@ class FakeClientApi implements ClientApiService {
     const existing = this.playlists.get(id);
     if (!existing || existing.isAuto) return null;
     const updated = { ...existing, dynamicSpecJson: spec, updatedAt: Date.now() };
+    this.playlists.set(id, updated);
+    return updated;
+  }
+
+  async refreshPlaylistSnapshot(userId: string, id: number) {
+    this.snapshotRefreshes.push({ userId, id });
+    const existing = this.playlists.get(id);
+    if (!existing || existing.isAuto || !existing.isDynamic || existing.autoUpdate) return null;
+    const updated = { ...existing, updatedAt: Date.now() };
     this.playlists.set(id, updated);
     return updated;
   }
@@ -702,6 +712,32 @@ describe("client API routes", () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(deleted.statusCode).toBe(204);
+  });
+
+  it("refreshes only user-owned snapshot playlists", async () => {
+    expect((await app.inject({ method: "POST", url: "/v1/playlists/1/refresh" })).statusCode).toBe(401);
+    const token = await bearer();
+    const snapshot = await app.inject({
+      method: "POST",
+      url: "/v1/playlists",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        name: "Snapshot",
+        items: [{ itemType: "THEME", itemId: 100, modeOverride: null }],
+        dynamicSpecJson: { filterJson: { type: "liked" }, mode: "SNAPSHOT" },
+        autoUpdate: false,
+      },
+    });
+    expect(snapshot.statusCode).toBe(201);
+    const id = snapshot.json().playlist.id as number;
+    const refreshed = await app.inject({ method: "POST", url: `/v1/playlists/${id}/refresh`, headers: { authorization: `Bearer ${token}` } });
+    expect(refreshed.statusCode).toBe(200);
+    expect(refreshed.json().playlist).toMatchObject({ id, name: "Snapshot", isDynamic: true, autoUpdate: false });
+    expect(clientApi.snapshotRefreshes).toEqual([{ userId: "stub-nolan", id }]);
+
+    const manual = await app.inject({ method: "POST", url: "/v1/playlists", headers: { authorization: `Bearer ${token}` }, payload: { name: "Manual", entries: [100] } });
+    const rejected = await app.inject({ method: "POST", url: `/v1/playlists/${manual.json().playlist.id}/refresh`, headers: { authorization: `Bearer ${token}` } });
+    expect(rejected.statusCode).toBe(404);
   });
 
   it("accepts opTs on playlist delete for last-write-wins conflict resolution", async () => {

@@ -253,6 +253,7 @@ export interface ClientApiService {
   createPlaylist(userId: string, input: PlaylistCreateInput): Promise<PlaylistDto>;
   updatePlaylist(userId: string, id: number, input: PlaylistInput): Promise<PlaylistDto | null>;
   updatePlaylistSpec(userId: string, id: number, spec: unknown): Promise<PlaylistDto | null>;
+  refreshPlaylistSnapshot?(userId: string, id: number): Promise<PlaylistDto | null>;
   deletePlaylist(userId: string, id: number, opTs?: number | null): Promise<boolean>;
 }
 
@@ -584,6 +585,23 @@ export function registerClientRoutes(
         request.body,
       );
       if (!playlist) throw new ApiError(404, "NOT_FOUND", "Playlist not found.");
+      await options.publisher?.(request.auth!.user.kitsuUserId, ["playlist"]);
+      return { playlist };
+    },
+  );
+
+  app.post(
+    "/v1/playlists/:id/refresh",
+    { schema: { params: idParams }, preHandler: requireAuth },
+    async (request) => {
+      if (!service.refreshPlaylistSnapshot) {
+        throw new ApiError(501, "NOT_IMPLEMENTED", "Playlist snapshot refresh is unavailable.");
+      }
+      const playlist = await service.refreshPlaylistSnapshot(
+        request.auth!.user.kitsuUserId,
+        request.params.id,
+      );
+      if (!playlist) throw new ApiError(404, "NOT_FOUND", "Snapshot playlist not found.");
       await options.publisher?.(request.auth!.user.kitsuUserId, ["playlist"]);
       return { playlist };
     },

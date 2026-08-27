@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type UseMutationResult } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import type { PlaylistDto } from '../../lib/library'
-import { createPlaylist, deletePlaylist, listPlaylists, updatePlaylist, updatePlaylistSpec, type PlaylistCreateInput } from './api'
+import { createPlaylist, deletePlaylist, listPlaylists, refreshPlaylistSnapshot, updatePlaylist, updatePlaylistSpec, type PlaylistCreateInput } from './api'
 import type { PlaylistItemInput, PlaylistUpdateInput } from './model'
 
 export const PLAYLISTS_QUERY_KEY = ['playlists'] as const
@@ -45,10 +45,12 @@ export interface PlaylistMutationApi {
   create: (input: PlaylistCreateInput) => Promise<PlaylistDto>
   update: (id: number, input: Partial<PlaylistUpdateInput> & { items?: PlaylistItemInput[] }) => Promise<PlaylistDto>
   updateSpec: (id: number, spec: unknown) => Promise<PlaylistDto>
+  refresh: (id: number) => Promise<PlaylistDto>
   remove: (id: number) => Promise<void>
   createState: UseMutationResult<PlaylistDto, Error, PlaylistCreateInput>
   updateState: UseMutationResult<PlaylistDto, Error, { id: number; input: Partial<PlaylistUpdateInput> & { items?: PlaylistItemInput[] } }>
   updateSpecState: UseMutationResult<PlaylistDto, Error, { id: number; spec: unknown }>
+  refreshState: UseMutationResult<PlaylistDto, Error, number>
   removeState: UseMutationResult<void, Error, number>
 }
 
@@ -78,6 +80,10 @@ export function usePlaylistMutations(): PlaylistMutationApi {
     mutationFn: ({ id, spec }: { id: number; spec: unknown }) => updatePlaylistSpec(id, spec),
     onSuccess: (playlist) => { syncPlaylist(playlist); invalidate() },
   })
+  const refreshState = useMutation({
+    mutationFn: refreshPlaylistSnapshot,
+    onSuccess: (playlist) => { syncPlaylist(playlist); invalidate() },
+  })
   const removeState = useMutation({
     mutationFn: deletePlaylist,
     onSuccess: (_, id) => {
@@ -91,10 +97,12 @@ export function usePlaylistMutations(): PlaylistMutationApi {
     create: createState.mutateAsync,
     update: (id, input) => updateState.mutateAsync({ id, input }),
     updateSpec: (id, spec) => updateSpecState.mutateAsync({ id, spec }),
+    refresh: refreshState.mutateAsync,
     remove: removeState.mutateAsync,
     createState,
     updateState,
     updateSpecState,
+    refreshState,
     removeState,
-  }), [createState, removeState, updateSpecState, updateState])
+  }), [createState, refreshState, removeState, updateSpecState, updateState])
 }

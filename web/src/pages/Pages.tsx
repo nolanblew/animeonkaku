@@ -63,7 +63,7 @@ export function PlaylistPage() {
   if (query.isPending) return <PlaylistFeatureMessage>Loading playlist…</PlaylistFeatureMessage>
   if (query.isError) return <PlaylistFeatureMessage>Could not load this playlist. Try again in a moment.</PlaylistFeatureMessage>
   if (!query.playlist) return <RouteSkeleton eyebrow="Playlist" title="Playlist not found" description="This playlist may have been removed on another device." icon={ListMusic} />
-  return <PlaylistDetail playlist={query.playlist} library={library} onUpdate={mutations.update} onDelete={async (playlist) => { await mutations.remove(playlist); navigate('/playlists', { replace: true }) }} onBack={() => navigate('/playlists')} onPlay={library ? (playlist, shuffle) => playPlaylist(player, library, playlist, shuffle) : undefined} onPlayItem={library ? (playlist, index) => playPlaylist(player, library, playlist, false, index) : undefined} onPlayNextItem={library ? (playlist, index) => enqueuePlaylistItem(player, library, playlist, index, 'next') : undefined} onAddToQueueItem={library ? (playlist, index) => enqueuePlaylistItem(player, library, playlist, index, 'append') : undefined} />
+  return <PlaylistDetail playlist={query.playlist} library={library} onUpdate={mutations.update} onDelete={async (playlist) => { await mutations.remove(playlist); navigate('/playlists', { replace: true }) }} onBack={() => navigate('/playlists')} onPlay={library ? (playlist, shuffle) => playPlaylist(player, library, playlist, shuffle) : undefined} onPlayItem={library ? (playlist, index) => playPlaylist(player, library, playlist, false, index) : undefined} onPlayNextItem={library ? (playlist, index) => enqueuePlaylistItem(player, library, playlist, index, 'next') : undefined} onAddToQueueItem={library ? (playlist, index) => enqueuePlaylistItem(player, library, playlist, index, 'append') : undefined} onPlayNext={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'next') : undefined} onAddToQueue={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'append') : undefined} onReplaceQueue={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'replace') : undefined} onRefresh={(playlist) => mutations.refresh(playlist.id)} />
 }
 
 export function PlaylistsPage() {
@@ -168,6 +168,22 @@ function enqueuePlaylistItem(player: PlayerContextValue, library: NormalizedLibr
   if (!player.currentItem) { player.playItem(item, { contextLabel: playlist.name }); return }
   if (position === 'next') player.queue.playNext([item])
   else player.queue.addToQueue([item])
+}
+
+function enqueuePlaylistCollection(player: PlayerContextValue, library: NormalizedLibrary, playlist: PlaylistDto, position: 'next' | 'append' | 'replace'): void {
+  const items = playlistQueueItems(library, playlist).filter((item): item is PlayerQueueItem => item !== null)
+  if (items.length === 0) return
+  if (position === 'replace') {
+    player.playItems(items, { contextLabel: playlist.name, startIndex: 0, shuffle: false })
+    return
+  }
+  if (!player.currentItem) {
+    player.playItem(items[0]!, { contextLabel: playlist.name })
+    if (items.length > 1) player.queue.addToQueue(items.slice(1))
+    return
+  }
+  if (position === 'next') player.queue.playNext(items)
+  else player.queue.addToQueue(items)
 }
 
 function playlistQueueItems(library: NormalizedLibrary, playlist: PlaylistDto): Array<PlayerQueueItem | null> {

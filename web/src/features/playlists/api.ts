@@ -35,6 +35,13 @@ export function updatePlaylistSpec(id: number, spec: unknown): Promise<PlaylistD
   }).then((response) => response.playlist)
 }
 
+export function refreshPlaylistSnapshot(id: number): Promise<PlaylistDto> {
+  assertPlaylistId(id)
+  return apiClient.request<PlaylistResponse>(`/v1/playlists/${id}/refresh`, {
+    method: 'POST',
+  }).then((response) => response.playlist)
+}
+
 export async function deletePlaylist(id: number): Promise<void> {
   assertPlaylistId(id)
   await apiClient.request<void>(`/v1/playlists/${id}`, { method: 'DELETE' })
