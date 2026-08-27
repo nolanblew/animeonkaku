@@ -17,6 +17,9 @@ export interface PlayerQueueItem extends QueueItem {
   readonly themeId?: number
   readonly songId?: number
   readonly animeTitle?: string
+  readonly animeTitleEn?: string
+  readonly animeTitleRomaji?: string
+  readonly animeTitleJa?: string
   readonly themeType?: string
 }
 
@@ -24,6 +27,9 @@ export interface ThemeQueueItemOptions {
   artworkUrl?: string | null
   animeId?: string | number | null
   animeTitle?: string | null
+  animeTitleEn?: string | null
+  animeTitleRomaji?: string | null
+  animeTitleJa?: string | null
   mode?: PlaybackMode
 }
 
@@ -46,6 +52,9 @@ export function mapThemeToQueueItem(theme: LibraryThemeDto, options: ThemeQueueI
     album: theme.themeType || undefined,
     animeId: options.animeId ?? theme.kitsuAnimeIds?.[0],
     animeTitle: options.animeTitle?.trim() || undefined,
+    animeTitleEn: options.animeTitleEn?.trim() || undefined,
+    animeTitleRomaji: options.animeTitleRomaji?.trim() || undefined,
+    animeTitleJa: options.animeTitleJa?.trim() || undefined,
     themeType: theme.themeType?.trim() || undefined,
     artworkUrl: options.artworkUrl ?? undefined,
     audioUrl,

@@ -13,6 +13,7 @@ import { CatalogError, CatalogLoading } from './CatalogError'
 import { displayTitle, statusLabel } from './selectors'
 import type { AnimeDetailResponse } from './types'
 import { browserAssetUrl } from '../../lib/assets'
+import { preferredAnimeTitle, useAnimeTitlePreference } from '../../lib/animeTitlePreference'
 
 export interface AnimeDetailPageProps {
   onPlayThemes?: (themes: LibraryThemeDto[], startIndex?: number, shuffle?: boolean, artworkUrl?: string | null) => void
@@ -25,6 +26,7 @@ export interface AnimeDetailPageProps {
 }
 
 export function AnimeDetailPage({ onPlayThemes, onPlayNext, onAddToQueue, onPlaySong, onPlayNextSong, onAddToQueueSong, onReplaceQueueSong }: AnimeDetailPageProps = {}) {
+  const titlePreference = useAnimeTitlePreference()
   const { animeId } = useParams()
   const navigate = useNavigate()
   const libraryQuery = useLibraryQuery()
@@ -35,7 +37,7 @@ export function AnimeDetailPage({ onPlayThemes, onPlayNext, onAddToQueue, onPlay
   if (!animeId || detail.isError) return <CatalogError title="Anime unavailable" error={detail.error} />
   if (detail.isPending || !detail.data) return <CatalogLoading label="Loading anime details" />
   const anime = detail.data.anime
-  const title = displayTitle(anime)
+  const title = preferredAnimeTitle(anime, titlePreference) || displayTitle(anime)
   const library = libraryQuery.library
   const animeInLibrary = Boolean(library?.animeById[anime.kitsuId] && !library.animeById[anime.kitsuId]?.deleted)
   const actionTheme = actionThemes?.[0]

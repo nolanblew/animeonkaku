@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { apiClient, type ApiClient } from '../lib/api'
 import { BrowserMediaSession, type MediaSessionPort } from '../media/mediaSession'
 import { themePresentation } from '../lib/themePresentation'
+import { preferredAnimeTitle, useAnimeTitlePreference } from '../lib/animeTitlePreference'
 import { browserCacheStorage, ManagedMediaCache } from '../media/managedCache'
 import { modeStartTime, type PlaybackMode } from '../media/modeSwitch'
 import {
@@ -114,6 +115,7 @@ export function PlayerProvider({
   persistenceUserId,
   preferenceSnapshot = emptyQueuePreferenceSnapshot,
 }: PlayerProviderProps) {
+  const animeTitlePreference = useAnimeTitlePreference()
   const rememberedAudioMode = persistenceUserId ? loadRememberedAudioMode(persistenceUserId) : undefined
   const initialPlaybackMode = initialMode ?? rememberedAudioMode ?? 'TV_SIZE'
   const explicitInitialAudioMode = initialMode === 'TV_SIZE' || initialMode === 'FULL_SIZE' ? initialMode : undefined
@@ -624,7 +626,7 @@ export function PlayerProvider({
     adapter.start()
     if (currentItem) {
       const presentation = currentItem.itemType === 'THEME'
-        ? themePresentation({ animeTitle: currentItem.animeTitle as string | undefined, themeType: currentItem.themeType as string | undefined, songTitle: currentItem.title, artist: currentItem.artist })
+        ? themePresentation({ animeTitle: preferredAnimeTitle({ title: currentItem.animeTitle as string | undefined, titleEn: currentItem.animeTitleEn as string | undefined, titleRomaji: currentItem.animeTitleRomaji as string | undefined, titleJa: currentItem.animeTitleJa as string | undefined }, animeTitlePreference), themeType: currentItem.themeType as string | undefined, songTitle: currentItem.title, artist: currentItem.artist })
         : { primary: currentItem.title, secondary: currentItem.artist ?? '' }
       adapter.updateMetadata({ title: presentation.primary, artist: presentation.secondary, album: currentItem.album, artworkUrl: currentItem.artworkUrl })
     }
@@ -634,7 +636,7 @@ export function PlayerProvider({
       session.metadata = null
       if (mediaSessionRef.current === adapter) mediaSessionRef.current = null
     }
-  }, [currentEntry?.queueId, currentItem, isPlaying, mode, next, previous])
+  }, [animeTitlePreference, currentEntry?.queueId, currentItem, isPlaying, mode, next, previous])
 
   const requestFullscreen = useCallback(async () => {
     const video = videoRef.current

@@ -99,6 +99,11 @@
 .account-settings-toggle strong { font-size: .88rem; }
 .account-settings-toggle small { color: var(--muted, #a2a7b5); font-size: .78rem; }
 .account-settings-toggle input { width: 1.1rem; height: 1.1rem; accent-color: var(--cyan, #70dce5); }
+.account-settings-choice-group { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .5rem; margin: 0; padding: 0; border: 0; }
+.account-settings-choice-group legend { margin-bottom: .55rem; color: var(--muted, #a2a7b5); font-size: .82rem; font-weight: 650; }
+.account-settings-choice-group label { position: relative; display: grid; min-width: 0; place-items: center; padding: .7rem .55rem; border: 1px solid rgba(255,255,255,.1); border-radius: .65rem; background: rgba(255,255,255,.025); color: var(--muted,#a2a7b5); cursor: pointer; }
+.account-settings-choice-group label:has(input:checked) { border-color: rgba(112,220,229,.55); background: rgba(112,220,229,.1); color: var(--text,#f5f5f7); }
+.account-settings-choice-group input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
 .account-settings-details { display: grid; gap: .7rem; margin: 0; }
 .account-settings-details > div { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding-bottom: .7rem; border-bottom: 1px solid rgba(255, 255, 255, .07); }
 .account-settings-details > div:last-child { padding-bottom: 0; border-bottom: 0; }

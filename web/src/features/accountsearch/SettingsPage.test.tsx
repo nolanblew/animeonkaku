@@ -35,7 +35,10 @@ function renderPage() {
   return render(<MemoryRouter initialEntries={['/settings']}><Routes><Route path="/settings" element={<SettingsPage />} /><Route path="/login" element={<p>Login route</p>} /></Routes></MemoryRouter>)
 }
 
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  localStorage.clear()
+  vi.restoreAllMocks()
+})
 
 beforeEach(() => {
   localStorage.clear()

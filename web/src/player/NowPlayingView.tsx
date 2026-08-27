@@ -7,29 +7,32 @@ import type { QueueEntry } from './queue'
 import { windowQueueEntries } from './queueWindow'
 import { useAccessibleFocusScope } from '../components/focusScope'
 import { themePresentation } from '../lib/themePresentation'
+import { preferredAnimeTitle, useAnimeTitlePreference } from '../lib/animeTitlePreference'
 
 export interface NowPlayingViewProps { className?: string; onCollapse?: () => void }
 
 export function NowPlayingView({ className = '', onCollapse }: NowPlayingViewProps) {
   const player = usePlayer()
   const current = player.currentItem
-  const presentation = playerItemPresentation(current)
+  const animeTitlePreference = useAnimeTitlePreference()
+  const presentation = playerItemPresentation(current, animeTitlePreference)
   const title = presentation.primary
   const artist = presentation.secondary
   const isVideo = player.mode === 'VIDEO'
   const [queueOpen, setQueueOpen] = useState(false)
 
-  const chooseSong = () => player.setMode(player.fullSizeAvailable ? 'FULL_SIZE' : 'TV_SIZE')
+  const modeLabel = player.mode === 'FULL_SIZE' ? 'Full size' : player.mode === 'VIDEO' ? 'Video' : 'TV size'
   return (
     <section className={['player-now-playing', isVideo ? 'player-now-playing--video' : 'player-now-playing--song', className].filter(Boolean).join(' ')} aria-label="Now playing" data-testid="now-playing-view">
       {current?.artworkUrl && <div className="player-now-playing__backdrop" style={{ backgroundImage: `url(${JSON.stringify(current.artworkUrl)})` }} aria-hidden="true" />}
       <div className="player-expanded-toolbar">
         <button type="button" className="player-collapse-button" onClick={onCollapse} disabled={!onCollapse} aria-label="Collapse player"><ChevronDown size={23} /></button>
-        <div className="player-view-switch" role="tablist" aria-label="Player view">
-          <button type="button" role="tab" aria-selected={!isVideo} onClick={chooseSong} disabled={!player.tvSizeAvailable && !player.fullSizeAvailable}>Song</button>
-          <button type="button" role="tab" aria-selected={isVideo} onClick={() => player.setMode('VIDEO')} disabled={!player.videoAvailable}>Video</button>
+        <div className="player-view-switch" role="tablist" aria-label="Playback type">
+          <ModeTab mode="TV_SIZE" label="TV size" available={player.tvSizeAvailable} />
+          <ModeTab mode="FULL_SIZE" label="Full size" available={player.fullSizeAvailable} />
+          <ModeTab mode="VIDEO" label="Video" available={player.videoAvailable} />
         </div>
-        <span aria-hidden="true" />
+        {isVideo ? <button type="button" className="player-icon-button player-icon-button--quiet player-fullscreen-button" onClick={() => void player.requestFullscreen()} aria-label="Enter fullscreen"><Maximize size={18} /></button> : <span aria-hidden="true" />}
       </div>
 
       <div className="player-now-playing__body">
@@ -39,14 +42,10 @@ export function NowPlayingView({ className = '', onCollapse }: NowPlayingViewPro
         </div>
 
         <div className="player-now-playing__details">
-          <div className="player-now-playing__copy"><p className="player-eyebrow">Now playing</p><h2>{title}</h2><p>{artist}</p></div>
-          <div className="player-now-playing__secondary-actions">
-            <CurrentTrackActions />
-            <button type="button" className="player-icon-button player-icon-button--quiet player-queue-toggle" onClick={() => setQueueOpen((open) => !open)} aria-label={queueOpen ? 'Hide queue' : 'Show queue'} aria-controls="playback-queue" aria-expanded={queueOpen}><ListMusic size={19} /></button>
-          </div>
+          <div className="player-now-playing__copy"><p className="player-eyebrow">Now playing</p><h2>{title}</h2><p>{artist}</p><span className="player-now-playing__type-label">{modeLabel}</span></div>
           <div className="player-now-playing__progress"><span aria-live="off">{formatTime(player.currentTime)}</span><input type="range" min="0" max={Math.max(0, player.duration)} step="0.1" value={Math.min(player.currentTime, Math.max(0, player.duration))} onChange={(event) => player.seek(Number(event.currentTarget.value))} aria-label="Seek" disabled={!current} /><span aria-live="off">{formatTime(player.duration)}</span></div>
           <div className="player-now-playing__controls" aria-label="Playback controls"><button type="button" className="player-icon-button player-icon-button--quiet" onClick={() => player.toggleShuffle()} aria-label={player.queueState.isShuffled ? 'Disable shuffle' : 'Enable shuffle'} aria-pressed={player.queueState.isShuffled}><Shuffle size={20} /></button><button type="button" className="player-icon-button player-icon-button--quiet player-skip-button" onClick={() => void player.previous()} aria-label="Previous track" disabled={!current}><SkipBack size={24} fill="currentColor" /></button><button type="button" className="player-play-button player-play-button--hero" onClick={() => void player.togglePlay()} aria-label={player.isPlaying ? 'Pause current track' : 'Play current track'} disabled={!current}>{player.isPlaying ? <Pause size={29} fill="currentColor" /> : <Play size={29} fill="currentColor" />}</button><button type="button" className="player-icon-button player-icon-button--quiet player-skip-button" onClick={() => void player.next()} aria-label="Next track" disabled={!current}><SkipForward size={24} fill="currentColor" /></button><button type="button" className="player-icon-button player-icon-button--quiet" onClick={() => player.cycleRepeat()} aria-label={`Repeat ${player.queueState.repeatMode}`} aria-pressed={player.queueState.repeatMode !== 'off'}><Repeat size={20} /></button></div>
-          <div className="player-mode-controls" role="group" aria-label="Playback size"><ModeButton mode="TV_SIZE" label="TV size" disabled={!player.tvSizeAvailable} /><ModeButton mode="FULL_SIZE" label="Full size" disabled={!player.fullSizeAvailable} /><ModeButton mode="VIDEO" label="Video" disabled={!player.videoAvailable} />{isVideo && <button type="button" className="player-icon-button" onClick={() => void player.requestFullscreen()} aria-label="Enter fullscreen"><Maximize size={18} /></button>}</div>
+          <div className="player-now-playing__secondary-actions"><CurrentTrackActions /><button type="button" className="player-icon-button player-icon-button--quiet player-queue-toggle" onClick={() => setQueueOpen((open) => !open)} aria-label={queueOpen ? 'Hide queue' : 'Show queue'} aria-controls="playback-queue" aria-expanded={queueOpen}><ListMusic size={19} /></button></div>
           {player.error && <p className="player-error" role="alert">{player.error}</p>}
           {player.isLoading && <p className="player-loading" role="status">Loading media…</p>}
           {!player.videoAvailable && <p className="player-muted">Video unavailable for this theme.</p>}
@@ -57,8 +56,9 @@ export function NowPlayingView({ className = '', onCollapse }: NowPlayingViewPro
     </section>
   )
 
-  function ModeButton({ mode, label, disabled = false }: { mode: PlaybackMode; label: string; disabled?: boolean }) {
-    return <button type="button" className="player-mode-button" onClick={() => player.setMode(mode)} aria-pressed={player.mode === mode} disabled={disabled}>{label}</button>
+  function ModeTab({ mode, label, available }: { mode: PlaybackMode; label: string; available: boolean }) {
+    if (!available) return null
+    return <button type="button" role="tab" aria-selected={player.mode === mode} onClick={() => player.setMode(mode)}>{label}</button>
   }
 }
 
@@ -279,10 +279,10 @@ function QueueRow({ entry, tone, position, primaryLabel, onPrimary, onMoveUp, on
   </li>
 }
 
-function playerItemPresentation(item: QueueEntry['item'] | undefined): { primary: string; secondary: string } {
+function playerItemPresentation(item: QueueEntry['item'] | undefined, preference?: 'ENGLISH' | 'ROMAJI' | 'JAPANESE'): { primary: string; secondary: string } {
   if (!item) return { primary: 'Nothing playing', secondary: 'Choose a theme or song to begin.' }
   if (item.itemType === 'THEME') return themePresentation({
-    animeTitle: item.animeTitle as string | undefined,
+    animeTitle: preferredAnimeTitle({ title: item.animeTitle as string | undefined, titleEn: item.animeTitleEn as string | undefined, titleRomaji: item.animeTitleRomaji as string | undefined, titleJa: item.animeTitleJa as string | undefined }, preference),
     themeType: item.themeType as string | undefined,
     songTitle: item.title,
     artist: item.artist,

@@ -1,12 +1,13 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const state = vi.hoisted(() => ({ player: null as any }))
 vi.mock('./PlayerProvider', () => ({ usePlayer: () => state.player }))
 
 import { MiniPlayerView } from './MiniPlayerView'
 import { NowPlayingView } from './NowPlayingView'
+import { writeAnimeTitlePreference } from '../lib/animeTitlePreference'
 
 function renderPlayer(ui: React.ReactElement) {
   return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>)
@@ -51,6 +52,8 @@ beforeEach(() => {
   }
 })
 
+afterEach(() => localStorage.clear())
+
 describe('player views', () => {
   it('forwards every now-playing control including mode, fullscreen, seek, and queue selection', () => {
     renderPlayer(<NowPlayingView className="wide" />)
@@ -64,9 +67,9 @@ describe('player views', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Play current track' }))
     fireEvent.click(screen.getByRole('button', { name: 'Next track' }))
     fireEvent.click(screen.getByRole('button', { name: 'Repeat off' }))
-    fireEvent.click(screen.getByRole('button', { name: 'TV size' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Full size' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Video' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'TV size' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Full size' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Video' }))
     fireEvent.click(screen.getByRole('button', { name: 'Enter fullscreen' }))
     fireEvent.click(screen.getByRole('button', { name: 'Show queue' }))
     fireEvent.click(screen.getByRole('button', { name: 'Play Ending' }))
@@ -90,10 +93,11 @@ describe('player views', () => {
 
     expect(screen.getByText('Full size', { selector: '.player-now-playing__type-label' })).toBeInTheDocument()
     expect(container.querySelector('.player-mode-controls')).not.toBeInTheDocument()
-    const details = container.querySelector('.player-now-playing__details')
     const controls = container.querySelector('.player-now-playing__controls')
     const actions = container.querySelector('.player-now-playing__secondary-actions')
-    expect(controls?.compareDocumentPosition(actions as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(controls).not.toBeNull()
+    expect(actions).not.toBeNull()
+    expect(controls!.compareDocumentPosition(actions!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('matches mobile title hierarchy in the mini player, full player, and queue', () => {
@@ -107,6 +111,16 @@ describe('player views', () => {
     expect(screen.getByText('Opening · Band')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Show queue' }))
     expect(screen.getByText('A Couple of Cuckoos · ED 2', { selector: '.player-queue__title' })).toBeInTheDocument()
+  })
+
+  it('updates an already-playing theme when the local anime-title preference changes', () => {
+    state.player.mode = 'TV_SIZE'
+    state.player.currentItem = { ...state.player.currentItem, animeTitleEn: 'English anime', animeTitleRomaji: 'Romaji anime', animeTitleJa: '日本語アニメ' }
+    renderPlayer(<NowPlayingView />)
+
+    expect(screen.getByRole('heading', { name: 'English anime · ED 2' })).toBeInTheDocument()
+    act(() => writeAnimeTitlePreference('JAPANESE'))
+    expect(screen.getByRole('heading', { name: '日本語アニメ · ED 2' })).toBeInTheDocument()
   })
 
   it('keeps the queue hidden until requested and removes redundant row timing and section counts', () => {
@@ -242,13 +256,13 @@ describe('player views', () => {
     expect(screen.getByText('Video unavailable for this theme.')).toBeInTheDocument()
   })
 
-  it('disables TV size when the current queue item has no TV-sized media', () => {
+  it('omits TV size when the current queue item has no TV-sized media', () => {
     state.player.tvSizeAvailable = false
     state.player.mode = 'FULL_SIZE'
 
     renderPlayer(<NowPlayingView />)
 
-    expect(screen.getByRole('button', { name: 'TV size' })).toBeDisabled()
+    expect(screen.queryByRole('tab', { name: 'TV size' })).not.toBeInTheDocument()
   })
 
   it('renders fallback metadata and paused-state controls without an open handler', () => {

@@ -9,6 +9,7 @@ import { readShowOstsOnHome, subscribeToHomePreference } from '../../lib/homePre
 import type { LibraryThemeDto, NormalizedLibrary } from '../../lib/library'
 import { useLibraryQuery } from '../../lib/query'
 import { themePresentation } from '../../lib/themePresentation'
+import { preferredAnimeTitle, useAnimeTitlePreference, type AnimeTitlePreference } from '../../lib/animeTitlePreference'
 import { TrackActionMenu, useLibraryActions } from '../libraryactions'
 import { playlistArtworkUrls } from '../playlists'
 import { CatalogError, CatalogLoading } from './CatalogError'
@@ -43,13 +44,14 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
   const libraryQuery = useLibraryQuery()
   const [activeFilter, setActiveFilter] = useState<HomeFilter>('ALL')
   const showOstsOnHome = useSyncExternalStore(subscribeToHomePreference, readShowOstsOnHome, () => true)
+  const animeTitlePreference = useAnimeTitlePreference()
 
   if (home.isPending) return <CatalogLoading label="Loading your home" />
   if (home.isError || !home.data) return <CatalogError title="Home unavailable" error={home.error} onRetry={() => void home.refetch()} />
   const data = home.data
   const library = libraryQuery.library
-  const quickPicks = selectQuickPicks(data, library, activeFilter, showOstsOnHome)
-  const topSongs = selectTopSongs(data, library, showOstsOnHome)
+  const quickPicks = selectQuickPicks(data, library, activeFilter, showOstsOnHome, animeTitlePreference)
+  const topSongs = selectTopSongs(data, library, showOstsOnHome, animeTitlePreference)
   const heroArtwork = quickPicks[0]?.artworkUrl ?? browserAssetUrl(data.continueWatching[0]?.posterUrl)
   const currentlyWatchingPlaylist = data.playlists.find((playlist) => playlist.name.trim().toLowerCase() === 'currently watching')
 
@@ -132,6 +134,7 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
         <div className="home-currently-watching__grid">{data.continueWatching.map((anime) => <HomeAnimeCard
           key={anime.kitsuId}
           anime={anime}
+          libraryAnime={library?.animeById[anime.kitsuId]}
           themes={library ? Object.values(library.themesById).filter((theme) => !theme.deleted && theme.kitsuAnimeIds.includes(anime.kitsuId) && isPlayable(theme)) : []}
           playlistId={currentlyWatchingPlaylist?.id}
           onPlayAll={onPlayAll}
@@ -148,8 +151,9 @@ function ThemeCopy({ animeTitle, themeType, songTitle, artist, className }: { an
   return <span className={className}><strong>{presentation.primary}</strong><small>{presentation.secondary}</small></span>
 }
 
-function HomeAnimeCard({ anime, themes, playlistId, onPlayAll }: {
+function HomeAnimeCard({ anime, libraryAnime, themes, playlistId, onPlayAll }: {
   anime: BrowserHomeResponse['continueWatching'][number]
+  libraryAnime?: NormalizedLibrary['animeById'][string]
   themes: LibraryThemeDto[]
   playlistId?: number
   onPlayAll?: HomeCatalogPageProps['onPlayAll']
@@ -161,7 +165,8 @@ function HomeAnimeCard({ anime, themes, playlistId, onPlayAll }: {
   const menuRef = useRovingMenu<HTMLDivElement>({ open, onClose: () => setOpen(false), triggerRef })
   const actions = useLibraryActions()
   const navigate = useNavigate()
-  const title = anime.title ?? 'Untitled anime'
+  const animeTitlePreference = useAnimeTitlePreference()
+  const title = preferredAnimeTitle(libraryAnime ?? anime, animeTitlePreference) || 'Untitled anime'
   const artworkUrl = browserAssetUrl(anime.posterUrl)
   const animePath = `/anime/${encodeURIComponent(anime.kitsuId)}`
 
@@ -195,7 +200,7 @@ function HomeAnimeCard({ anime, themes, playlistId, onPlayAll }: {
   </article>
 }
 
-function selectQuickPicks(data: BrowserHomeResponse, library: NormalizedLibrary | null, filter: HomeFilter, showOstsOnHome = true) {
+function selectQuickPicks(data: BrowserHomeResponse, library: NormalizedLibrary | null, filter: HomeFilter, showOstsOnHome = true, titlePreference: AnimeTitlePreference = 'ENGLISH') {
   if (!library) return []
   const priority = new Map(data.continueWatching.map((anime, index) => [anime.kitsuId, index]))
   return Object.values(library.themesById)
@@ -206,7 +211,7 @@ function selectQuickPicks(data: BrowserHomeResponse, library: NormalizedLibrary 
     .slice(0, 6)
     .map((theme) => {
       const anime = theme.kitsuAnimeIds.map((id) => library.animeById[id]).find(Boolean)
-      return { theme, animeTitle: anime?.title ?? anime?.titleEn ?? 'Anime Ongaku', artworkUrl: themeArtworkFor(theme, library) }
+      return { theme, animeTitle: preferredAnimeTitle(anime, titlePreference) || 'Anime Ongaku', artworkUrl: themeArtworkFor(theme, library) }
     })
 }
 
@@ -219,7 +224,7 @@ interface HomeTopSong {
   theme?: LibraryThemeDto
 }
 
-function selectTopSongs(data: BrowserHomeResponse, library: NormalizedLibrary | null, showOstsOnHome: boolean): HomeTopSong[] {
+function selectTopSongs(data: BrowserHomeResponse, library: NormalizedLibrary | null, showOstsOnHome: boolean, titlePreference: AnimeTitlePreference = 'ENGLISH'): HomeTopSong[] {
   const summaries = data.topSongs
   if (summaries) return summaries
     .filter((summary) => showOstsOnHome || !isSoundtrackSummary(summary))
@@ -230,7 +235,7 @@ function selectTopSongs(data: BrowserHomeResponse, library: NormalizedLibrary | 
         id: summary.id,
         title: summary.title || theme?.title || 'Untitled song',
         artistName,
-        animeTitle: summary.animeTitle ?? null,
+        animeTitle: theme ? (preferredAnimeTitle(theme.kitsuAnimeIds.map((id) => library?.animeById[id]).find(Boolean), titlePreference) || summary.animeTitle || null) : summary.animeTitle ?? null,
         artworkUrl: browserAssetUrl(summary.artworkUrl) ?? (theme ? themeArtworkFor(theme, library) : null),
         theme,
       }
@@ -251,7 +256,7 @@ function selectTopSongs(data: BrowserHomeResponse, library: NormalizedLibrary | 
       id: theme.id,
       title: theme.title,
       artistName: theme.artists.map((artist) => artist.name).filter(Boolean).join(', ') || null,
-      animeTitle: theme.kitsuAnimeIds.map((id) => library.animeById[id]?.title ?? library.animeById[id]?.titleEn).find(Boolean) ?? null,
+      animeTitle: preferredAnimeTitle(theme.kitsuAnimeIds.map((id) => library.animeById[id]).find(Boolean), titlePreference) || null,
       artworkUrl: themeArtworkFor(theme, library),
       theme,
     }))

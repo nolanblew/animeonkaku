@@ -4,6 +4,7 @@ import { usePlayer } from './PlayerProvider'
 import { CurrentTrackActions } from './CurrentTrackActions'
 import { queueItemLoudnessVolume } from './mapping'
 import { themePresentation } from '../lib/themePresentation'
+import { preferredAnimeTitle, useAnimeTitlePreference } from '../lib/animeTitlePreference'
 
 export interface MiniPlayerViewProps {
   className?: string
@@ -12,13 +13,14 @@ export interface MiniPlayerViewProps {
 
 export function MiniPlayerView({ className = '', onOpen }: MiniPlayerViewProps) {
   const player = usePlayer()
+  const animeTitlePreference = useAnimeTitlePreference()
   const [volume, setVolume] = useState(100)
   const current = player.currentItem
   if (!current) {
     return <section className={['player-mini-player', 'player-mini-player--empty', className].filter(Boolean).join(' ')} aria-label="Mini player" data-testid="mini-player-view"><span className="player-mini-player__empty">Nothing playing</span></section>
   }
   const presentation = current.itemType === 'THEME'
-    ? themePresentation({ animeTitle: current.animeTitle as string | undefined, themeType: current.themeType as string | undefined, songTitle: current.title, artist: current.artist })
+    ? themePresentation({ animeTitle: preferredAnimeTitle({ title: current.animeTitle as string | undefined, titleEn: current.animeTitleEn as string | undefined, titleRomaji: current.animeTitleRomaji as string | undefined, titleJa: current.animeTitleJa as string | undefined }, animeTitlePreference), themeType: current.themeType as string | undefined, songTitle: current.title, artist: current.artist })
     : { primary: current.title, secondary: current.artist ?? current.album ?? 'Anime Ongaku' }
   const changeVolume = (value: number) => {
     const bounded = Math.max(0, Math.min(100, value))

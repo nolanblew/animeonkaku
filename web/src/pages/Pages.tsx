@@ -9,7 +9,7 @@ import { PlaylistDetail, PlaylistFeatureMessage, PlaylistManager, usePlaylist, u
 import { buildPlaylistSongIndex } from '../features/playlists/playlistDisplay'
 import { SearchPage as AccountSearchPage, SettingsPage as AccountSettingsPage, type MusicSearchTrack } from '../features/accountsearch'
 import { mapSongToQueueItem, mapThemeToQueueItem, NowPlayingView, runPlayerViewTransition, usePlayer, type PlayerContextValue, type PlayerQueueItem } from '../player'
-import type { LibraryThemeDto, MusicReleaseDto, MusicTrackDto, NormalizedLibrary, PlaylistDto } from '../lib/library'
+import type { LibraryAnimeDto, LibraryThemeDto, MusicReleaseDto, MusicTrackDto, NormalizedLibrary, PlaylistDto } from '../lib/library'
 import { browserAssetUrl } from '../lib/assets'
 import { useLibraryQuery } from '../lib/query'
 
@@ -38,7 +38,7 @@ export function SearchPage() {
   const library = useLibraryQuery().library
   return <AccountSearchPage onPlayTheme={(theme) => {
     const anime = theme.kitsuAnimeIds.map((id) => library?.animeById[id]).find(Boolean)
-    player.playTheme(theme, { artworkUrl: browserAssetUrl(anime?.posterUrl), animeId: anime?.kitsuId, animeTitle: anime?.title ?? anime?.titleEn })
+    player.playTheme(theme, { artworkUrl: browserAssetUrl(anime?.posterUrl), animeId: anime?.kitsuId, ...animeTitleQueueOptions(anime) })
   }} onPlayTrack={(result) => playSearchTrack(player.playSong, result)} onPlayNextTrack={(result) => enqueueSearchTrack(player, result, 'next')} onAddToQueueTrack={(result) => enqueueSearchTrack(player, result, 'append')} onReplaceQueueTrack={(result) => replaceSearchTrack(player, result)} />
 }
 
@@ -200,7 +200,7 @@ function artistQueueItems(artist: ArtistDetailResponse): Array<PlayerQueueItem |
   return [
     ...themes.map((theme) => {
       const anime = theme.anime?.find((entry) => entry.kitsuId)
-      return theme.audioUrl && theme.audioState !== 'FAILED' && theme.audioState !== 'MISSING' ? mapThemeToQueueItem(theme as LibraryThemeDto, { artworkUrl: resolveBrowserAsset(anime?.posterUrl) ?? artworkUrl, animeId: anime?.kitsuId, animeTitle: anime?.title ?? anime?.titleEn }) : null
+      return theme.audioUrl && theme.audioState !== 'FAILED' && theme.audioState !== 'MISSING' ? mapThemeToQueueItem(theme as LibraryThemeDto, { artworkUrl: resolveBrowserAsset(anime?.posterUrl) ?? artworkUrl, animeId: anime?.kitsuId, ...animeTitleQueueOptions(anime) }) : null
     }),
     ...songs.map((song) => song.audioAvailable !== false && song.audioUrl ? mapSongToQueueItem(song as MusicTrackDto, { artworkUrl }) : null),
   ]
@@ -230,7 +230,7 @@ function resolveBrowserAsset(value: string | null | undefined): string | undefin
 
 function themeQueueOptions(theme: LibraryThemeDto, library?: NormalizedLibrary | null, artworkUrl?: string | null) {
   const anime = theme.kitsuAnimeIds.map((id) => library?.animeById[id]).find((entry) => entry && !entry.deleted)
-  return { artworkUrl: resolveBrowserAsset(artworkUrl ?? anime?.posterUrl ?? anime?.coverUrl), animeId: anime?.kitsuId ?? theme.kitsuAnimeIds[0], animeTitle: anime?.title ?? anime?.titleEn }
+  return { artworkUrl: resolveBrowserAsset(artworkUrl ?? anime?.posterUrl ?? anime?.coverUrl), animeId: anime?.kitsuId ?? theme.kitsuAnimeIds[0], ...animeTitleQueueOptions(anime) }
 }
 
 function playPlaylist(player: PlayerContextValue, library: NormalizedLibrary, playlist: PlaylistDto, shuffle: boolean, startIndex = 0): void {
@@ -281,10 +281,20 @@ function playlistQueueItems(library: NormalizedLibrary, playlist: PlaylistDto): 
     const anime = theme.kitsuAnimeIds.map((id) => library.animeById[id]).find((entry) => entry && !entry.deleted)
     const preferredMode = library.prefsByThemeId[String(theme.id)]?.preferredMode
     const mode = item.modeOverride ?? (playlist.overrideUserPreference ? playlist.defaultMode : preferredMode ?? playlist.defaultMode)
-    return mapThemeToQueueItem(theme, { artworkUrl: resolveBrowserAsset(anime?.posterUrl ?? anime?.coverUrl), animeId: anime?.kitsuId, animeTitle: anime?.title ?? anime?.titleEn, mode })
+    return mapThemeToQueueItem(theme, { artworkUrl: resolveBrowserAsset(anime?.posterUrl ?? anime?.coverUrl), animeId: anime?.kitsuId, ...animeTitleQueueOptions(anime), mode })
   })
 }
 
 export function ServerErrorPage() {
   return <RouteSkeleton eyebrow="Service unavailable" title="We’re tuning the signal" description="This route is reserved for a server error surface with a safe retry action." icon={MonitorPlay} />
+}
+
+function animeTitleQueueOptions(anime: Partial<Pick<LibraryAnimeDto, 'title' | 'titleEn' | 'titleRomaji' | 'titleJa'>> | null | undefined) {
+  if (!anime) return {}
+  return {
+    animeTitle: anime.title ?? anime.titleEn,
+    ...(anime.titleEn ? { animeTitleEn: anime.titleEn } : {}),
+    ...(anime.titleRomaji ? { animeTitleRomaji: anime.titleRomaji } : {}),
+    ...(anime.titleJa ? { animeTitleJa: anime.titleJa } : {}),
+  }
 }

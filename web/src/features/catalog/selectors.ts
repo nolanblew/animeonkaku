@@ -1,4 +1,5 @@
 import type { LibraryAnimeDto } from '../../lib/library'
+import { preferredAnimeTitle } from '../../lib/animeTitlePreference'
 
 export type LibrarySort = 'recent' | 'title-asc' | 'title-desc'
 
@@ -29,7 +30,7 @@ export function filterAndSortAnime(
 }
 
 export function displayTitle(anime: Pick<LibraryAnimeDto, 'title' | 'titleEn' | 'titleRomaji' | 'titleJa'>): string {
-  return anime.title || anime.titleEn || anime.titleRomaji || anime.titleJa || 'Untitled anime'
+  return preferredAnimeTitle(anime) || 'Untitled anime'
 }
 
 export function statusLabel(status: string | null): string {

@@ -10,6 +10,7 @@ import { PlaylistArtwork, playlistArtworkUrls } from './PlaylistArtwork'
 import { buildPlaylistSongIndex, resolvePlaylistDisplayItems } from './playlistDisplay'
 import { TrackActionMenu } from '../libraryactions'
 import { useAccessibleFocusScope } from '../../components/focusScope'
+import { useAnimeTitlePreference } from '../../lib/animeTitlePreference'
 import './playlists.css'
 
 export type PlaylistListState = 'loading' | 'ready' | 'empty' | 'error'
@@ -279,10 +280,11 @@ export interface PlaylistDetailProps {
 }
 
 export function PlaylistDetail({ playlist, library: providedLibrary, onUpdate, onDelete, onBack, onPlay, onPlayItem, onPlayNextItem, onAddToQueueItem, onPlayNext, onAddToQueue, onReplaceQueue, onRefresh }: PlaylistDetailProps) {
+  const titlePreference = useAnimeTitlePreference()
   const queriedLibrary = useLibraryQuery({ enabled: false }).library
   const library = providedLibrary ?? queriedLibrary
   const songIndex = useMemo(() => buildPlaylistSongIndex(library), [library])
-  const rows = useMemo(() => resolvePlaylistDisplayItems(playlist, library, songIndex), [library, playlist, songIndex])
+  const rows = useMemo(() => resolvePlaylistDisplayItems(playlist, library, songIndex, titlePreference), [library, playlist, songIndex, titlePreference])
   const [visibleTrackCount, setVisibleTrackCount] = useState(PLAYLIST_TRACK_PAGE_SIZE)
   const editableItems = useMemo(() => normalizePlaylistItems(playlist), [playlist])
   const artworkUrls = useMemo(() => playlistArtworkUrls(playlist, library), [library, playlist])

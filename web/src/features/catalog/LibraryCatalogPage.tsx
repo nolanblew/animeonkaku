@@ -5,6 +5,7 @@ import { browserAssetUrl } from '../../lib/assets'
 import { selectActiveAnime, type LibraryThemeDto, type NormalizedLibrary } from '../../lib/library'
 import { useLibraryQuery } from '../../lib/query'
 import { themePresentation } from '../../lib/themePresentation'
+import { preferredAnimeTitle, useAnimeTitlePreference } from '../../lib/animeTitlePreference'
 import { ThemeActionSheet } from '../libraryactions'
 import { playlistArtworkUrls } from '../playlists'
 import { AnimeGrid } from './AnimeGrid'
@@ -25,6 +26,7 @@ type LibraryTab = 'anime' | 'songs' | 'artists' | 'playlists'
 const PAGE_SIZE = 48
 
 export function LibraryCatalogPage({ onPlayTheme, onPlayNext, onAddToQueue, onPlayPlaylist, onPlayNextPlaylist, onAddToQueuePlaylist }: LibraryCatalogPageProps = {}) {
+  const animeTitlePreference = useAnimeTitlePreference()
   const query = useLibraryQuery()
   const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = useState('')
@@ -38,7 +40,7 @@ export function LibraryCatalogPage({ onPlayTheme, onPlayNext, onAddToQueue, onPl
 
   const anime = useMemo(() => query.library ? selectActiveAnime(query.library) : [], [query.library])
   const statuses = useMemo(() => [...new Set(anime.map((item) => item.watchingStatus).filter((value): value is string => Boolean(value)))].sort(), [anime])
-  const filteredAnime = useMemo(() => filterAndSortAnime(anime, search, status, sort), [anime, search, sort, status])
+  const filteredAnime = useMemo(() => filterAndSortAnime(anime, search, status, sort), [anime, animeTitlePreference, search, sort, status])
   const themes = useMemo(() => query.library ? Object.values(query.library.themesById).filter((theme) => !theme.deleted) : [], [query.library])
   const normalizedSearch = search.trim().toLocaleLowerCase()
   const filteredThemes = useMemo(() => themes.filter((theme) => {
@@ -101,13 +103,13 @@ export function LibraryCatalogPage({ onPlayTheme, onPlayNext, onAddToQueue, onPl
         ? <AnimeLibraryView anime={filteredAnime} library={query.library} search={search} status={status} sort={sort} statuses={statuses} onSearch={setSearch} onStatus={setStatus} onSort={setSort} />
         : <>
             <LibrarySearch tab={tab} value={search} onChange={setSearch} />
-            {tab === 'songs' && <ThemeLibraryList themes={filteredThemes.slice(0, visibleCount)} library={query.library} onPlayTheme={onPlayTheme} onMore={setSelectedTheme} />}
-            {tab === 'artists' && <ArtistLibraryView artists={artists} themes={filteredThemes} library={query.library} query={normalizedSearch} selectedArtist={selectedArtist} visibleCount={visibleCount} onSelectArtist={setSelectedArtist} onPlayTheme={onPlayTheme} onMore={setSelectedTheme} />}
+            {tab === 'songs' && <ThemeLibraryList themes={filteredThemes.slice(0, visibleCount)} library={query.library} onPlayTheme={onPlayTheme} onMore={setSelectedTheme} titlePreference={animeTitlePreference} />}
+            {tab === 'artists' && <ArtistLibraryView artists={artists} themes={filteredThemes} library={query.library} query={normalizedSearch} selectedArtist={selectedArtist} visibleCount={visibleCount} onSelectArtist={setSelectedArtist} onPlayTheme={onPlayTheme} onMore={setSelectedTheme} titlePreference={animeTitlePreference} />}
             {tab === 'playlists' && <PlaylistLibraryView playlists={playlists} library={query.library} query={normalizedSearch} visibleCount={visibleCount} onPlay={onPlayPlaylist} onPlayNext={onPlayNextPlaylist} onAddToQueue={onAddToQueuePlaylist} />}
             {visibleResultTotal > visibleCount && <button type="button" className="button button--text catalog-load-more" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}>Load more</button>}
           </>}
 
-      {selectedTheme && <ThemeActions theme={selectedTheme} library={query.library} onPlayTheme={onPlayTheme} onPlayNext={onPlayNext} onAddToQueue={onAddToQueue} onClose={() => setSelectedTheme(null)} />}
+      {selectedTheme && <ThemeActions theme={selectedTheme} library={query.library} onPlayTheme={onPlayTheme} onPlayNext={onPlayNext} onAddToQueue={onAddToQueue} onClose={() => setSelectedTheme(null)} titlePreference={animeTitlePreference} />}
     </section>
   )
 }
@@ -150,12 +152,12 @@ function LibrarySearch({ tab, value, onChange }: { tab: Exclude<LibraryTab, 'ani
   return <label className="catalog-search catalog-library-search"><Search size={18} aria-hidden="true" /><span className="sr-only">Filter {tab}</span><input type="search" aria-label={`Filter ${tab}`} placeholder={`Filter ${tab}`} value={value} onChange={(event) => onChange(event.target.value)} /></label>
 }
 
-function ThemeLibraryList({ themes, library, onPlayTheme, onMore }: { themes: LibraryThemeDto[]; library: NormalizedLibrary; onPlayTheme?: LibraryCatalogPageProps['onPlayTheme']; onMore: (theme: LibraryThemeDto) => void }) {
+function ThemeLibraryList({ themes, library, onPlayTheme, onMore, titlePreference }: { themes: LibraryThemeDto[]; library: NormalizedLibrary; onPlayTheme?: LibraryCatalogPageProps['onPlayTheme']; onMore: (theme: LibraryThemeDto) => void; titlePreference: ReturnType<typeof useAnimeTitlePreference> }) {
   if (themes.length === 0) return <p className="catalog-empty">No themes match this view.</p>
   return <div className="catalog-theme-list">{themes.map((theme) => {
     const artwork = themeArtwork(theme, library)
     const anime = theme.kitsuAnimeIds.map((id) => library.animeById[id]).find((entry) => entry && !entry.deleted)
-    const presentation = themePresentation({ animeTitle: anime?.title ?? anime?.titleEn, themeType: theme.themeType, songTitle: theme.title, artist: theme.artists.map((artist) => artist.name).join(', ') })
+    const presentation = themePresentation({ animeTitle: preferredAnimeTitle(anime, titlePreference), themeType: theme.themeType, songTitle: theme.title, artist: theme.artists.map((artist) => artist.name).join(', ') })
     return <article className="catalog-theme-row" key={theme.id}>
       {artwork ? <img className="catalog-theme-row__image" src={browserAssetUrl(artwork)} alt="" loading="lazy" /> : <span className="catalog-theme-row__art" aria-hidden="true">AO</span>}
       <div><h3>{presentation.primary}</h3><p>{presentation.secondary}</p></div>
@@ -165,7 +167,7 @@ function ThemeLibraryList({ themes, library, onPlayTheme, onMore }: { themes: Li
   })}</div>
 }
 
-function ArtistLibraryView({ artists, themes, library, query, selectedArtist, visibleCount, onSelectArtist, onPlayTheme, onMore }: {
+function ArtistLibraryView({ artists, themes, library, query, selectedArtist, visibleCount, onSelectArtist, onPlayTheme, onMore, titlePreference }: {
   artists: Array<[string, number]>
   themes: LibraryThemeDto[]
   library: NormalizedLibrary
@@ -175,8 +177,9 @@ function ArtistLibraryView({ artists, themes, library, query, selectedArtist, vi
   onSelectArtist: (artist: string | null) => void
   onPlayTheme?: LibraryCatalogPageProps['onPlayTheme']
   onMore: (theme: LibraryThemeDto) => void
+  titlePreference: ReturnType<typeof useAnimeTitlePreference>
 }) {
-  if (selectedArtist) return <><button type="button" className="button button--text" onClick={() => onSelectArtist(null)}>← All artists</button><h2>{selectedArtist}</h2><ThemeLibraryList themes={themes.slice(0, visibleCount)} library={library} onPlayTheme={onPlayTheme} onMore={onMore} /></>
+  if (selectedArtist) return <><button type="button" className="button button--text" onClick={() => onSelectArtist(null)}>← All artists</button><h2>{selectedArtist}</h2><ThemeLibraryList themes={themes.slice(0, visibleCount)} library={library} onPlayTheme={onPlayTheme} onMore={onMore} titlePreference={titlePreference} /></>
   const matches = artists.filter(([name]) => !query || name.toLocaleLowerCase().includes(query)).slice(0, visibleCount)
   if (matches.length === 0) return <p className="catalog-empty">No artists match this view.</p>
   return <div className="catalog-artist-grid">{matches.map(([name, count]) => <button type="button" key={name} onClick={() => onSelectArtist(name)}><UserRound size={21} /><span><strong>{name}</strong><small>{count} {count === 1 ? 'theme' : 'themes'}</small></span></button>)}</div>
@@ -208,19 +211,20 @@ function PlaylistLibraryView({ playlists, library, query, visibleCount, onPlay, 
   />)}</div>
 }
 
-function ThemeActions({ theme, library, onPlayTheme, onPlayNext, onAddToQueue, onClose }: {
+function ThemeActions({ theme, library, onPlayTheme, onPlayNext, onAddToQueue, onClose, titlePreference }: {
   theme: LibraryThemeDto
   library: NormalizedLibrary
   onPlayTheme?: LibraryCatalogPageProps['onPlayTheme']
   onPlayNext?: LibraryCatalogPageProps['onPlayNext']
   onAddToQueue?: LibraryCatalogPageProps['onAddToQueue']
   onClose: () => void
+  titlePreference: ReturnType<typeof useAnimeTitlePreference>
 }) {
   const preference = library.prefsByThemeId[String(theme.id)]
   const artwork = themeArtwork(theme, library)
   const animeId = theme.kitsuAnimeIds[0]
   const anime = theme.kitsuAnimeIds.map((id) => library.animeById[id]).find((entry) => entry && !entry.deleted)
-  const presentation = themePresentation({ animeTitle: anime?.title ?? anime?.titleEn, themeType: theme.themeType, songTitle: theme.title, artist: theme.artists.map((artist) => artist.name).join(', ') })
+  const presentation = themePresentation({ animeTitle: preferredAnimeTitle(anime, titlePreference), themeType: theme.themeType, songTitle: theme.title, artist: theme.artists.map((artist) => artist.name).join(', ') })
   return <ThemeActionSheet themeId={theme.id} title={presentation.primary} subtitle={presentation.secondary} liked={preference?.liked} disliked={preference?.disliked} preferredMode={preference?.preferredMode} hasFullSize={Boolean(theme.mediaModes.fullSize)} inLibrary animeKitsuId={animeId} inAnimeLibrary={Boolean(theme.kitsuAnimeIds.some((id) => library.animeById[id] && !library.animeById[id]?.deleted))} onPlay={onPlayTheme ? () => onPlayTheme(theme, artwork) : undefined} onPlayNext={onPlayNext ? () => onPlayNext(theme, artwork) : undefined} onAddToQueue={onAddToQueue ? () => onAddToQueue(theme, artwork) : undefined} onClose={onClose} />
 }
 

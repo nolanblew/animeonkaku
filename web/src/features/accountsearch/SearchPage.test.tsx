@@ -123,6 +123,7 @@ describe('SearchPage', () => {
   it('links local anime and playlists and delegates local theme playback', () => {
     const library = libraryWithRecords()
     library.animeById.a1.title = 'Blue Naruto'
+    library.animeById.a1.titleEn = 'Blue Naruto'
     library.playlistsById['3'].name = 'Blue Favorites'
     const onPlayTheme = vi.fn()
     mockedGet.mockResolvedValue({ releases: [], tracks: [] })

@@ -3,6 +3,7 @@ import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthProvider'
 import { readShowOstsOnHome, subscribeToHomePreference, writeShowOstsOnHome } from '../../lib/homePreference'
+import { readAnimeTitlePreference, subscribeToAnimeTitlePreference, writeAnimeTitlePreference, type AnimeTitlePreference } from '../../lib/animeTitlePreference'
 import './accountsearch.css'
 
 export const MAX_AVATAR_BYTES = 2 * 1024 * 1024
@@ -24,9 +25,11 @@ export function SettingsPage() {
   const [loggingOut, setLoggingOut] = useState(false)
   const [feedback, setFeedback] = useState<{ kind: 'status' | 'error'; message: string } | null>(null)
   const [showOstsOnHome, setShowOstsOnHome] = useState(readShowOstsOnHome)
+  const [animeTitlePreference, setAnimeTitlePreference] = useState(readAnimeTitlePreference)
 
   useEffect(() => setDisplayName(account?.displayName ?? ''), [account?.displayName])
   useEffect(() => subscribeToHomePreference(() => setShowOstsOnHome(readShowOstsOnHome())), [])
+  useEffect(() => subscribeToAnimeTitlePreference(() => setAnimeTitlePreference(readAnimeTitlePreference())), [])
 
   if (!account) {
     return <section className="account-settings-page" aria-labelledby="account-settings-title"><header className="account-settings-page__header"><p className="account-settings-page__eyebrow">Personalize</p><h1 id="account-settings-title">Account settings</h1></header><p className="account-settings-empty">Your account details are not available. Sign in again to manage settings.</p></section>
@@ -132,6 +135,15 @@ export function SettingsPage() {
           </label>
         </section>
 
+        <section className="account-settings-card" aria-labelledby="title-preferences-title">
+          <div className="account-settings-card__heading"><div><p className="account-settings-card__eyebrow">Display</p><h2 id="title-preferences-title">Anime titles</h2></div></div>
+          <fieldset className="account-settings-choice-group">
+            <legend>Preferred anime title</legend>
+            {([['ENGLISH', 'English'], ['ROMAJI', 'Romaji'], ['JAPANESE', 'Japanese']] as const).map(([value, label]) => <label key={value}><input type="radio" name="anime-title-preference" value={value} checked={animeTitlePreference === value} onChange={() => chooseAnimeTitlePreference(value)} /><span>{label}</span></label>)}
+          </fieldset>
+          <p className="account-settings-help">This preference is stored only in this browser for now.</p>
+        </section>
+
         <section className="account-settings-card account-settings-card--wide" aria-labelledby="devices-title">
           <div className="account-settings-card__heading"><div><p className="account-settings-card__eyebrow">Security</p><h2 id="devices-title">Signed-in devices</h2></div></div>
           {auth.me?.devices.length ? <ul className="account-settings-devices">{auth.me.devices.map((device) => <li key={device.id}><span><strong>{device.deviceName}</strong><small>Last used {formatDate(device.lastUsedAt)}{device.current ? ' · This device' : ''}</small></span><span className={device.current ? 'account-settings-device-state account-settings-device-state--current' : 'account-settings-device-state'}>{device.current ? 'Current' : 'Signed in'}</span></li>)}</ul> : <p className="account-settings-help">No device sessions were reported.</p>}
@@ -142,6 +154,11 @@ export function SettingsPage() {
       {feedback && <p className={feedback.kind === 'error' ? 'account-settings-feedback account-settings-feedback--error' : 'account-settings-feedback'} role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.message}</p>}
     </section>
   )
+
+  function chooseAnimeTitlePreference(preference: AnimeTitlePreference) {
+    setAnimeTitlePreference(preference)
+    writeAnimeTitlePreference(preference)
+  }
 }
 
 function formatDate(timestamp: number): string {

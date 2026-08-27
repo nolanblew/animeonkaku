@@ -14,9 +14,9 @@ function anime(overrides: Partial<LibraryAnimeDto> = {}): LibraryAnimeDto {
 describe('catalog selectors', () => {
   it('filters alternate metadata and status before applying every sort mode', () => {
     const items = [
-      anime({ kitsuId: 'a', title: 'Zulu', titleEn: 'Hidden hero', watchingStatus: 'current', updatedAt: 2 }),
-      anime({ kitsuId: 'b', title: 'Alpha', slug: 'secret-slug', genres: ['Music'], watchingStatus: 'completed', updatedAt: 2 }),
-      anime({ kitsuId: 'c', title: 'Beta', watchingStatus: null, updatedAt: 4 }),
+      anime({ kitsuId: 'a', title: 'Zulu', titleEn: 'Zulu hidden hero', watchingStatus: 'current', updatedAt: 2 }),
+      anime({ kitsuId: 'b', title: 'Alpha', titleEn: 'Alpha', slug: 'secret-slug', genres: ['Music'], watchingStatus: 'completed', updatedAt: 2 }),
+      anime({ kitsuId: 'c', title: 'Beta', titleEn: 'Beta', watchingStatus: null, updatedAt: 4 }),
     ]
     expect(filterAndSortAnime(items, 'hidden hero', 'all', 'recent').map((item) => item.kitsuId)).toEqual(['a'])
     expect(filterAndSortAnime(items, 'music', 'completed', 'recent').map((item) => item.kitsuId)).toEqual(['b'])

@@ -123,7 +123,7 @@ describe('PlayerProvider', () => {
     expect(screen.getByTestId('player-video').tagName).toBe('VIDEO')
     expect(screen.getByTestId('now-playing-video-surface')).toContainElement(screen.getByTestId('player-video'))
     expect(screen.getByTestId('current')).toHaveTextContent('1')
-    await act(async () => { fireEvent.click(screen.getAllByRole('button', { name: /^video$/i })[1]) })
+    await act(async () => { fireEvent.click(screen.getByRole('tab', { name: /^video$/i })) })
     expect(screen.getByTestId('now-playing-video-surface')).toContainElement(screen.getByTestId('player-video'))
     expect(screen.getByTestId('player-video')).toHaveClass('player-video--visible')
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^next$/i })) })
@@ -158,7 +158,7 @@ describe('PlayerProvider', () => {
     store.play([item({ id: 'first' }), item({ id: 'second', title: 'Second Theme' })])
     renderPlayer(store)
 
-    await act(async () => { fireEvent.click(screen.getAllByRole('button', { name: /^video$/i })[1]) })
+    await act(async () => { fireEvent.click(screen.getByRole('tab', { name: /^video$/i })) })
     const video = screen.getByTestId('player-video')
     expect(screen.getByTestId('now-playing-video-surface')).toContainElement(video)
 
@@ -175,7 +175,7 @@ describe('PlayerProvider', () => {
       store.play([item()])
       renderPlayer(store)
 
-      await userEvent.click(screen.getAllByRole('button', { name: /^video$/i })[1])
+      await userEvent.click(screen.getByRole('tab', { name: /^video$/i }))
       await userEvent.click(screen.getByRole('button', { name: 'Enter fullscreen' }))
 
       expect(requestFullscreen).toHaveBeenCalledTimes(1)
@@ -290,9 +290,9 @@ describe('PlayerProvider', () => {
     const audio = screen.getByTestId('player-audio') as HTMLAudioElement
     Object.defineProperty(audio, 'currentTime', { configurable: true, writable: true, value: 42 })
 
-    await act(async () => { fireEvent.click(screen.getAllByRole('button', { name: /^video$/i })[1]) })
+    await act(async () => { fireEvent.click(screen.getByRole('tab', { name: /^video$/i })) })
     expect(screen.getByTestId('mode')).toHaveTextContent('VIDEO')
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /full size/i })) })
+    await act(async () => { fireEvent.click(screen.getByRole('tab', { name: /full size/i })) })
     expect(screen.getByTestId('mode')).toHaveTextContent('FULL_SIZE')
     expect((audio as HTMLAudioElement).currentTime).toBe(0)
   })

@@ -6,6 +6,7 @@ import { createEmptyLibrary, type NormalizedLibrary } from '../../lib/library'
 import { artistRouteSlug } from '../../lib/navigation'
 import { useLibraryQuery } from '../../lib/query'
 import { themePresentation } from '../../lib/themePresentation'
+import { preferredAnimeTitle, useAnimeTitlePreference } from '../../lib/animeTitlePreference'
 import { TrackActionMenu } from '../libraryactions'
 import {
   findLibraryMatches,
@@ -41,6 +42,7 @@ function SearchPageWithLibraryQuery(props: SearchPageProps) {
 }
 
 function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, onPlayTheme, onPlayTrack, onPlayNextTrack, onAddToQueueTrack, onReplaceQueueTrack }: SearchPageProps & { suppliedLibrary?: NormalizedLibrary | null }) {
+  const titlePreference = useAnimeTitlePreference()
   const [params] = useSearchParams()
   const navigate = useNavigate()
   const routeQuery = params.get('q') ?? ''
@@ -125,10 +127,10 @@ function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, o
         <section className="account-search-results" aria-labelledby="library-match-title">
           <div className="account-search-results__heading"><h2 id="library-match-title">Your library matches</h2><span>Up to {MAX_LIBRARY_RESULTS.anime + MAX_LIBRARY_RESULTS.themes + MAX_LIBRARY_RESULTS.playlists} shown</span></div>
           <div className="account-search-results__groups">
-            <LocalGroup title="Anime" items={localMatches.anime.map((item) => ({ id: item.kitsuId, title: item.title ?? item.titleEn ?? item.kitsuId, detail: item.watchingStatus ?? 'In your library', href: `/anime/${encodeURIComponent(item.kitsuId)}` }))} />
+            <LocalGroup title="Anime" items={localMatches.anime.map((item) => ({ id: item.kitsuId, title: preferredAnimeTitle(item, titlePreference) || item.kitsuId, detail: item.watchingStatus ?? 'In your library', href: `/anime/${encodeURIComponent(item.kitsuId)}` }))} />
             <LocalGroup title="Themes" items={localMatches.themes.map((item) => {
               const anime = item.kitsuAnimeIds.map((id) => library?.animeById[id]).find((entry) => entry && !entry.deleted)
-              const presentation = themePresentation({ animeTitle: anime?.title ?? anime?.titleEn, themeType: item.themeType, songTitle: item.title, artist: item.artists.map((artist) => artist.name).join(', ') })
+              const presentation = themePresentation({ animeTitle: preferredAnimeTitle(anime, titlePreference), themeType: item.themeType, songTitle: item.title, artist: item.artists.map((artist) => artist.name).join(', ') })
               return { id: String(item.id), title: presentation.primary, detail: presentation.secondary, action: onPlayTheme ? { label: `Play ${item.title}`, onClick: () => onPlayTheme(item) } : undefined }
             })} />
             <LocalGroup title="Playlists" items={localMatches.playlists.map((item) => ({ id: String(item.id), title: item.name, detail: `${item.items.length || item.entries.length} tracks`, href: `/playlist/${encodeURIComponent(String(item.id))}` }))} />

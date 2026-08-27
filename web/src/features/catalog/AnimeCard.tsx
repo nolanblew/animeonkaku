@@ -3,9 +3,11 @@ import { Link } from 'react-router-dom'
 import { displayTitle, statusLabel } from './selectors'
 import type { CatalogAnime } from './types'
 import { browserAssetUrl } from '../../lib/assets'
+import { preferredAnimeTitle, useAnimeTitlePreference } from '../../lib/animeTitlePreference'
 
 export function AnimeCard({ anime, themeCount }: { anime: CatalogAnime; themeCount?: number }) {
-  const title = displayTitle(anime)
+  const titlePreference = useAnimeTitlePreference()
+  const title = preferredAnimeTitle(anime, titlePreference) || displayTitle(anime)
   return (
     <article className="catalog-anime-card" data-testid="anime-card">
       <Link className="catalog-anime-card__link" to={`/anime/${encodeURIComponent(anime.kitsuId)}`} aria-label={title}>
