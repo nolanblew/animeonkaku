@@ -102,18 +102,32 @@ describe('playlist components', () => {
     expect(rows[1]).toHaveTextContent('Theme #11')
   })
 
-  it('exposes create and advanced dynamic controls through the manager', async () => {
+  it('starts playlist creation with an approachable manual-or-smart choice', async () => {
     renderWithQuery(<PlaylistManager playlists={[]} state="ready" onCreate={vi.fn()} onUpdate={vi.fn()} onDelete={vi.fn()} />)
     await userEvent.click(screen.getByRole('button', { name: /new playlist/i }))
     expect(screen.getByRole('dialog', { name: /create playlist/i })).toBeInTheDocument()
-    expect(screen.getByLabelText(/dynamic playlist/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /what kind of playlist/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /manual playlist/i })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /smart playlist/i }))
+    expect(screen.getByRole('navigation', { name: /smart playlist steps/i })).toHaveTextContent('DetailsRulesReview')
+    expect(screen.getByRole('textbox', { name: /playlist name/i })).toBeInTheDocument()
+  })
+
+  it('keeps manual playlist creation short and focused', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    renderWithQuery(<PlaylistEditor onSubmit={onSubmit} />)
+    await userEvent.click(screen.getByRole('button', { name: /manual playlist/i }))
+    await userEvent.type(screen.getByRole('textbox', { name: /playlist name/i }), 'Favorites')
+    await userEvent.click(screen.getByRole('button', { name: /create playlist/i }))
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ name: 'Favorites', isDynamic: false }))
   })
 
   it('lets users switch to nested include/exclude logic, reorder sort keys, and choose snapshot mode', async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined)
     renderWithQuery(<PlaylistEditor onSubmit={onSubmit} />)
+    await userEvent.click(screen.getByRole('button', { name: /smart playlist/i }))
     await userEvent.type(screen.getByRole('textbox', { name: /playlist name/i }), 'Smart mix')
-    await userEvent.click(screen.getByRole('checkbox', { name: /dynamic playlist/i }))
+    await userEvent.click(screen.getByRole('button', { name: /continue to rules/i }))
     await userEvent.click(screen.getByRole('button', { name: /move sort key 2 up/i }))
     await userEvent.click(screen.getByRole('radio', { name: /advanced logic/i }))
     expect(screen.getByRole('heading', { name: /include rules/i })).toBeInTheDocument()
@@ -126,6 +140,8 @@ describe('playlist components', () => {
     expect(screen.getByText(/or group/i)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('radio', { name: /snapshot these tracks/i }))
     expect(screen.getByText(/current tracks are kept as a fixed snapshot/i)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /review playlist/i }))
+    expect(screen.getByRole('heading', { name: /review & create/i })).toBeInTheDocument()
     expect(screen.getByText(/expert json \(recovery\)/i)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /create playlist/i }))
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
