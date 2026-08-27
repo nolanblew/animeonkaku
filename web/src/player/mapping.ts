@@ -10,6 +10,8 @@ export interface PlayerQueueItem extends QueueItem {
   readonly tvDurationMs?: number
   readonly fullDurationMs?: number
   readonly videoMimeType?: string | null
+  readonly videoSpoiler?: boolean
+  readonly videoNsfw?: boolean
   readonly themeId?: number
   readonly songId?: number
 }
@@ -48,6 +50,8 @@ export function mapThemeToQueueItem(theme: LibraryThemeDto, options: ThemeQueueI
     tvDurationMs: secondsToMilliseconds(tv?.durationSeconds ?? theme.durationSeconds),
     fullDurationMs: secondsToMilliseconds(full?.durationSeconds),
     videoMimeType: video?.mimeType ?? null,
+    videoSpoiler: Boolean(video?.spoiler),
+    videoNsfw: Boolean(video?.nsfw),
     themeId: theme.id,
   }
 }

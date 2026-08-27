@@ -7,6 +7,13 @@
  * history or playback position.
  */
 
+import {
+  emptyQueuePreferenceSnapshot,
+  isQueueItemAllowedByPreference,
+  nextEligibleQueueIndex,
+  type QueuePreferenceSnapshot,
+} from './preferenceQueue'
+
 export type QueueItemId = number | string
 export type QueueEntryId = number
 export type RepeatMode = 'off' | 'all' | 'one'
@@ -43,6 +50,8 @@ export interface QueueState {
   readonly queueVersion: number
   readonly playRequestGeneration: number
   readonly repeatMode: RepeatMode
+  /** Explicit, queue-occurrence overrides for a disliked item in this session. */
+  readonly unskippedEntryIds: readonly QueueEntryId[]
   /** Internal monotonic allocator. It is persisted in the snapshot so restores cannot reuse ids. */
   readonly nextQueueEntryId: QueueEntryId
 }
@@ -76,6 +85,7 @@ export type QueueAction =
   | { readonly type: 'toggleShuffle'; readonly random?: () => number }
   | { readonly type: 'setRepeatMode'; readonly mode: RepeatMode }
   | { readonly type: 'cycleRepeatMode' }
+  | { readonly type: 'unskipEntry'; readonly queueId: QueueEntryId }
   | { readonly type: 'clear' }
   | { readonly type: 'restore'; readonly state: QueueState }
 
@@ -97,6 +107,7 @@ export function createInitialQueueState(): QueueState {
     queueVersion: 0,
     playRequestGeneration: 0,
     repeatMode: 'off',
+    unskippedEntryIds: emptyEntryIds,
     nextQueueEntryId: 1,
   }
 }
@@ -188,6 +199,14 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
             ? 'one'
             : 'off',
       }
+    case 'unskipEntry': {
+      if (!state.nowPlayingEntries.some((entry) => entry.queueId === action.queueId) || state.unskippedEntryIds.includes(action.queueId)) return state
+      return {
+        ...state,
+        unskippedEntryIds: [...state.unskippedEntryIds, action.queueId],
+        queueVersion: state.queueVersion + 1,
+      }
+    }
     case 'clear':
       return {
         ...createInitialQueueState(),
@@ -226,6 +245,7 @@ function playContext(state: QueueState, action: Extract<QueueAction, { type: 'pl
     playNextEntryIds: emptyEntryIds,
     addedToQueueEntryIds: emptyEntryIds,
     suggestedEntryIds,
+    unskippedEntryIds: emptyEntryIds,
     playedEntryIds: action.shuffle
       ? [current.queueId]
       : entries.slice(0, requestedIndex + 1).map((entry) => entry.queueId),
@@ -291,6 +311,7 @@ function standaloneQueue(state: QueueState, entries: readonly QueueEntry[], next
     playNextEntryIds: emptyEntryIds,
     addedToQueueEntryIds: emptyEntryIds,
     suggestedEntryIds: emptyEntryIds,
+    unskippedEntryIds: emptyEntryIds,
     playedEntryIds: [entries[0].queueId],
     isShuffled: false,
     contextLabel: state.contextLabel || 'Queue',
@@ -395,6 +416,7 @@ function removeEntry(state: QueueState, queueId: QueueEntryId): QueueState {
     addedToQueueEntryIds: state.addedToQueueEntryIds.filter((id) => id !== queueId),
     suggestedEntryIds: state.suggestedEntryIds.filter((id) => id !== queueId),
     playedEntryIds: state.playedEntryIds.filter((id) => id !== queueId),
+    unskippedEntryIds: state.unskippedEntryIds.filter((id) => id !== queueId),
     queueVersion: state.queueVersion + 1,
   }
 }
@@ -531,6 +553,7 @@ function restoreState(snapshot: QueueState): QueueState {
     addedToQueueEntryIds: snapshot.addedToQueueEntryIds.filter((id) => validIds.has(id)),
     suggestedEntryIds: snapshot.suggestedEntryIds.filter((id) => validIds.has(id)),
     playedEntryIds: appendUniqueIds([], snapshot.playedEntryIds.filter((id) => validIds.has(id))),
+    unskippedEntryIds: appendUniqueIds([], (snapshot.unskippedEntryIds ?? []).filter((id) => validIds.has(id))),
     currentIndex,
     nextQueueEntryId: history.nextId,
   }
@@ -647,6 +670,7 @@ export class QueueStore {
   private currentState: QueueState
   private readonly listeners = new Set<QueueListener>()
   private readonly random: () => number
+  private preferenceSnapshot: QueuePreferenceSnapshot = emptyQueuePreferenceSnapshot
 
   constructor(initialState?: QueueState | QueueStoreOptions, options: QueueStoreOptions = {}) {
     if (initialState && 'nowPlayingEntries' in initialState) {
@@ -691,8 +715,24 @@ export class QueueStore {
     return next
   }
 
+  /** Updates the synchronized preference projection used for new queue entries and automatic next. */
+  setPreferenceSnapshot(snapshot: QueuePreferenceSnapshot | undefined): void {
+    this.preferenceSnapshot = snapshot ?? emptyQueuePreferenceSnapshot
+  }
+
+  /** Allows one explicitly selected queue occurrence to play for the current session. */
+  unskipEntry(queueId: QueueEntryId): QueueState {
+    return this.dispatch({ type: 'unskipEntry', queueId })
+  }
+
   play(items: readonly QueueItem[], options: PlayOptions = {}): QueueState {
-    return this.dispatch({ type: 'play', items, ...options, random: options.random ?? this.random })
+    if (items.length === 0) return this.currentState
+    const requestedIndex = clampIndex(options.startIndex ?? 0, items.length)
+    const selected = items[requestedIndex]
+    const selectedIsDisliked = selected !== undefined && !isQueueItemAllowedByPreference(selected, this.preferenceSnapshot)
+    const next = this.dispatch({ type: 'play', items, ...options, startIndex: requestedIndex, random: options.random ?? this.random })
+    if (selectedIsDisliked && this.currentEntry) return this.unskipEntry(this.currentEntry.queueId)
+    return next
   }
 
   playNext(items: readonly QueueItem[]): QueueState {
@@ -712,12 +752,20 @@ export class QueueStore {
   }
 
   skipTo(index: number): QueueState {
+    const entry = this.currentState.nowPlayingEntries[index]
+    if (entry && !isQueueItemAllowedByPreference(entry.item, this.preferenceSnapshot)) this.unskipEntry(entry.queueId)
     return this.dispatch({ type: 'skipTo', index })
   }
 
   /** Advances according to repeat mode and returns the resulting index, or null at the end. */
   next(): number | null {
-    const nextIndex = nextQueueIndex(this.currentState)
+    const nextIndex = nextEligibleQueueIndex(
+      this.currentState.nowPlayingEntries,
+      this.currentState.currentIndex,
+      this.currentState.repeatMode,
+      this.preferenceSnapshot,
+      new Set(this.currentState.unskippedEntryIds),
+    )
     if (nextIndex !== null && nextIndex !== this.currentState.currentIndex) {
       this.dispatch({ type: 'advanceTo', index: nextIndex })
     }

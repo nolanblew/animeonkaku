@@ -23,7 +23,13 @@ import {
   type PlayerQueueItem,
   type ThemeQueueItemOptions,
 } from './mapping'
+import { VideoSafetyDialog } from './VideoSafetyDialog'
 import type { LibraryThemeDto, MusicTrackDto } from '../lib/library'
+import {
+  emptyQueuePreferenceSnapshot,
+  isQueueEntryAllowedByPreference,
+  type QueuePreferenceSnapshot,
+} from './preferenceQueue'
 
 export interface PlayerState {
   readonly queueState: QueueState
@@ -72,6 +78,7 @@ export interface PlayerContextValue extends PlayerState {
   cycleRepeat(): RepeatMode
   setRepeat(mode: RepeatMode): void
   skipTo(index: number): void
+  unskipEntry(queueId: number): void
   requestFullscreen(): Promise<void>
 }
 
@@ -83,6 +90,8 @@ export interface PlayerProviderProps {
   mediaCache?: ManagedMediaCache
   api?: Pick<ApiClient, 'url'> & Partial<Pick<ApiClient, 'post'>>
   initialMode?: PlaybackMode
+  /** Synchronized likes/dislikes used to keep automatic playback in parity with Android. */
+  preferenceSnapshot?: QueuePreferenceSnapshot
 }
 
 const PlayerContext = createContext<PlayerContextValue | null>(null)
@@ -94,6 +103,7 @@ export function PlayerProvider({
   mediaCache,
   api = apiClient,
   initialMode = 'TV_SIZE',
+  preferenceSnapshot = emptyQueuePreferenceSnapshot,
 }: PlayerProviderProps) {
   const queue = useMemo(() => providedQueue ?? store ?? new QueueStore(), [providedQueue, store])
   const subscribe = useMemo(() => queue.subscribe.bind(queue), [queue])
@@ -104,6 +114,8 @@ export function PlayerProvider({
   const [videoSurface, setVideoSurface] = useState<HTMLElement | null>(null)
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null)
   const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null)
+  const [videoConfirmation, setVideoConfirmation] = useState<VideoConfirmationRequest | null>(null)
+  const confirmedVideoKeysRef = useRef(new Set<string>())
   const modeRef = useRef<PlaybackMode>(initialMode)
   const activeMediaRef = useRef<HTMLMediaElement | null>(null)
   const mediaSessionRef = useRef<BrowserMediaSession | null>(null)
@@ -152,6 +164,34 @@ export function PlayerProvider({
     ? mode === 'VIDEO' ? resolveVideoUrl(activeSource, api) : resolveAudioUrl(activeSource, api)
     : undefined
 
+  const requestVideoConfirmation = useCallback((item: QueueItem, onConfirm: () => void, onCancel?: () => void) => {
+    const warning = videoWarningFor(item)
+    if (!warning || confirmedVideoKeysRef.current.has(warning.key)) {
+      onConfirm()
+      return
+    }
+    setVideoConfirmation({ ...warning, onConfirm, onCancel })
+  }, [])
+
+  const confirmVideo = useCallback(() => {
+    const request = videoConfirmation
+    if (!request) return
+    confirmedVideoKeysRef.current.add(request.key)
+    setVideoConfirmation(null)
+    request.onConfirm()
+  }, [videoConfirmation])
+
+  const cancelVideo = useCallback(() => {
+    const request = videoConfirmation
+    if (!request) return
+    setVideoConfirmation(null)
+    request.onCancel?.()
+  }, [videoConfirmation])
+
+  useEffect(() => {
+    queue.setPreferenceSnapshot(preferenceSnapshot)
+  }, [preferenceSnapshot, queue])
+
   const updatePosition = useCallback((media?: HTMLMediaElement | null) => {
     const active = media ?? activeMediaRef.current
     if (!active) return
@@ -193,7 +233,7 @@ export function PlayerProvider({
     setIsPlaying(false)
   }, [])
 
-  const setMode = useCallback((nextMode: PlaybackMode) => {
+  const applyMode = useCallback((nextMode: PlaybackMode) => {
     const item = currentEntry?.item
     if (!item) return
     if (nextMode === 'VIDEO' && !queueItemVideoUrl(item)) {
@@ -202,6 +242,10 @@ export function PlayerProvider({
     }
     if (nextMode === 'FULL_SIZE' && !queueItemAudioUrl(item, 'FULL_SIZE')) {
       setError('Full-size audio is not available for this theme.')
+      return
+    }
+    if (currentEntry && !isQueueEntryAllowedByPreference(currentEntry, preferenceSnapshot, new Set(queueState.unskippedEntryIds), nextMode)) {
+      setError('This playback size is disliked. Unskip this track to play it.')
       return
     }
     const fromMode = modeRef.current
@@ -217,7 +261,20 @@ export function PlayerProvider({
     modeRef.current = nextMode
     setModeState(nextMode)
     setError(null)
-  }, [currentEntry, currentTime, isPlaying])
+  }, [currentEntry, currentTime, isPlaying, preferenceSnapshot, queueState.unskippedEntryIds])
+
+  const setMode = useCallback((nextMode: PlaybackMode) => {
+    const item = currentEntry?.item
+    if (!item || nextMode !== 'VIDEO') {
+      applyMode(nextMode)
+      return
+    }
+    if (!queueItemVideoUrl(item)) {
+      applyMode(nextMode)
+      return
+    }
+    requestVideoConfirmation(item, () => applyMode(nextMode))
+  }, [applyMode, currentEntry, requestVideoConfirmation])
 
   const requestAutoplayFor = useCallback((nextMode?: PlaybackMode, autoPlay = true) => {
     shouldAutoplayRef.current = autoPlay
@@ -229,16 +286,31 @@ export function PlayerProvider({
 
   const playItem = useCallback((item: QueueItem, options: PlayQueueItemOptions = {}) => {
     const requestedMode = options.mode ?? (item as PlayerQueueItem).mode
-    requestAutoplayFor(requestedMode, options.autoPlay !== false)
-    queue.play([item], options)
-  }, [queue, requestAutoplayFor])
+    const start = () => {
+      requestAutoplayFor(requestedMode, options.autoPlay !== false)
+      queue.play([item], options)
+    }
+    if (requestedMode === 'VIDEO' && videoWarningFor(item)) {
+      requestVideoConfirmation(item, start)
+      return
+    }
+    start()
+  }, [queue, requestAutoplayFor, requestVideoConfirmation])
 
   const playTheme = useCallback((theme: LibraryThemeDto, options: PlayThemeOptions = {}) => {
     const mapped = mapThemeToQueueItem(theme, options)
     const { mode: requestedMode, ...queueOptions } = options
-    requestAutoplayFor(requestedMode ?? mapped.mode, options.autoPlay !== false)
-    queue.play([mapped], queueOptions)
-  }, [queue, requestAutoplayFor])
+    const selectedMode = requestedMode ?? mapped.mode
+    const start = () => {
+      requestAutoplayFor(selectedMode, options.autoPlay !== false)
+      queue.play([mapped], queueOptions)
+    }
+    if (selectedMode === 'VIDEO' && videoWarningFor(mapped)) {
+      requestVideoConfirmation(mapped, start)
+      return
+    }
+    start()
+  }, [queue, requestAutoplayFor, requestVideoConfirmation])
 
   const playSong = useCallback((song: MusicTrackDto, options: PlayQueueItemOptions & ThemeQueueItemOptions = {}) => {
     const mapped = mapSongToQueueItem(song, options)
@@ -385,7 +457,22 @@ export function PlayerProvider({
           ? 'FULL_SIZE'
           : videoUrl
             ? 'VIDEO'
-            : 'TV_SIZE'
+          : 'TV_SIZE'
+    const warning = item && nextMode === 'VIDEO' ? videoWarningFor(item) : undefined
+    if (warning && !confirmedVideoKeysRef.current.has(warning.key)) {
+      if (videoConfirmation?.key !== warning.key) {
+        const fallbackMode = fallbackAudioMode(item!)
+        setVideoConfirmation({
+          ...warning,
+          onConfirm: () => undefined,
+          onCancel: () => {
+            modeRef.current = fallbackMode
+            setModeState(fallbackMode)
+          },
+        })
+      }
+      return
+    }
     if (nextMode !== mode) {
       modeRef.current = nextMode
       setModeState(nextMode)
@@ -466,7 +553,7 @@ export function PlayerProvider({
       if (objectUrl && typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(objectUrl)
       if (cachedObjectUrlRef.current === objectUrl) cachedObjectUrlRef.current = null
     }
-  }, [activeSourceUrl, api, currentEntry?.queueId, currentItem, currentEntry, mode, ownedMediaCache, reportPlaybackFailure, mode === 'VIDEO' ? videoElement : null])
+  }, [activeSourceUrl, api, currentEntry?.queueId, currentItem, currentEntry, mode, ownedMediaCache, reportPlaybackFailure, videoConfirmation?.key, mode === 'VIDEO' ? videoElement : null])
 
   useEffect(() => {
     if (!isPlaying) return undefined
@@ -556,6 +643,7 @@ export function PlayerProvider({
     cycleRepeat: () => queue.cycleRepeatMode(),
     setRepeat: (repeat) => { queue.setRepeatMode(repeat) },
     skipTo: (index) => { requestAutoplayFor(); queue.skipTo(index) },
+    unskipEntry: (queueId) => { queue.unskipEntry(queueId) },
     requestFullscreen,
   }), [activeSourceUrl, audioElement, currentEntry, currentItem, duration, error, fullSizeAvailable, isEnded, isLoading, isPlaying, mode, next, pause, play, playItem, playSong, playTheme, previous, queue, queueState, requestAutoplayFor, requestFullscreen, seek, setMode, togglePlay, tvSizeAvailable, videoAvailable, videoElement])
 
@@ -564,6 +652,7 @@ export function PlayerProvider({
       <div className="player-runtime" data-testid="player-runtime">
         <audio ref={(element) => { audioRef.current = element; setAudioElement(element) }} data-testid="player-audio" className="player-audio" preload="metadata" aria-hidden="true" />
         {videoSurface ? createPortal(<video ref={assignVideoElement} data-testid="player-video" className={`player-video${mode === 'VIDEO' ? ' player-video--visible' : ''}`} preload="metadata" playsInline aria-label={currentItem ? `${currentItem.title} video` : 'Video player'} />, videoSurface) : <video ref={assignVideoElement} data-testid="player-video" className="player-video" preload="metadata" playsInline aria-label={currentItem ? `${currentItem.title} video` : 'Video player'} />}
+        {videoConfirmation && <VideoSafetyDialog title={videoConfirmation.title} spoiler={videoConfirmation.spoiler} nsfw={videoConfirmation.nsfw} onCancel={cancelVideo} onContinue={confirmVideo} />}
         {children}
       </div>
     </PlayerContext.Provider>
@@ -625,6 +714,15 @@ interface MediaCallbacks {
   onError?: EventListener
 }
 
+interface VideoConfirmationRequest {
+  readonly key: string
+  readonly title: string
+  readonly spoiler: boolean
+  readonly nsfw: boolean
+  readonly onConfirm: () => void
+  readonly onCancel?: () => void
+}
+
 function finiteMediaNumber(value: number): number {
   return Number.isFinite(value) && value >= 0 ? value : 0
 }
@@ -639,6 +737,24 @@ function isServerRelativeSource(value: string | undefined): boolean {
 
 function isModeAvailable(item: QueueItem, mode: PlaybackMode): boolean {
   return mode === 'VIDEO' ? Boolean(queueItemVideoUrl(item)) : Boolean(queueItemAudioUrl(item, mode))
+}
+
+function videoWarningFor(item: QueueItem): Omit<VideoConfirmationRequest, 'onConfirm' | 'onCancel'> | undefined {
+  const candidate = item as PlayerQueueItem
+  const spoiler = candidate.videoSpoiler === true
+  const nsfw = candidate.videoNsfw === true
+  if (!spoiler && !nsfw) return undefined
+  const itemId = candidate.themeId ?? candidate.id
+  return {
+    key: `THEME:${String(itemId)}`,
+    title: item.title,
+    spoiler,
+    nsfw,
+  }
+}
+
+function fallbackAudioMode(item: QueueItem): PlaybackMode {
+  return queueItemAudioUrl(item, 'TV_SIZE') ? 'TV_SIZE' : 'FULL_SIZE'
 }
 
 function clearMediaCache(cache: ManagedMediaCache | undefined): void {

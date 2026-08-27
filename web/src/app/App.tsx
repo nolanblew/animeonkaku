@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useMemo } from 'react'
 import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import { AppErrorBoundary } from './ErrorBoundary'
 import { ResponsiveShell } from '../components/ResponsiveShell'
@@ -7,6 +7,7 @@ import { LoginPage } from '../pages/LoginPage'
 import { AuthProvider, useAuth } from '../auth/AuthProvider'
 import { AppQueryProvider, useLibraryQuery } from '../lib/query'
 import { PlayerProvider } from '../player'
+import type { QueuePreferenceSnapshot } from '../player/preferenceQueue'
 
 const HomePage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.HomePage })))
 const LibraryPage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.LibraryPage })))
@@ -64,6 +65,10 @@ function RequireAuth() {
 }
 
 function AuthenticatedShell() {
-  useLibraryQuery({ live: true })
-  return <PlayerProvider><ResponsiveShell /></PlayerProvider>
+  const library = useLibraryQuery({ live: true }).library
+  const preferenceSnapshot = useMemo<QueuePreferenceSnapshot>(() => ({
+    themesById: library?.prefsByThemeId ?? {},
+    songsById: library?.songPrefsById ?? {},
+  }), [library?.prefsByThemeId, library?.songPrefsById])
+  return <PlayerProvider preferenceSnapshot={preferenceSnapshot}><ResponsiveShell /></PlayerProvider>
 }

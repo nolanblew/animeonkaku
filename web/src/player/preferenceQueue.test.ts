@@ -98,7 +98,7 @@ describe('preference-aware browser playback queue', () => {
     expect(new Set(playable.filter((value) => value.item.id === 'theme-1-TV_SIZE').map((value) => value.queueId)).size).toBe(3)
   })
 
-  it('reconciles preference changes by leaving a current explicit override playable and removing newly disliked future entries', () => {
+  it('reconciles preference changes in the playable projection while retaining the logical queue for an unskip', () => {
     const entries = [entry(30, theme(30)), entry(31, theme(31)), entry(32, song(32))]
     const before = filterQueueEntriesForPlayback(entries, emptyPreferences, new Set([30]))
     const after = filterQueueEntriesForPlayback(entries, {
@@ -108,5 +108,33 @@ describe('preference-aware browser playback queue', () => {
 
     expect(before.map((value) => value.queueId)).toEqual([30, 31, 32])
     expect(after.map((value) => value.queueId)).toEqual([30])
+    expect(entries.map((value) => value.queueId)).toEqual([30, 31, 32])
+  })
+
+  it('retains disliked occurrences in QueueStore while automatic next skips them and one duplicate can be unskipped', () => {
+    const store = new QueueStore()
+    store.setPreferenceSnapshot({ themesById: { 40: { disliked: true }, 41: { disliked: true } }, songsById: {} })
+    const repeated = theme(40)
+
+    store.play([theme(41), repeated, repeated, theme(42)])
+
+    expect(store.state.nowPlayingEntries.map((value) => value.item.id)).toEqual(['theme-41-TV_SIZE', 'theme-40-TV_SIZE', 'theme-40-TV_SIZE', 'theme-42-TV_SIZE'])
+    expect(filterQueueEntriesForPlayback(store.state.nowPlayingEntries, { themesById: { 40: { disliked: true }, 41: { disliked: true } }, songsById: {} }).map((value) => value.queueId)).toEqual([store.state.nowPlayingEntries[3]!.queueId])
+    expect(store.next()).toBe(3)
+    expect(store.currentEntry?.item.id).toBe('theme-42-TV_SIZE')
+
+    store.play([theme(42), repeated, repeated], { startIndex: 0 })
+    const duplicateToUnskip = store.state.nowPlayingEntries[2]!
+    store.unskipEntry(duplicateToUnskip.queueId)
+
+    expect(store.state.unskippedEntryIds).toEqual([duplicateToUnskip.queueId])
+    expect(store.next()).toBe(2)
+    expect(store.currentEntry?.queueId).toBe(duplicateToUnskip.queueId)
+
+    store.playNext([theme(41)])
+    store.addToQueue([song(43)])
+    store.setPreferenceSnapshot({ themesById: { 40: { disliked: true }, 41: { disliked: true } }, songsById: { 43: { disliked: true } } })
+
+    expect(store.state.nowPlayingEntries.map((value) => value.item.id)).toEqual(['theme-42-TV_SIZE', 'theme-40-TV_SIZE', 'theme-40-TV_SIZE', 'theme-41-TV_SIZE', 'song-43'])
   })
 })
