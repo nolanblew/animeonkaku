@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiClient } from '../../lib/api'
 
-import { ThemeActionSheet, useLibraryActions } from './index'
+import { ThemeActionSheet, TrackActionMenu, useLibraryActions } from './index'
 
 function renderWithQuery(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
@@ -15,6 +15,7 @@ function ActionProbe() {
   const actions = useLibraryActions()
   return <div>
     <button onClick={() => void actions.updateThemePreference(41, { liked: true })}>like</button>
+    <button onClick={() => void actions.updateSongPreference(91, { disliked: true })}>dislike song</button>
     <button onClick={() => void actions.setPreferredMode(41, 'FULL_SIZE')}>full</button>
     <button onClick={() => void actions.addAnimeToLibrary({ kitsuId: 'anime-1', animeThemesId: 9 })}>add</button>
     <button onClick={() => void actions.removeAnimeFromLibrary('anime-1')}>remove</button>
@@ -38,6 +39,10 @@ describe('library action API and hook', () => {
     await userEvent.click(screen.getByRole('button', { name: 'full' }))
     await waitFor(() => expect(request).toHaveBeenCalledWith('/v1/prefs/themes/41', expect.objectContaining({ method: 'PUT' })))
     expect(JSON.parse(String(request.mock.calls[1]?.[1]?.body))).toEqual({ preferredMode: 'FULL_SIZE' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'dislike song' }))
+    await waitFor(() => expect(request).toHaveBeenCalledWith('/v1/prefs/songs/91', expect.objectContaining({ method: 'PUT' })))
+    expect(JSON.parse(String(request.mock.calls[2]?.[1]?.body))).toEqual({ disliked: true })
   })
 
   it('adds and removes anime through authenticated library routes', async () => {
@@ -49,6 +54,30 @@ describe('library action API and hook', () => {
     await waitFor(() => expect(post).toHaveBeenCalledWith('/v1/library/anime', { kitsuId: 'anime-1', animeThemesId: 9 }))
     await userEvent.click(screen.getByRole('button', { name: 'remove' }))
     await waitFor(() => expect(request).toHaveBeenCalledWith('/v1/library/anime/anime-1', expect.objectContaining({ method: 'DELETE' })))
+  })
+})
+
+describe('TrackActionMenu', () => {
+  it('uses separate mobile-style like and dislike controls and exposes a working action menu', async () => {
+    const onPlayNext = vi.fn()
+    const onAddToQueue = vi.fn()
+    const onRemove = vi.fn()
+    renderWithQuery(<TrackActionMenu item={{ itemType: 'SONG', itemId: 91, title: 'Full song' }} liked disliked={false} onPlayNext={onPlayNext} onAddToQueue={onAddToQueue} onRemove={onRemove} />)
+
+    expect(screen.getByRole('button', { name: 'Remove like' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Dislike' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.queryByLabelText(/heart|favorite/i)).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Full song' }))
+    expect(screen.getByRole('menu', { name: 'Full song actions' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Play next' }))
+    expect(onPlayNext).toHaveBeenCalledOnce()
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Full song' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }))
+    expect(onAddToQueue).toHaveBeenCalledOnce()
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Full song' }))
+    expect(screen.getByRole('menuitem', { name: 'Save to playlist' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Remove from playlist' }))
+    expect(onRemove).toHaveBeenCalledOnce()
   })
 })
 

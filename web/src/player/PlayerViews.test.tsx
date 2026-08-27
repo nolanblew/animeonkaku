@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -7,9 +8,13 @@ vi.mock('./PlayerProvider', () => ({ usePlayer: () => state.player }))
 import { MiniPlayerView } from './MiniPlayerView'
 import { NowPlayingView } from './NowPlayingView'
 
+function renderPlayer(ui: React.ReactElement) {
+  return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>)
+}
+
 beforeEach(() => {
   state.player = {
-    currentItem: { id: 1, title: 'Opening', artist: 'Band', artworkUrl: '/art.jpg', durationMs: 90_000 },
+    currentItem: { id: 1, itemType: 'THEME', themeId: 1, title: 'Opening', artist: 'Band', artworkUrl: '/art.jpg', durationMs: 90_000 },
     currentTime: 65,
     duration: 90,
     mode: 'VIDEO',
@@ -38,12 +43,13 @@ beforeEach(() => {
     setMode: vi.fn(),
     requestFullscreen: vi.fn().mockResolvedValue(undefined),
     skipTo: vi.fn(),
+    queue: { playNext: vi.fn(), addToQueue: vi.fn() },
   }
 })
 
 describe('player views', () => {
   it('forwards every now-playing control including mode, fullscreen, seek, and queue selection', () => {
-    render(<NowPlayingView className="wide" />)
+    renderPlayer(<NowPlayingView className="wide" />)
     expect(screen.getByRole('tablist', { name: 'Player view' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Video' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('tab', { name: 'Song' })).toHaveAttribute('aria-selected', 'false')
@@ -72,9 +78,22 @@ describe('player views', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Loading media')
   })
 
+  it('uses thumb preferences and makes the full-player overflow menu actionable', () => {
+    renderPlayer(<NowPlayingView />)
+    expect(screen.getByRole('button', { name: 'Like' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Dislike' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /unlike track|like track/i })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for Opening' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Play next' }))
+    expect(state.player.queue.playNext).toHaveBeenCalledWith([state.player.currentItem])
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for Opening' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }))
+    expect(state.player.queue.addToQueue).toHaveBeenCalledWith([state.player.currentItem])
+  })
+
   it('forwards the compact player controls and opens the full view', () => {
     const onOpen = vi.fn()
-    render(<MiniPlayerView onOpen={onOpen} />)
+    renderPlayer(<MiniPlayerView onOpen={onOpen} />)
     fireEvent.click(screen.getByRole('button', { name: /open now playing/i }))
     fireEvent.click(screen.getByRole('button', { name: 'Previous track' }))
     fireEvent.click(screen.getByRole('button', { name: 'Play current track' }))
@@ -87,10 +106,12 @@ describe('player views', () => {
     expect(screen.getByRole('button', { name: 'Open queue' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open fullscreen player' })).toBeInTheDocument()
     expect(document.querySelector('.player-mini-player__track img')).toHaveClass('player-shared-artwork')
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for Opening' }))
+    expect(screen.getByRole('menu', { name: 'Opening actions' })).toBeInTheDocument()
   })
 
   it('replaces the artwork stage instead of stacking fallback art above video', () => {
-    render(<NowPlayingView />)
+    renderPlayer(<NowPlayingView />)
 
     expect(screen.queryByText('AO')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Video surface')).toBeInTheDocument()
@@ -101,7 +122,7 @@ describe('player views', () => {
     state.player.mode = 'TV_SIZE'
     state.player.isLoading = false
     state.player.error = null
-    render(<NowPlayingView onCollapse={onCollapse} />)
+    renderPlayer(<NowPlayingView onCollapse={onCollapse} />)
 
     expect(document.querySelector('.player-waveform')).not.toBeInTheDocument()
     expect(screen.getByRole('slider', { name: 'Seek' })).toBeInTheDocument()
@@ -114,9 +135,10 @@ describe('player views', () => {
     state.player.currentItem = undefined
     state.player.videoAvailable = false
     state.player.queueState.nowPlayingEntries = []
-    const { rerender } = render(<MiniPlayerView />)
+    const queryClient = new QueryClient()
+    const { rerender } = render(<QueryClientProvider client={queryClient}><MiniPlayerView /></QueryClientProvider>)
     expect(screen.getByText('Nothing playing')).toBeInTheDocument()
-    rerender(<NowPlayingView />)
+    rerender(<QueryClientProvider client={queryClient}><NowPlayingView /></QueryClientProvider>)
     expect(screen.getByText('The queue is empty.')).toBeInTheDocument()
     expect(screen.getByText('Video unavailable for this theme.')).toBeInTheDocument()
   })
@@ -125,7 +147,7 @@ describe('player views', () => {
     state.player.tvSizeAvailable = false
     state.player.mode = 'FULL_SIZE'
 
-    render(<NowPlayingView />)
+    renderPlayer(<NowPlayingView />)
 
     expect(screen.getByRole('button', { name: 'TV size' })).toBeDisabled()
   })
@@ -138,7 +160,7 @@ describe('player views', () => {
     state.player.mode = 'TV_SIZE'
     state.player.isLoading = false
     state.player.error = null
-    render(<MiniPlayerView />)
+    renderPlayer(<MiniPlayerView />)
     expect(screen.getByText('Anime Ongaku')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /open now playing/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Pause current track' })).toBeInTheDocument()
