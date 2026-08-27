@@ -268,37 +268,6 @@ export interface PlaylistDetailProps {
   onPlayItem?: (playlist: PlaylistDto, index: number) => void
 }
 
-function PlaylistDetailLegacy({ playlist, onUpdate, onDelete, onBack, onPlay }: PlaylistDetailProps) {
-  const library = useLibraryQuery({ enabled: false }).library
-  const [items, setItems] = useState(() => normalizePlaylistItems(playlist))
-  const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const [editorOpen, setEditorOpen] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [deleting, setDeleting] = useState(false)
-
-  useEffect(() => setItems(normalizePlaylistItems(playlist)), [playlist])
-
-  async function saveItems(next: PlaylistEntryModel[]) {
-    const previous = items
-    setItems(next)
-    setError(null)
-    try {
-      await onUpdate(playlist.id, { items: next.map((item) => ({ ...(item.entryId !== null ? { entryId: item.entryId } : {}), itemType: item.itemType, itemId: item.itemId, modeOverride: item.modeOverride })) })
-    } catch (updateError) {
-      setItems(previous)
-      setError(updateError instanceof Error ? updateError.message : 'Could not update tracks.')
-    }
-  }
-
-  async function confirmDelete() {
-    setDeleting(true)
-    setError(null)
-    try { await onDelete(playlist.id) } catch (deleteError) { setError(deleteError instanceof Error ? deleteError.message : 'Could not delete playlist.'); setDeleting(false); setConfirmingDelete(false) }
-  }
-
-  return <section className="playlist-detail" aria-labelledby="playlist-detail-title">{onBack && <button type="button" className="playlist-button playlist-button--quiet" onClick={onBack}>← All playlists</button>}<header className="playlist-detail__header"><div className="playlist-detail__art" aria-hidden="true">{playlist.isDynamic ? '✦' : '♫'}</div><div className="playlist-detail__copy"><p className="playlist-eyebrow">{playlist.isDynamic ? 'Smart playlist' : 'Playlist'}</p><h1 id="playlist-detail-title">{playlist.name}</h1><p>{items.length} {items.length === 1 ? 'track' : 'tracks'} · {playlist.defaultMode === 'FULL_SIZE' ? 'Full size' : 'TV size'} default</p></div><div className="playlist-detail__actions">{onPlay && <><button type="button" className="playlist-button playlist-button--primary" onClick={() => onPlay(playlist, false)} disabled={items.length === 0}>Play</button><button type="button" className="playlist-button" onClick={() => onPlay(playlist, true)} disabled={items.length === 0}>Shuffle</button></>}{!playlist.isAuto && <button type="button" className="playlist-button" onClick={() => setEditorOpen(true)}>Edit</button>}{!playlist.isAuto && <button type="button" className="playlist-button playlist-button--danger" onClick={() => setConfirmingDelete(true)}>Delete playlist</button>}</div></header>{error && <p className="playlist-field__error" role="alert">{error}</p>}<PlaylistItemsEditor items={items} onChange={saveItems} readOnly={playlist.isDynamic && playlist.autoUpdate} />{editorOpen && <div className="playlist-dialog-backdrop"><div className="playlist-dialog" role="dialog" aria-modal="true" aria-labelledby="playlist-edit-dialog-title"><PlaylistEditor playlist={playlist} onCancel={() => setEditorOpen(false)} onSubmit={async (input) => { await onUpdate(playlist.id, input as Partial<PlaylistUpdateInput> & { items?: PlaylistUpdateInput['items'] }); setEditorOpen(false) }} /></div></div>}{confirmingDelete && <div className="playlist-dialog-backdrop"><div className="playlist-dialog playlist-dialog--confirm" role="dialog" aria-modal="true" aria-labelledby="playlist-delete-dialog-title"><h2 id="playlist-delete-dialog-title">Delete playlist?</h2><p>This removes “{playlist.name}” from your library. The tracks themselves will stay available.</p><div className="playlist-dialog__actions"><button type="button" className="playlist-button" onClick={() => setConfirmingDelete(false)} disabled={deleting}>Keep playlist</button><button type="button" className="playlist-button playlist-button--danger" onClick={confirmDelete} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete'}</button></div></div></div>}</section>
-}
-
 export function PlaylistDetail({ playlist, library: providedLibrary, onUpdate, onDelete, onBack, onPlay, onPlayItem }: PlaylistDetailProps) {
   const queriedLibrary = useLibraryQuery({ enabled: false }).library
   const library = providedLibrary ?? queriedLibrary
