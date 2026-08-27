@@ -31,6 +31,7 @@ beforeEach(() => {
       nowPlayingEntries: [
         { queueId: 1, item: { id: 1, title: 'Opening' } },
         { queueId: 2, item: { id: 2, title: 'Ending', album: 'ED', durationMs: 61_000 } },
+        { queueId: 3, item: { id: 3, title: 'A very long queue title that should remain readable across the row', artist: 'Long-name artist' } },
       ],
     },
     registerVideoSurface: vi.fn(),
@@ -44,7 +45,8 @@ beforeEach(() => {
     requestFullscreen: vi.fn().mockResolvedValue(undefined),
     skipTo: vi.fn(),
     playItems: vi.fn(),
-    queue: { playNext: vi.fn(), addToQueue: vi.fn() },
+    queue: { playNext: vi.fn(), addToQueue: vi.fn(), moveEntry: vi.fn(), rewindTo: vi.fn(), moveToPlayNext: vi.fn(), removeEntry: vi.fn(), unskipEntry: vi.fn() },
+    isQueueEntryEligible: vi.fn(() => true),
   }
 })
 
@@ -64,6 +66,7 @@ describe('player views', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Full size' }))
     fireEvent.click(screen.getByRole('button', { name: 'Video' }))
     fireEvent.click(screen.getByRole('button', { name: 'Enter fullscreen' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Show queue' }))
     fireEvent.click(screen.getByRole('button', { name: 'Play Ending' }))
 
     expect(state.player.seek).toHaveBeenCalledWith(32)
@@ -77,6 +80,42 @@ describe('player views', () => {
     expect(state.player.skipTo).toHaveBeenCalledWith(1)
     expect(screen.getByRole('alert')).toHaveTextContent('Recoverable error')
     expect(screen.getByRole('status')).toHaveTextContent('Loading media')
+  })
+
+  it('keeps the queue hidden until requested and removes redundant row timing and section counts', () => {
+    renderPlayer(<NowPlayingView />)
+
+    expect(screen.queryByRole('complementary', { name: 'Playback queue' })).not.toBeInTheDocument()
+    const toggle = screen.getByRole('button', { name: 'Show queue' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(toggle)
+
+    const queue = screen.getByRole('complementary', { name: 'Playback queue' })
+    expect(screen.getByRole('button', { name: 'Hide queue' })).toHaveAttribute('aria-expanded', 'true')
+    expect(queue.querySelector('time')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Now playing' }).parentElement).toHaveTextContent(/^Now playing$/)
+    expect(screen.getByRole('heading', { name: 'Up next' }).parentElement).toHaveTextContent(/^Up next$/)
+    expect(screen.getByText('3 items')).toBeInTheDocument()
+    expect(screen.getByText('A very long queue title that should remain readable across the row')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close queue' }))
+    expect(screen.queryByRole('complementary', { name: 'Playback queue' })).not.toBeInTheDocument()
+  })
+
+  it('reorders up-next entries only from the dedicated drag handle', () => {
+    renderPlayer(<NowPlayingView />)
+    fireEvent.click(screen.getByRole('button', { name: 'Show queue' }))
+
+    const handle = screen.getByRole('button', { name: 'Drag A very long queue title that should remain readable across the row to reorder' })
+    const endingRow = screen.getByText('Ending').closest('[data-queue-id]') as HTMLElement
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(endingRow)
+
+    fireEvent.pointerDown(handle, { pointerId: 1, pointerType: 'mouse', clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(handle, { pointerId: 1, pointerType: 'mouse', clientX: 10, clientY: 24 })
+    fireEvent.pointerUp(handle, { pointerId: 1, pointerType: 'mouse', clientX: 10, clientY: 24 })
+
+    expect(state.player.queue.moveEntry).toHaveBeenCalledWith(3, 2)
   })
 
   it('uses thumb preferences and omits duplicate queue actions from the active track', () => {
