@@ -35,7 +35,7 @@ describe('ResponsiveShell', () => {
       </MemoryRouter>,
     )
 
-    const searchInput = screen.getByRole('textbox', { name: /search songs/i })
+    const searchInput = screen.getByRole('textbox', { name: /search songs/i }) as HTMLInputElement
     fireEvent.change(searchInput, { target: { value: 'bleach' } })
     searchInput.blur()
     fireEvent.keyDown(window, { key: 'k', ...modifiers })
