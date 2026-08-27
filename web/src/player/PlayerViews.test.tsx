@@ -44,6 +44,9 @@ beforeEach(() => {
 describe('player views', () => {
   it('forwards every now-playing control including mode, fullscreen, seek, and queue selection', () => {
     render(<NowPlayingView className="wide" />)
+    expect(screen.getByRole('tablist', { name: 'Player view' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Video' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Song' })).toHaveAttribute('aria-selected', 'false')
     fireEvent.change(screen.getByRole('slider', { name: 'Seek' }), { target: { value: '32' } })
     fireEvent.click(screen.getByRole('button', { name: 'Enable shuffle' }))
     fireEvent.click(screen.getByRole('button', { name: 'Previous track' }))
@@ -77,8 +80,12 @@ describe('player views', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Play current track' }))
     fireEvent.click(screen.getByRole('button', { name: 'Next track' }))
     fireEvent.change(screen.getByRole('slider', { name: 'Seek mini player' }), { target: { value: '10' } })
+    fireEvent.change(screen.getByRole('slider', { name: 'Volume' }), { target: { value: '35' } })
     expect(onOpen).toHaveBeenCalled()
     expect(state.player.seek).toHaveBeenCalledWith(10)
+    expect(screen.getByRole('button', { name: 'Enable shuffle' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open queue' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open fullscreen player' })).toBeInTheDocument()
   })
 
   it('replaces the artwork stage instead of stacking fallback art above video', () => {

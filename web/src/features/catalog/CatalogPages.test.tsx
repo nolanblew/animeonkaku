@@ -95,6 +95,13 @@ beforeEach(() => {
 
 describe('catalog pages', () => {
   it('renders bounded home sections from the browser home projection', async () => {
+    const homeLibrary = {
+      ...library,
+      playlistsById: {
+        '7': { id: 7, name: 'Morning themes', entries: [1, 2], defaultMode: 'TV_SIZE', overrideUserPreference: false, items: [{ entryId: 1, itemType: 'THEME', itemId: 1, modeOverride: null }, { entryId: 2, itemType: 'THEME', itemId: 2, modeOverride: null }], isAuto: false, isDynamic: false, autoUpdate: false, updatedAt: 10, deleted: false, dynamicSpecJson: null, dynamicSortJson: null },
+      },
+    }
+    vi.mocked(useLibraryQuery).mockReturnValue({ status: 'success', isPending: false, isError: false, isSuccess: true, error: null, library: homeLibrary } as never)
     vi.mocked(apiClient.get).mockResolvedValue({
       serverTime: 10,
       continueWatching: [{ kitsuId: 'a', title: 'Frieren: Beyond Journey’s End', posterUrl: '/frieren.jpg', updatedAt: 10 }],
@@ -103,12 +110,20 @@ describe('catalog pages', () => {
       nextCursor: null,
     })
 
-    renderWithQuery(<HomeCatalogPage />)
+    const onPlayTheme = vi.fn()
+    renderWithQuery(<HomeCatalogPage onPlayTheme={onPlayTheme} />)
 
-    expect(await screen.findByRole('heading', { name: 'Continue watching' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Frieren/ })).toHaveAttribute('href', '/anime/a')
+    expect(await screen.findByRole('heading', { name: 'Quick picks' })).toBeInTheDocument()
+    expect(screen.queryByText('Continue watching')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Openings' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Endings' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Full size' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'TV size' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Play Opening' }))
+    expect(onPlayTheme).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), expect.stringContaining('/a.jpg'))
     expect(screen.getByRole('heading', { name: 'Recently added' })).toBeInTheDocument()
     expect(screen.getByText('Morning themes')).toBeInTheDocument()
+    expect(screen.getByTestId('playlist-artwork-7').querySelectorAll('img')).toHaveLength(2)
     expect(apiClient.get).toHaveBeenCalledWith('/v1/home?limit=24', expect.anything())
   })
 

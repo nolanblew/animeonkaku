@@ -5,6 +5,16 @@ import { ResponsiveShell } from './ResponsiveShell'
 import { PlayerProvider } from '../player'
 import '../styles.css'
 
+vi.mock('../lib/query', () => ({
+  useLibraryQuery: () => ({
+    library: {
+      playlistsById: {
+        '7': { id: 7, name: 'Night drive', deleted: false, isAuto: false, isDynamic: false, items: [], entries: [] },
+      },
+    },
+  }),
+}))
+
 afterEach(() => vi.restoreAllMocks())
 
 describe('ResponsiveShell', () => {
@@ -23,6 +33,10 @@ describe('ResponsiveShell', () => {
     }
     expect(screen.getByRole('link', { name: /library/i })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByRole('heading', { name: /library content/i })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Anime Ongaku' })).toHaveAttribute('src', expect.stringContaining('anime-ongaku-logo'))
+    expect(screen.getByRole('heading', { name: 'Playlists' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Night drive' })).toHaveAttribute('href', '/playlist/7')
+    expect(screen.getByRole('link', { name: /new playlist/i })).toHaveAttribute('href', '/playlists?create=1')
   })
 
   it.each([
