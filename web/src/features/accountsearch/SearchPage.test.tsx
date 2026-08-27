@@ -5,7 +5,7 @@ import { apiClient } from '../../lib/api'
 import { useLibraryQuery } from '../../lib/query'
 import { createEmptyLibrary, type NormalizedLibrary } from '../../lib/library'
 import { SearchPage, findLibraryMatches, MAX_LIBRARY_RESULTS } from './SearchPage'
-import { parseMusicSearchResponse } from './search'
+import { parseSearchResponse } from './search'
 
 vi.mock('../../lib/api', () => ({
   apiClient: { get: vi.fn() },
@@ -80,8 +80,28 @@ describe('findLibraryMatches', () => {
   })
 
   it('normalizes nested and malformed server payloads without throwing', () => {
-    expect(parseMusicSearchResponse({ music: { releases: [{ release: { title: 'Album' } }], tracks: [{ track: { title: 'Song' } }] } }).releases).toHaveLength(1)
-    expect(parseMusicSearchResponse({ releases: 'not an array', tracks: null })).toEqual({ releases: [], tracks: [] })
+    expect(parseSearchResponse({ music: { releases: [{ release: { title: 'Album' } }], tracks: [{ track: { title: 'Song' } }] } }).music.releases).toHaveLength(1)
+    expect(parseSearchResponse({ releases: 'not an array', tracks: null }).music).toEqual({ releases: [], tracks: [] })
+  })
+
+  it('projects bounded AnimeThemes anime, songs, and artists from the server response', () => {
+    const result = parseSearchResponse({
+      animeThemes: { search: {
+        anime: [{
+          id: 91,
+          name: 'Naruto',
+          resources: [{ site: 'Kitsu', external_id: '11' }],
+          images: [{ facet: 'Large Cover', link: 'https://img/naruto.jpg' }],
+          animethemes: [{ id: 501, type: 'OP', sequence: 3, song: { title: 'Blue Bird', artists: [{ name: 'Ikimonogakari' }] } }],
+        }],
+        artists: [{ id: 7, name: 'Ikimonogakari', slug: 'ikimonogakari', images: [{ link: 'https://img/artist.jpg' }] }],
+      } },
+      music: { releases: [], tracks: [] },
+    })
+
+    expect(result.animeThemes.anime[0]).toMatchObject({ animeThemesId: 91, kitsuId: '11', name: 'Naruto', imageUrl: 'https://img/naruto.jpg', themeCount: 1 })
+    expect(result.animeThemes.themes[0]).toMatchObject({ id: 501, animeName: 'Naruto', title: 'Blue Bird', themeType: 'OP3', artist: 'Ikimonogakari' })
+    expect(result.animeThemes.artists[0]).toMatchObject({ id: 7, name: 'Ikimonogakari', slug: 'ikimonogakari', imageUrl: 'https://img/artist.jpg' })
   })
 })
 
@@ -89,6 +109,10 @@ describe('SearchPage', () => {
   it('reads the router query, debounces the server request, and combines bounded local matches', async () => {
     vi.useFakeTimers()
     mockedGet.mockResolvedValue({
+      animeThemes: { search: {
+        anime: [{ id: 91, name: 'Naruto Shippuden', resources: [{ site: 'Kitsu', external_id: '12' }], images: [{ link: 'https://img/shippuden.jpg' }], animethemes: [{ id: 502, type: 'OP', sequence: 1, song: { title: 'Hero’s Come Back!!', artists: [{ name: 'nobodyknows+' }] } }] }],
+        artists: [{ id: 8, name: 'nobodyknows+', slug: 'nobodyknows', images: [] }],
+      } },
       tracks: [{ anime: { title: 'Naruto' }, releaseTitle: 'Best Collection', track: { id: 10, title: 'Blue Bird', artistCredit: 'Ikimonogakari', audioUrl: '/v1/media/songs/10/audio' } }],
       releases: [{ anime: [{ title: 'Naruto' }], release: { id: 20, title: 'Naruto Collection', artistCredit: 'Various', tracks: [] } }],
     })
@@ -106,6 +130,11 @@ describe('SearchPage', () => {
     await act(async () => { await vi.runAllTimersAsync(); await Promise.resolve() })
     expect(screen.getByText('Blue Bird')).toBeInTheDocument()
     expect(screen.getByText('Naruto Collection')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'In your library' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Discover on AnimeThemes' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Naruto Shippuden' })).toHaveAttribute('href', '/anime/12')
+    expect(screen.getByText('Hero’s Come Back!!')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'nobodyknows+' })).toHaveAttribute('href', '/artist/nobodyknows')
     expect(screen.getByRole('button', { name: 'More actions for Blue Bird' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Play Blue Bird' }))
     expect(onPlayTrack).toHaveBeenCalledWith(expect.objectContaining({ releaseTitle: 'Best Collection' }))

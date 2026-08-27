@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ResponsiveShell } from './ResponsiveShell'
 import { PlayerProvider } from '../player'
@@ -17,6 +17,12 @@ vi.mock('../auth/AuthProvider', () => ({
 vi.mock('../lib/query', () => ({
   useLibraryQuery: () => ({
     library: {
+      animeById: {
+        naruto: { kitsuId: 'naruto', title: 'Naruto', titleEn: 'Naruto', titleRomaji: 'Naruto', titleJa: 'ナルト', posterUrl: '/naruto.jpg', deleted: false },
+      },
+      themesById: {
+        '11': { id: 11, title: 'Blue Bird', themeType: 'OP3', kitsuAnimeIds: ['naruto'], artists: [{ name: 'Ikimonogakari', alias: null, asCharacter: null }], deleted: false },
+      },
       playlistsById: {
         '7': { id: 7, name: 'A very long night drive playlist name that must remain discoverable', deleted: false, isAuto: false, isDynamic: false, items: [], entries: [] },
       },
@@ -83,5 +89,35 @@ describe('ResponsiveShell', () => {
     unmount()
 
     expect(removeEventListener).toHaveBeenCalledWith('keydown', expect.any(Function))
+  })
+
+  it('shows an instant library-only suggestion panel and sends Enter to the full search page', () => {
+    function LocationProbe() {
+      return <output aria-label="Current route">{useLocation().pathname}{useLocation().search}</output>
+    }
+    render(
+      <MemoryRouter initialEntries={['/library']}>
+        <PlayerProvider>
+          <Routes>
+            <Route path="*" element={<ResponsiveShell><LocationProbe /></ResponsiveShell>} />
+          </Routes>
+        </PlayerProvider>
+      </MemoryRouter>,
+    )
+
+    const searchInput = screen.getByRole('combobox', { name: /search songs/i })
+    fireEvent.focus(searchInput)
+    fireEvent.change(searchInput, { target: { value: 'naruto' } })
+
+    const suggestions = screen.getByRole('dialog', { name: /library search suggestions/i })
+    expect(suggestions).toHaveTextContent('From your library')
+    expect(screen.getByRole('link', { name: /Naruto/i })).toHaveAttribute('href', '/anime/naruto')
+    expect(suggestions).not.toHaveTextContent('AnimeThemes')
+
+    fireEvent.keyDown(searchInput, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: /library search suggestions/i })).not.toBeInTheDocument()
+    fireEvent.focus(searchInput)
+    fireEvent.keyDown(searchInput, { key: 'Enter' })
+    expect(screen.getByLabelText('Current route')).toHaveTextContent('/search?q=naruto')
   })
 })
