@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
-import type { PlaylistDto } from '../../lib/library'
+import { createEmptyLibrary, type NormalizedLibrary, type PlaylistDto } from '../../lib/library'
 import { PlaylistDetail, PlaylistEditor, PlaylistList, PlaylistManager } from './components'
 
 const playlist = (overrides: Partial<PlaylistDto> = {}): PlaylistDto => ({
@@ -30,6 +30,29 @@ function renderWithQuery(ui: React.ReactElement) {
 
 function RouteProbe() {
   return <output data-testid="route">{useLocation().pathname}</output>
+}
+
+function displayLibrary(): NormalizedLibrary {
+  return {
+    ...createEmptyLibrary(),
+    animeById: {
+      'anime-1': {
+        kitsuId: 'anime-1', animeThemesId: 1, title: 'Demo Anime', titleEn: null, titleRomaji: null, titleJa: null,
+        posterUrl: '/poster.jpg', coverUrl: null, watchingStatus: 'current', subtype: 'TV', startDate: null,
+        endDate: null, episodeCount: 12, ageRating: null, averageRating: null, userRating: null, libraryUpdatedAt: 1,
+        slug: 'demo-anime', genres: [], updatedAt: 1, deleted: false,
+      },
+    },
+    themesById: {
+      '10': {
+        id: 10, animeThemesAnimeId: 1, kitsuAnimeIds: ['anime-1'], title: 'Real Opening', themeType: 'OP1',
+        artists: [{ name: 'Demo Band', asCharacter: null, alias: null }], audioUrl: '/audio/10', videoUrl: null,
+        audioState: 'READY', durationSeconds: 90, fileSize: null,
+        mediaModes: { tvSize: { url: '/audio/10', durationSeconds: 90, fileSize: null }, fullSize: null, video: null },
+        updatedAt: 1, deleted: false,
+      },
+    },
+  }
 }
 
 describe('playlist components', () => {
@@ -70,36 +93,37 @@ describe('playlist components', () => {
     expect(screen.getByTestId('route')).toHaveTextContent('/playlist/2')
   })
 
-  it('supports accessible detail editing, reorder, remove, and delete confirmation', async () => {
+  it('renders playlist detail as a resolved music page without inline item editing', async () => {
     const onUpdate = vi.fn().mockResolvedValue(undefined)
     const onDelete = vi.fn().mockResolvedValue(undefined)
     const onPlay = vi.fn()
-    renderWithQuery(<PlaylistDetail playlist={playlist()} onUpdate={onUpdate} onDelete={onDelete} onPlay={onPlay} />)
+    const onPlayItem = vi.fn()
+    renderWithQuery(<PlaylistDetail playlist={playlist()} library={displayLibrary()} onUpdate={onUpdate} onDelete={onDelete} onPlay={onPlay} onPlayItem={onPlayItem} />)
     expect(screen.getByRole('heading', { name: /night drive/i })).toBeInTheDocument()
+    expect(screen.getByTestId('playlist-artwork-2')).toHaveAttribute('data-layout', 'single')
+    expect(screen.getByTestId('playlist-hero-backdrop')).toHaveStyle({ backgroundImage: 'url("/api/poster.jpg")' })
+    expect(screen.getByText('Real Opening')).toBeInTheDocument()
+    expect(screen.getByText(/Demo Anime · OP1 · Demo Band/)).toBeInTheDocument()
+    expect(screen.queryByText('Theme #10')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /move .* up/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /remove .* from playlist/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /add track/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: /catalog id/i })).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /^play$/i }))
     expect(onPlay).toHaveBeenCalledWith(expect.objectContaining({ id: 2 }), false)
-    await userEvent.click(screen.getByRole('button', { name: /move .* up/i }))
-    await userEvent.click(screen.getByRole('button', { name: /remove .* from playlist/i }))
-    expect(onUpdate).toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'Play Real Opening' }))
+    expect(onPlayItem).toHaveBeenCalledWith(expect.objectContaining({ id: 2 }), 0)
     await userEvent.click(screen.getByRole('button', { name: /delete playlist/i }))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
     expect(onDelete).toHaveBeenCalledWith(2)
   })
 
-  it('rolls back optimistic item changes when the update is rejected', async () => {
-    const onUpdate = vi.fn().mockRejectedValue(new Error('Could not persist tracks.'))
-    renderWithQuery(<PlaylistDetail playlist={playlist({ items: [
-      { entryId: 44, itemType: 'THEME', itemId: 10, modeOverride: null },
-      { entryId: 45, itemType: 'THEME', itemId: 11, modeOverride: null },
-    ] })} onUpdate={onUpdate} onDelete={vi.fn()} />)
-
-    await userEvent.click(screen.getByRole('button', { name: /move theme 10 down/i }))
-
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Could not persist tracks.'))
-    const rows = screen.getAllByRole('listitem')
-    expect(rows[0]).toHaveTextContent('Theme #10')
-    expect(rows[1]).toHaveTextContent('Theme #11')
+  it('renders missing catalog items without exposing raw database ids', () => {
+    renderWithQuery(<PlaylistDetail playlist={playlist({ items: [{ entryId: 44, itemType: 'THEME', itemId: 999, modeOverride: null }] })} library={displayLibrary()} onUpdate={vi.fn()} onDelete={vi.fn()} />)
+    expect(screen.getByText('Unavailable track')).toBeInTheDocument()
+    expect(screen.getByText(/no longer available/i)).toBeInTheDocument()
+    expect(screen.queryByText(/999/)).not.toBeInTheDocument()
   })
 
   it('starts playlist creation with an approachable manual-or-smart choice', async () => {

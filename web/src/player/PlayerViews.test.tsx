@@ -86,6 +86,7 @@ describe('player views', () => {
     expect(screen.getByRole('button', { name: 'Enable shuffle' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open queue' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open fullscreen player' })).toBeInTheDocument()
+    expect(document.querySelector('.player-mini-player__track img')).toHaveClass('player-shared-artwork')
   })
 
   it('replaces the artwork stage instead of stacking fallback art above video', () => {
@@ -93,6 +94,20 @@ describe('player views', () => {
 
     expect(screen.queryByText('AO')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Video surface')).toBeInTheDocument()
+  })
+
+  it('uses a real progress rail, shared artwork transition, and collapses the expanded player', () => {
+    const onCollapse = vi.fn()
+    state.player.mode = 'TV_SIZE'
+    state.player.isLoading = false
+    state.player.error = null
+    render(<NowPlayingView onCollapse={onCollapse} />)
+
+    expect(document.querySelector('.player-waveform')).not.toBeInTheDocument()
+    expect(screen.getByRole('slider', { name: 'Seek' })).toBeInTheDocument()
+    expect(document.querySelector('.player-now-playing__artwork-wrap')).toHaveClass('player-shared-artwork')
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse player' }))
+    expect(onCollapse).toHaveBeenCalled()
   })
 
   it('renders bounded empty states without enabling transport controls', () => {
