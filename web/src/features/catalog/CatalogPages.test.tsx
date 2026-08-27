@@ -121,7 +121,7 @@ describe('catalog pages', () => {
     expect(screen.getByRole('button', { name: 'TV size' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Play Opening' }))
     expect(onPlayTheme).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), expect.stringContaining('/a.jpg'))
-    expect(screen.getByRole('heading', { name: 'Recently added' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Recently added' })).not.toBeInTheDocument()
     expect(screen.getByText('Morning themes')).toBeInTheDocument()
     expect(screen.getByTestId('playlist-artwork-7').querySelectorAll('img')).toHaveLength(2)
     expect(apiClient.get).toHaveBeenCalledWith('/v1/home?limit=24', expect.anything())
