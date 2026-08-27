@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -98,6 +98,16 @@ describe('release detail page', () => {
     expect(await screen.findByRole('heading', { name: 'Signal in the Static' })).toBeInTheDocument()
     expect(screen.getByText(/no ready tracks/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Play all tracks' })).toBeDisabled()
+  })
+
+  it('removes failed artwork instead of leaving browser broken-image text', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue(release({ artworkUrl: 'https://qa.invalid/missing.jpg' }))
+    renderPage()
+
+    const artwork = await screen.findByRole('img', { name: 'Signal in the Static artwork' })
+    fireEvent.error(artwork)
+
+    expect(screen.queryByRole('img', { name: 'Signal in the Static artwork' })).not.toBeInTheDocument()
   })
 
   it('renders a friendly sanitized error when the release request fails', async () => {
