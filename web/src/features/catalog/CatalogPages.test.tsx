@@ -210,6 +210,7 @@ describe('catalog pages', () => {
     expect(await screen.findByRole('heading', { name: 'Frieren: Beyond Journey’s End' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Themes' })).toBeInTheDocument()
     expect(screen.getByText('Season One')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Season One' })).toHaveAttribute('href', '/release/3')
     expect(apiClient.get).toHaveBeenCalledWith('/v1/anime/a', expect.anything())
     expect(apiClient.get).toHaveBeenCalledWith('/v1/anime/a/music', expect.anything())
   })

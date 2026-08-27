@@ -1,10 +1,11 @@
 import { act, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { LibraryThemeDto, MusicTrackDto, NormalizedLibrary, PlaylistDto } from '../lib/library'
+import type { LibraryThemeDto, MusicReleaseDto, MusicTrackDto, NormalizedLibrary, PlaylistDto } from '../lib/library'
 
 const captures = vi.hoisted(() => ({
   animeProps: null as any,
+  releaseProps: null as any,
   libraryProps: null as any,
   searchProps: null as any,
   playlistDetailProps: null as any,
@@ -27,6 +28,10 @@ vi.mock('../features/accountsearch', () => ({
   SettingsPage: () => <h2>Mock account settings</h2>,
 }))
 
+vi.mock('../features/releases', () => ({
+  ReleaseDetailPage: (props: unknown) => { captures.releaseProps = props; return <h2>Mock release detail</h2> },
+}))
+
 vi.mock('../features/playlists', () => ({
   PlaylistDetail: (props: unknown) => { captures.playlistDetailProps = props; return <h2>Mock playlist detail</h2> },
   PlaylistFeatureMessage: ({ children }: { children: React.ReactNode }) => <p>{children}</p>,
@@ -43,7 +48,7 @@ vi.mock('../player', async (importOriginal) => {
   return { ...original, usePlayer: () => captures.player, NowPlayingView: () => <h2>Mock now playing</h2> }
 })
 
-import { AnimePage, HomePage, LibraryPage, NowPlayingPage, PlaylistPage, PlaylistsPage, SearchPage, SettingsPage } from './Pages'
+import { AnimePage, HomePage, LibraryPage, NowPlayingPage, PlaylistPage, PlaylistsPage, ReleasePage, SearchPage, SettingsPage } from './Pages'
 
 const opening = theme(11, 'anime-1', 'Opening')
 const ending = theme(12, 'anime-1', 'Ending')
@@ -61,6 +66,21 @@ const song: MusicTrackDto = {
   discNumber: 1,
   trackNumber: 1,
   displayOrder: 1,
+}
+const release: MusicReleaseDto = {
+  id: 42,
+  title: 'Release album',
+  titleEnglish: null,
+  titleRomaji: null,
+  titleJapanese: null,
+  artistCredit: 'Band',
+  artistNames: [],
+  relationshipType: 'SOUNDTRACK',
+  releaseDate: '2024-01-01',
+  year: 2024,
+  artworkUrl: '/cover.jpg',
+  tracks: [song, { ...song, id: 91, title: 'Second song', displayOrder: 2, trackNumber: 2 }],
+  anime: [{ kitsuId: 'anime-1', title: 'Anime one', titleEn: null, posterUrl: null, relationshipType: 'SOUNDTRACK' }],
 }
 const playlist: PlaylistDto = {
   id: 7,
@@ -159,6 +179,19 @@ describe('page-to-player wiring', () => {
     captures.animeProps.onAddToQueue([ending], '/poster.jpg')
     captures.animeProps.onPlaySong(song, '/cover.jpg', 'anime-1')
     expect(captures.player.queue.playNext).toHaveBeenCalled()
+    expect(captures.player.playSong).toHaveBeenCalledWith(song, { artworkUrl: '/api/cover.jpg', animeId: 'anime-1' })
+  })
+
+  it('connects release album playback and individual song playback', () => {
+    renderPath(<ReleasePage />, '/release/42', '/release/:releaseId')
+    expect(screen.getByText('Mock release detail')).toBeInTheDocument()
+
+    captures.releaseProps.onPlayAll(release, false)
+    expect(captures.player.playItem).toHaveBeenCalledWith(expect.objectContaining({ songId: 90 }), { contextLabel: 'Release album' })
+    expect(captures.player.queue.addToQueue).toHaveBeenCalledWith([expect.objectContaining({ songId: 91 })])
+    captures.releaseProps.onPlayAll(release, true)
+    expect(captures.player.setShuffle).toHaveBeenCalledWith(true)
+    captures.releaseProps.onPlayTrack(song, release)
     expect(captures.player.playSong).toHaveBeenCalledWith(song, { artworkUrl: '/api/cover.jpg', animeId: 'anime-1' })
   })
 

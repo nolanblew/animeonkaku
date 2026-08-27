@@ -27,6 +27,11 @@ beforeEach(() => {
       themes: [],
     }
     if (path === '/v1/anime/16bit-sensation/music') return { anime: { kitsuId: '16bit-sensation', title: '16bit Sensation', titleEn: null, posterUrl: null }, releases: [] }
+    if (path === '/v1/music/releases/3') return {
+      id: 3, title: '16bit Soundtrack', titleEnglish: null, titleRomaji: null, titleJapanese: null,
+      artistCredit: 'Various artists', artistNames: [], relationshipType: 'SOUNDTRACK', releaseDate: '2024-01-01',
+      year: 2024, artworkUrl: null, tracks: [], anime: [],
+    }
     if (path === '/v1/playlists') return [{
       id: 1, name: 'Currently Watching', entries: [], defaultMode: 'TV_SIZE', overrideUserPreference: false,
       items: [], isAuto: false, isDynamic: false, autoUpdate: true, updatedAt: 100, deleted: false,
@@ -80,6 +85,7 @@ describe('web player app shell', () => {
     ['/library', /library/i],
     ['/search?q=bleach', /search/i],
     ['/anime/16bit-sensation', /16bit sensation/i],
+    ['/release/3', /16bit soundtrack/i],
     ['/playlist/1', /currently watching/i],
     ['/now-playing', /^now playing$/i],
     ['/settings', /settings/i],
