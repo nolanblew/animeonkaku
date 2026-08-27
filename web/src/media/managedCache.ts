@@ -17,6 +17,7 @@ export interface ManagedMediaCacheInput {
 
 export interface ManagedMediaCacheOptions {
   storage: CacheStoragePort
+  namespace?: string
   fetcher?: (url: string, init: RequestInit) => Promise<Response>
   baseUrl?: string
   maxImageEntries?: number
@@ -38,8 +39,10 @@ export class ManagedMediaCache {
 
   constructor(options: ManagedMediaCacheOptions) {
     const version = Math.max(1, Math.trunc(options.version ?? 1))
-    this.audioCacheName = `anime-ongaku-next-audio-v${version}`
-    this.imageCacheName = `anime-ongaku-images-v${version}`
+    const namespace = sanitizeNamespace(options.namespace)
+    const suffix = namespace ? `-${namespace}` : ''
+    this.audioCacheName = `anime-ongaku-next-audio${suffix}-v${version}`
+    this.imageCacheName = `anime-ongaku-images${suffix}-v${version}`
     this.storage = options.storage
     this.fetcher = options.fetcher ?? ((url, init) => fetch(url, init))
     this.baseUrl = options.baseUrl ?? (typeof location === 'undefined' ? 'http://localhost/' : location.href)
@@ -57,6 +60,14 @@ export class ManagedMediaCache {
         this.storage.delete(this.imageCacheName),
       ])
     })
+  }
+
+  async matchAudio(url: string): Promise<Response | undefined> {
+    await this.operation.catch(() => undefined)
+    const [canonical] = canonicalUrls([url], this.baseUrl)
+    if (!canonical) return undefined
+    const audio = await this.storage.open(this.audioCacheName)
+    return audio.match(canonical)
   }
 
   private enqueue(operation: () => Promise<void>): Promise<void> {
@@ -109,6 +120,10 @@ export class ManagedMediaCache {
       if (await bucket.delete(url)) overflow -= 1
     }
   }
+}
+
+function sanitizeNamespace(value: string | undefined): string {
+  return value?.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) ?? ''
 }
 
 export function browserCacheStorage(storage: CacheStorage = caches): CacheStoragePort {

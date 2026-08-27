@@ -193,26 +193,25 @@ describe('PlayerProvider', () => {
   })
 
   it('consumes a matching managed cache response and revokes its object URL', async () => {
-    const originalCaches = Object.getOwnPropertyDescriptor(globalThis, 'caches')
     const originalCreate = Object.getOwnPropertyDescriptor(URL, 'createObjectURL')
     const originalRevoke = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL')
     const createObjectURL = vi.fn(() => 'blob:cached-audio')
     const revokeObjectURL = vi.fn()
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL })
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL })
-    Object.defineProperty(globalThis, 'caches', { configurable: true, value: { match: vi.fn(async () => new Response('audio', { status: 200 })) } })
     try {
       const store = new QueueStore()
       store.play([item()])
-      const cache = { reconcile: vi.fn(() => Promise.resolve()) } as unknown as ManagedMediaCache
+      const cache = {
+        reconcile: vi.fn(() => Promise.resolve()),
+        matchAudio: vi.fn(async () => new Response('audio', { status: 200 })),
+      } as unknown as ManagedMediaCache
       const rendered = renderPlayer(store, { mediaCache: cache })
       await waitFor(() => expect(screen.getByTestId('player-audio')).toHaveAttribute('src', 'blob:cached-audio'))
       expect(createObjectURL).toHaveBeenCalled()
       rendered.unmount()
       expect(revokeObjectURL).toHaveBeenCalledWith('blob:cached-audio')
     } finally {
-      if (originalCaches) Object.defineProperty(globalThis, 'caches', originalCaches)
-      else Reflect.deleteProperty(globalThis, 'caches')
       if (originalCreate) Object.defineProperty(URL, 'createObjectURL', originalCreate)
       else Reflect.deleteProperty(URL, 'createObjectURL')
       if (originalRevoke) Object.defineProperty(URL, 'revokeObjectURL', originalRevoke)

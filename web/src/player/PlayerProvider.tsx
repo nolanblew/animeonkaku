@@ -435,7 +435,7 @@ export function PlayerProvider({
     const loadSource = async () => {
       let playableUrl = sourceUrl
       if (nextMode !== 'VIDEO') {
-        const cached = await readCachedMedia(sourceUrl)
+        const cached = await readCachedMedia(sourceUrl, ownedMediaCache)
         if (cancelled) return
         if (cached && typeof URL.createObjectURL === 'function') {
           try {
@@ -466,7 +466,7 @@ export function PlayerProvider({
       if (objectUrl && typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(objectUrl)
       if (cachedObjectUrlRef.current === objectUrl) cachedObjectUrlRef.current = null
     }
-  }, [activeSourceUrl, api, currentEntry?.queueId, currentItem, currentEntry, mode, reportPlaybackFailure, mode === 'VIDEO' ? videoElement : null])
+  }, [activeSourceUrl, api, currentEntry?.queueId, currentItem, currentEntry, mode, ownedMediaCache, reportPlaybackFailure, mode === 'VIDEO' ? videoElement : null])
 
   useEffect(() => {
     if (!isPlaying) return undefined
@@ -589,16 +589,19 @@ function resolveVideoUrl(url: string, api: Pick<ApiClient, 'url'>): string {
 function createBrowserMediaCache(): ManagedMediaCache | undefined {
   if (typeof caches === 'undefined') return undefined
   try {
-    return new ManagedMediaCache({ storage: browserCacheStorage(caches) })
+    const namespace = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    return new ManagedMediaCache({ storage: browserCacheStorage(caches), namespace })
   } catch {
     return undefined
   }
 }
 
-async function readCachedMedia(url: string): Promise<Blob | undefined> {
-  if (typeof caches === 'undefined' || typeof URL.createObjectURL !== 'function') return undefined
+async function readCachedMedia(url: string, cache: ManagedMediaCache | undefined): Promise<Blob | undefined> {
+  if (!cache || typeof URL.createObjectURL !== 'function') return undefined
   try {
-    const response = await caches.match(url)
+    const response = await cache.matchAudio(url)
     if (!response || !response.ok) return undefined
     return await response.blob()
   } catch {
