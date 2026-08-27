@@ -76,6 +76,10 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
     return () => window.removeEventListener('keydown', handleSearchShortcut)
   }, [])
 
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' })
+  }, [location.pathname, location.search])
+
   const closeNavigation = () => setNavigationOpen(false)
   const submitSearch = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
