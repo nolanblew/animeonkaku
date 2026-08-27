@@ -79,7 +79,7 @@ export function ReleaseDetailPage({ onPlayAll, onPlayTrack }: ReleaseDetailPageP
 
 function ReleaseTrackRow({ track, release, index, onPlay }: { track: MusicTrackDto; release: MusicReleaseDto; index: number; onPlay?: (track: MusicTrackDto, release: MusicReleaseDto) => void }) {
   const title = track.title.trim() || 'Untitled track'
-  const artist = track.artistCredit.trim() || artistNames({ artistNames: track.artistNames } as MusicReleaseDto)
+  const artist = track.artistCredit.trim() || artistNames(track)
   return (
     <li className="release-track-list__row">
       <span className="release-track-list__number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
