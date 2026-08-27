@@ -279,7 +279,7 @@ describe('PlayerProvider', () => {
       itemType: 'THEME',
       itemId: 44,
       actualMode: 'TV_SIZE',
-      playedAt: expect.any(String),
+      playedAt: expect.any(Number),
     })])
   })
 
