@@ -116,7 +116,7 @@ export function PlayerProvider({
   ), [providedQueue, persistenceUserId, store])
   const subscribe = useMemo(() => queue.subscribe.bind(queue), [queue])
   const queueState = useSyncExternalStore(subscribe, () => queue.state, () => queue.state)
-  const ownedMediaCache = useMemo(() => mediaCache ?? createBrowserMediaCache(), [mediaCache])
+  const ownedMediaCache = useMemo(() => mediaCache ?? createBrowserMediaCache(persistenceUserId), [mediaCache, persistenceUserId])
   const audioRef = useRef<HTMLAudioElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const [videoSurface, setVideoSurface] = useState<HTMLElement | null>(null)
@@ -573,13 +573,18 @@ export function PlayerProvider({
 
   useEffect(() => {
     if (!ownedMediaCache) return
+    const artworkUrls = queueState.nowPlayingEntries
+      .slice(Math.max(0, queueState.currentIndex), Math.max(0, queueState.currentIndex) + 4)
+      .map((entry) => entry.item.artworkUrl)
+      .filter((url): url is string => Boolean(url?.trim()))
+      .map((url) => resolveAudioUrl(url, api))
     const nextAudioUrls = queueState.nowPlayingEntries
       .slice(queueState.currentIndex + 1, queueState.currentIndex + 4)
       .map((entry) => queueItemAudioUrl(entry.item, (entry.item as PlayerQueueItem).mode ?? 'TV_SIZE'))
       .filter((url): url is string => Boolean(url?.trim()))
       .map((url) => resolveAudioUrl(url, api))
     void ownedMediaCache.reconcile({
-      imageUrls: currentItem?.artworkUrl ? [resolveAudioUrl(currentItem.artworkUrl, api)] : [],
+      imageUrls: artworkUrls,
       nextAudioUrls,
     }).catch(() => undefined)
   }, [api, currentEntry?.queueId, currentItem?.artworkUrl, ownedMediaCache, queueState.currentIndex, queueState.queueVersion, queueState.nowPlayingEntries])
@@ -697,13 +702,12 @@ function resolveVideoUrl(url: string, api: Pick<ApiClient, 'url'>): string {
   return api.url(url)
 }
 
-function createBrowserMediaCache(): ManagedMediaCache | undefined {
+function createBrowserMediaCache(userId?: string): ManagedMediaCache | undefined {
   if (typeof caches === 'undefined') return undefined
   try {
-    const namespace = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
-    return new ManagedMediaCache({ storage: browserCacheStorage(caches), namespace })
+    const cache = new ManagedMediaCache({ storage: browserCacheStorage(caches), userId })
+    void cache.sweep().catch(() => undefined)
+    return cache
   } catch {
     return undefined
   }

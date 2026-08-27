@@ -8,6 +8,8 @@ export interface CacheBucket {
 export interface CacheStoragePort {
   open(name: string): Promise<CacheBucket>
   delete(name: string): Promise<boolean>
+  /** Cache Storage exposes this in browsers; adapters may omit it when sweeping is unavailable. */
+  keys?(): Promise<readonly string[]>
 }
 
 export interface ManagedMediaCacheInput {
@@ -17,6 +19,8 @@ export interface ManagedMediaCacheInput {
 
 export interface ManagedMediaCacheOptions {
   storage: CacheStoragePort
+  /** Stable account identity used when no explicit namespace is supplied. */
+  userId?: string
   namespace?: string
   fetcher?: (url: string, init: RequestInit) => Promise<Response>
   baseUrl?: string
@@ -31,6 +35,8 @@ export interface ManagedMediaCacheOptions {
 export class ManagedMediaCache {
   readonly audioCacheName: string
   readonly imageCacheName: string
+  readonly namespace: string
+  readonly version: number
   private readonly storage: CacheStoragePort
   private readonly fetcher: (url: string, init: RequestInit) => Promise<Response>
   private readonly baseUrl: string
@@ -39,7 +45,9 @@ export class ManagedMediaCache {
 
   constructor(options: ManagedMediaCacheOptions) {
     const version = Math.max(1, Math.trunc(options.version ?? 1))
-    const namespace = sanitizeNamespace(options.namespace)
+    const namespace = sanitizeNamespace(options.namespace ?? stableMediaCacheNamespace(options.userId))
+    this.namespace = namespace
+    this.version = version
     const suffix = namespace ? `-${namespace}` : ''
     this.audioCacheName = `anime-ongaku-next-audio${suffix}-v${version}`
     this.imageCacheName = `anime-ongaku-images${suffix}-v${version}`
@@ -59,7 +67,20 @@ export class ManagedMediaCache {
         this.storage.delete(this.audioCacheName),
         this.storage.delete(this.imageCacheName),
       ])
+      await sweepManagedMediaCaches({
+        storage: this.storage,
+        namespace: this.namespace,
+        version: this.version,
+      })
     })
+  }
+
+  sweep(): Promise<void> {
+    return this.enqueue(() => sweepManagedMediaCaches({
+      storage: this.storage,
+      namespace: this.namespace,
+      version: this.version,
+    }))
   }
 
   async matchAudio(url: string): Promise<Response | undefined> {
@@ -138,7 +159,53 @@ export function browserCacheStorage(storage: CacheStorage = caches): CacheStorag
       }
     },
     async delete(name) { return storage.delete(name) },
+    async keys() { return storage.keys() },
   }
+}
+
+export interface ManagedMediaCacheSweepOptions {
+  storage: CacheStoragePort
+  namespace?: string
+  version?: number
+}
+
+/**
+ * Deletes only stale Anime Ongaku buckets owned by the supplied namespace.
+ * Unknown cache names and current-version buckets are intentionally preserved.
+ */
+export async function sweepManagedMediaCaches(options: ManagedMediaCacheSweepOptions): Promise<void> {
+  const list = options.storage.keys
+  if (!list) return
+  const names = await list.call(options.storage)
+  const namespace = sanitizeNamespace(options.namespace)
+  const version = Math.max(1, Math.trunc(options.version ?? 1))
+  const suffix = namespace ? `-${namespace}` : ''
+  const current = new Set([
+    `anime-ongaku-next-audio${suffix}-v${version}`,
+    `anime-ongaku-images${suffix}-v${version}`,
+  ])
+  const prefixes = [
+    `anime-ongaku-next-audio${suffix}-v`,
+    `anime-ongaku-images${suffix}-v`,
+  ]
+  const stale = names.filter((name) => prefixes.some((prefix) => name.startsWith(prefix)) && !current.has(name))
+  await Promise.all(stale.map((name) => options.storage.delete(name)))
+}
+
+/**
+ * Produces a stable, non-identifying namespace for one account. A hash keeps
+ * emails/user IDs out of Cache Storage names while preventing cross-account
+ * cache reuse.
+ */
+export function stableMediaCacheNamespace(userId?: string): string {
+  const normalized = userId?.trim().toLowerCase()
+  if (!normalized) return 'anonymous'
+  let hash = 2166136261
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash ^= normalized.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return `u${(hash >>> 0).toString(36)}`
 }
 
 function canonicalUrls(values: readonly (string | null | undefined)[], baseUrl: string): string[] {

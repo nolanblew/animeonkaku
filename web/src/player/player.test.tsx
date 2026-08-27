@@ -323,7 +323,7 @@ describe('media cache reconciliation', () => {
     const last = calls[calls.length - 1][0]
     expect(last.nextAudioUrls).toEqual(['/api/v1/b', '/api/v1/c', '/api/v1/d'])
     expect(last.nextAudioUrls).not.toContain('video-b')
-    expect(last.imageUrls).toEqual(['/api/art-a'])
+    expect(last.imageUrls).toEqual(['/api/art-a', 'https://cdn.example/art.jpg', 'https://cdn.example/art.jpg', 'https://cdn.example/art.jpg'])
   })
 
   it('prefetches current plus next-three artwork and invalidates audio outside the next-three window', async () => {
