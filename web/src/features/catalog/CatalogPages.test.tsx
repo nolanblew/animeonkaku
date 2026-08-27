@@ -218,6 +218,37 @@ describe('catalog pages', () => {
     expect(screen.getByText('No playlists match this view.')).toBeInTheDocument()
   })
 
+  it('renders generated playlist artwork and exposes playlist queue actions', async () => {
+    const playlistLibrary: NormalizedLibrary = {
+      ...library,
+      playlistsById: {
+        '7': { id: 7, name: 'Night drive', entries: [1, 2], defaultMode: 'TV_SIZE', overrideUserPreference: false, items: [{ entryId: 1, itemType: 'THEME', itemId: 1, modeOverride: null }, { entryId: 2, itemType: 'THEME', itemId: 2, modeOverride: null }], isAuto: false, isDynamic: false, autoUpdate: false, updatedAt: 10, deleted: false, dynamicSpecJson: null, dynamicSortJson: null },
+      },
+    }
+    vi.mocked(useLibraryQuery).mockReturnValue({ library: playlistLibrary, status: 'success', isPending: false, isError: false, isSuccess: true, error: null } as never)
+    const onPlayPlaylist = vi.fn()
+    const onPlayNextPlaylist = vi.fn()
+    const onAddToQueuePlaylist = vi.fn()
+
+    renderWithQuery(<LibraryCatalogPage onPlayPlaylist={onPlayPlaylist} onPlayNextPlaylist={onPlayNextPlaylist} onAddToQueuePlaylist={onAddToQueuePlaylist} />, ['/library?tab=playlists'])
+
+    expect(screen.getByTestId('playlist-artwork-7').querySelectorAll('img')).toHaveLength(1)
+    expect(screen.getByRole('link', { name: 'Night drive, 2 tracks' })).toHaveAttribute('href', '/playlist/7')
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Night drive' }))
+    const menu = screen.getByRole('menu', { name: 'Night drive actions' })
+    expect(within(menu).getByRole('menuitem', { name: 'Open playlist' })).toBeInTheDocument()
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Play playlist' }))
+    expect(onPlayPlaylist).toHaveBeenCalledWith(expect.objectContaining({ id: 7 }))
+
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Night drive' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Play next' }))
+    expect(onPlayNextPlaylist).toHaveBeenCalledWith(expect.objectContaining({ id: 7 }))
+
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Night drive' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }))
+    expect(onAddToQueuePlaylist).toHaveBeenCalledWith(expect.objectContaining({ id: 7 }))
+  })
+
   it('renders sanitized library loading and error states', () => {
     vi.mocked(useLibraryQuery).mockReturnValue({ status: 'pending', isPending: true, isError: false, isSuccess: false, error: null, library: null } as never)
     renderWithQuery(<LibraryCatalogPage />)
