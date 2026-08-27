@@ -517,8 +517,9 @@ export function PlayerProvider({
   const requestFullscreen = useCallback(async () => {
     const video = videoRef.current
     if (!video || !videoAvailable) return
-    if (typeof video.requestFullscreen === 'function') await video.requestFullscreen()
-  }, [videoAvailable])
+    const target = videoSurface?.closest<HTMLElement>('.player-now-playing__stage') ?? video
+    if (typeof target.requestFullscreen === 'function') await target.requestFullscreen()
+  }, [videoAvailable, videoSurface])
 
   const value = useMemo<PlayerContextValue>(() => ({
     queue,
