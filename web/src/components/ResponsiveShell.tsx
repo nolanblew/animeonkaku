@@ -8,7 +8,7 @@ import {
   UserRound,
   X,
 } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Brand } from './BrandMark'
 import { useAuth } from '../auth/AuthProvider'
@@ -54,10 +54,25 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
   const [sidebarProfileOpen, setSidebarProfileOpen] = useState(false)
   const [topbarProfileOpen, setTopbarProfileOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
   const location = useLocation()
   const displayName = auth.user?.displayName || auth.user?.username || 'Anime Fan'
   const avatarUrl = auth.user?.avatarUrl
+
+  useEffect(() => {
+    const handleSearchShortcut = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== 'k' || (!event.metaKey && !event.ctrlKey)) return
+      event.preventDefault()
+      const searchInput = searchInputRef.current
+      if (!searchInput) return
+      searchInput.focus()
+      searchInput.select()
+    }
+
+    window.addEventListener('keydown', handleSearchShortcut)
+    return () => window.removeEventListener('keydown', handleSearchShortcut)
+  }, [])
 
   const closeNavigation = () => setNavigationOpen(false)
   const submitSearch = (event: React.FormEvent<HTMLFormElement>) => {
@@ -115,6 +130,7 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
           <form className="global-search" role="search" aria-label="Global search" onSubmit={submitSearch}>
             <Search size={19} aria-hidden="true" />
             <input
+              ref={searchInputRef}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search songs, anime, artists, and playlists"
