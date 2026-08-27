@@ -66,7 +66,9 @@ beforeEach(() => {
       moveEntry: vi.fn(),
       moveToPlayNext: vi.fn(),
       removeEntry: vi.fn(),
+      unskipEntry: vi.fn(),
     },
+    isQueueEntryEligible: vi.fn((queueId: number) => queueId !== 14),
   }
 })
 
@@ -104,5 +106,17 @@ describe('accessible full-player queue surface', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Remove from queue' }))
     expect(state.player.queue.removeEntry).toHaveBeenCalledWith(16)
     expect(within(queue).queryByRole('button', { name: 'Remove Current theme from queue' })).not.toBeInTheDocument()
+  })
+
+  it('offers a per-occurrence unskip only for an upcoming disliked entry', () => {
+    renderPlayer()
+    const queue = screen.getByRole('complementary', { name: 'Playback queue' })
+
+    fireEvent.click(within(queue).getByRole('button', { name: 'More actions for Upcoming two in queue' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Play this disliked item' }))
+
+    expect(state.player.queue.unskipEntry).toHaveBeenCalledWith(14)
+    fireEvent.click(within(queue).getByRole('button', { name: 'More actions for Upcoming one in queue' }))
+    expect(screen.queryByRole('menuitem', { name: 'Play this disliked item' })).not.toBeInTheDocument()
   })
 })
