@@ -247,7 +247,9 @@ for (const batchId of await amfDeliveryRepo.listRecoverableBatchIds()) {
   await jobQueue.enqueue({ type: "IMPORT_AMF_MUSIC_BATCH", priority: JobPriority.NORMAL, payload: { batchId },
     dedupeKey: `IMPORT_AMF_MUSIC_BATCH:${batchId}`, maxAttempts: 8 });
 }
-const syncHandlers = createSyncJobHandlers(syncPipeline);
+const syncHandlers = createSyncJobHandlers(syncPipeline, {
+  onUserChanges: (userId, categories) => liveHub.publish(userId, categories),
+});
 const loudnessHandlers = createLoudnessHandlers({ repo: loudnessRepository, mediaRoot: config.MEDIA_ROOT });
 const jobHandlers = { ...fetchHandlers, ...syncHandlers, ...musicRequestHandlers,
   ...fullSizeReimportHandlers, ...amfDeliveryHandlers, ...musicOperatorHandlers,

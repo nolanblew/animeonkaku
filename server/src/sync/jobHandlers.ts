@@ -7,7 +7,13 @@ interface SyncPipelineHandlers {
   runAutoPlaylistRefresh(input: { userId: string; job: JobRecord }): Promise<void>;
 }
 
-export function createSyncJobHandlers(pipeline: SyncPipelineHandlers): {
+export type SyncUserChangeCategory = "library" | "playlist";
+
+export interface SyncJobHandlerOptions {
+  onUserChanges?: (userId: string, categories: readonly SyncUserChangeCategory[]) => void;
+}
+
+export function createSyncJobHandlers(pipeline: SyncPipelineHandlers, options: SyncJobHandlerOptions = {}): {
   KITSU_FULL_SYNC: JobHandler;
   KITSU_DELTA_SYNC: JobHandler;
   MAP_THEMES: JobHandler;
@@ -16,10 +22,14 @@ export function createSyncJobHandlers(pipeline: SyncPipelineHandlers): {
 } {
   return {
     KITSU_FULL_SYNC: async (payload, job) => {
-      await pipeline.runKitsuSync({ userId: requiredString(payload.userId, "userId"), full: true, job });
+      const userId = requiredString(payload.userId, "userId");
+      await pipeline.runKitsuSync({ userId, full: true, job });
+      options.onUserChanges?.(userId, ["library"]);
     },
     KITSU_DELTA_SYNC: async (payload, job) => {
-      await pipeline.runKitsuSync({ userId: requiredString(payload.userId, "userId"), full: false, job });
+      const userId = requiredString(payload.userId, "userId");
+      await pipeline.runKitsuSync({ userId, full: false, job });
+      options.onUserChanges?.(userId, ["library"]);
     },
     MAP_THEMES: async (payload, job) => {
       const input: { kitsuIds: string[]; userId?: string; job: JobRecord } = {
@@ -30,6 +40,7 @@ export function createSyncJobHandlers(pipeline: SyncPipelineHandlers): {
         input.userId = payload.userId;
       }
       await pipeline.runMapThemes(input);
+      if (input.userId) options.onUserChanges?.(input.userId, ["library"]);
     },
     BACKFILL_SCAN: async (payload, job) => {
       const input: { userId?: string; job: JobRecord } = { job };
@@ -39,7 +50,9 @@ export function createSyncJobHandlers(pipeline: SyncPipelineHandlers): {
       await pipeline.runBackfillScan(input);
     },
     AUTO_PLAYLIST_REFRESH: async (payload, job) => {
-      await pipeline.runAutoPlaylistRefresh({ userId: requiredString(payload.userId, "userId"), job });
+      const userId = requiredString(payload.userId, "userId");
+      await pipeline.runAutoPlaylistRefresh({ userId, job });
+      options.onUserChanges?.(userId, ["playlist"]);
     },
   };
 }
