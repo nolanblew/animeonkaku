@@ -4,9 +4,10 @@ import { useLocation } from 'react-router-dom'
 import { ErrorState } from '../components/ErrorState'
 
 interface Props { children: ReactNode }
+interface BoundaryProps extends Props { resetKey: string }
 interface State { error: Error | null }
 
-class AppErrorBoundaryImpl extends Component<Props, State> {
+class AppErrorBoundaryImpl extends Component<BoundaryProps, State> {
   state: State = { error: null }
 
   static getDerivedStateFromError(error: Error): State {
@@ -15,6 +16,10 @@ class AppErrorBoundaryImpl extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     if (import.meta.env.DEV) console.error('Anime Ongaku web route error', error, info.componentStack)
+  }
+
+  componentDidUpdate(previous: BoundaryProps) {
+    if (this.state.error && previous.resetKey !== this.props.resetKey) this.setState({ error: null })
   }
 
   render() {
@@ -26,5 +31,5 @@ class AppErrorBoundaryImpl extends Component<Props, State> {
 export function AppErrorBoundary({ children }: Props) {
   const location = useLocation()
   const routeKey = `${location.pathname}${location.search}${location.hash}`
-  return <AppErrorBoundaryImpl key={routeKey}>{children}</AppErrorBoundaryImpl>
+  return <AppErrorBoundaryImpl resetKey={routeKey}>{children}</AppErrorBoundaryImpl>
 }
