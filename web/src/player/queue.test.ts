@@ -300,9 +300,12 @@ describe('QueueStore', () => {
     first.play([song(1), song(2)])
     first.skipTo(1)
     const snapshot = first.state
+    const duplicateIdEntry = { ...snapshot.nowPlayingEntries[0], item: song(99) }
 
     const restored = new QueueStore({
       ...snapshot,
+      originalQueueEntries: [...snapshot.originalQueueEntries, duplicateIdEntry],
+      nowPlayingEntries: [...snapshot.nowPlayingEntries, duplicateIdEntry],
       historyEntries: [...snapshot.historyEntries, snapshot.historyEntries[0]],
       playNextEntryIds: [...snapshot.playNextEntryIds, 999],
       addedToQueueEntryIds: [...snapshot.addedToQueueEntryIds, 999],
@@ -319,6 +322,9 @@ describe('QueueStore', () => {
     expect(restored.state.suggestedEntryIds).not.toContain(999)
     expect(restored.state.playedEntryIds).toEqual([...new Set(snapshot.playedEntryIds)])
     expect(restored.state.nextQueueEntryId).toBeGreaterThan(Math.max(...entryIds(first)))
+    expect(restored.state.nowPlayingEntries.map((entry) => entry.item.id)).toEqual([1, 2, 99])
+    expect(new Set(restored.state.nowPlayingEntries.map((entry) => entry.queueId)).size).toBe(3)
+    expect(new Set(restored.state.originalQueueEntries.map((entry) => entry.queueId)).size).toBe(3)
   })
 
   it('unshuffles with an appended entry as the current identity', () => {
