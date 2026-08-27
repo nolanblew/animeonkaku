@@ -5,6 +5,8 @@ import { ErrorState, sanitizeErrorDetails } from './ErrorState'
 import { MiniPlayer } from './MiniPlayer'
 import { ResponsiveShell } from './ResponsiveShell'
 import { PlayerProvider } from '../player'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { queryClient } from '../lib/query'
 
 describe('interaction and safe error surfaces', () => {
   it('redacts credentials and infrastructure details before showing diagnostics', () => {
@@ -42,7 +44,7 @@ describe('interaction and safe error surfaces', () => {
   })
 
   it('supports mobile navigation, profile menu, and global search submission', () => {
-    render(<MemoryRouter initialEntries={['/']}><PlayerProvider><ResponsiveShell><h1>Home content</h1></ResponsiveShell></PlayerProvider></MemoryRouter>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/']}><PlayerProvider><ResponsiveShell><h1>Home content</h1></ResponsiveShell></PlayerProvider></MemoryRouter></QueryClientProvider>)
     fireEvent.click(screen.getByRole('button', { name: /open navigation/i }))
     expect(screen.getAllByRole('button', { name: /close navigation/i })).toHaveLength(2)
     fireEvent.click(screen.getByRole('button', { name: /anime fan.*connected/i }))
@@ -54,7 +56,7 @@ describe('interaction and safe error surfaces', () => {
   })
 
   it('anchors the compact top-bar profile menu beside the button that opened it', () => {
-    render(<MemoryRouter initialEntries={['/']}><PlayerProvider><ResponsiveShell><h1>Home content</h1></ResponsiveShell></PlayerProvider></MemoryRouter>)
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/']}><PlayerProvider><ResponsiveShell><h1>Home content</h1></ResponsiveShell></PlayerProvider></MemoryRouter></QueryClientProvider>)
 
     fireEvent.click(screen.getByRole('button', { name: /open profile menu/i }))
 
