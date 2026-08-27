@@ -10,7 +10,7 @@ import './releases.css'
 
 export interface ReleaseDetailPageProps {
   onPlayAll?: (release: MusicReleaseDto, shuffle: boolean) => void
-  onPlayTrack?: (track: MusicTrackDto, release: MusicReleaseDto) => void
+  onPlayTrack?: (track: MusicTrackDto, release: MusicReleaseDto, startIndex: number) => void
 }
 
 export function ReleaseDetailPage({ onPlayAll, onPlayTrack }: ReleaseDetailPageProps = {}) {
@@ -87,13 +87,13 @@ function ReleaseArtwork({ artworkUrl, title }: { artworkUrl?: string; title: str
   )
 }
 
-function ReleaseTrackRow({ track, release, index, onPlay }: { track: MusicTrackDto; release: MusicReleaseDto; index: number; onPlay?: (track: MusicTrackDto, release: MusicReleaseDto) => void }) {
+function ReleaseTrackRow({ track, release, index, onPlay }: { track: MusicTrackDto; release: MusicReleaseDto; index: number; onPlay?: (track: MusicTrackDto, release: MusicReleaseDto, startIndex: number) => void }) {
   const title = track.title.trim() || 'Untitled track'
   const artist = track.artistCredit.trim() || artistNames(track)
   return (
     <li className="release-track-list__row">
       <span className="release-track-list__number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
-      <button className="release-track-list__play" type="button" aria-label={`Play ${title}`} disabled={!onPlay} onClick={() => onPlay?.(track, release)}><Play size={15} fill="currentColor" /></button>
+      <button className="release-track-list__play" type="button" aria-label={`Play ${title}`} disabled={!onPlay} onClick={() => onPlay?.(track, release, index)}><Play size={15} fill="currentColor" /></button>
       <span className="release-track-list__copy"><strong>{title}</strong><small>{artist}</small></span>
       <span className="release-track-list__track-number">{track.trackNumber ?? '—'}</span>
       <time className="release-track-list__duration">{formatDuration(track.durationSeconds)}</time>

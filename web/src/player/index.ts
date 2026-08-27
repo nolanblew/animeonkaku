@@ -18,4 +18,5 @@ export {
 export type { QueuePreferenceSnapshot, QueueSongPreference, QueueThemePreference } from './preferenceQueue'
 export { mapSongToQueueItem, mapThemeToQueueItem, queueItemAudioUrl, queueItemDurationMs, queueItemVideoUrl } from './mapping'
 export type { PlayerQueueItem, ThemeQueueItemOptions } from './mapping'
+export { QUEUE_PERSISTENCE_VERSION, loadPersistedQueue, queuePersistenceKey, savePersistedQueue } from './queuePersistence'
 export * from './queue'

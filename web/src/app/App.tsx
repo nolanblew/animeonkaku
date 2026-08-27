@@ -65,10 +65,11 @@ function RequireAuth() {
 }
 
 function AuthenticatedShell() {
+  const auth = useAuth()
   const library = useLibraryQuery({ live: true }).library
   const preferenceSnapshot = useMemo<QueuePreferenceSnapshot>(() => ({
     themesById: library?.prefsByThemeId ?? {},
     songsById: library?.songPrefsById ?? {},
   }), [library?.prefsByThemeId, library?.songPrefsById])
-  return <PlayerProvider preferenceSnapshot={preferenceSnapshot}><ResponsiveShell /></PlayerProvider>
+  return <PlayerProvider persistenceUserId={auth.user?.kitsuUserId} preferenceSnapshot={preferenceSnapshot}><ResponsiveShell /></PlayerProvider>
 }

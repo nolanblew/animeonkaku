@@ -30,6 +30,7 @@ import {
   isQueueEntryAllowedByPreference,
   type QueuePreferenceSnapshot,
 } from './preferenceQueue'
+import { loadPersistedQueue, savePersistedQueue } from './queuePersistence'
 
 export interface PlayerState {
   readonly queueState: QueueState
@@ -66,6 +67,7 @@ export interface PlayerContextValue extends PlayerState {
   playTheme(theme: LibraryThemeDto, options?: PlayThemeOptions): void
   playSong(song: MusicTrackDto, options?: PlayQueueItemOptions & ThemeQueueItemOptions): void
   playItem(item: QueueItem, options?: PlayQueueItemOptions): void
+  playItems(items: readonly QueueItem[], options?: PlayQueueItemOptions): void
   play(): Promise<void>
   pause(): void
   togglePlay(): Promise<void>
@@ -90,6 +92,8 @@ export interface PlayerProviderProps {
   mediaCache?: ManagedMediaCache
   api?: Pick<ApiClient, 'url'> & Partial<Pick<ApiClient, 'post'>>
   initialMode?: PlaybackMode
+  /** Authenticated Kitsu identity used to scope browser queue restoration. */
+  persistenceUserId?: string
   /** Synchronized likes/dislikes used to keep automatic playback in parity with Android. */
   preferenceSnapshot?: QueuePreferenceSnapshot
 }
@@ -103,9 +107,12 @@ export function PlayerProvider({
   mediaCache,
   api = apiClient,
   initialMode = 'TV_SIZE',
+  persistenceUserId,
   preferenceSnapshot = emptyQueuePreferenceSnapshot,
 }: PlayerProviderProps) {
-  const queue = useMemo(() => providedQueue ?? store ?? new QueueStore(), [providedQueue, store])
+  const queue = useMemo(() => providedQueue ?? store ?? new QueueStore(
+    persistenceUserId ? loadPersistedQueue(persistenceUserId) : undefined,
+  ), [providedQueue, persistenceUserId, store])
   const subscribe = useMemo(() => queue.subscribe.bind(queue), [queue])
   const queueState = useSyncExternalStore(subscribe, () => queue.state, () => queue.state)
   const ownedMediaCache = useMemo(() => mediaCache ?? createBrowserMediaCache(), [mediaCache])
@@ -191,6 +198,11 @@ export function PlayerProvider({
   useEffect(() => {
     queue.setPreferenceSnapshot(preferenceSnapshot)
   }, [preferenceSnapshot, queue])
+
+  useEffect(() => {
+    if (!persistenceUserId) return
+    savePersistedQueue(persistenceUserId, queueState)
+  }, [persistenceUserId, queueState])
 
   const updatePosition = useCallback((media?: HTMLMediaElement | null) => {
     const active = media ?? activeMediaRef.current
@@ -284,40 +296,37 @@ export function PlayerProvider({
     }
   }, [])
 
-  const playItem = useCallback((item: QueueItem, options: PlayQueueItemOptions = {}) => {
-    const requestedMode = options.mode ?? (item as PlayerQueueItem).mode
+  const playItems = useCallback((items: readonly QueueItem[], options: PlayQueueItemOptions = {}) => {
+    if (items.length === 0) return
+    const requestedIndex = Number.isFinite(options.startIndex) ? Math.trunc(options.startIndex!) : 0
+    const startIndex = Math.max(0, Math.min(items.length - 1, requestedIndex))
+    const selected = items[startIndex]!
+    const requestedMode = options.mode ?? (selected as PlayerQueueItem).mode
+    const { mode: _mode, autoPlay, ...queueOptions } = options
     const start = () => {
-      requestAutoplayFor(requestedMode, options.autoPlay !== false)
-      queue.play([item], options)
+      requestAutoplayFor(requestedMode, autoPlay !== false)
+      queue.play(items, { ...queueOptions, startIndex })
     }
-    if (requestedMode === 'VIDEO' && videoWarningFor(item)) {
-      requestVideoConfirmation(item, start)
+    if (requestedMode === 'VIDEO' && videoWarningFor(selected)) {
+      requestVideoConfirmation(selected, start)
       return
     }
     start()
   }, [queue, requestAutoplayFor, requestVideoConfirmation])
+
+  const playItem = useCallback((item: QueueItem, options: PlayQueueItemOptions = {}) => {
+    playItems([item], options)
+  }, [playItems])
 
   const playTheme = useCallback((theme: LibraryThemeDto, options: PlayThemeOptions = {}) => {
     const mapped = mapThemeToQueueItem(theme, options)
-    const { mode: requestedMode, ...queueOptions } = options
-    const selectedMode = requestedMode ?? mapped.mode
-    const start = () => {
-      requestAutoplayFor(selectedMode, options.autoPlay !== false)
-      queue.play([mapped], queueOptions)
-    }
-    if (selectedMode === 'VIDEO' && videoWarningFor(mapped)) {
-      requestVideoConfirmation(mapped, start)
-      return
-    }
-    start()
-  }, [queue, requestAutoplayFor, requestVideoConfirmation])
+    playItems([mapped], options)
+  }, [playItems])
 
   const playSong = useCallback((song: MusicTrackDto, options: PlayQueueItemOptions & ThemeQueueItemOptions = {}) => {
     const mapped = mapSongToQueueItem(song, options)
-    const { mode: requestedMode, ...queueOptions } = options
-    requestAutoplayFor(requestedMode ?? 'FULL_SIZE', options.autoPlay !== false)
-    queue.play([mapped], queueOptions)
-  }, [queue, requestAutoplayFor])
+    playItems([mapped], { ...options, mode: options.mode ?? 'FULL_SIZE' })
+  }, [playItems])
 
   const next = useCallback(async () => {
     const before = queueState.currentIndex
@@ -631,6 +640,7 @@ export function PlayerProvider({
     playTheme,
     playSong,
     playItem,
+    playItems,
     play,
     pause,
     togglePlay,
@@ -645,7 +655,7 @@ export function PlayerProvider({
     skipTo: (index) => { requestAutoplayFor(); queue.skipTo(index) },
     unskipEntry: (queueId) => { queue.unskipEntry(queueId) },
     requestFullscreen,
-  }), [activeSourceUrl, audioElement, currentEntry, currentItem, duration, error, fullSizeAvailable, isEnded, isLoading, isPlaying, mode, next, pause, play, playItem, playSong, playTheme, previous, queue, queueState, requestAutoplayFor, requestFullscreen, seek, setMode, togglePlay, tvSizeAvailable, videoAvailable, videoElement])
+  }), [activeSourceUrl, audioElement, currentEntry, currentItem, duration, error, fullSizeAvailable, isEnded, isLoading, isPlaying, mode, next, pause, play, playItem, playItems, playSong, playTheme, previous, queue, queueState, requestAutoplayFor, requestFullscreen, seek, setMode, togglePlay, tvSizeAvailable, videoAvailable, videoElement])
 
   return (
     <PlayerContext.Provider value={value}>

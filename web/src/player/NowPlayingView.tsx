@@ -111,10 +111,10 @@ function PlaybackQueue() {
 }
 
 function QueueSection({ title, count, children }: { title: string; count: number; children: ReactNode }) {
-  return <section className="player-queue__section" aria-labelledby={`queue-${title.toLowerCase().replace(/\s+/g, '-')}`}>
+  return <div className="player-queue__section">
     <div className="player-queue__section-heading"><h3 id={`queue-${title.toLowerCase().replace(/\s+/g, '-')}`}>{title}</h3><span>{count}</span></div>
     <ol>{children}</ol>
-  </section>
+  </div>
 }
 
 function QueueRow({ entry, tone, position, primaryLabel, onPrimary, onMoveUp, onMoveDown, onMore, menuOpen = false }: {

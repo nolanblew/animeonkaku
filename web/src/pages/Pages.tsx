@@ -31,13 +31,13 @@ export function SearchPage() {
 
 export function AnimePage() {
   const player = usePlayer()
-  const playThemes = (themes: LibraryThemeDto[], _startIndex = 0, shuffle = false, artworkUrl?: string | null) => playThemeCollection(player, themes, shuffle, artworkUrl)
+  const playThemes = (themes: LibraryThemeDto[], startIndex = 0, shuffle = false, artworkUrl?: string | null) => playThemeCollection(player, themes, startIndex, shuffle, artworkUrl)
   return <AnimeDetailPage onPlayThemes={playThemes} onPlayNext={(themes, artworkUrl) => insertThemeCollection(player, themes, 'next', artworkUrl)} onAddToQueue={(themes, artworkUrl) => insertThemeCollection(player, themes, 'append', artworkUrl)} onPlaySong={(song, artworkUrl, animeId) => player.playSong(song, { artworkUrl: resolveBrowserAsset(artworkUrl), animeId })} />
 }
 
 export function ReleasePage() {
   const player = usePlayer()
-  return <ReleaseDetailPage onPlayAll={(release, shuffle) => playReleaseCollection(player, release, shuffle)} onPlayTrack={(track, release) => playReleaseTrack(player, track, release)} />
+  return <ReleaseDetailPage onPlayAll={(release, shuffle) => playReleaseCollection(player, release, shuffle)} onPlayTrack={(track, release, startIndex) => playReleaseTrack(player, track, release, startIndex)} />
 }
 
 export function PlaylistPage() {
@@ -95,29 +95,22 @@ function playSearchTrack(playSong: (song: MusicTrackDto, options?: { artworkUrl?
   }, { artworkUrl: resolveBrowserAsset(result.anime?.posterUrl), animeId: result.anime?.kitsuId })
 }
 
-function playReleaseCollection(player: PlayerContextValue, release: MusicReleaseDto, shuffle: boolean): void {
+function playReleaseCollection(player: PlayerContextValue, release: MusicReleaseDto, shuffle: boolean, startIndex = 0): void {
   const artworkUrl = resolveBrowserAsset(release.artworkUrl)
   const animeId = release.anime?.find((anime) => anime.kitsuId)?.kitsuId
   const items = release.tracks.map((track) => mapSongToQueueItem(track, { artworkUrl, animeId }))
   if (items.length === 0) return
-  player.playItem(items[0]!, { contextLabel: release.title })
-  if (items.length > 1) player.queue.addToQueue(items.slice(1))
-  if (shuffle && items.length > 1) player.setShuffle(true)
+  player.playItems(items, { contextLabel: release.title, startIndex, shuffle })
 }
 
-function playReleaseTrack(player: PlayerContextValue, track: MusicTrackDto, release: MusicReleaseDto): void {
-  player.playSong(track, {
-    artworkUrl: resolveBrowserAsset(release.artworkUrl),
-    animeId: release.anime?.find((anime) => anime.kitsuId)?.kitsuId,
-  })
+function playReleaseTrack(player: PlayerContextValue, _track: MusicTrackDto, release: MusicReleaseDto, startIndex = 0): void {
+  playReleaseCollection(player, release, false, startIndex)
 }
 
-function playThemeCollection(player: PlayerContextValue, themes: LibraryThemeDto[], shuffle: boolean, artworkUrl?: string | null): void {
+function playThemeCollection(player: PlayerContextValue, themes: LibraryThemeDto[], startIndex: number, shuffle: boolean, artworkUrl?: string | null): void {
   const items = themes.map((theme) => mapThemeToQueueItem(theme, { artworkUrl: resolveBrowserAsset(artworkUrl) }))
   if (items.length === 0) return
-  player.playItem(items[0]!, { contextLabel: themes.length === 1 ? themes[0]?.title : 'Anime themes' })
-  if (items.length > 1) player.queue.addToQueue(items.slice(1))
-  if (shuffle && items.length > 1) player.setShuffle(true)
+  player.playItems(items, { contextLabel: themes.length === 1 ? themes[0]?.title : 'Anime themes', startIndex, shuffle })
 }
 
 function insertThemeCollection(player: PlayerContextValue, themes: LibraryThemeDto[], position: 'next' | 'append', artworkUrl?: string | null): void {
@@ -138,11 +131,11 @@ function resolveBrowserAsset(value: string | null | undefined): string | undefin
 
 function playPlaylist(player: PlayerContextValue, library: NormalizedLibrary, playlist: PlaylistDto, shuffle: boolean, startIndex = 0): void {
   const queueItems = playlistQueueItems(library, playlist)
-  const playableItems = queueItems.slice(Math.max(0, Math.min(startIndex, queueItems.length - 1))).filter((item): item is PlayerQueueItem => item !== null)
+  const boundedSourceIndex = Math.max(0, Math.min(startIndex, Math.max(0, queueItems.length - 1)))
+  const playableItems = queueItems.filter((item): item is PlayerQueueItem => item !== null)
   if (playableItems.length === 0) return
-  player.playItem(playableItems[0]!, { contextLabel: playlist.name })
-  if (playableItems.length > 1) player.queue.addToQueue(playableItems.slice(1))
-  if (shuffle && playableItems.length > 1) player.setShuffle(true)
+  const playableStartIndex = Math.max(0, queueItems.slice(0, boundedSourceIndex + 1).filter((item): item is PlayerQueueItem => item !== null).length - 1)
+  player.playItems(playableItems, { contextLabel: playlist.name, startIndex: playableStartIndex, shuffle })
 }
 
 function enqueuePlaylistItem(player: PlayerContextValue, library: NormalizedLibrary, playlist: PlaylistDto, index: number, position: 'next' | 'append'): void {
