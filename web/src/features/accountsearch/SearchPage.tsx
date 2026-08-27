@@ -48,15 +48,18 @@ function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, o
   const localMatches = useMemo(() => findLibraryMatches(library, query), [library, query])
   const [inputValue, setInputValue] = useState(routeQuery)
   const [serverResults, setServerResults] = useState<MusicSearchResponse>({ releases: [], tracks: [] })
+  const [serverResultQuery, setServerResultQuery] = useState<string | null>(null)
   const [requestState, setRequestState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const [retryNonce, setRetryNonce] = useState(0)
 
   useEffect(() => setInputValue(routeQuery), [routeQuery])
 
   useEffect(() => {
     let cancelled = false
-    setServerResults({ releases: [], tracks: [] })
     setRequestState('idle')
     if (!query) {
+      setServerResults({ releases: [], tracks: [] })
+      setServerResultQuery(null)
       return undefined
     }
 
@@ -66,11 +69,11 @@ function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, o
         .then((response) => {
           if (cancelled) return
           setServerResults(parseMusicSearchResponse(response))
+          setServerResultQuery(query)
           setRequestState('success')
         })
         .catch(() => {
           if (cancelled) return
-          setServerResults({ releases: [], tracks: [] })
           setRequestState('error')
         })
     }, debounceMs)
@@ -79,7 +82,7 @@ function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, o
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [debounceMs, query])
+  }, [debounceMs, query, retryNonce])
 
   const hasResults = localMatches.anime.length > 0 || localMatches.themes.length > 0 || localMatches.playlists.length > 0 || serverResults.tracks.length > 0 || serverResults.releases.length > 0
 
@@ -115,7 +118,7 @@ function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, o
 
       {!query && <section className="account-search-empty" aria-live="polite"><Search size={22} aria-hidden="true" /><h2>Search your anime soundtrack</h2><p>Try an anime title, theme, artist, or playlist name.</p></section>}
       {query && requestState === 'loading' && <p className="account-search-status" role="status">Searching for “{query}”…</p>}
-      {query && requestState === 'error' && <p className="account-search-error" role="alert">We could not complete search right now. Try again.</p>}
+      {query && requestState === 'error' && <p className="account-search-error" role="alert">We could not complete search right now. Try again. <button type="button" onClick={() => setRetryNonce((value) => value + 1)}>Retry search</button></p>}
 
       {query && localMatches.anime.length + localMatches.themes.length + localMatches.playlists.length > 0 && (
         <section className="account-search-results" aria-labelledby="library-match-title">
@@ -128,9 +131,9 @@ function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, o
         </section>
       )}
 
-      {query && requestState !== 'loading' && requestState !== 'error' && (serverResults.tracks.length > 0 || serverResults.releases.length > 0) && (
+      {query && (serverResults.tracks.length > 0 || serverResults.releases.length > 0) && (
         <section className="account-search-results" aria-labelledby="music-match-title">
-          <div className="account-search-results__heading"><h2 id="music-match-title">Music catalog</h2><span>Server results</span></div>
+          <div className="account-search-results__heading"><h2 id="music-match-title">Music catalog</h2><span>{requestState === 'success' && serverResultQuery === query ? 'Server results' : 'Previous results'}</span></div>
           <div className="account-search-results__groups">
             {serverResults.tracks.length > 0 && <div className="account-search-results__group"><h3>Tracks</h3><ul>{serverResults.tracks.map((result, index) => <SearchTrackRow key={`track-${result.track?.id ?? index}`} result={result} onPlay={onPlayTrack} onPlayNext={onPlayNextTrack} onAddToQueue={onAddToQueueTrack} onReplaceQueue={onReplaceQueueTrack} onNavigate={navigate} />)}</ul></div>}
             {serverResults.releases.length > 0 && <div className="account-search-results__group"><h3>Releases</h3><ul>{serverResults.releases.map((result, index) => <li key={`release-${result.release?.id ?? index}`}><span className="account-search-result-copy">{validId(result.release?.id) ? <Link to={`/release/${result.release!.id}`}>{result.release?.title ?? 'Untitled release'}</Link> : <strong>{result.release?.title ?? 'Untitled release'}</strong>}<span>{result.anime?.map((anime) => anime.title ?? anime.titleEn).filter(Boolean).join(', ') || result.release?.artistCredit || 'Music release'}</span></span></li>)}</ul></div>}

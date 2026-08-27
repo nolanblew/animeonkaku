@@ -57,8 +57,8 @@ export function useLibraryQuery(options: UseLibraryQueryOptions = {}) {
   const userId = auth.user?.kitsuUserId ?? null
 
   useEffect(() => {
-    if (getStatus(query.error) === 401) void auth.logout().catch(() => undefined)
-  }, [auth.logout, query.error])
+    if (getStatus(query.error) === 401) auth.requireReauthentication()
+  }, [auth.requireReauthentication, query.error])
 
   const categoryHandler = useMemo(() => {
     return (categories: readonly LiveChangeCategory[]) => {

@@ -41,6 +41,12 @@ export interface ProfileResponse {
 
 export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated'
 export type FirstSyncStatus = 'idle' | 'syncing' | 'ready'
+export type ReauthenticationStatus = 'idle' | 'required'
+
+export interface ReauthenticationState {
+  status: ReauthenticationStatus
+  returnTo: string | null
+}
 
 export interface FirstSyncState {
   status: FirstSyncStatus
@@ -55,8 +61,10 @@ export interface AuthContextValue {
   user: AuthUser | null
   me: AuthMeResponse | null
   firstSync: FirstSyncState
+  reauthentication: ReauthenticationState
   login: (username: string, password: string) => Promise<AuthLoginResponse>
   logout: () => Promise<void>
+  requireReauthentication: () => void
   updateProfile: (profile: { displayName: string | null }) => Promise<AuthProfile>
   uploadAvatar: (avatar: Blob) => Promise<AuthProfile>
   removeAvatar: () => Promise<AuthProfile>
@@ -69,8 +77,10 @@ const defaultAuth: AuthContextValue = {
   user: null,
   me: null,
   firstSync: { status: 'idle', mode: null, syncMode: null, isNewUser: false },
+  reauthentication: { status: 'idle', returnTo: null },
   login: async (username, password) => apiClient.post<AuthLoginResponse>('/auth/login', { username, password, deviceName: browserDeviceName() }),
   logout: async () => { await apiClient.post('/auth/logout') },
+  requireReauthentication: () => undefined,
   updateProfile: async (profile) => {
     const response = await apiClient.patch<ProfileResponse>('/auth/profile', profile)
     return response.profile
@@ -101,18 +111,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loginSession, setLoginSession] = useState<AuthLoginResponse | null>(null)
   const [hasLoggedOut, setHasLoggedOut] = useState(false)
   const [firstSync, setFirstSync] = useState<FirstSyncState>({ status: 'idle', mode: null, syncMode: null, isNewUser: false })
+  const [reauthentication, setReauthentication] = useState<ReauthenticationState>({ status: 'idle', returnTo: null })
+
+  const requireReauthentication = useCallback(() => {
+    setHasLoggedOut(false)
+    setReauthentication({ status: 'required', returnTo: currentBrowserRoute() })
+  }, [])
 
   useEffect(() => {
     if (meQuery.isError && loginSession === null) {
       setFirstSync({ status: 'idle', mode: null, syncMode: null, isNewUser: false })
-      if (isUnauthorized(meQuery.error)) setHasLoggedOut(true)
+      if (isUnauthorized(meQuery.error)) {
+        if (meQuery.data?.user) requireReauthentication()
+        else setHasLoggedOut(true)
+      }
     }
-  }, [loginSession, meQuery.error, meQuery.isError])
+  }, [loginSession, meQuery.data, meQuery.error, meQuery.isError, requireReauthentication])
 
   const login = useCallback(async (username: string, password: string): Promise<AuthLoginResponse> => {
     const result = await apiClient.post<AuthLoginResponse>('/auth/login', { username, password, deviceName: browserDeviceName() })
     setLoginSession(result)
     setHasLoggedOut(false)
+    setReauthentication({ status: 'idle', returnTo: null })
     setFirstSync({ status: 'syncing', mode: result.syncMode, syncMode: result.syncMode, isNewUser: result.isNewUser })
     void queryClient.invalidateQueries({ queryKey: AUTH_QUERY_KEY })
     return result
@@ -127,6 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoginSession(null)
       setHasLoggedOut(true)
+      setReauthentication({ status: 'idle', returnTo: null })
       setFirstSync({ status: 'idle', mode: null, syncMode: null, isNewUser: false })
       for (const queryKey of ACCOUNT_QUERY_PREFIXES) queryClient.removeQueries({ queryKey })
       queryClient.getMutationCache().clear()
@@ -173,14 +194,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user,
     me,
     firstSync,
+    reauthentication,
     login,
     logout,
+    requireReauthentication,
     updateProfile,
     uploadAvatar,
     removeAvatar,
     markInitialSyncReady,
     refresh,
-  }), [firstSync, login, logout, markInitialSyncReady, me, refresh, removeAvatar, status, updateProfile, uploadAvatar, user])
+  }), [firstSync, login, logout, markInitialSyncReady, me, reauthentication, refresh, removeAvatar, requireReauthentication, status, updateProfile, uploadAvatar, user])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
@@ -202,4 +225,9 @@ function browserDeviceName(): string {
   if (/macintosh|mac os|macintel/i.test(identity)) return 'Web · macOS'
   if (/linux/i.test(identity)) return 'Web · Linux'
   return 'Web browser'
+}
+
+function currentBrowserRoute(): string {
+  if (typeof window === 'undefined') return '/'
+  return `${window.location.pathname}${window.location.search}${window.location.hash}` || '/'
 }

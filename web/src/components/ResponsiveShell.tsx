@@ -177,6 +177,7 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
         </header>
 
         <main className={location.pathname === '/now-playing' ? 'main-content main-content--player' : 'main-content'} id="main-content" tabIndex={-1}>
+          {auth.reauthentication.status === 'required' && <div className="reauth-banner" role="alert"><span>Your session needs to reconnect. Your library and listening position are still here.</span><button type="button" className="button button--secondary" onClick={() => navigate('/login', { state: { from: auth.reauthentication.returnTo ?? `${location.pathname}${location.search}${location.hash}` } })}>Reconnect</button></div>}
           {auth.firstSync.status === 'syncing' && <p className="sync-status" role="status">Syncing your library…</p>}
           {children ?? <Outlet />}
         </main>

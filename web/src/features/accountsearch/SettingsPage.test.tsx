@@ -22,10 +22,11 @@ function makeAuth(overrides: Partial<AuthContextValue> = {}): AuthContextValue {
       devices: [{ id: 1, deviceName: 'Chrome on Windows', createdAt: 1, lastUsedAt: Date.UTC(2026, 7, 26), current: true }],
     },
     firstSync: { status: 'ready', mode: null, syncMode: null, isNewUser: false },
+    reauthentication: { status: 'idle', returnTo: null },
     login: vi.fn(), logout: vi.fn().mockResolvedValue(undefined), updateProfile: vi.fn().mockResolvedValue({ displayName: 'Updated', avatarUrl: '/avatar.png' }),
     uploadAvatar: vi.fn().mockResolvedValue({ displayName: 'Anime Fan', avatarUrl: '/new-avatar.png' }),
     removeAvatar: vi.fn().mockResolvedValue({ displayName: 'Anime Fan', avatarUrl: null }),
-    markInitialSyncReady: vi.fn(), refresh: vi.fn(),
+    markInitialSyncReady: vi.fn(), refresh: vi.fn(), requireReauthentication: vi.fn(),
     ...overrides,
   }
 }
