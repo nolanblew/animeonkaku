@@ -15,17 +15,22 @@ import { useLibraryQuery } from '../lib/query'
 
 export function HomePage() {
   const player = usePlayer()
+  const library = useLibraryQuery().library
   return <HomeCatalogPage
     onPlayTheme={(theme, artworkUrl) => player.playTheme(theme, { artworkUrl: resolveBrowserAsset(artworkUrl) })}
     onPlayAll={(themes, artworkUrl) => playThemeCollection(player, themes, 0, false, artworkUrl)}
     onPlayNext={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'next', artworkUrl)}
     onAddToQueue={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'append', artworkUrl)}
+    onPlayPlaylist={library ? (playlist) => playPlaylist(player, library, playlist, false) : undefined}
+    onPlayNextPlaylist={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'next') : undefined}
+    onAddToQueuePlaylist={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'append') : undefined}
   />
 }
 
 export function LibraryPage() {
   const player = usePlayer()
-  return <LibraryCatalogPage onPlayTheme={(theme, artworkUrl) => player.playTheme(theme, { artworkUrl: resolveBrowserAsset(artworkUrl) })} onPlayNext={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'next', artworkUrl)} onAddToQueue={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'append', artworkUrl)} />
+  const library = useLibraryQuery().library
+  return <LibraryCatalogPage onPlayTheme={(theme, artworkUrl) => player.playTheme(theme, { artworkUrl: resolveBrowserAsset(artworkUrl) })} onPlayNext={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'next', artworkUrl)} onAddToQueue={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'append', artworkUrl)} onPlayPlaylist={library ? (playlist) => playPlaylist(player, library, playlist, false) : undefined} onPlayNextPlaylist={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'next') : undefined} onAddToQueuePlaylist={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'append') : undefined} />
 }
 
 export function SearchPage() {

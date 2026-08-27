@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowDownUp, ListMusic, MoreHorizontal, Play, Search, SlidersHorizontal, UserRound } from 'lucide-react'
+import { ArrowDownUp, MoreHorizontal, Play, Search, SlidersHorizontal, UserRound } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { browserAssetUrl } from '../../lib/assets'
 import { selectActiveAnime, type LibraryThemeDto, type NormalizedLibrary } from '../../lib/library'
 import { useLibraryQuery } from '../../lib/query'
 import { ThemeActionSheet } from '../libraryactions'
+import { playlistArtworkUrls } from '../playlists'
 import { AnimeGrid } from './AnimeGrid'
+import { CatalogPlaylistCard } from './CatalogPlaylistCard'
 import { CatalogError, CatalogLoading } from './CatalogError'
 import { filterAndSortAnime, type LibrarySort } from './selectors'
 
@@ -13,12 +15,15 @@ export interface LibraryCatalogPageProps {
   onPlayTheme?: (theme: LibraryThemeDto, artworkUrl?: string | null) => void
   onPlayNext?: (theme: LibraryThemeDto, artworkUrl?: string | null) => void
   onAddToQueue?: (theme: LibraryThemeDto, artworkUrl?: string | null) => void
+  onPlayPlaylist?: (playlist: NormalizedLibrary['playlistsById'][string]) => void
+  onPlayNextPlaylist?: (playlist: NormalizedLibrary['playlistsById'][string]) => void
+  onAddToQueuePlaylist?: (playlist: NormalizedLibrary['playlistsById'][string]) => void
 }
 
 type LibraryTab = 'anime' | 'songs' | 'artists' | 'playlists'
 const PAGE_SIZE = 48
 
-export function LibraryCatalogPage({ onPlayTheme, onPlayNext, onAddToQueue }: LibraryCatalogPageProps = {}) {
+export function LibraryCatalogPage({ onPlayTheme, onPlayNext, onAddToQueue, onPlayPlaylist, onPlayNextPlaylist, onAddToQueuePlaylist }: LibraryCatalogPageProps = {}) {
   const query = useLibraryQuery()
   const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = useState('')
@@ -97,7 +102,7 @@ export function LibraryCatalogPage({ onPlayTheme, onPlayNext, onAddToQueue }: Li
             <LibrarySearch tab={tab} value={search} onChange={setSearch} />
             {tab === 'songs' && <ThemeLibraryList themes={filteredThemes.slice(0, visibleCount)} library={query.library} onPlayTheme={onPlayTheme} onMore={setSelectedTheme} />}
             {tab === 'artists' && <ArtistLibraryView artists={artists} themes={filteredThemes} library={query.library} query={normalizedSearch} selectedArtist={selectedArtist} visibleCount={visibleCount} onSelectArtist={setSelectedArtist} onPlayTheme={onPlayTheme} onMore={setSelectedTheme} />}
-            {tab === 'playlists' && <PlaylistLibraryView playlists={playlists} query={normalizedSearch} visibleCount={visibleCount} />}
+            {tab === 'playlists' && <PlaylistLibraryView playlists={playlists} library={query.library} query={normalizedSearch} visibleCount={visibleCount} onPlay={onPlayPlaylist} onPlayNext={onPlayNextPlaylist} onAddToQueue={onAddToQueuePlaylist} />}
             {visibleResultTotal > visibleCount && <button type="button" className="button button--text catalog-load-more" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}>Load more</button>}
           </>}
 
@@ -174,10 +179,30 @@ function ArtistLibraryView({ artists, themes, library, query, selectedArtist, vi
   return <div className="catalog-artist-grid">{matches.map(([name, count]) => <button type="button" key={name} onClick={() => onSelectArtist(name)}><UserRound size={21} /><span><strong>{name}</strong><small>{count} {count === 1 ? 'theme' : 'themes'}</small></span></button>)}</div>
 }
 
-function PlaylistLibraryView({ playlists, query, visibleCount }: { playlists: NormalizedLibrary['playlistsById'][string][]; query: string; visibleCount: number }) {
+function PlaylistLibraryView({ playlists, library, query, visibleCount, onPlay, onPlayNext, onAddToQueue }: {
+  playlists: NormalizedLibrary['playlistsById'][string][]
+  library: NormalizedLibrary
+  query: string
+  visibleCount: number
+  onPlay?: LibraryCatalogPageProps['onPlayPlaylist']
+  onPlayNext?: LibraryCatalogPageProps['onPlayNextPlaylist']
+  onAddToQueue?: LibraryCatalogPageProps['onAddToQueuePlaylist']
+}) {
   const matches = playlists.filter((playlist) => !query || playlist.name.toLocaleLowerCase().includes(query)).slice(0, visibleCount)
   if (matches.length === 0) return <p className="catalog-empty">No playlists match this view.</p>
-  return <div className="catalog-playlist-grid">{matches.map((playlist) => <Link className="catalog-playlist-card" to={`/playlist/${playlist.id}`} key={playlist.id}><span className="catalog-playlist-card__icon"><ListMusic size={23} /></span><span><strong>{playlist.name}</strong><small>{playlist.items.length || playlist.entries.length} tracks{playlist.isDynamic ? ' · Smart' : playlist.isAuto ? ' · Auto' : ''}</small></span></Link>)}</div>
+  return <div className="catalog-playlist-grid">{matches.map((playlist) => <CatalogPlaylistCard
+    key={playlist.id}
+    id={playlist.id}
+    name={playlist.name}
+    itemCount={playlist.items.length || playlist.entries.length}
+    isAuto={playlist.isAuto}
+    isDynamic={playlist.isDynamic}
+    artworkUrls={playlistArtworkUrls(playlist, library)}
+    playlist={playlist}
+    onPlay={onPlay}
+    onPlayNext={onPlayNext}
+    onAddToQueue={onAddToQueue}
+  />)}</div>
 }
 
 function ThemeActions({ theme, library, onPlayTheme, onPlayNext, onAddToQueue, onClose }: {

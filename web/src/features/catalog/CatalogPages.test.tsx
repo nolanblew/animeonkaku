@@ -232,7 +232,7 @@ describe('catalog pages', () => {
 
     renderWithQuery(<LibraryCatalogPage onPlayPlaylist={onPlayPlaylist} onPlayNextPlaylist={onPlayNextPlaylist} onAddToQueuePlaylist={onAddToQueuePlaylist} />, ['/library?tab=playlists'])
 
-    expect(screen.getByTestId('playlist-artwork-7').querySelectorAll('img')).toHaveLength(1)
+    expect(screen.getByTestId('playlist-artwork-7').querySelectorAll('img')).toHaveLength(2)
     expect(screen.getByRole('link', { name: 'Night drive, 2 tracks' })).toHaveAttribute('href', '/playlist/7')
     await userEvent.click(screen.getByRole('button', { name: 'More actions for Night drive' }))
     const menu = screen.getByRole('menu', { name: 'Night drive actions' })

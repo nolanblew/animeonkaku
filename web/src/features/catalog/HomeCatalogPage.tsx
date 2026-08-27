@@ -9,8 +9,9 @@ import { readShowOstsOnHome, subscribeToHomePreference } from '../../lib/homePre
 import type { LibraryThemeDto, NormalizedLibrary } from '../../lib/library'
 import { useLibraryQuery } from '../../lib/query'
 import { TrackActionMenu, useLibraryActions } from '../libraryactions'
-import { PlaylistArtwork, playlistArtworkUrls } from '../playlists'
+import { playlistArtworkUrls } from '../playlists'
 import { CatalogError, CatalogLoading } from './CatalogError'
+import { CatalogPlaylistCard } from './CatalogPlaylistCard'
 import type { BrowserHomeResponse, BrowserHomeTopSongSummary } from './types'
 
 type HomeFilter = 'ALL' | 'OP' | 'ED'
@@ -20,6 +21,9 @@ export interface HomeCatalogPageProps {
   onPlayAll?: (themes: LibraryThemeDto[], artworkUrl?: string | null) => void
   onPlayNext?: (theme: LibraryThemeDto, artworkUrl?: string | null) => void
   onAddToQueue?: (theme: LibraryThemeDto, artworkUrl?: string | null) => void
+  onPlayPlaylist?: (playlist: NormalizedLibrary['playlistsById'][string]) => void
+  onPlayNextPlaylist?: (playlist: NormalizedLibrary['playlistsById'][string]) => void
+  onAddToQueuePlaylist?: (playlist: NormalizedLibrary['playlistsById'][string]) => void
 }
 
 const filters: Array<{ value: HomeFilter; label: string }> = [
@@ -28,7 +32,7 @@ const filters: Array<{ value: HomeFilter; label: string }> = [
   { value: 'ED', label: 'Endings' },
 ]
 
-export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQueue }: HomeCatalogPageProps) {
+export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQueue, onPlayPlaylist, onPlayNextPlaylist, onAddToQueuePlaylist }: HomeCatalogPageProps) {
   const home = useQuery<BrowserHomeResponse>({
     queryKey: ['home'],
     queryFn: ({ signal }) => apiClient.get<BrowserHomeResponse>('/v1/home?limit=24', { signal }),
@@ -118,10 +122,7 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
           ? <p className="catalog-empty">Create a playlist to keep your favorite themes together.</p>
           : <div className="catalog-playlist-grid">{data.playlists.slice(0, 4).map((summary) => {
             const playlist = library?.playlistsById[String(summary.id)]
-            return <Link className="catalog-playlist-card" to={`/playlist/${summary.id}`} key={summary.id} aria-label={`${summary.name}, ${summary.itemCount} tracks`}>
-              <PlaylistArtwork playlistId={summary.id} name={summary.name} artworkUrls={playlistArtworkUrls(playlist, library)} />
-              <span><strong>{summary.name}</strong><small>{summary.itemCount} {summary.itemCount === 1 ? 'track' : 'tracks'}{summary.isAuto ? ' · Auto' : ''}</small></span>
-            </Link>
+            return <CatalogPlaylistCard key={summary.id} id={summary.id} name={summary.name} itemCount={summary.itemCount} isAuto={summary.isAuto} isDynamic={playlist?.isDynamic} artworkUrls={playlistArtworkUrls(playlist, library)} playlist={playlist} onPlay={onPlayPlaylist} onPlayNext={onPlayNextPlaylist} onAddToQueue={onAddToQueuePlaylist} />
           })}</div>}
       </section>
 
