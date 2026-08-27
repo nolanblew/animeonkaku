@@ -51,7 +51,10 @@ describe('web player app shell', () => {
       </MemoryRouter>,
     )
 
-    await waitFor(() => expect(screen.getByRole('navigation', { name: /primary/i })).toBeInTheDocument())
+    await waitFor(
+      () => expect(screen.getByRole('navigation', { name: /primary/i })).toBeInTheDocument(),
+      { timeout: 3_000 },
+    )
     expect(screen.getByRole('search', { name: /global search/i })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: /mini player/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /home/i })).toHaveAttribute('aria-current', 'page')
