@@ -325,4 +325,34 @@ describe('media cache reconciliation', () => {
     expect(last.nextAudioUrls).not.toContain('video-b')
     expect(last.imageUrls).toEqual(['/api/art-a'])
   })
+
+  it('prefetches current plus next-three artwork and invalidates audio outside the next-three window', async () => {
+    const reconcile = vi.fn(() => Promise.resolve())
+    const cache = { reconcile } as unknown as ManagedMediaCache
+    const store = new QueueStore()
+    store.play([
+      item({ id: 'a', audioUrl: '/v1/a', artworkUrl: '/art-a' }),
+      item({ id: 'b', audioUrl: '/v1/b', artworkUrl: '/art-b' }),
+      item({ id: 'c', audioUrl: '/v1/c', artworkUrl: '/art-c' }),
+      item({ id: 'd', audioUrl: '/v1/d', artworkUrl: '/art-d' }),
+      item({ id: 'e', audioUrl: '/v1/e', artworkUrl: '/art-e' }),
+    ])
+    renderPlayer(store, { mediaCache: cache })
+
+    await waitFor(() => {
+      const calls = reconcile.mock.calls as unknown as Array<[{ nextAudioUrls: string[]; imageUrls: string[] }]>
+      const latest = calls[calls.length - 1]?.[0]
+      expect(latest?.nextAudioUrls).toEqual(['/api/v1/b', '/api/v1/c', '/api/v1/d'])
+      expect(latest?.imageUrls).toEqual(['/api/art-a', '/api/art-b', '/api/art-c', '/api/art-d'])
+    })
+
+    await act(async () => { store.skipTo(2) })
+    await waitFor(() => {
+      const calls = reconcile.mock.calls as unknown as Array<[{ nextAudioUrls: string[]; imageUrls: string[] }]>
+      const latest = calls[calls.length - 1]?.[0]
+      expect(latest?.nextAudioUrls).toEqual(['/api/v1/d', '/api/v1/e'])
+      expect(latest?.nextAudioUrls).not.toContain('/api/v1/b')
+      expect(latest?.imageUrls).toEqual(['/api/art-c', '/api/art-d', '/api/art-e'])
+    })
+  })
 })
