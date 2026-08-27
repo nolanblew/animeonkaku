@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
@@ -75,6 +75,21 @@ describe('playlist components', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
     expect(onDelete).toHaveBeenCalledWith(2)
+  })
+
+  it('rolls back optimistic item changes when the update is rejected', async () => {
+    const onUpdate = vi.fn().mockRejectedValue(new Error('Could not persist tracks.'))
+    renderWithQuery(<PlaylistDetail playlist={playlist({ items: [
+      { entryId: 44, itemType: 'THEME', itemId: 10, modeOverride: null },
+      { entryId: 45, itemType: 'THEME', itemId: 11, modeOverride: null },
+    ] })} onUpdate={onUpdate} onDelete={vi.fn()} />)
+
+    await userEvent.click(screen.getByRole('button', { name: /move theme 10 down/i }))
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Could not persist tracks.'))
+    const rows = screen.getAllByRole('listitem')
+    expect(rows[0]).toHaveTextContent('Theme #10')
+    expect(rows[1]).toHaveTextContent('Theme #11')
   })
 
   it('exposes create and advanced dynamic controls through the manager', async () => {
