@@ -4,8 +4,22 @@ import { useNavigate } from 'react-router-dom'
 
 export function sanitizeErrorDetails(value: unknown): string {
   const raw = value instanceof Error ? value.message : String(value ?? 'Unknown error')
+  const sensitiveKeyPattern = '(?:password|passwd|token|access[_-]?token|refresh[_-]?token|auth[_-]?token|secret|client[_-]?secret|api[_-]?key|apikey|authorization|cookie)'
+  const jsonSecretPattern = new RegExp(
+    `((?:["'])${sensitiveKeyPattern}(?:["'])\\s*:\\s*)("(?:\\\\.|[^"\\\\])*"|'(?:\\\\.|[^'\\\\])*'|[^,}\\s]+)`,
+    'gi',
+  )
+  const querySecretPattern = new RegExp(`([?&#]${sensitiveKeyPattern}(?:=|%3D))([^&#\\s,;]*)`, 'gi')
+  const plainSecretPattern = new RegExp(`\\b(${sensitiveKeyPattern})\\s*[:=]\\s*(?!Bearer\\b|\\[redacted\\])([^\\s,;&}"']+)`, 'gi')
+
   return raw
-    .replace(/(password|passwd|token|secret|authorization|cookie)\s*[:=]\s*[^\s,;]+/gi, '$1: [redacted]')
+    .replace(/(\bBearer\s+)[^\s,;]+/gi, '$1[redacted]')
+    .replace(jsonSecretPattern, (_match: string, prefix: string, secret: string) => {
+      const quote = secret.startsWith('"') || secret.startsWith("'") ? secret[0] : ''
+      return `${prefix}${quote}[redacted]${quote}`
+    })
+    .replace(querySecretPattern, '$1[redacted]')
+    .replace(plainSecretPattern, '$1: [redacted]')
     .replace(/(postgres(?:ql)?:\/\/)[^\s]+/gi, '$1[redacted]')
     .slice(0, 240)
 }
