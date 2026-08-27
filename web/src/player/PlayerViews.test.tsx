@@ -13,6 +13,7 @@ function renderPlayer(ui: React.ReactElement) {
 }
 
 beforeEach(() => {
+  localStorage.clear()
   state.player = {
     currentItem: { id: 1, itemType: 'THEME', themeId: 1, title: 'Opening', artist: 'Band', animeTitle: 'A Couple of Cuckoos', themeType: 'ED2', animeId: 'anime-1', artworkUrl: '/art.jpg', audioUrl: '/audio.mp3', videoUrl: '/video.mp4', durationMs: 90_000 },
     currentTime: 65,
@@ -53,9 +54,10 @@ beforeEach(() => {
 describe('player views', () => {
   it('forwards every now-playing control including mode, fullscreen, seek, and queue selection', () => {
     renderPlayer(<NowPlayingView className="wide" />)
-    expect(screen.getByRole('tablist', { name: 'Player view' })).toBeInTheDocument()
+    expect(screen.getByRole('tablist', { name: 'Playback type' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Video' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('tab', { name: 'Song' })).toHaveAttribute('aria-selected', 'false')
+    expect(screen.getByRole('tab', { name: 'TV size' })).toHaveAttribute('aria-selected', 'false')
+    expect(screen.getByRole('tab', { name: 'Full size' })).toHaveAttribute('aria-selected', 'false')
     fireEvent.change(screen.getByRole('slider', { name: 'Seek' }), { target: { value: '32' } })
     fireEvent.click(screen.getByRole('button', { name: 'Enable shuffle' }))
     fireEvent.click(screen.getByRole('button', { name: 'Previous track' }))
@@ -80,6 +82,18 @@ describe('player views', () => {
     expect(state.player.skipTo).toHaveBeenCalledWith(1)
     expect(screen.getByRole('alert')).toHaveTextContent('Recoverable error')
     expect(screen.getByRole('status')).toHaveTextContent('Loading media')
+  })
+
+  it('shows the active playback type below the artist and centers actions after transport', () => {
+    state.player.mode = 'FULL_SIZE'
+    const { container } = renderPlayer(<NowPlayingView />)
+
+    expect(screen.getByText('Full size', { selector: '.player-now-playing__type-label' })).toBeInTheDocument()
+    expect(container.querySelector('.player-mode-controls')).not.toBeInTheDocument()
+    const details = container.querySelector('.player-now-playing__details')
+    const controls = container.querySelector('.player-now-playing__controls')
+    const actions = container.querySelector('.player-now-playing__secondary-actions')
+    expect(controls?.compareDocumentPosition(actions as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('matches mobile title hierarchy in the mini player, full player, and queue', () => {

@@ -37,7 +37,10 @@ function renderPage() {
 
 afterEach(() => vi.restoreAllMocks())
 
-beforeEach(() => mockedUseAuth.mockReturnValue(makeAuth()))
+beforeEach(() => {
+  localStorage.clear()
+  mockedUseAuth.mockReturnValue(makeAuth())
+})
 
 describe('SettingsPage', () => {
   it('renders account, Kitsu, sync, and device details and updates the display name', async () => {
@@ -114,5 +117,19 @@ describe('SettingsPage', () => {
     mockedUseAuth.mockReturnValue(makeAuth({ user: null, me: null }))
     renderPage()
     expect(screen.getByText(/details are not available/i)).toBeInTheDocument()
+  })
+
+  it('defaults anime titles to English and saves a browser-local language choice', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    const english = screen.getByRole('radio', { name: 'English' })
+    const romaji = screen.getByRole('radio', { name: 'Romaji' })
+    expect(english).toBeChecked()
+    expect(screen.getByText(/stored only in this browser/i)).toBeInTheDocument()
+
+    await user.click(romaji)
+    expect(romaji).toBeChecked()
+    expect(localStorage.getItem('anime-ongaku.web.anime-title-preference.v1')).toBe('ROMAJI')
   })
 })
