@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { QueueStore, type QueueItem } from './queue'
 import { MiniPlayerView } from './MiniPlayerView'
@@ -163,6 +164,26 @@ describe('PlayerProvider', () => {
 
     await act(async () => { fireEvent.ended(video) })
     expect(screen.getByTestId('current')).toHaveTextContent('2')
+  })
+
+  it('fullscreens the complete video stage so playback controls remain available', async () => {
+    const requestFullscreen = vi.fn(function (this: HTMLElement) { return Promise.resolve(this) })
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'requestFullscreen')
+    Object.defineProperty(HTMLElement.prototype, 'requestFullscreen', { configurable: true, value: requestFullscreen })
+    try {
+      const store = new QueueStore()
+      store.play([item()])
+      renderPlayer(store)
+
+      await userEvent.click(screen.getAllByRole('button', { name: /^video$/i })[1])
+      await userEvent.click(screen.getByRole('button', { name: 'Enter fullscreen' }))
+
+      expect(requestFullscreen).toHaveBeenCalledTimes(1)
+      expect(requestFullscreen.mock.instances[0]).toHaveClass('player-now-playing__stage')
+    } finally {
+      if (original) Object.defineProperty(HTMLElement.prototype, 'requestFullscreen', original)
+      else Reflect.deleteProperty(HTMLElement.prototype, 'requestFullscreen')
+    }
   })
 
   it('registers OS media-session metadata, actions, and a position state', async () => {
