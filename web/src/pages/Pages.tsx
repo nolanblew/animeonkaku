@@ -2,6 +2,8 @@ import { useLocation, useNavigate, useParams, useSearchParams } from 'react-rout
 import { ListMusic, MonitorPlay } from 'lucide-react'
 import { RouteSkeleton } from '../components/RouteSkeleton'
 import { AnimeDetailPage, HomeCatalogPage, LibraryCatalogPage } from '../features/catalog'
+import { ArtistDetailPage, type ArtistDetailResponse } from '../features/artists'
+import { RelatedMusicPage as RelatedMusicFeaturePage } from '../features/relatedmusic'
 import { ReleaseDetailPage } from '../features/releases'
 import { PlaylistDetail, PlaylistFeatureMessage, PlaylistManager, usePlaylist, usePlaylistMutations, usePlaylists } from '../features/playlists'
 import { SearchPage as AccountSearchPage, SettingsPage as AccountSettingsPage, type MusicSearchTrack } from '../features/accountsearch'
@@ -33,6 +35,15 @@ export function AnimePage() {
   const player = usePlayer()
   const playThemes = (themes: LibraryThemeDto[], startIndex = 0, shuffle = false, artworkUrl?: string | null) => playThemeCollection(player, themes, startIndex, shuffle, artworkUrl)
   return <AnimeDetailPage onPlayThemes={playThemes} onPlayNext={(themes, artworkUrl) => insertThemeCollection(player, themes, 'next', artworkUrl)} onAddToQueue={(themes, artworkUrl) => insertThemeCollection(player, themes, 'append', artworkUrl)} onPlaySong={(song, artworkUrl, animeId) => player.playSong(song, { artworkUrl: resolveBrowserAsset(artworkUrl), animeId })} />
+}
+
+export function ArtistPage() {
+  const player = usePlayer()
+  return <ArtistDetailPage onPlayAll={(artist, shuffle) => playArtistCollection(player, artist, shuffle)} onPlayItem={(artist, startIndex) => playArtistCollection(player, artist, false, startIndex)} />
+}
+
+export function RelatedMusicPage() {
+  return <RelatedMusicFeaturePage />
 }
 
 export function ReleasePage() {
@@ -105,6 +116,19 @@ function playReleaseCollection(player: PlayerContextValue, release: MusicRelease
 
 function playReleaseTrack(player: PlayerContextValue, _track: MusicTrackDto, release: MusicReleaseDto, startIndex = 0): void {
   playReleaseCollection(player, release, false, startIndex)
+}
+
+function playArtistCollection(player: PlayerContextValue, artist: ArtistDetailResponse, shuffle: boolean, startIndex = 0): void {
+  const artworkUrl = resolveBrowserAsset(artist.artist.artworkUrl)
+  const themes = Array.isArray(artist.themes) ? artist.themes : []
+  const songs = Array.isArray(artist.fullSongs) ? artist.fullSongs.filter((song) => song.audioAvailable !== false && Boolean(song.audioUrl)) : []
+  const items = [
+    ...themes.map((theme) => mapThemeToQueueItem(theme as LibraryThemeDto, { artworkUrl })),
+    ...songs.map((song) => mapSongToQueueItem(song as MusicTrackDto, { artworkUrl })),
+  ]
+  if (items.length === 0) return
+  const boundedStartIndex = Math.max(0, Math.min(startIndex, Math.max(0, items.length - 1)))
+  player.playItems(items, { contextLabel: artist.artist.name || 'Artist', startIndex: boundedStartIndex, shuffle })
 }
 
 function playThemeCollection(player: PlayerContextValue, themes: LibraryThemeDto[], startIndex: number, shuffle: boolean, artworkUrl?: string | null): void {

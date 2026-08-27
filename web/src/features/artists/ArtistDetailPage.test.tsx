@@ -91,13 +91,13 @@ const response: ArtistDetailResponse = {
   fullSongs,
 }
 
-function renderPage(onPlayAll = vi.fn()) {
+function renderPage(onPlayAll = vi.fn(), onPlayItem = vi.fn()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={['/artist/karuta']}>
         <Routes>
-          <Route path="/artist/:artistSlug" element={<ArtistDetailPage onPlayAll={onPlayAll} />} />
+          <Route path="/artist/:artistSlug" element={<ArtistDetailPage onPlayAll={onPlayAll} onPlayItem={onPlayItem} />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -128,13 +128,18 @@ describe('artist detail page', () => {
   it('offers play and shuffle for the complete artist collection', async () => {
     vi.mocked(apiClient.get).mockResolvedValue(response)
     const onPlayAll = vi.fn()
-    renderPage(onPlayAll)
+    const onPlayItem = vi.fn()
+    renderPage(onPlayAll, onPlayItem)
 
     await screen.findByRole('heading', { name: 'Karuta' })
     await userEvent.click(screen.getByRole('button', { name: 'Play all' }))
     await userEvent.click(screen.getByRole('button', { name: 'Shuffle' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Play Ichiban no Takaramono' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Play Ichiban no Takaramono (Full Size)' }))
 
     expect(onPlayAll).toHaveBeenNthCalledWith(1, response, false)
     expect(onPlayAll).toHaveBeenNthCalledWith(2, response, true)
+    expect(onPlayItem).toHaveBeenNthCalledWith(1, response, 0)
+    expect(onPlayItem).toHaveBeenNthCalledWith(2, response, 1)
   })
 })

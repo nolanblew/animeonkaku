@@ -83,9 +83,13 @@ describe("artist catalog server contract", () => {
           title: "Ichiban no Takaramono",
           artistCredit: "Karuta",
           audioUrl: "/v1/media/songs/700/audio",
+          audioAvailable: false,
           anime: [{ kitsuId: "anime-1", title: "Signal Breaker" }],
         },
       ],
     });
+    expect((response as { themes: Array<Record<string, unknown>> }).themes[0]).not.toHaveProperty("audioState");
+    // Android's AnimeThemesSingleArtistResponse still reads this raw field.
+    expect((response as { artist: { songs: unknown[] } }).artist.songs).toEqual(artistFixture().artist.songs);
   });
 });
