@@ -11,7 +11,8 @@ import { browserAssetUrl } from '../lib/assets'
 import { useLibraryQuery } from '../lib/query'
 
 export function HomePage() {
-  return <HomeCatalogPage />
+  const player = usePlayer()
+  return <HomeCatalogPage onPlayTheme={(theme, artworkUrl) => player.playTheme(theme, { artworkUrl: resolveBrowserAsset(artworkUrl) })} />
 }
 
 export function LibraryPage() {

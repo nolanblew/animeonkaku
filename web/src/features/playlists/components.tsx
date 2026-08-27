@@ -4,6 +4,8 @@ import type { PlaylistDto, PlaylistPlaybackMode } from '../../lib/library'
 import { DynamicPlaylistBuilder } from './dynamicBuilder'
 import { buildPlaylistUpdate, createDefaultSimpleFilter, DEFAULT_ADVANCED_FILTER, DEFAULT_SORT_SPEC, deserializeDynamicSpec, deserializeSortSpec, formatJsonEditorValue, normalizePlaylistItems, parseJsonEditorValue, removePlaylistItem, reorderPlaylistItems, sanitizePlaylistName, validatePlaylistForm, type DynamicCreatedMode, type DynamicPlaylistMode, type FilterNodeJson, type PlaylistEditorValues, type PlaylistEntryModel, type PlaylistFormErrors, type PlaylistUpdateInput, type SimpleFilterState, type SortSpecJson } from './model'
 import type { PlaylistCreateInput } from './api'
+import { useLibraryQuery } from '../../lib/query'
+import { PlaylistArtwork, playlistArtworkUrls } from './PlaylistArtwork'
 import './playlists.css'
 
 export type PlaylistListState = 'loading' | 'ready' | 'empty' | 'error'
@@ -20,6 +22,7 @@ export interface PlaylistListProps {
 const MAX_PLAYLIST_PAGE_SIZE = 100
 
 export function PlaylistList({ playlists, state, error, onCreate, onSelect, maxVisible = 100 }: PlaylistListProps) {
+  const library = useLibraryQuery({ enabled: false }).library
   const [filter, setFilter] = useState('')
   const pageSize = normalizePlaylistPageSize(maxVisible)
   const [visibleCount, setVisibleCount] = useState(pageSize)
@@ -56,7 +59,7 @@ export function PlaylistList({ playlists, state, error, onCreate, onSelect, maxV
         <>
           <div className="playlist-cards">
             {visible.map((playlist) => <Link className="playlist-card" to={`/playlist/${playlist.id}`} key={playlist.id} onClick={() => onSelect?.(playlist.id)}>
-              <span className="playlist-card__art" aria-hidden="true">{playlist.isDynamic ? '✦' : '♫'}</span>
+              <PlaylistArtwork playlistId={playlist.id} name={playlist.name} artworkUrls={playlistArtworkUrls(playlist, library)} />
               <span className="playlist-card__copy"><strong>{playlist.name}</strong><small>{playlist.isDynamic ? 'Smart playlist' : `${playlist.items.length || playlist.entries.length} tracks`}</small></span>
               <span className="playlist-card__arrow" aria-hidden="true">→</span>
             </Link>)}
@@ -220,6 +223,7 @@ export interface PlaylistDetailProps {
 }
 
 export function PlaylistDetail({ playlist, onUpdate, onDelete, onBack, onPlay }: PlaylistDetailProps) {
+  const library = useLibraryQuery({ enabled: false }).library
   const [items, setItems] = useState(() => normalizePlaylistItems(playlist))
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)

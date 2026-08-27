@@ -1,9 +1,9 @@
 import {
   Bell,
   House,
-  LibraryBig,
-  ListMusic,
+  Library,
   Menu,
+  Plus,
   Search,
   UserRound,
   X,
@@ -13,12 +13,12 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Brand } from './BrandMark'
 import { useAuth } from '../auth/AuthProvider'
 import { MiniPlayerView } from '../player'
+import { useLibraryQuery } from '../lib/query'
 
 const primaryNavigation = [
   { to: '/', label: 'Home', icon: House, end: true },
   { to: '/search', label: 'Search', icon: Search },
-  { to: '/library', label: 'Library', icon: LibraryBig },
-  { to: '/playlists', label: 'Playlists', icon: ListMusic },
+  { to: '/library', label: 'Library', icon: Library },
 ]
 
 function NavigationLink({
@@ -50,6 +50,8 @@ function NavigationLink({
 
 export function ResponsiveShell({ children }: { children?: ReactNode }) {
   const auth = useAuth()
+  const library = useLibraryQuery({ enabled: false }).library
+  const playlists = Object.values(library?.playlistsById ?? {}).filter((playlist) => !playlist.deleted).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 12)
   const [navigationOpen, setNavigationOpen] = useState(false)
   const [sidebarProfileOpen, setSidebarProfileOpen] = useState(false)
   const [topbarProfileOpen, setTopbarProfileOpen] = useState(false)
@@ -104,6 +106,17 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
             {primaryNavigation.map((item) => (
               <NavigationLink key={item.to} {...item} onNavigate={closeNavigation} />
             ))}
+          </div>
+          <div className="sidebar-playlists">
+            <div className="sidebar-playlists__heading">
+              <h2><NavLink to="/playlists" onClick={closeNavigation}>Playlists</NavLink></h2>
+              <NavLink to="/playlists?create=1" onClick={closeNavigation} aria-label="New playlist"><Plus size={17} aria-hidden="true" /></NavLink>
+            </div>
+            <div className="sidebar-playlists__list">
+              {playlists.length === 0
+                ? <p>No playlists yet</p>
+                : playlists.map((playlist) => <NavLink key={playlist.id} to={`/playlist/${playlist.id}`} onClick={closeNavigation} title={playlist.name}>{playlist.name}</NavLink>)}
+            </div>
           </div>
         </nav>
 

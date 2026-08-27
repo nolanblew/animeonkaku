@@ -1,10 +1,10 @@
 import type { HTMLAttributes } from 'react'
+import logoUrl from '../assets/anime-ongaku-logo.png'
 
 export function BrandMark({ className = '', ...props }: HTMLAttributes<HTMLSpanElement>) {
   return (
-    <span className={`brand-mark ${className}`.trim()} aria-hidden="true" {...props}>
-      <span className="brand-mark__orbit" />
-      <span className="brand-mark__core">▶</span>
+    <span className={`brand-mark ${className}`.trim()} {...props}>
+      <img src={logoUrl} alt="Anime Ongaku" />
     </span>
   )
 }
