@@ -80,5 +80,5 @@ function AuthenticatedShell() {
     themesById: library?.prefsByThemeId ?? {},
     songsById: library?.songPrefsById ?? {},
   }), [library?.prefsByThemeId, library?.songPrefsById])
-  return <PlayerProvider persistenceUserId={auth.user?.kitsuUserId} preferenceSnapshot={preferenceSnapshot}><ResponsiveShell /></PlayerProvider>
+  return <PlayerProvider persistenceUserId={auth.user?.kitsuUserId} preferenceSnapshot={preferenceSnapshot} animeTitleCatalog={library?.animeById}><ResponsiveShell /></PlayerProvider>
 }

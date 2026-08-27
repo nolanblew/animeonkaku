@@ -36,6 +36,13 @@ import {
 import { loadPersistedQueue, savePersistedQueue } from './queuePersistence'
 import { loadRememberedAudioMode, saveRememberedAudioMode } from './playbackPreferences'
 
+export interface AnimeTitleCatalogEntry {
+  readonly title?: string | null
+  readonly titleEn?: string | null
+  readonly titleRomaji?: string | null
+  readonly titleJa?: string | null
+}
+
 export interface PlayerState {
   readonly queueState: QueueState
   readonly currentEntry?: QueueEntry
@@ -101,6 +108,8 @@ export interface PlayerProviderProps {
   persistenceUserId?: string
   /** Synchronized likes/dislikes used to keep automatic playback in parity with Android. */
   preferenceSnapshot?: QueuePreferenceSnapshot
+  /** Live library titles used to upgrade restored queue entries created by older web builds. */
+  animeTitleCatalog?: Readonly<Record<string, AnimeTitleCatalogEntry>>
 }
 
 const PlayerContext = createContext<PlayerContextValue | null>(null)
@@ -114,6 +123,7 @@ export function PlayerProvider({
   initialMode,
   persistenceUserId,
   preferenceSnapshot = emptyQueuePreferenceSnapshot,
+  animeTitleCatalog,
 }: PlayerProviderProps) {
   const animeTitlePreference = useAnimeTitlePreference()
   const rememberedAudioMode = persistenceUserId ? loadRememberedAudioMode(persistenceUserId) : undefined
@@ -207,6 +217,11 @@ export function PlayerProvider({
   useEffect(() => {
     queue.setPreferenceSnapshot(preferenceSnapshot)
   }, [preferenceSnapshot, queue])
+
+  useEffect(() => {
+    const hydrated = hydrateQueueAnimeTitles(queue.state, animeTitleCatalog)
+    if (hydrated !== queue.state) queue.restore(hydrated)
+  }, [animeTitleCatalog, queue])
 
   useEffect(() => {
     if (!persistenceUserId) return
@@ -705,6 +720,54 @@ export function PlayerProvider({
       </div>
     </PlayerContext.Provider>
   )
+}
+
+export function hydrateQueueAnimeTitles(
+  state: QueueState,
+  catalog: Readonly<Record<string, AnimeTitleCatalogEntry>> | undefined,
+): QueueState {
+  if (!catalog) return state
+  let changed = false
+  const hydratedByQueueId = new Map<number, QueueEntry>()
+  const hydrateEntry = (entry: QueueEntry): QueueEntry => {
+    const cached = hydratedByQueueId.get(entry.queueId)
+    if (cached) return cached
+    const animeId = entry.item.animeId
+    const source = animeId === undefined || animeId === null ? undefined : catalog[String(animeId)]
+    if (!source) {
+      hydratedByQueueId.set(entry.queueId, entry)
+      return entry
+    }
+    const additions = {
+      animeTitle: cleanTitle(source.title) ?? cleanTitle(source.titleEn) ?? entry.item.animeTitle,
+      animeTitleEn: cleanTitle(source.titleEn) ?? entry.item.animeTitleEn,
+      animeTitleRomaji: cleanTitle(source.titleRomaji) ?? entry.item.animeTitleRomaji,
+      animeTitleJa: cleanTitle(source.titleJa) ?? entry.item.animeTitleJa,
+    }
+    if (additions.animeTitle === entry.item.animeTitle
+      && additions.animeTitleEn === entry.item.animeTitleEn
+      && additions.animeTitleRomaji === entry.item.animeTitleRomaji
+      && additions.animeTitleJa === entry.item.animeTitleJa) {
+      hydratedByQueueId.set(entry.queueId, entry)
+      return entry
+    }
+    changed = true
+    const hydrated = { ...entry, item: { ...entry.item, ...additions } }
+    hydratedByQueueId.set(entry.queueId, hydrated)
+    return hydrated
+  }
+  const hydrateEntries = (entries: readonly QueueEntry[]) => entries.map(hydrateEntry)
+  const next = {
+    ...state,
+    originalQueueEntries: hydrateEntries(state.originalQueueEntries),
+    nowPlayingEntries: hydrateEntries(state.nowPlayingEntries),
+    historyEntries: hydrateEntries(state.historyEntries),
+  }
+  return changed ? next : state
+}
+
+function cleanTitle(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
 export function usePlayer(): PlayerContextValue {

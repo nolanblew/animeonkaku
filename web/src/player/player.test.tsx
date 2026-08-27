@@ -13,6 +13,7 @@ import {
   usePlayer,
 } from './index'
 import type { ManagedMediaCache } from '../media/managedCache'
+import { writeAnimeTitlePreference } from '../lib/animeTitlePreference'
 
 function item(overrides: Partial<QueueItem> = {}): QueueItem {
   return {
@@ -103,6 +104,7 @@ describe('queue item mappings and protected media URLs', () => {
 
 describe('PlayerProvider', () => {
   beforeEach(() => {
+    writeAnimeTitlePreference('ENGLISH')
     Object.defineProperty(HTMLMediaElement.prototype, 'play', {
       configurable: true,
       value: vi.fn(() => Promise.resolve()),
@@ -111,6 +113,32 @@ describe('PlayerProvider', () => {
       configurable: true,
       value: vi.fn(),
     })
+  })
+
+  it('hydrates restored queue entries with localized anime titles from the live library', async () => {
+    const store = new QueueStore()
+    store.play([item({
+      animeId: 'anime-1',
+      animeTitle: 'Romaji title',
+      themeType: 'OP',
+      itemType: 'THEME',
+    })])
+
+    renderPlayer(store, {
+      animeTitleCatalog: {
+        'anime-1': {
+          title: 'Romaji title',
+          titleEn: 'English title',
+          titleRomaji: 'Romaji title',
+          titleJa: '日本語タイトル',
+        },
+      },
+    })
+
+    writeAnimeTitlePreference('JAPANESE')
+
+    expect(await screen.findByRole('heading', { name: '日本語タイトル · OP' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open now playing for Opening Theme' })).toHaveTextContent('日本語タイトル · OP')
   })
 
   it('renders real media elements and preserves occurrence identity for duplicate songs', async () => {
