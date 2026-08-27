@@ -16,6 +16,7 @@ beforeEach(() => {
     isPlaying: false,
     isLoading: true,
     error: 'Recoverable error',
+    tvSizeAvailable: true,
     fullSizeAvailable: true,
     videoAvailable: true,
     queueState: {
@@ -96,6 +97,15 @@ describe('player views', () => {
     rerender(<NowPlayingView />)
     expect(screen.getByText('The queue is empty.')).toBeInTheDocument()
     expect(screen.getByText('Video unavailable for this theme.')).toBeInTheDocument()
+  })
+
+  it('disables TV size when the current queue item has no TV-sized media', () => {
+    state.player.tvSizeAvailable = false
+    state.player.mode = 'FULL_SIZE'
+
+    render(<NowPlayingView />)
+
+    expect(screen.getByRole('button', { name: 'TV size' })).toBeDisabled()
   })
 
   it('renders fallback metadata and paused-state controls without an open handler', () => {
