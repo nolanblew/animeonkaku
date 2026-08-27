@@ -5,11 +5,20 @@ import { ResponsiveShell } from './ResponsiveShell'
 import { PlayerProvider } from '../player'
 import '../styles.css'
 
+vi.mock('../auth/AuthProvider', () => ({
+  useAuth: () => ({
+    user: { username: 'fan', displayName: 'Anime Fan', avatarUrl: '/custom-avatar.png', kitsuAvatarUrl: 'https://media.kitsu.app/kitsu-avatar.png' },
+    firstSync: { status: 'ready' },
+    reauthentication: { status: 'idle' },
+    logout: vi.fn(),
+  }),
+}))
+
 vi.mock('../lib/query', () => ({
   useLibraryQuery: () => ({
     library: {
       playlistsById: {
-        '7': { id: 7, name: 'Night drive', deleted: false, isAuto: false, isDynamic: false, items: [], entries: [] },
+        '7': { id: 7, name: 'A very long night drive playlist name that must remain discoverable', deleted: false, isAuto: false, isDynamic: false, items: [], entries: [] },
       },
     },
   }),
@@ -35,8 +44,12 @@ describe('ResponsiveShell', () => {
     expect(screen.getByRole('heading', { name: /library content/i })).toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'Anime Ongaku' })).toHaveAttribute('src', expect.stringContaining('anime-ongaku-logo'))
     expect(screen.getByRole('heading', { name: 'Playlists' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Night drive' })).toHaveAttribute('href', '/playlist/7')
+    const playlistLink = screen.getByRole('link', { name: 'A very long night drive playlist name that must remain discoverable' })
+    expect(playlistLink).toHaveAttribute('href', '/playlist/7')
+    expect(playlistLink).toHaveAttribute('title', 'A very long night drive playlist name that must remain discoverable')
+    expect(playlistLink.querySelector('svg')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /new playlist/i })).toHaveAttribute('href', '/playlists?create=1')
+    expect(screen.getByRole('button', { name: 'Open profile menu' }).querySelector('img')).toHaveAttribute('src', 'https://media.kitsu.app/kitsu-avatar.png')
   })
 
   it.each([

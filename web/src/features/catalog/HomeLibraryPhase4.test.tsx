@@ -151,36 +151,37 @@ describe('Phase 4 Home and Library navigation contracts', () => {
     expect(screen.getByTestId('location')).toHaveTextContent('/library?tab=playlists')
   })
 
-  it('renders recent additions and top songs from the home projection', async () => {
+  it('renders currently watching and top songs from the home projection', async () => {
     vi.mocked(apiClient.get).mockResolvedValue(homeResponse() as never)
 
     renderWithQuery(<HomeCatalogPage />)
 
-    expect(await screen.findByRole('heading', { name: 'Recently added' })).toBeInTheDocument()
-    expect(screen.getByText('Bocchi the Rock!')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Currently Watching' })).toBeInTheDocument()
+    expect(screen.getByText('Frieren: Beyond Journey’s End')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Top songs' })).toBeInTheDocument()
     expect(screen.getByText('Top ending')).toBeInTheDocument()
   })
 
-  it('provides Home-level Play all for the Quick picks collection', async () => {
+  it('provides Home-level Play all for the Recommended collection', async () => {
     vi.mocked(apiClient.get).mockResolvedValue(homeResponse() as never)
     const onPlayAll = vi.fn()
 
     renderWithQuery(<HomeCatalogPage onPlayAll={onPlayAll} />)
 
-    await screen.findByRole('heading', { name: 'Quick picks' })
+    await screen.findByRole('heading', { name: 'Recommended' })
     await userEvent.click(screen.getByRole('button', { name: 'Play all' }))
 
     expect(onPlayAll).toHaveBeenCalledWith(expect.any(Array), expect.anything())
   })
 
-  it('opens the shared menu for a Quick pick overflow button', async () => {
+  it('opens shared menus for every Home song row', async () => {
     vi.mocked(apiClient.get).mockResolvedValue(homeResponse() as never)
     const onPlayNext = vi.fn()
 
     renderWithQuery(<HomeCatalogPage onPlayNext={onPlayNext} />)
 
-    await screen.findByRole('heading', { name: 'Quick picks' })
+    await screen.findByRole('heading', { name: 'Recommended' })
+    expect(screen.getByRole('button', { name: 'More actions for Top ending' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'More actions for Opening' }))
 
     expect(screen.getByRole('menu', { name: 'Opening actions' })).toBeInTheDocument()

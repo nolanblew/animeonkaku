@@ -13,7 +13,7 @@ const TOKEN_OK = JSON.stringify({
 });
 
 const SELF_USER = JSON.stringify({
-  data: [{ id: "12345", type: "users", attributes: { name: "Nolan", slug: "nolan" } }],
+  data: [{ id: "12345", type: "users", attributes: { name: "Nolan", slug: "nolan", avatar: { tiny: "https://media.kitsu.app/tiny.jpg", original: "https://media.kitsu.app/original.jpg" } } }],
 });
 
 function client(routes: Parameters<typeof routedFetch>[0]) {
@@ -37,6 +37,7 @@ describe("RealKitsuAuthClient.login", () => {
 
     expect(result.kitsuUserId).toBe("12345");
     expect(result.username).toBe("Nolan");
+    expect(result.avatarUrl).toBe("https://media.kitsu.app/original.jpg");
     expect(result.accessToken).toBe("at-1");
     expect(result.refreshToken).toBe("rt-1");
     expect(result.expiresAt?.getTime()).toBe((1_700_000_000 + 3600) * 1000);
