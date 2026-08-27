@@ -91,13 +91,13 @@ const response: ArtistDetailResponse = {
   fullSongs,
 }
 
-function renderPage(onPlayAll = vi.fn(), onPlayItem = vi.fn()) {
+function renderPage(onPlayAll = vi.fn(), onPlayItem = vi.fn(), onPlayNextItem = vi.fn(), onAddToQueueItem = vi.fn()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={['/artist/karuta']}>
         <Routes>
-          <Route path="/artist/:artistSlug" element={<ArtistDetailPage onPlayAll={onPlayAll} onPlayItem={onPlayItem} />} />
+          <Route path="/artist/:artistSlug" element={<ArtistDetailPage onPlayAll={onPlayAll} onPlayItem={onPlayItem} onPlayNextItem={onPlayNextItem} onAddToQueueItem={onAddToQueueItem} />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -143,6 +143,23 @@ describe('artist detail page', () => {
     expect(onPlayAll).toHaveBeenNthCalledWith(2, response, true)
     expect(onPlayItem).toHaveBeenNthCalledWith(1, response, 0)
     expect(onPlayItem).toHaveBeenNthCalledWith(2, response, 1)
+  })
+
+  it('offers shared overflow actions for every artist theme and full-song row', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue(response)
+    const onPlayNextItem = vi.fn()
+    const onAddToQueueItem = vi.fn()
+    renderPage(vi.fn(), vi.fn(), onPlayNextItem, onAddToQueueItem)
+
+    await screen.findByRole('heading', { name: 'Karuta' })
+    expect(screen.getByRole('button', { name: 'More actions for Ichiban no Takaramono' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Ichiban no Takaramono (Full Size)' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Play next' }))
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Ichiban no Takaramono (Full Size)' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }))
+
+    expect(onPlayNextItem).toHaveBeenCalledWith(response, 1)
+    expect(onAddToQueueItem).toHaveBeenCalledWith(response, 1)
   })
 
   it('renders fallback artist rows for incomplete theme and song metadata', async () => {
