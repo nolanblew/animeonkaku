@@ -32,7 +32,7 @@ function theme(overrides: Partial<LibraryThemeDto> = {}): LibraryThemeDto {
 
 function ModeProbe() {
   const player = usePlayer()
-  return <><output data-testid="playback-mode">{player.mode}</output><button type="button" onClick={() => player.setMode('VIDEO')}>Switch to video</button></>
+  return <><output data-testid="playback-mode">{player.mode}</output><button type="button" onClick={() => player.setMode('FULL_SIZE')}>Switch to full size</button><button type="button" onClick={() => player.setMode('VIDEO')}>Switch to video</button><button type="button" onClick={() => void player.next()}>Next track</button></>
 }
 
 function renderPlayer(store: QueueStore, props: Omit<React.ComponentProps<typeof PlayerProvider>, 'children'> = {}) {
@@ -137,5 +137,47 @@ describe('browser playback preferences and loudness', () => {
 
     renderPlayer(store, { persistenceUserId: 'phase4-video-preferences' })
     expect(screen.getByTestId('playback-mode')).toHaveTextContent('FULL_SIZE')
+  })
+
+  it('falls back to TV size and returns to the preferred full size on a later track', async () => {
+    const withFull = (id: number) => mapThemeToQueueItem(theme({
+      id,
+      mediaModes: {
+        tvSize: { url: `/v1/media/audio/${id}`, durationSeconds: 90, fileSize: null },
+        fullSize: { songId: id + 1000, url: `/v1/media/songs/${id + 1000}/audio`, durationSeconds: 240, fileSize: null, sourceReleaseId: 4 },
+        video: null,
+      },
+    }))
+    const tvOnly = mapThemeToQueueItem(theme({ id: 42 }))
+    const store = new QueueStore()
+    store.play([withFull(41), tvOnly, withFull(43)])
+    renderPlayer(store, { initialMode: 'FULL_SIZE' })
+
+    expect(screen.getByTestId('playback-mode')).toHaveTextContent('FULL_SIZE')
+    fireEvent.click(screen.getByRole('button', { name: 'Next track' }))
+    await waitFor(() => expect(screen.getByTestId('playback-mode')).toHaveTextContent('TV_SIZE'))
+    fireEvent.click(screen.getByRole('button', { name: 'Next track' }))
+    await waitFor(() => expect(screen.getByTestId('playback-mode')).toHaveTextContent('FULL_SIZE'))
+  })
+
+  it('falls back to TV size and returns to the preferred video on a later track', async () => {
+    const withVideo = (id: number) => mapThemeToQueueItem(theme({
+      id,
+      mediaModes: {
+        tvSize: { url: `/v1/media/audio/${id}`, durationSeconds: 90, fileSize: null },
+        fullSize: null,
+        video: { url: `https://cdn.example/${id}.webm`, mimeType: 'video/webm', spoiler: false, nsfw: false, entryVersion: 1 },
+      },
+    }))
+    const store = new QueueStore()
+    store.play([withVideo(41), mapThemeToQueueItem(theme({ id: 42 })), withVideo(43)])
+    renderPlayer(store)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to video' }))
+    await waitFor(() => expect(screen.getByTestId('playback-mode')).toHaveTextContent('VIDEO'))
+    fireEvent.click(screen.getByRole('button', { name: 'Next track' }))
+    await waitFor(() => expect(screen.getByTestId('playback-mode')).toHaveTextContent('TV_SIZE'))
+    fireEvent.click(screen.getByRole('button', { name: 'Next track' }))
+    await waitFor(() => expect(screen.getByTestId('playback-mode')).toHaveTextContent('VIDEO'))
   })
 })
