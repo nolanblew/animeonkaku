@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { Link, MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { ErrorState, sanitizeErrorDetails } from './ErrorState'
 import { MiniPlayer } from './MiniPlayer'
@@ -63,6 +63,17 @@ describe('interaction and safe error surfaces', () => {
     const menu = screen.getByRole('menu')
     expect(menu).toHaveClass('topbar__profile-menu')
     expect(menu.closest('.topbar__actions')).not.toBeNull()
+  })
+
+  it('resets document scroll when navigation changes the page', () => {
+    const scrollTo = vi.fn()
+    Object.defineProperty(window, 'scrollTo', { configurable: true, value: scrollTo })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/']}><PlayerProvider><ResponsiveShell><Link to="/now-playing">Open player</Link></ResponsiveShell></PlayerProvider></MemoryRouter></QueryClientProvider>)
+    scrollTo.mockClear()
+
+    fireEvent.click(screen.getByRole('link', { name: 'Open player' }))
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, left: 0, behavior: 'instant' })
   })
 
   it('opens now playing from the mini-player track', () => {
