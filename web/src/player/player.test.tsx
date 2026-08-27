@@ -198,10 +198,10 @@ describe('PlayerProvider', () => {
     Object.defineProperty(navigator, 'mediaSession', { configurable: true, value: session })
     try {
       const store = new QueueStore()
-      store.play([item()])
+      store.play([item({ itemType: 'THEME', animeTitle: 'Signal Breaker', themeType: 'ED1' })])
       renderPlayer(store)
       await waitFor(() => expect(handlers.get('nexttrack')).toEqual(expect.any(Function)))
-      expect(session.metadata).toMatchObject({ title: 'Opening Theme', artist: 'Artist' })
+      expect(session.metadata).toMatchObject({ title: 'Signal Breaker · ED 1', artist: 'Opening Theme · Artist' })
       const audio = screen.getByTestId('player-audio')
       Object.defineProperty(audio, 'duration', { configurable: true, value: 100 })
       Object.defineProperty(audio, 'currentTime', { configurable: true, writable: true, value: 12 })

@@ -6,14 +6,16 @@ import { CurrentTrackActions } from './CurrentTrackActions'
 import type { QueueEntry } from './queue'
 import { windowQueueEntries } from './queueWindow'
 import { useAccessibleFocusScope } from '../components/focusScope'
+import { themePresentation } from '../lib/themePresentation'
 
 export interface NowPlayingViewProps { className?: string; onCollapse?: () => void }
 
 export function NowPlayingView({ className = '', onCollapse }: NowPlayingViewProps) {
   const player = usePlayer()
   const current = player.currentItem
-  const title = current?.title ?? 'Nothing playing'
-  const artist = current?.artist ?? 'Choose a theme or song to begin.'
+  const presentation = playerItemPresentation(current)
+  const title = presentation.primary
+  const artist = presentation.secondary
   const isVideo = player.mode === 'VIDEO'
   const [queueOpen, setQueueOpen] = useState(false)
 
@@ -262,10 +264,11 @@ function QueueRow({ entry, tone, position, primaryLabel, onPrimary, onMoveUp, on
   dragging?: boolean
   dropTarget?: boolean
 }) {
-  const titleCopy = <><span className="player-queue__index">{position}</span><strong className="player-queue__title">{entry.item.title}</strong></>
+  const presentation = playerItemPresentation(entry.item)
+  const titleCopy = <><span className="player-queue__index">{position}</span><strong className="player-queue__title">{presentation.primary}</strong></>
   return <li className={`player-queue__row player-queue__row--${tone}${dragging ? ' player-queue__row--dragging' : ''}${dropTarget ? ' player-queue__row--drop-target' : ''}`} data-queue-id={tone === 'upcoming' ? entry.queueId : undefined}>
     {onPrimary ? <button type="button" className="player-queue__primary" onClick={onPrimary} aria-label={primaryLabel}>{titleCopy}</button> : <div className="player-queue__primary" aria-current="true">{titleCopy}</div>}
-    <div className="player-queue__meta"><small>{entry.item.artist ?? entry.item.album ?? 'Anime Ongaku'}</small>
+    <div className="player-queue__meta"><small>{presentation.secondary}</small>
       {tone === 'upcoming' && <div className="player-queue__row-actions">
         <button type="button" className="player-queue__drag-handle" onPointerDown={onDragStart} aria-label={`Drag ${entry.item.title} to reorder`} aria-describedby="queue-reorder-instructions"><GripVertical size={16} /></button>
         <button type="button" onClick={onMoveUp} disabled={!onMoveUp} aria-label={`Move ${entry.item.title} up`}><ChevronUp size={15} /></button>
@@ -274,6 +277,17 @@ function QueueRow({ entry, tone, position, primaryLabel, onPrimary, onMoveUp, on
       </div>}
     </div>
   </li>
+}
+
+function playerItemPresentation(item: QueueEntry['item'] | undefined): { primary: string; secondary: string } {
+  if (!item) return { primary: 'Nothing playing', secondary: 'Choose a theme or song to begin.' }
+  if (item.itemType === 'THEME') return themePresentation({
+    animeTitle: item.animeTitle as string | undefined,
+    themeType: item.themeType as string | undefined,
+    songTitle: item.title,
+    artist: item.artist,
+  })
+  return { primary: item.title, secondary: item.artist ?? item.album ?? 'Anime Ongaku' }
 }
 
 function formatTime(value: number): string {

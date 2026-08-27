@@ -182,7 +182,7 @@ describe('page-to-player wiring', () => {
   it('connects library play, play-next, append, and empty-queue bootstrapping', () => {
     renderPath(<LibraryPage />)
     captures.libraryProps.onPlayTheme(opening, '/art.jpg')
-    expect(captures.player.playTheme).toHaveBeenCalledWith(opening, { artworkUrl: '/api/art.jpg' })
+    expect(captures.player.playTheme).toHaveBeenCalledWith(opening, { artworkUrl: '/api/art.jpg', animeId: 'anime-1', animeTitle: 'Anime one' })
     captures.libraryProps.onPlayNext(opening, '/art.jpg')
     captures.libraryProps.onAddToQueue(ending, '/art.jpg')
     expect(captures.player.queue.playNext).toHaveBeenCalledTimes(1)
@@ -241,7 +241,7 @@ describe('page-to-player wiring', () => {
   it('only forwards playable search results and resolves library artwork', () => {
     renderPath(<SearchPage />)
     captures.searchProps.onPlayTheme(opening)
-    expect(captures.player.playTheme).toHaveBeenCalledWith(opening, { artworkUrl: '/api/v1/media/artwork/anime-1', animeId: 'anime-1' })
+    expect(captures.player.playTheme).toHaveBeenCalledWith(opening, { artworkUrl: '/api/v1/media/artwork/anime-1', animeId: 'anime-1', animeTitle: 'Anime one' })
     captures.searchProps.onPlayTrack({ track: null })
     captures.searchProps.onPlayTrack({ track: { id: 'bad' } })
     captures.searchProps.onPlayTrack({ anime: { kitsuId: 'anime-1', posterUrl: '/search.jpg' }, track: { id: 90, title: 'Full song', audioUrl: '/song', artistCredit: 'Band', durationSeconds: 200 } })

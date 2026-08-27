@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { apiClient, type ApiClient } from '../lib/api'
 import { BrowserMediaSession, type MediaSessionPort } from '../media/mediaSession'
+import { themePresentation } from '../lib/themePresentation'
 import { browserCacheStorage, ManagedMediaCache } from '../media/managedCache'
 import { modeStartTime, type PlaybackMode } from '../media/modeSwitch'
 import {
@@ -621,7 +622,12 @@ export function PlayerProvider({
     const adapter = new BrowserMediaSession(media, session, { previous: () => { void previous() }, next: () => { void next() } })
     mediaSessionRef.current = adapter
     adapter.start()
-    if (currentItem) adapter.updateMetadata({ title: currentItem.title, artist: currentItem.artist, album: currentItem.album, artworkUrl: currentItem.artworkUrl })
+    if (currentItem) {
+      const presentation = currentItem.itemType === 'THEME'
+        ? themePresentation({ animeTitle: currentItem.animeTitle as string | undefined, themeType: currentItem.themeType as string | undefined, songTitle: currentItem.title, artist: currentItem.artist })
+        : { primary: currentItem.title, secondary: currentItem.artist ?? '' }
+      adapter.updateMetadata({ title: presentation.primary, artist: presentation.secondary, album: currentItem.album, artworkUrl: currentItem.artworkUrl })
+    }
     adapter.syncState(isPlaying ? 'playing' : 'paused')
     return () => {
       adapter.dispose()

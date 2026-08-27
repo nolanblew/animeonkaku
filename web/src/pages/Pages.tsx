@@ -17,10 +17,10 @@ export function HomePage() {
   const player = usePlayer()
   const library = useLibraryQuery().library
   return <HomeCatalogPage
-    onPlayTheme={(theme, artworkUrl) => player.playTheme(theme, { artworkUrl: resolveBrowserAsset(artworkUrl) })}
-    onPlayAll={(themes, artworkUrl) => playThemeCollection(player, themes, 0, false, artworkUrl)}
-    onPlayNext={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'next', artworkUrl)}
-    onAddToQueue={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'append', artworkUrl)}
+    onPlayTheme={(theme, artworkUrl) => player.playTheme(theme, themeQueueOptions(theme, library, artworkUrl))}
+    onPlayAll={(themes, artworkUrl) => playThemeCollection(player, themes, 0, false, artworkUrl, library)}
+    onPlayNext={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'next', artworkUrl, library)}
+    onAddToQueue={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'append', artworkUrl, library)}
     onPlayPlaylist={library ? (playlist) => playPlaylist(player, library, playlist, false) : undefined}
     onPlayNextPlaylist={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'next') : undefined}
     onAddToQueuePlaylist={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'append') : undefined}
@@ -30,7 +30,7 @@ export function HomePage() {
 export function LibraryPage() {
   const player = usePlayer()
   const library = useLibraryQuery().library
-  return <LibraryCatalogPage onPlayTheme={(theme, artworkUrl) => player.playTheme(theme, { artworkUrl: resolveBrowserAsset(artworkUrl) })} onPlayNext={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'next', artworkUrl)} onAddToQueue={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'append', artworkUrl)} onPlayPlaylist={library ? (playlist) => playPlaylist(player, library, playlist, false) : undefined} onPlayNextPlaylist={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'next') : undefined} onAddToQueuePlaylist={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'append') : undefined} />
+  return <LibraryCatalogPage onPlayTheme={(theme, artworkUrl) => player.playTheme(theme, themeQueueOptions(theme, library, artworkUrl))} onPlayNext={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'next', artworkUrl, library)} onAddToQueue={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'append', artworkUrl, library)} onPlayPlaylist={library ? (playlist) => playPlaylist(player, library, playlist, false) : undefined} onPlayNextPlaylist={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'next') : undefined} onAddToQueuePlaylist={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'append') : undefined} />
 }
 
 export function SearchPage() {
@@ -38,14 +38,15 @@ export function SearchPage() {
   const library = useLibraryQuery().library
   return <AccountSearchPage onPlayTheme={(theme) => {
     const anime = theme.kitsuAnimeIds.map((id) => library?.animeById[id]).find(Boolean)
-    player.playTheme(theme, { artworkUrl: browserAssetUrl(anime?.posterUrl), animeId: anime?.kitsuId })
+    player.playTheme(theme, { artworkUrl: browserAssetUrl(anime?.posterUrl), animeId: anime?.kitsuId, animeTitle: anime?.title ?? anime?.titleEn })
   }} onPlayTrack={(result) => playSearchTrack(player.playSong, result)} onPlayNextTrack={(result) => enqueueSearchTrack(player, result, 'next')} onAddToQueueTrack={(result) => enqueueSearchTrack(player, result, 'append')} onReplaceQueueTrack={(result) => replaceSearchTrack(player, result)} />
 }
 
 export function AnimePage() {
   const player = usePlayer()
-  const playThemes = (themes: LibraryThemeDto[], startIndex = 0, shuffle = false, artworkUrl?: string | null) => playThemeCollection(player, themes, startIndex, shuffle, artworkUrl)
-  return <AnimeDetailPage onPlayThemes={playThemes} onPlayNext={(themes, artworkUrl) => insertThemeCollection(player, themes, 'next', artworkUrl)} onAddToQueue={(themes, artworkUrl) => insertThemeCollection(player, themes, 'append', artworkUrl)} onPlaySong={(song, artworkUrl, animeId) => player.playSong(song, { artworkUrl: resolveBrowserAsset(artworkUrl), animeId })} onPlayNextSong={(song, release, animeId) => enqueueSong(player, song, release.title, resolveBrowserAsset(release.artworkUrl), animeId, 'next')} onAddToQueueSong={(song, release, animeId) => enqueueSong(player, song, release.title, resolveBrowserAsset(release.artworkUrl), animeId, 'append')} onReplaceQueueSong={(song, release, animeId) => replaceSong(player, song, release.title, resolveBrowserAsset(release.artworkUrl), animeId)} />
+  const library = useLibraryQuery().library
+  const playThemes = (themes: LibraryThemeDto[], startIndex = 0, shuffle = false, artworkUrl?: string | null) => playThemeCollection(player, themes, startIndex, shuffle, artworkUrl, library)
+  return <AnimeDetailPage onPlayThemes={playThemes} onPlayNext={(themes, artworkUrl) => insertThemeCollection(player, themes, 'next', artworkUrl, library)} onAddToQueue={(themes, artworkUrl) => insertThemeCollection(player, themes, 'append', artworkUrl, library)} onPlaySong={(song, artworkUrl, animeId) => player.playSong(song, { artworkUrl: resolveBrowserAsset(artworkUrl), animeId })} onPlayNextSong={(song, release, animeId) => enqueueSong(player, song, release.title, resolveBrowserAsset(release.artworkUrl), animeId, 'next')} onAddToQueueSong={(song, release, animeId) => enqueueSong(player, song, release.title, resolveBrowserAsset(release.artworkUrl), animeId, 'append')} onReplaceQueueSong={(song, release, animeId) => replaceSong(player, song, release.title, resolveBrowserAsset(release.artworkUrl), animeId)} />
 }
 
 export function ArtistPage() {
@@ -197,19 +198,22 @@ function artistQueueItems(artist: ArtistDetailResponse): Array<PlayerQueueItem |
   const themes = Array.isArray(artist.themes) ? artist.themes : []
   const songs = Array.isArray(artist.fullSongs) ? artist.fullSongs : []
   return [
-    ...themes.map((theme) => theme.audioUrl && theme.audioState !== 'FAILED' && theme.audioState !== 'MISSING' ? mapThemeToQueueItem(theme as LibraryThemeDto, { artworkUrl }) : null),
+    ...themes.map((theme) => {
+      const anime = theme.anime?.find((entry) => entry.kitsuId)
+      return theme.audioUrl && theme.audioState !== 'FAILED' && theme.audioState !== 'MISSING' ? mapThemeToQueueItem(theme as LibraryThemeDto, { artworkUrl: resolveBrowserAsset(anime?.posterUrl) ?? artworkUrl, animeId: anime?.kitsuId, animeTitle: anime?.title ?? anime?.titleEn }) : null
+    }),
     ...songs.map((song) => song.audioAvailable !== false && song.audioUrl ? mapSongToQueueItem(song as MusicTrackDto, { artworkUrl }) : null),
   ]
 }
 
-function playThemeCollection(player: PlayerContextValue, themes: LibraryThemeDto[], startIndex: number, shuffle: boolean, artworkUrl?: string | null): void {
-  const items = themes.map((theme) => mapThemeToQueueItem(theme, { artworkUrl: resolveBrowserAsset(artworkUrl) }))
+function playThemeCollection(player: PlayerContextValue, themes: LibraryThemeDto[], startIndex: number, shuffle: boolean, artworkUrl?: string | null, library?: NormalizedLibrary | null): void {
+  const items = themes.map((theme) => mapThemeToQueueItem(theme, themeQueueOptions(theme, library, artworkUrl)))
   if (items.length === 0) return
   player.playItems(items, { contextLabel: themes.length === 1 ? themes[0]?.title : 'Anime themes', startIndex, shuffle })
 }
 
-function insertThemeCollection(player: PlayerContextValue, themes: LibraryThemeDto[], position: 'next' | 'append', artworkUrl?: string | null): void {
-  const items = themes.map((theme) => mapThemeToQueueItem(theme, { artworkUrl: resolveBrowserAsset(artworkUrl) }))
+function insertThemeCollection(player: PlayerContextValue, themes: LibraryThemeDto[], position: 'next' | 'append', artworkUrl?: string | null, library?: NormalizedLibrary | null): void {
+  const items = themes.map((theme) => mapThemeToQueueItem(theme, themeQueueOptions(theme, library, artworkUrl)))
   if (items.length === 0) return
   if (!player.currentItem) {
     player.playItem(items[0]!, { contextLabel: 'Queue' })
@@ -222,6 +226,11 @@ function insertThemeCollection(player: PlayerContextValue, themes: LibraryThemeD
 
 function resolveBrowserAsset(value: string | null | undefined): string | undefined {
   return browserAssetUrl(value)
+}
+
+function themeQueueOptions(theme: LibraryThemeDto, library?: NormalizedLibrary | null, artworkUrl?: string | null) {
+  const anime = theme.kitsuAnimeIds.map((id) => library?.animeById[id]).find((entry) => entry && !entry.deleted)
+  return { artworkUrl: resolveBrowserAsset(artworkUrl ?? anime?.posterUrl ?? anime?.coverUrl), animeId: anime?.kitsuId ?? theme.kitsuAnimeIds[0], animeTitle: anime?.title ?? anime?.titleEn }
 }
 
 function playPlaylist(player: PlayerContextValue, library: NormalizedLibrary, playlist: PlaylistDto, shuffle: boolean, startIndex = 0): void {
@@ -272,7 +281,7 @@ function playlistQueueItems(library: NormalizedLibrary, playlist: PlaylistDto): 
     const anime = theme.kitsuAnimeIds.map((id) => library.animeById[id]).find((entry) => entry && !entry.deleted)
     const preferredMode = library.prefsByThemeId[String(theme.id)]?.preferredMode
     const mode = item.modeOverride ?? (playlist.overrideUserPreference ? playlist.defaultMode : preferredMode ?? playlist.defaultMode)
-    return mapThemeToQueueItem(theme, { artworkUrl: resolveBrowserAsset(anime?.posterUrl ?? anime?.coverUrl), animeId: anime?.kitsuId, mode })
+    return mapThemeToQueueItem(theme, { artworkUrl: resolveBrowserAsset(anime?.posterUrl ?? anime?.coverUrl), animeId: anime?.kitsuId, animeTitle: anime?.title ?? anime?.titleEn, mode })
   })
 }
 

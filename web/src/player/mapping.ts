@@ -16,11 +16,14 @@ export interface PlayerQueueItem extends QueueItem {
   readonly videoNsfw?: boolean
   readonly themeId?: number
   readonly songId?: number
+  readonly animeTitle?: string
+  readonly themeType?: string
 }
 
 export interface ThemeQueueItemOptions {
   artworkUrl?: string | null
   animeId?: string | number | null
+  animeTitle?: string | null
   mode?: PlaybackMode
 }
 
@@ -42,6 +45,8 @@ export function mapThemeToQueueItem(theme: LibraryThemeDto, options: ThemeQueueI
     artist: artists || undefined,
     album: theme.themeType || undefined,
     animeId: options.animeId ?? theme.kitsuAnimeIds?.[0],
+    animeTitle: options.animeTitle?.trim() || undefined,
+    themeType: theme.themeType?.trim() || undefined,
     artworkUrl: options.artworkUrl ?? undefined,
     audioUrl,
     videoUrl,

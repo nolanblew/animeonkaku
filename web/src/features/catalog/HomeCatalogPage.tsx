@@ -8,6 +8,7 @@ import { browserAssetUrl } from '../../lib/assets'
 import { readShowOstsOnHome, subscribeToHomePreference } from '../../lib/homePreference'
 import type { LibraryThemeDto, NormalizedLibrary } from '../../lib/library'
 import { useLibraryQuery } from '../../lib/query'
+import { themePresentation } from '../../lib/themePresentation'
 import { TrackActionMenu, useLibraryActions } from '../libraryactions'
 import { playlistArtworkUrls } from '../playlists'
 import { CatalogError, CatalogLoading } from './CatalogError'
@@ -77,7 +78,7 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
               <button type="button" className="home-quick-pick__play" onClick={() => onPlayTheme?.(theme, artworkUrl)} disabled={!onPlayTheme || !isPlayable(theme)} aria-label={`Play ${theme.title}`}>
                 {artworkUrl ? <img src={artworkUrl} alt="" /> : <span aria-hidden="true">AO</span>}<span className="home-quick-pick__play-icon"><Play size={18} fill="currentColor" /></span>
               </button>
-              <span className="home-quick-pick__copy"><strong>{theme.title}</strong><small>{animeTitle} · {theme.themeType || 'Theme'}</small></span>
+              <ThemeCopy animeTitle={animeTitle} themeType={theme.themeType} songTitle={theme.title} artist={theme.artists.map((artist) => artist.name).join(', ')} className="home-quick-pick__copy" />
               <TrackActionMenu
                 item={{ itemType: 'THEME', itemId: theme.id, title: theme.title }}
                 menuOnly
@@ -101,7 +102,7 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
             <button type="button" className="home-top-song__play" aria-label={`Play ${song.title}`} disabled={!onPlayTheme || !theme || !isPlayable(theme)} onClick={() => theme && onPlayTheme?.(theme, artworkUrl)}>
               {artworkUrl ? <img src={artworkUrl} alt="" loading="lazy" /> : <span aria-hidden="true">AO</span>}<Play size={16} fill="currentColor" />
             </button>
-            <span className="home-top-song__copy"><strong>{song.title}</strong><small>{song.artistName ?? song.animeTitle ?? theme?.themeType ?? 'Theme'}</small></span>
+            <ThemeCopy animeTitle={song.animeTitle} themeType={theme?.themeType} songTitle={song.title} artist={song.artistName} className="home-top-song__copy" />
             {theme && <TrackActionMenu
               item={{ itemType: 'THEME', itemId: theme.id, title: song.title }}
               menuOnly
@@ -140,6 +141,11 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
       </section>
     </>
   )
+}
+
+function ThemeCopy({ animeTitle, themeType, songTitle, artist, className }: { animeTitle?: string | null; themeType?: string | null; songTitle: string; artist?: string | null; className: string }) {
+  const presentation = themePresentation({ animeTitle, themeType, songTitle, artist })
+  return <span className={className}><strong>{presentation.primary}</strong><small>{presentation.secondary}</small></span>
 }
 
 function HomeAnimeCard({ anime, themes, playlistId, onPlayAll }: {

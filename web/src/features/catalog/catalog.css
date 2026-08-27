@@ -142,6 +142,7 @@
 .catalog-theme-list { display: grid; gap: .4rem; }
 .catalog-theme-row { display: flex; min-width: 0; align-items: center; gap: .85rem; padding: .75rem; border: 1px solid var(--line); border-radius: .65rem; background: rgba(19,23,31,.65); }
 .catalog-theme-row__art { display: inline-grid; width: 2.7rem; height: 2.7rem; flex: 0 0 auto; place-items: center; border: 0; border-radius: .45rem; background: linear-gradient(145deg, rgba(255,94,118,.9), rgba(93,82,189,.9)); color: white; cursor: pointer; }
+.catalog-theme-row__type { min-width: 3.2rem; flex: 0 0 auto; color: var(--cyan); font-size: .76rem; font-weight: 800; letter-spacing: .04em; }
 .catalog-theme-row__art:disabled { cursor: not-allowed; opacity: .45; }
 .catalog-theme-row > div { min-width: 0; flex: 1; }
 .catalog-theme-row h3, .catalog-theme-row p { overflow: hidden; margin: 0; text-overflow: ellipsis; white-space: nowrap; }

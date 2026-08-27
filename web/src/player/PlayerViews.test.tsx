@@ -29,7 +29,7 @@ beforeEach(() => {
       isShuffled: false,
       repeatMode: 'off',
       nowPlayingEntries: [
-        { queueId: 1, item: { id: 1, title: 'Opening' } },
+        { queueId: 1, item: { id: 1, itemType: 'THEME', title: 'Opening', artist: 'Band', animeTitle: 'A Couple of Cuckoos', themeType: 'ED2' } },
         { queueId: 2, item: { id: 2, title: 'Ending', album: 'ED', durationMs: 61_000 } },
         { queueId: 3, item: { id: 3, title: 'A very long queue title that should remain readable across the row', artist: 'Long-name artist' } },
       ],

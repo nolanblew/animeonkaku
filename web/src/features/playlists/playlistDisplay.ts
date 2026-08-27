@@ -1,5 +1,6 @@
 import { browserAssetUrl } from '../../lib/assets'
 import type { AnimeMusicDto, MusicReleaseDto, MusicTrackDto, NormalizedLibrary, PlaylistDto, PlaylistPlaybackMode } from '../../lib/library'
+import { themePresentation } from '../../lib/themePresentation'
 
 export interface PlaylistDisplayItem {
   key: string
@@ -68,10 +69,11 @@ export function resolvePlaylistDisplayItems(
       const theme = library?.themesById[String(item.itemId)]
       if (!theme || theme.deleted) return unavailableItem(key, item.itemType, item.itemId, item.modeOverride)
       const anime = theme.kitsuAnimeIds.map((id) => library?.animeById[id]).find((candidate) => candidate && !candidate.deleted)
+      const presentation = themePresentation({ animeTitle: anime?.titleEn ?? anime?.title, themeType: theme.themeType, songTitle: theme.title, artist: theme.artists.map((artist) => artist.name).join(', ') })
       return {
         key,
-        title: theme.title,
-        subtitle: [anime?.titleEn ?? anime?.title, theme.themeType, theme.artists.map((artist) => artist.name).join(', ')].filter(Boolean).join(' · '),
+        title: presentation.primary,
+        subtitle: presentation.secondary,
         artworkUrl: browserAssetUrl(anime?.posterUrl ?? anime?.coverUrl) ?? null,
         durationSeconds: theme.durationSeconds,
         available: theme.audioState === 'READY',

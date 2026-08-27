@@ -208,7 +208,7 @@ describe('catalog pages', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: 'Songs' }))
     await userEvent.click(screen.getByRole('button', { name: 'More actions for Song 10' }))
-    expect(screen.getByRole('dialog', { name: 'Song 10 actions' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Frieren: Beyond Journey’s End · OP actions' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Play next' }))
     await userEvent.click(screen.getByRole('button', { name: 'Add to queue' }))
     expect(onPlayNext).toHaveBeenCalled()

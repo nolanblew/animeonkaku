@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { browserAssetUrl } from '../../lib/assets'
 import { selectActiveAnime, type LibraryThemeDto, type NormalizedLibrary } from '../../lib/library'
 import { useLibraryQuery } from '../../lib/query'
+import { themePresentation } from '../../lib/themePresentation'
 import { ThemeActionSheet } from '../libraryactions'
 import { playlistArtworkUrls } from '../playlists'
 import { AnimeGrid } from './AnimeGrid'
@@ -153,9 +154,11 @@ function ThemeLibraryList({ themes, library, onPlayTheme, onMore }: { themes: Li
   if (themes.length === 0) return <p className="catalog-empty">No themes match this view.</p>
   return <div className="catalog-theme-list">{themes.map((theme) => {
     const artwork = themeArtwork(theme, library)
+    const anime = theme.kitsuAnimeIds.map((id) => library.animeById[id]).find((entry) => entry && !entry.deleted)
+    const presentation = themePresentation({ animeTitle: anime?.title ?? anime?.titleEn, themeType: theme.themeType, songTitle: theme.title, artist: theme.artists.map((artist) => artist.name).join(', ') })
     return <article className="catalog-theme-row" key={theme.id}>
       {artwork ? <img className="catalog-theme-row__image" src={browserAssetUrl(artwork)} alt="" loading="lazy" /> : <span className="catalog-theme-row__art" aria-hidden="true">AO</span>}
-      <div><h3>{theme.title}</h3><p>{[theme.themeType, theme.artists.map((artist) => artist.name).join(', ')].filter(Boolean).join(' · ')}</p></div>
+      <div><h3>{presentation.primary}</h3><p>{presentation.secondary}</p></div>
       <button type="button" className="catalog-theme-row__play" onClick={() => onPlayTheme?.(theme, artwork)} disabled={!onPlayTheme || theme.audioState !== 'READY'} aria-label={`Play ${theme.title}`}><Play size={16} fill="currentColor" /></button>
       <button type="button" className="catalog-theme-row__more" onClick={() => onMore(theme)} aria-label={`More actions for ${theme.title}`}><MoreHorizontal size={18} /></button>
     </article>
@@ -216,7 +219,9 @@ function ThemeActions({ theme, library, onPlayTheme, onPlayNext, onAddToQueue, o
   const preference = library.prefsByThemeId[String(theme.id)]
   const artwork = themeArtwork(theme, library)
   const animeId = theme.kitsuAnimeIds[0]
-  return <ThemeActionSheet themeId={theme.id} title={theme.title} subtitle={[theme.themeType, theme.artists.map((artist) => artist.name).join(', ')].filter(Boolean).join(' · ')} liked={preference?.liked} disliked={preference?.disliked} preferredMode={preference?.preferredMode} hasFullSize={Boolean(theme.mediaModes.fullSize)} inLibrary animeKitsuId={animeId} inAnimeLibrary={Boolean(theme.kitsuAnimeIds.some((id) => library.animeById[id] && !library.animeById[id]?.deleted))} onPlay={onPlayTheme ? () => onPlayTheme(theme, artwork) : undefined} onPlayNext={onPlayNext ? () => onPlayNext(theme, artwork) : undefined} onAddToQueue={onAddToQueue ? () => onAddToQueue(theme, artwork) : undefined} onClose={onClose} />
+  const anime = theme.kitsuAnimeIds.map((id) => library.animeById[id]).find((entry) => entry && !entry.deleted)
+  const presentation = themePresentation({ animeTitle: anime?.title ?? anime?.titleEn, themeType: theme.themeType, songTitle: theme.title, artist: theme.artists.map((artist) => artist.name).join(', ') })
+  return <ThemeActionSheet themeId={theme.id} title={presentation.primary} subtitle={presentation.secondary} liked={preference?.liked} disliked={preference?.disliked} preferredMode={preference?.preferredMode} hasFullSize={Boolean(theme.mediaModes.fullSize)} inLibrary animeKitsuId={animeId} inAnimeLibrary={Boolean(theme.kitsuAnimeIds.some((id) => library.animeById[id] && !library.animeById[id]?.deleted))} onPlay={onPlayTheme ? () => onPlayTheme(theme, artwork) : undefined} onPlayNext={onPlayNext ? () => onPlayNext(theme, artwork) : undefined} onAddToQueue={onAddToQueue ? () => onAddToQueue(theme, artwork) : undefined} onClose={onClose} />
 }
 
 function themeArtwork(theme: LibraryThemeDto, library: NormalizedLibrary): string | null {

@@ -159,7 +159,8 @@ describe('Phase 4 Home and Library navigation contracts', () => {
     expect(await screen.findByRole('heading', { name: 'Currently Watching' })).toBeInTheDocument()
     expect(screen.getByText('Frieren: Beyond Journey’s End')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Top songs' })).toBeInTheDocument()
-    expect(screen.getByText('Top ending')).toBeInTheDocument()
+    expect(screen.getAllByText('Bocchi the Rock! · ED', { selector: 'strong' }).length).toBeGreaterThan(0)
+    expect(screen.getByText('Top ending · Kessoku Band')).toBeInTheDocument()
   })
 
   it('provides Home-level Play all for the Recommended collection', async () => {

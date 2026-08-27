@@ -6,6 +6,7 @@ import { apiClient } from '../../lib/api'
 import { browserAssetUrl } from '../../lib/assets'
 import { CatalogError, CatalogLoading } from '../catalog/CatalogError'
 import { TrackActionMenu } from '../libraryactions'
+import { formatThemeType, themePresentation } from '../../lib/themePresentation'
 import type { ArtistAnimeLink, ArtistDetailResponse, ArtistFullSongDto, ArtistThemeDto } from './types'
 import './artists.css'
 
@@ -91,7 +92,10 @@ function ArtistThemeRow({ theme, onPlay, onPlayNext, onAddToQueue, onReplaceQueu
   const state = theme.audioState ?? 'Available online'
   const navigate = useNavigate()
   const linkedAnime = anime.find((entry) => entry.kitsuId)
-  return <li className="artist-page__row"><button className="artist-page__row-play" type="button" disabled={!onPlay || !theme.audioUrl || theme.audioState === 'FAILED' || theme.audioState === 'MISSING'} onClick={onPlay} aria-label={`Play ${theme.title}`}><Play size={16} fill="currentColor" /></button><div className="artist-page__row-copy"><strong>{theme.title}</strong><small>{[theme.themeType, theme.artists.map((artist) => artist.name).join(', ')].filter(Boolean).join(' · ') || 'Anime theme'}</small><AnimeLinks anime={anime} /></div><span className="artist-page__row-state">{state === 'READY' ? 'Ready' : state === 'MISSING' ? 'Unavailable' : state}</span><TrackActionMenu menuOnly item={{ itemType: 'THEME', itemId: theme.id, title: theme.title }} hasFullSize={Boolean(theme.mediaModes.fullSize)} onPlayNext={onPlayNext} onAddToQueue={onAddToQueue} onReplaceQueue={onReplaceQueue} onGoToAnime={linkedAnime ? () => navigate(`/anime/${encodeURIComponent(linkedAnime.kitsuId)}`) : undefined} animeName={linkedAnime?.title || linkedAnime?.titleEn} onRelatedMusic={linkedAnime ? () => navigate(`/anime/${encodeURIComponent(linkedAnime.kitsuId)}/related-music`) : undefined} /></li>
+  const presentation = themePresentation({ animeTitle: linkedAnime?.title || linkedAnime?.titleEn, themeType: theme.themeType, songTitle: theme.title, artist: theme.artists.map((artist) => artist.name).join(', ') })
+  const linkedAnimeTitle = linkedAnime?.title || linkedAnime?.titleEn
+  const typeLabel = formatThemeType(theme.themeType)
+  return <li className="artist-page__row"><button className="artist-page__row-play" type="button" disabled={!onPlay || !theme.audioUrl || theme.audioState === 'FAILED' || theme.audioState === 'MISSING'} onClick={onPlay} aria-label={`Play ${theme.title}`}><Play size={16} fill="currentColor" /></button><div className="artist-page__row-copy"><strong>{linkedAnime && linkedAnimeTitle ? <><Link to={`/anime/${encodeURIComponent(linkedAnime.kitsuId)}`}>{linkedAnimeTitle}</Link>{typeLabel ? ` · ${typeLabel}` : ''}</> : presentation.primary}</strong><small>{presentation.secondary}</small>{anime.length > 1 && <AnimeLinks anime={anime.slice(1)} />}</div><span className="artist-page__row-state">{state === 'READY' ? 'Ready' : state === 'MISSING' ? 'Unavailable' : state}</span><TrackActionMenu menuOnly item={{ itemType: 'THEME', itemId: theme.id, title: theme.title }} hasFullSize={Boolean(theme.mediaModes.fullSize)} onPlayNext={onPlayNext} onAddToQueue={onAddToQueue} onReplaceQueue={onReplaceQueue} onGoToAnime={linkedAnime ? () => navigate(`/anime/${encodeURIComponent(linkedAnime.kitsuId)}`) : undefined} animeName={linkedAnime?.title || linkedAnime?.titleEn} onRelatedMusic={linkedAnime ? () => navigate(`/anime/${encodeURIComponent(linkedAnime.kitsuId)}/related-music`) : undefined} /></li>
 }
 
 function ArtistSongRow({ song, onPlay, onPlayNext, onAddToQueue, onReplaceQueue }: { song: ArtistFullSongDto; onPlay?: () => void; onPlayNext?: () => void; onAddToQueue?: () => void; onReplaceQueue?: () => void }) {

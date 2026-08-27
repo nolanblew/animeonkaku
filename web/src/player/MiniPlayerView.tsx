@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { usePlayer } from './PlayerProvider'
 import { CurrentTrackActions } from './CurrentTrackActions'
 import { queueItemLoudnessVolume } from './mapping'
+import { themePresentation } from '../lib/themePresentation'
 
 export interface MiniPlayerViewProps {
   className?: string
@@ -16,6 +17,9 @@ export function MiniPlayerView({ className = '', onOpen }: MiniPlayerViewProps) 
   if (!current) {
     return <section className={['player-mini-player', 'player-mini-player--empty', className].filter(Boolean).join(' ')} aria-label="Mini player" data-testid="mini-player-view"><span className="player-mini-player__empty">Nothing playing</span></section>
   }
+  const presentation = current.itemType === 'THEME'
+    ? themePresentation({ animeTitle: current.animeTitle as string | undefined, themeType: current.themeType as string | undefined, songTitle: current.title, artist: current.artist })
+    : { primary: current.title, secondary: current.artist ?? current.album ?? 'Anime Ongaku' }
   const changeVolume = (value: number) => {
     const bounded = Math.max(0, Math.min(100, value))
     const contentGain = queueItemLoudnessVolume(current, player.mode)
@@ -28,7 +32,7 @@ export function MiniPlayerView({ className = '', onOpen }: MiniPlayerViewProps) 
       <div className="player-mini-player__identity">
         <button className="player-mini-player__track" type="button" onClick={onOpen} disabled={!onOpen} aria-label={`Open now playing for ${current.title}`}>
           {current.artworkUrl ? <img className="player-shared-artwork" src={current.artworkUrl} alt="" /> : <span className="player-mini-player__artwork player-shared-artwork" aria-hidden="true">AO</span>}
-          <span className="player-mini-player__meta"><strong>{current.title}</strong><small>{current.artist ?? current.album ?? 'Anime Ongaku'}</small></span>
+          <span className="player-mini-player__meta"><strong>{presentation.primary}</strong><small>{presentation.secondary}</small></span>
         </button>
         <CurrentTrackActions />
       </div>
