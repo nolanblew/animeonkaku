@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiClient } from '../../lib/api'
-import type { NormalizedLibrary } from '../../lib/library'
+import type { MusicTrackDto, NormalizedLibrary } from '../../lib/library'
 
 vi.mock('../../lib/query', () => ({
   useLibraryQuery: vi.fn(),
@@ -250,6 +250,40 @@ describe('catalog pages', () => {
     expect(screen.getByRole('dialog', { name: 'Opening actions' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Play next' }))
     expect(onPlayNext).toHaveBeenCalledWith([opening], 'https://images.example/a.jpg')
+  })
+
+  it('exposes shared actions for anime detail release tracks with anime context', async () => {
+    const fullSong: MusicTrackDto = {
+      id: 90,
+      title: 'Full song',
+      titleEnglish: null,
+      titleRomaji: null,
+      titleJapanese: null,
+      artistCredit: 'Neon Harbor',
+      artistNames: [],
+      durationSeconds: 204,
+      audioUrl: '/v1/media/songs/90/audio',
+      fileSize: 1_024,
+      discNumber: 1,
+      trackNumber: 1,
+      displayOrder: 1,
+    }
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ anime: anime('a', 'Frieren: Beyond Journey’s End', 'current'), themes: [] })
+      .mockResolvedValueOnce({ anime: { kitsuId: 'a', title: 'Frieren', titleEn: 'Frieren', posterUrl: null }, releases: [{ id: 3, title: 'Season One', titleEnglish: null, titleRomaji: null, titleJapanese: null, artistCredit: 'Neon Harbor', artistNames: [], relationshipType: 'THEME', releaseDate: null, year: 2024, artworkUrl: null, tracks: [fullSong] }] })
+
+    renderWithQuery(<Routes><Route path="/anime/:animeId" element={<AnimeDetailPage onPlaySong={vi.fn()} />} /></Routes>, ['/anime/a'])
+
+    await screen.findByRole('heading', { name: 'Frieren: Beyond Journey’s End' })
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Full song' }))
+
+    expect(screen.getByRole('menuitem', { name: 'Play next' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Add to queue' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Replace queue' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Save to playlist' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Go to Neon Harbor' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Go to Frieren: Beyond Journey’s End' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Related Music' })).toBeInTheDocument()
   })
 
   it('keeps detail themes and releases useful when either detail request is empty', async () => {

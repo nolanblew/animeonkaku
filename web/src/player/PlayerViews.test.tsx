@@ -91,6 +91,25 @@ describe('player views', () => {
     expect(state.player.queue.addToQueue).toHaveBeenCalledWith([state.player.currentItem])
   })
 
+  it('exposes the complete context-aware track menu from both full and mini players', () => {
+    const expectSharedActions = () => {
+      fireEvent.click(screen.getByRole('button', { name: 'More actions for Opening' }))
+      expect(screen.getByRole('menuitem', { name: 'Replace queue' })).toBeInTheDocument()
+      expect(screen.getByRole('menuitem', { name: 'Play Video' })).toBeInTheDocument()
+      expect(screen.getByRole('menuitem', { name: 'Go to artist' })).toBeInTheDocument()
+      expect(screen.getByRole('menuitem', { name: 'Go to anime' })).toBeInTheDocument()
+      expect(screen.getByRole('menuitem', { name: 'Related Music' })).toBeInTheDocument()
+      expect(screen.getByRole('menuitem', { name: 'Prefer Full Size' })).toBeInTheDocument()
+    }
+
+    const full = renderPlayer(<NowPlayingView />)
+    expectSharedActions()
+    full.unmount()
+
+    renderPlayer(<MiniPlayerView />)
+    expectSharedActions()
+  })
+
   it('forwards the compact player controls and opens the full view', () => {
     const onOpen = vi.fn()
     renderPlayer(<MiniPlayerView onOpen={onOpen} />)

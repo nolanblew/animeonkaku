@@ -106,8 +106,18 @@ describe('SearchPage', () => {
     await act(async () => { await vi.runAllTimersAsync(); await Promise.resolve() })
     expect(screen.getByText('Blue Bird')).toBeInTheDocument()
     expect(screen.getByText('Naruto Collection')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'More actions for Blue Bird' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Play Blue Bird' }))
     expect(onPlayTrack).toHaveBeenCalledWith(expect.objectContaining({ releaseTitle: 'Best Collection' }))
+  })
+
+  it('makes linked server release results navigable to release detail', async () => {
+    vi.useFakeTimers()
+    mockedGet.mockResolvedValue({ releases: [{ anime: [{ title: 'Naruto' }], release: { id: 20, title: 'Naruto Collection', artistCredit: 'Various', tracks: [] } }], tracks: [] })
+    render(<MemoryRouter initialEntries={['/search?q=naruto']}><SearchPage /></MemoryRouter>)
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); await Promise.resolve() })
+    expect(screen.getByRole('link', { name: 'Naruto Collection' })).toHaveAttribute('href', '/release/20')
   })
 
   it('links local anime and playlists and delegates local theme playback', () => {

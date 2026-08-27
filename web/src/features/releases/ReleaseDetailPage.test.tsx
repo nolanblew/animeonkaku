@@ -91,6 +91,22 @@ describe('release detail page', () => {
     expect(onPlayTrack).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }), expect.objectContaining({ id: 42 }), 1)
   })
 
+  it('exposes the shared track actions on release rows with release context', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue(release())
+    renderPage()
+
+    await screen.findByRole('heading', { name: 'Signal in the Static' })
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for First Transmission' }))
+
+    expect(screen.getByRole('menuitem', { name: 'Play next' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Add to queue' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Replace queue' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Save to playlist' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Go to Neon Harbor' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Go to Signal Breaker' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Related Music' })).toBeInTheDocument()
+  })
+
   it('renders an explicit empty state for a release without ready tracks', async () => {
     vi.mocked(apiClient.get).mockResolvedValue(release({ tracks: [] }))
     renderPage()
