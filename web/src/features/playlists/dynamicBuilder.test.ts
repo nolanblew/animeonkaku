@@ -79,6 +79,26 @@ describe('dynamic playlist builder model', () => {
     })
   })
 
+  it('compiles recent aired windows into the server aired_on predicate', () => {
+    expect(compileSimpleFilter({
+      ...createDefaultSimpleFilter(),
+      timeDimension: 'AIRED',
+      timeMode: 'LAST_6_MONTHS',
+    })).toEqual({
+      type: 'and',
+      children: [{ type: 'aired_on', operator: 'GT', anchor: { type: 'relative', unit: 'DAYS', amount: 182 } }],
+    })
+
+    expect(compileSimpleFilter({
+      ...createDefaultSimpleFilter(),
+      timeDimension: 'AIRED',
+      timeMode: 'LAST_2_YEARS',
+    })).toEqual({
+      type: 'and',
+      children: [{ type: 'aired_on', operator: 'GT', anchor: { type: 'relative', unit: 'YEARS', amount: 2 } }],
+    })
+  })
+
   it('builds include/exclude roots without losing nested advanced groups', () => {
     const nested: FilterNodeJson = { type: 'or', children: [{ type: 'title_matches', pattern: 'cowboy', isRegex: false }, leaf] }
     expect(buildAdvancedFilter([nested, leaf], [{ type: 'downloaded' }])).toEqual({
