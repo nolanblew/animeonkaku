@@ -214,11 +214,13 @@ export function PlaylistDetail({ playlist, onUpdate, onDelete, onBack, onPlay }:
   useEffect(() => setItems(normalizePlaylistItems(playlist)), [playlist])
 
   async function saveItems(next: PlaylistEntryModel[]) {
+    const previous = items
     setItems(next)
     setError(null)
     try {
       await onUpdate(playlist.id, { items: next.map((item) => ({ ...(item.entryId !== null ? { entryId: item.entryId } : {}), itemType: item.itemType, itemId: item.itemId, modeOverride: item.modeOverride })) })
     } catch (updateError) {
+      setItems(previous)
       setError(updateError instanceof Error ? updateError.message : 'Could not update tracks.')
     }
   }
