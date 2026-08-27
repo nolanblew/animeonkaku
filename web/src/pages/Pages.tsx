@@ -2,10 +2,11 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ListMusic, MonitorPlay } from 'lucide-react'
 import { RouteSkeleton } from '../components/RouteSkeleton'
 import { AnimeDetailPage, HomeCatalogPage, LibraryCatalogPage } from '../features/catalog'
+import { ReleaseDetailPage } from '../features/releases'
 import { PlaylistDetail, PlaylistFeatureMessage, PlaylistManager, usePlaylist, usePlaylistMutations, usePlaylists } from '../features/playlists'
 import { SearchPage as AccountSearchPage, SettingsPage as AccountSettingsPage, type MusicSearchTrack } from '../features/accountsearch'
 import { mapSongToQueueItem, mapThemeToQueueItem, NowPlayingView, usePlayer, type PlayerContextValue, type PlayerQueueItem } from '../player'
-import type { LibraryThemeDto, MusicTrackDto, NormalizedLibrary, PlaylistDto } from '../lib/library'
+import type { LibraryThemeDto, MusicReleaseDto, MusicTrackDto, NormalizedLibrary, PlaylistDto } from '../lib/library'
 import { browserAssetUrl } from '../lib/assets'
 import { useLibraryQuery } from '../lib/query'
 
@@ -31,6 +32,11 @@ export function AnimePage() {
   const player = usePlayer()
   const playThemes = (themes: LibraryThemeDto[], _startIndex = 0, shuffle = false, artworkUrl?: string | null) => playThemeCollection(player, themes, shuffle, artworkUrl)
   return <AnimeDetailPage onPlayThemes={playThemes} onPlayNext={(themes, artworkUrl) => insertThemeCollection(player, themes, 'next', artworkUrl)} onAddToQueue={(themes, artworkUrl) => insertThemeCollection(player, themes, 'append', artworkUrl)} onPlaySong={(song, artworkUrl, animeId) => player.playSong(song, { artworkUrl: resolveBrowserAsset(artworkUrl), animeId })} />
+}
+
+export function ReleasePage() {
+  const player = usePlayer()
+  return <ReleaseDetailPage onPlayAll={(release, shuffle) => playReleaseCollection(player, release, shuffle)} onPlayTrack={(track, release) => playReleaseTrack(player, track, release)} />
 }
 
 export function PlaylistPage() {
@@ -82,6 +88,23 @@ function playSearchTrack(playSong: (song: MusicTrackDto, options?: { artworkUrl?
     trackNumber: null,
     displayOrder: 0,
   }, { artworkUrl: resolveBrowserAsset(result.anime?.posterUrl), animeId: result.anime?.kitsuId })
+}
+
+function playReleaseCollection(player: PlayerContextValue, release: MusicReleaseDto, shuffle: boolean): void {
+  const artworkUrl = resolveBrowserAsset(release.artworkUrl)
+  const animeId = release.anime?.find((anime) => anime.kitsuId)?.kitsuId
+  const items = release.tracks.map((track) => mapSongToQueueItem(track, { artworkUrl, animeId }))
+  if (items.length === 0) return
+  player.playItem(items[0]!, { contextLabel: release.title })
+  if (items.length > 1) player.queue.addToQueue(items.slice(1))
+  if (shuffle && items.length > 1) player.setShuffle(true)
+}
+
+function playReleaseTrack(player: PlayerContextValue, track: MusicTrackDto, release: MusicReleaseDto): void {
+  player.playSong(track, {
+    artworkUrl: resolveBrowserAsset(release.artworkUrl),
+    animeId: release.anime?.find((anime) => anime.kitsuId)?.kitsuId,
+  })
 }
 
 function playThemeCollection(player: PlayerContextValue, themes: LibraryThemeDto[], shuffle: boolean, artworkUrl?: string | null): void {

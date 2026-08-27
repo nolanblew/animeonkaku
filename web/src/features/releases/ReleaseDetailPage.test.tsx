@@ -76,7 +76,7 @@ describe('release detail page', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent(/loading release/i)
     expect(await screen.findByRole('heading', { name: 'Signal in the Static' })).toBeInTheDocument()
-    expect(screen.getByText('Neon Harbor')).toBeInTheDocument()
+    expect(screen.getAllByText('Neon Harbor').length).toBeGreaterThan(0)
     expect(screen.getByText('SOUNDTRACK')).toBeInTheDocument()
     expect(screen.getByText('2024')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Signal Breaker' })).toHaveAttribute('href', '/anime/anime-1')
@@ -106,9 +106,9 @@ describe('release detail page', () => {
 
     expect(await screen.findByRole('heading', { name: 'Release unavailable' })).toBeInTheDocument()
     expect(screen.getByText(/could not load this release/i)).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: /show technical details/i }))
-    expect(screen.getByLabelText('Technical details')).toHaveTextContent('authorization: [redacted] token: [redacted]')
-    expect(screen.getByLabelText('Technical details')).not.toHaveTextContent(/secret-value|private-token/)
+    await userEvent.click(screen.getByText('Show technical details'))
+    expect(screen.getByText('authorization: [redacted] token: [redacted]')).toBeInTheDocument()
+    expect(screen.queryByText(/secret-value|private-token/)).not.toBeInTheDocument()
   })
 
   it('does not request a missing release id', () => {

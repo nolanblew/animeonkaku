@@ -12,6 +12,7 @@ const HomePage = lazy(async () => import('../pages/Pages').then((module) => ({ d
 const LibraryPage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.LibraryPage })))
 const SearchPage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.SearchPage })))
 const AnimePage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.AnimePage })))
+const ReleasePage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.ReleasePage })))
 const PlaylistPage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.PlaylistPage })))
 const PlaylistsPage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.PlaylistsPage })))
 const NowPlayingPage = lazy(async () => import('../pages/Pages').then((module) => ({ default: module.NowPlayingPage })))
@@ -35,6 +36,7 @@ export function App() {
                   <Route path="library" element={<LibraryPage />} />
                   <Route path="search" element={<SearchPage />} />
                   <Route path="anime/:animeId" element={<AnimePage />} />
+                  <Route path="release/:releaseId" element={<ReleasePage />} />
                   <Route path="playlist/:playlistId" element={<PlaylistPage />} />
                   <Route path="playlists" element={<PlaylistsPage />} />
                   <Route path="now-playing" element={<NowPlayingPage />} />
