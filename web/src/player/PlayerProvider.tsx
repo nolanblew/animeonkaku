@@ -142,6 +142,7 @@ export function PlayerProvider({
   const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null)
   const [videoConfirmation, setVideoConfirmation] = useState<VideoConfirmationRequest | null>(null)
   const confirmedVideoKeysRef = useRef(new Set<string>())
+  const preferredModeRef = useRef<PlaybackMode>(initialPlaybackMode)
   const modeRef = useRef<PlaybackMode>(initialPlaybackMode)
   const activeMediaRef = useRef<HTMLMediaElement | null>(null)
   const mediaSessionRef = useRef<BrowserMediaSession | null>(null)
@@ -299,6 +300,7 @@ export function PlayerProvider({
       time: modeStartTime(fromMode, nextMode, oldTime, queueItemDurationMs(item, nextMode) ? queueItemDurationMs(item, nextMode)! / 1000 : undefined),
       queueId: currentEntry.queueId,
     }
+    preferredModeRef.current = nextMode
     modeRef.current = nextMode
     setModeState(nextMode)
     if (persistenceUserId && (nextMode === 'TV_SIZE' || nextMode === 'FULL_SIZE')) {
@@ -323,6 +325,7 @@ export function PlayerProvider({
   const requestAutoplayFor = useCallback((nextMode?: PlaybackMode, autoPlay = true) => {
     shouldAutoplayRef.current = autoPlay
     if (nextMode) {
+      preferredModeRef.current = nextMode
       modeRef.current = nextMode
       setModeState(nextMode)
     }
@@ -490,8 +493,9 @@ export function PlayerProvider({
   useEffect(() => {
     const item = currentEntry?.item
     const videoUrl = item ? queueItemVideoUrl(item) : undefined
-    const nextMode: PlaybackMode = item && isModeAvailable(item, mode)
-      ? mode
+    const preferredMode = preferredModeRef.current
+    const nextMode: PlaybackMode = item && isModeAvailable(item, preferredMode)
+      ? preferredMode
       : item && queueItemAudioUrl(item, 'TV_SIZE')
         ? 'TV_SIZE'
         : item && queueItemAudioUrl(item, 'FULL_SIZE')
@@ -507,6 +511,7 @@ export function PlayerProvider({
           ...warning,
           onConfirm: () => undefined,
           onCancel: () => {
+            preferredModeRef.current = fallbackMode
             modeRef.current = fallbackMode
             setModeState(fallbackMode)
           },
