@@ -1,13 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
 import { ArrowRight, MoreHorizontal, Play } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiClient } from '../../lib/api'
 import { browserAssetUrl } from '../../lib/assets'
 import type { LibraryThemeDto, NormalizedLibrary } from '../../lib/library'
 import { useLibraryQuery } from '../../lib/query'
 import { PlaylistArtwork, playlistArtworkUrls } from '../playlists'
-import { AnimeCard } from './AnimeCard'
 import { CatalogError, CatalogLoading } from './CatalogError'
 import type { BrowserHomeResponse } from './types'
 
@@ -85,7 +84,6 @@ export function HomeCatalogPage({ onPlayTheme }: HomeCatalogPageProps) {
           })}</div>}
       </section>
 
-      <RecentAnimeSection anime={data.recentlyAdded} library={library} />
     </section>
   )
 }
@@ -108,9 +106,4 @@ function selectQuickPicks(data: BrowserHomeResponse, library: NormalizedLibrary 
 
 function isPlayable(theme: LibraryThemeDto): boolean {
   return Boolean(theme.mediaModes.tvSize?.url || theme.mediaModes.fullSize?.url || theme.mediaModes.video?.url || theme.audioUrl)
-}
-
-function RecentAnimeSection({ anime, library }: { anime: BrowserHomeResponse['recentlyAdded']; library: NormalizedLibrary | null }) {
-  const items = useMemo(() => anime.map((summary) => library?.animeById[summary.kitsuId] ?? { kitsuId: summary.kitsuId, title: summary.title, titleEn: summary.title, titleRomaji: null, titleJa: null, posterUrl: summary.posterUrl, watchingStatus: null, subtype: null, episodeCount: null, genres: [] }), [anime, library])
-  return <section className="catalog-section home-recent" aria-labelledby="recently-added-title"><div className="catalog-section__heading"><div><p className="eyebrow">Fresh from Kitsu</p><h2 id="recently-added-title">Recently added</h2></div><Link to="/library" className="catalog-section__link">See all <ArrowRight size={15} /></Link></div>{items.length === 0 ? <p className="catalog-empty">Your next sync will fill this space.</p> : <div className="catalog-home-grid">{items.slice(0, 6).map((item) => <AnimeCard key={item.kitsuId} anime={item} themeCount={library ? Object.values(library.themesById).filter((theme) => !theme.deleted && theme.kitsuAnimeIds.includes(item.kitsuId)).length : undefined} />)}</div>}</section>
 }
