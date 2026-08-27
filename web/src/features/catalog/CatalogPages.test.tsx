@@ -129,8 +129,10 @@ describe('catalog pages', () => {
     expect(screen.getByRole('link', { name: 'Show 4999' })).toBeInTheDocument()
 
     await userEvent.clear(search)
-    await userEvent.click(screen.getByRole('button', { name: /Load more anime/ }))
-    expect(screen.getAllByTestId('anime-card')).toHaveLength(48)
+    await userEvent.click(screen.getByRole('button', { name: 'Next anime page' }))
+    expect(screen.getAllByTestId('anime-card')).toHaveLength(24)
+    expect(screen.queryByRole('link', { name: 'Show 0000' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Show 0024' })).toBeInTheDocument()
   })
 
   it('shows an empty library state when no anime matches the filter', async () => {
