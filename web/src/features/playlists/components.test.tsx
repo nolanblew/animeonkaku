@@ -116,6 +116,12 @@ describe('playlist components', () => {
     expect(screen.getByRole('textbox', { name: /playlist name/i })).toBeInTheDocument()
   })
 
+  it('opens the creation flow from the sidebar deep link', () => {
+    renderWithQuery(<PlaylistManager playlists={[]} state="ready" initialCreate onCreate={vi.fn()} onUpdate={vi.fn()} onDelete={vi.fn()} />)
+    expect(screen.getByRole('dialog', { name: /create playlist/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /what kind of playlist/i })).toBeInTheDocument()
+  })
+
   it('keeps manual playlist creation short and focused', async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined)
     renderWithQuery(<PlaylistEditor onSubmit={onSubmit} />)

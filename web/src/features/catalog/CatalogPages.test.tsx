@@ -225,6 +225,7 @@ describe('catalog pages', () => {
     renderWithQuery(<Routes><Route path="/anime/:animeId" element={<AnimeDetailPage />} /></Routes>, ['/anime/a'])
 
     expect(await screen.findByRole('heading', { name: 'Frieren: Beyond Journey’s End' })).toBeInTheDocument()
+    expect(screen.getByTestId('anime-hero-backdrop')).toHaveStyle({ backgroundImage: 'url("https://images.example/a.jpg")' })
     expect(screen.getByRole('heading', { name: 'Themes' })).toBeInTheDocument()
     expect(screen.getByText('Season One')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Season One' })).toHaveAttribute('href', '/release/3')
