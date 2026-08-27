@@ -85,10 +85,10 @@ describe('release detail page', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Play all tracks' }))
     await userEvent.click(screen.getByRole('button', { name: 'Shuffle release' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Play First Transmission' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Play Afterglow' }))
     expect(onPlayAll).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: 42 }), false)
     expect(onPlayAll).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: 42 }), true)
-    expect(onPlayTrack).toHaveBeenCalledWith(expect.objectContaining({ id: 10 }), expect.objectContaining({ id: 42 }))
+    expect(onPlayTrack).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }), expect.objectContaining({ id: 42 }), 1)
   })
 
   it('renders an explicit empty state for a release without ready tracks', async () => {

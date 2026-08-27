@@ -127,6 +127,7 @@ function playerMock(currentItem: unknown = { id: 'current' }) {
     playTheme: vi.fn(),
     playSong: vi.fn(),
     playItem: vi.fn(),
+    playItems: vi.fn(),
     setShuffle: vi.fn(),
     queue: { addToQueue: vi.fn(), playNext: vi.fn() },
   }
@@ -171,10 +172,11 @@ describe('page-to-player wiring', () => {
   it('connects anime collection playback, shuffle, insertion, and full songs', () => {
     renderPath(<AnimePage />)
     captures.animeProps.onPlayThemes([], 0, false, null)
-    captures.animeProps.onPlayThemes([opening, ending], 0, true, '/poster.jpg')
-    expect(captures.player.playItem).toHaveBeenCalledWith(expect.objectContaining({ themeId: 11 }), { contextLabel: 'Anime themes' })
-    expect(captures.player.queue.addToQueue).toHaveBeenCalled()
-    expect(captures.player.setShuffle).toHaveBeenCalledWith(true)
+    captures.animeProps.onPlayThemes([opening, ending], 1, true, '/poster.jpg')
+    expect(captures.player.playItems).toHaveBeenCalledWith([
+      expect.objectContaining({ themeId: 11, artworkUrl: '/api/poster.jpg' }),
+      expect.objectContaining({ themeId: 12, artworkUrl: '/api/poster.jpg' }),
+    ], { contextLabel: 'Anime themes', startIndex: 1, shuffle: true })
     captures.animeProps.onPlayNext([opening, ending], '/poster.jpg')
     captures.animeProps.onAddToQueue([ending], '/poster.jpg')
     captures.animeProps.onPlaySong(song, '/cover.jpg', 'anime-1')
@@ -187,12 +189,17 @@ describe('page-to-player wiring', () => {
     expect(screen.getByText('Mock release detail')).toBeInTheDocument()
 
     captures.releaseProps.onPlayAll(release, false)
-    expect(captures.player.playItem).toHaveBeenCalledWith(expect.objectContaining({ songId: 90 }), { contextLabel: 'Release album' })
-    expect(captures.player.queue.addToQueue).toHaveBeenCalledWith([expect.objectContaining({ songId: 91 })])
+    expect(captures.player.playItems).toHaveBeenCalledWith([
+      expect.objectContaining({ songId: 90 }),
+      expect.objectContaining({ songId: 91 }),
+    ], { contextLabel: 'Release album', startIndex: 0, shuffle: false })
     captures.releaseProps.onPlayAll(release, true)
-    expect(captures.player.setShuffle).toHaveBeenCalledWith(true)
-    captures.releaseProps.onPlayTrack(song, release)
-    expect(captures.player.playSong).toHaveBeenCalledWith(song, { artworkUrl: '/api/cover.jpg', animeId: 'anime-1' })
+    expect(captures.player.playItems).toHaveBeenLastCalledWith(expect.any(Array), { contextLabel: 'Release album', startIndex: 0, shuffle: true })
+    captures.releaseProps.onPlayTrack(release.tracks[1], release, 1)
+    expect(captures.player.playItems).toHaveBeenLastCalledWith([
+      expect.objectContaining({ songId: 90 }),
+      expect.objectContaining({ songId: 91 }),
+    ], { contextLabel: 'Release album', startIndex: 1, shuffle: false })
   })
 
   it('only forwards playable search results and resolves library artwork', () => {
@@ -222,9 +229,26 @@ describe('page-to-player wiring', () => {
     captures.playlistQuery = { isPending: false, isError: false, playlist }
     renderPath(<PlaylistPage />, '/playlist/7', '/playlist/:playlistId')
     captures.playlistDetailProps.onPlay(playlist, true)
-    expect(captures.player.playItem).toHaveBeenCalledWith(expect.objectContaining({ themeId: 11, mode: 'TV_SIZE' }), { contextLabel: 'Mixed modes' })
-    expect(captures.player.queue.addToQueue).toHaveBeenCalledWith([expect.objectContaining({ songId: 90 })])
-    expect(captures.player.setShuffle).toHaveBeenCalledWith(true)
+    expect(captures.player.playItems).toHaveBeenCalledWith([
+      expect.objectContaining({ themeId: 11, mode: 'TV_SIZE' }),
+      expect.objectContaining({ songId: 90 }),
+    ], { contextLabel: 'Mixed modes', startIndex: 0, shuffle: true })
+
+    const withUnavailableBeforeSelection = {
+      ...playlist,
+      items: [
+        { entryId: 1, itemType: 'THEME' as const, itemId: 11, modeOverride: null },
+        { entryId: 2, itemType: 'THEME' as const, itemId: 999, modeOverride: null },
+        { entryId: 3, itemType: 'THEME' as const, itemId: 12, modeOverride: null },
+        { entryId: 4, itemType: 'SONG' as const, itemId: 90, modeOverride: null },
+      ],
+    }
+    captures.playlistDetailProps.onPlayItem(withUnavailableBeforeSelection, 3)
+    expect(captures.player.playItems).toHaveBeenLastCalledWith([
+      expect.objectContaining({ themeId: 11 }),
+      expect.objectContaining({ themeId: 12 }),
+      expect.objectContaining({ songId: 90 }),
+    ], { contextLabel: 'Mixed modes', startIndex: 2, shuffle: false })
     await act(async () => captures.playlistDetailProps.onDelete(7))
     expect(screen.getByText('Playlist destination')).toBeInTheDocument()
   })
@@ -235,7 +259,7 @@ describe('page-to-player wiring', () => {
     renderPath(<PlaylistsPage />)
     expect(captures.playlistManagerProps.state).toBe('ready')
     captures.playlistManagerProps.onPlay(legacy, false)
-    expect(captures.player.playItem).toHaveBeenCalledWith(expect.objectContaining({ themeId: 11, mode: 'FULL_SIZE' }), { contextLabel: 'Mixed modes' })
+    expect(captures.player.playItems).toHaveBeenCalledWith([expect.objectContaining({ themeId: 11, mode: 'FULL_SIZE' })], { contextLabel: 'Mixed modes', startIndex: 0, shuffle: false })
   })
 })
 

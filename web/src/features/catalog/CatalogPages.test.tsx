@@ -237,14 +237,15 @@ describe('catalog pages', () => {
     const onPlayThemes = vi.fn()
     const onPlayNext = vi.fn()
     const opening = theme(1, 'a', 'Opening')
+    const ending = theme(2, 'a', 'Ending')
     vi.mocked(apiClient.get)
-      .mockResolvedValueOnce({ anime: anime('a', 'Frieren: Beyond Journey’s End', 'current'), themes: [opening] })
+      .mockResolvedValueOnce({ anime: anime('a', 'Frieren: Beyond Journey’s End', 'current'), themes: [opening, ending] })
       .mockResolvedValueOnce({ anime: { kitsuId: 'a', title: 'Frieren', titleEn: 'Frieren', posterUrl: '/frieren.jpg' }, releases: [] })
 
     renderWithQuery(<Routes><Route path="/anime/:animeId" element={<AnimeDetailPage onPlayThemes={onPlayThemes} onPlayNext={onPlayNext} />} /></Routes>, ['/anime/a'])
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Play Opening' }))
-    expect(onPlayThemes).toHaveBeenCalledWith([opening], 0, false, 'https://images.example/a.jpg')
+    await userEvent.click(await screen.findByRole('button', { name: 'Play Ending' }))
+    expect(onPlayThemes).toHaveBeenCalledWith([opening, ending], 1, false, 'https://images.example/a.jpg')
     await userEvent.click(screen.getByRole('button', { name: 'More actions for Opening' }))
     expect(screen.getByRole('dialog', { name: 'Opening actions' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Play next' }))
