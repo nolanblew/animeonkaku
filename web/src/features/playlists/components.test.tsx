@@ -55,6 +55,18 @@ function displayLibrary(): NormalizedLibrary {
   }
 }
 
+function reorderableLibrary(): NormalizedLibrary {
+  const library = displayLibrary()
+  const firstTheme = library.themesById['10']!
+  return {
+    ...library,
+    themesById: {
+      ...library.themesById,
+      '11': { ...firstTheme, id: 11, title: 'Real Ending', themeType: 'ED1' },
+    },
+  }
+}
+
 describe('playlist components', () => {
   it('renders list loading, empty, and error states with accessible labels', () => {
     const onCreate = vi.fn()
@@ -109,7 +121,6 @@ describe('playlist components', () => {
     expect(screen.getByText(/Demo Anime · OP1 · Demo Band/)).toBeInTheDocument()
     expect(screen.queryByText('Theme #10')).not.toBeInTheDocument()
     expect(screen.queryByText(/^TV size$/i)).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /move .* up/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /remove .* from playlist/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /add track/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: /catalog id/i })).not.toBeInTheDocument()
@@ -143,6 +154,60 @@ describe('playlist components', () => {
     await userEvent.click(screen.getByRole('button', { name: /delete playlist/i }))
     await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
     expect(onDelete).toHaveBeenCalledWith(2)
+  })
+
+  it('reorders manual playlist rows while preserving entry identity in the update', async () => {
+    const onUpdate = vi.fn().mockResolvedValue(undefined)
+    const manual = playlist({
+      entries: [10, 11],
+      items: [
+        { entryId: 44, itemType: 'THEME', itemId: 10, modeOverride: null },
+        { entryId: 45, itemType: 'THEME', itemId: 11, modeOverride: 'FULL_SIZE' },
+      ],
+    })
+    renderWithQuery(<PlaylistDetail playlist={manual} library={reorderableLibrary()} onUpdate={onUpdate} onDelete={vi.fn()} />)
+
+    await userEvent.click(screen.getByRole('button', { name: /move real ending up/i }))
+
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledWith(2, expect.objectContaining({
+      items: [
+        { entryId: 45, itemType: 'THEME', itemId: 11, modeOverride: 'FULL_SIZE' },
+        { entryId: 44, itemType: 'THEME', itemId: 10, modeOverride: null },
+      ],
+    })))
+  })
+
+  it('offers playlist-level play-next, append, and replace-queue actions', async () => {
+    const onPlayNext = vi.fn()
+    const onAddToQueue = vi.fn()
+    const onReplaceQueue = vi.fn()
+    const current = playlist({ entries: [10, 11], items: [
+      { entryId: 44, itemType: 'THEME', itemId: 10, modeOverride: null },
+      { entryId: 45, itemType: 'THEME', itemId: 11, modeOverride: null },
+    ] })
+    renderWithQuery(<PlaylistDetail playlist={current} library={reorderableLibrary()} onUpdate={vi.fn()} onDelete={vi.fn()} onPlayNext={onPlayNext} onAddToQueue={onAddToQueue} onReplaceQueue={onReplaceQueue} />)
+
+    await userEvent.click(screen.getByRole('button', { name: /^play next$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^add to queue$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^replace queue$/i }))
+
+    expect(onPlayNext).toHaveBeenCalledWith(expect.objectContaining({ id: 2 }))
+    expect(onAddToQueue).toHaveBeenCalledWith(expect.objectContaining({ id: 2 }))
+    expect(onReplaceQueue).toHaveBeenCalledWith(expect.objectContaining({ id: 2 }))
+  })
+
+  it('exposes Refresh now only for a smart snapshot playlist', async () => {
+    const onRefresh = vi.fn()
+    const snapshot = playlist({
+      isDynamic: true,
+      autoUpdate: false,
+      dynamicSpecJson: { mode: 'SNAPSHOT', filterJson: { type: 'liked' } },
+    })
+    renderWithQuery(<PlaylistDetail playlist={snapshot} library={displayLibrary()} onUpdate={vi.fn()} onDelete={vi.fn()} onRefresh={onRefresh} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh now' }))
+
+    expect(onRefresh).toHaveBeenCalledWith(expect.objectContaining({ id: 2, isDynamic: true }))
   })
 
   it('renders missing catalog items without exposing raw database ids', () => {

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiClient } from '../../lib/api'
@@ -102,6 +102,72 @@ describe('TrackActionMenu', () => {
     await userEvent.type(await screen.findByRole('textbox', { name: 'New playlist name' }), 'New mix')
     await userEvent.click(screen.getByRole('button', { name: 'Create playlist' }))
     await waitFor(() => expect(post).toHaveBeenCalledWith('/v1/playlists', expect.objectContaining({ name: 'New mix', items: [{ itemType: 'SONG', itemId: 91, modeOverride: null }] })))
+  })
+
+  it('exposes the complete context-aware track action model through one menu', async () => {
+    const callbacks = {
+      onPlayNext: vi.fn(),
+      onAddToQueue: vi.fn(),
+      onReplaceQueue: vi.fn(),
+      onPlayVideo: vi.fn(),
+      onGoToArtist: vi.fn(),
+      onGoToAnime: vi.fn(),
+      onRelatedMusic: vi.fn(),
+      onSetPreferredMode: vi.fn(),
+      onRemove: vi.fn(),
+    }
+    renderWithQuery(
+      <TrackActionMenu
+        item={{ itemType: 'THEME', itemId: 41, title: 'Opening theme' }}
+        hasFullSize
+        preferredMode={null}
+        artistName="Aimer"
+        animeName="Frieren"
+        removeLabel="Remove from queue"
+        {...callbacks}
+      />,
+    )
+
+    const openMenu = async () => {
+      await userEvent.click(screen.getByRole('button', { name: 'More actions for Opening theme' }))
+      return screen.getByRole('menu', { name: 'Opening theme actions' })
+    }
+
+    let menu = await openMenu()
+    expect(within(menu).getByRole('menuitem', { name: 'Play next' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Add to queue' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Replace queue' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Save to playlist' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Play Video' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Go to Aimer' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Go to Frieren' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Related Music' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Prefer Full Size' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Remove from queue' })).toBeInTheDocument()
+
+    const clickAction = async (name: string) => {
+      await userEvent.click(within(menu).getByRole('menuitem', { name }))
+      menu = await openMenu()
+    }
+    await clickAction('Play next')
+    await clickAction('Add to queue')
+    await clickAction('Replace queue')
+    await clickAction('Play Video')
+    await clickAction('Go to Aimer')
+    await clickAction('Go to Frieren')
+    await clickAction('Related Music')
+    await clickAction('Prefer Full Size')
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Remove from queue' }))
+
+    expect(callbacks.onPlayNext).toHaveBeenCalledOnce()
+    expect(callbacks.onAddToQueue).toHaveBeenCalledOnce()
+    expect(callbacks.onReplaceQueue).toHaveBeenCalledOnce()
+    expect(callbacks.onPlayVideo).toHaveBeenCalledOnce()
+    expect(callbacks.onGoToArtist).toHaveBeenCalledOnce()
+    expect(callbacks.onGoToAnime).toHaveBeenCalledOnce()
+    expect(callbacks.onRelatedMusic).toHaveBeenCalledOnce()
+    expect(callbacks.onSetPreferredMode).toHaveBeenCalledWith('FULL_SIZE')
+    expect(callbacks.onRemove).toHaveBeenCalledOnce()
   })
 })
 
