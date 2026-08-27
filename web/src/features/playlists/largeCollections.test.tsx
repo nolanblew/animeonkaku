@@ -1,6 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { createEmptyLibrary, type LibraryThemeDto, type NormalizedLibrary, type PlaylistDto } from '../../lib/library'
@@ -84,7 +83,7 @@ describe('large playlist rendering contract', () => {
     expect(list).toHaveAttribute('aria-setsize', '1200')
     expect(screen.getByText(/showing \d+ of 1200 tracks/i)).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: /load more playlist tracks/i }))
+    fireEvent.click(screen.getByRole('button', { name: /load more playlist tracks/i }))
     expect(within(list as HTMLElement).getByRole('button', { name: 'Play Long mix track 60' })).toBeInTheDocument()
     expect(within(list as HTMLElement).getAllByRole('listitem').length).toBeLessThanOrEqual(120)
   })
