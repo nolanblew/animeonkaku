@@ -660,7 +660,7 @@ function createPlayEvent(item: QueueItem, mode: PlaybackMode) {
     itemType: candidate.itemType,
     itemId: itemId!,
     actualMode: candidate.itemType === 'SONG' ? 'AUDIO' : mode,
-    playedAt: new Date().toISOString(),
+    playedAt: Date.now(),
   }
 }
 
