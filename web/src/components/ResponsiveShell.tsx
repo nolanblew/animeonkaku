@@ -1,6 +1,7 @@
 import {
   House,
   Library,
+  ListMusic,
   Menu,
   Plus,
   Search,
@@ -59,7 +60,7 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const displayName = auth.user?.displayName || auth.user?.username || 'Anime Fan'
-  const avatarUrl = auth.user?.avatarUrl
+  const avatarUrl = auth.user?.kitsuAvatarUrl || auth.user?.avatarUrl
 
   useEffect(() => {
     const handleSearchShortcut = (event: KeyboardEvent) => {
@@ -122,7 +123,7 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
             <div className="sidebar-playlists__list">
               {playlists.length === 0
                 ? <p>No playlists yet</p>
-                : playlists.map((playlist) => <NavLink key={playlist.id} to={`/playlist/${playlist.id}`} onClick={closeNavigation} title={playlist.name}>{playlist.name}</NavLink>)}
+                : playlists.map((playlist) => <NavLink key={playlist.id} to={`/playlist/${playlist.id}`} onClick={closeNavigation} title={playlist.name}><ListMusic size={15} aria-hidden="true" /><span>{playlist.name}</span></NavLink>)}
             </div>
           </div>
         </nav>

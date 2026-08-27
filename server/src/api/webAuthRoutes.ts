@@ -52,7 +52,7 @@ export function registerWebAuthRoutes(
 
     setSessionCookie(reply, result.token, options.secureCookies ?? process.env.NODE_ENV === "production");
     return {
-      user: publicUser(result.user, profile),
+      user: publicUser(result.user, profile, result.kitsuAvatarUrl),
       isNewUser: result.isNewUser,
       syncMode: result.syncMode,
     };
@@ -66,7 +66,7 @@ export function registerWebAuthRoutes(
   app.get("/auth/me", { preHandler: requireAuth }, async (request) => {
     const result = await authService.me(request.auth!);
     const profile = await options.profile.getProfile(request.auth!.user.kitsuUserId);
-    return { ...result, user: publicUser(result.user, profile) };
+    return { ...result, user: publicUser(result.user, profile, result.kitsuAvatarUrl) };
   });
 
   app.patch(
@@ -131,10 +131,11 @@ export function registerWebBodyParsers(fastify: FastifyInstance): void {
   });
 }
 
-function publicUser(user: { kitsuUserId: string; username: string }, profile: { displayName: string | null; avatarPath: string | null }) {
+function publicUser(user: { kitsuUserId: string; username: string }, profile: { displayName: string | null; avatarPath: string | null }, kitsuAvatarUrl: string | null) {
   return {
     kitsuUserId: user.kitsuUserId,
     username: user.username,
+    kitsuAvatarUrl,
     ...publicProfile(profile),
   };
 }

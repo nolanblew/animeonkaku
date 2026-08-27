@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "kitsu_avatar_url" text;

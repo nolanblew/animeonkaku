@@ -52,11 +52,11 @@ export function HomePreview() {
   return (
     <div className="home-preview">
       <div className="welcome-panel">
-        <div><span className="eyebrow">Your listening space</span><h2>Pick up where you left off.</h2><p>Connect your library to see anime themes, playlists, and recent additions here.</p></div>
+        <div><span className="eyebrow">Made from your library</span><h2>Your anime soundtrack.</h2><p>Connect your library to see anime themes, playlists, and active shows here.</p></div>
         <button className="button button--primary" type="button"><Music2 size={17} /> Explore themes</button>
       </div>
       <div className="preview-section">
-        <div className="section-heading"><h2>Quick picks</h2><span>Coming soon</span></div>
+        <div className="section-heading"><h2>Recommended</h2><span>Coming soon</span></div>
         <div className="quick-picks">{['Akebi’s Sailor Uniform · ED1', 'Half-Sister and Half-Sister', 'Kowloon Generic Romance · OP'].map((title) => <div className="quick-pick" key={title}><span className="artwork artwork--md" aria-hidden="true">AO</span><span><strong>{title}</strong><small>Anime theme · Ready for your library</small></span><button type="button" aria-label={`Play ${title}`}><Music2 size={17} /></button></div>)}</div>
       </div>
       <div className="preview-section"><div className="section-heading"><h2>Your playlists</h2><span>Coming soon</span></div><div className="playlist-placeholder"><ListMusic size={22} /><span>Playlist cards will appear after your first sync.</span></div></div>

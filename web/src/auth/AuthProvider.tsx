@@ -13,6 +13,7 @@ export interface AuthProfile {
 export interface AuthUser extends AuthProfile {
   kitsuUserId: string
   username: string
+  kitsuAvatarUrl?: string | null
 }
 
 export type LoginSyncMode = 'FULL' | 'DELTA'

@@ -1,18 +1,19 @@
 import { useQuery } from '@tanstack/react-query'
 import { ArrowRight, MoreHorizontal, Play } from 'lucide-react'
-import { useState, useSyncExternalStore } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { useRovingMenu } from '../../components/focusScope'
 import { apiClient } from '../../lib/api'
 import { browserAssetUrl } from '../../lib/assets'
 import { readShowOstsOnHome, subscribeToHomePreference } from '../../lib/homePreference'
 import type { LibraryThemeDto, NormalizedLibrary } from '../../lib/library'
 import { useLibraryQuery } from '../../lib/query'
-import { ThemeActionSheet, TrackActionMenu } from '../libraryactions'
+import { TrackActionMenu, useLibraryActions } from '../libraryactions'
 import { PlaylistArtwork, playlistArtworkUrls } from '../playlists'
 import { CatalogError, CatalogLoading } from './CatalogError'
 import type { BrowserHomeResponse, BrowserHomeTopSongSummary } from './types'
 
-type HomeFilter = 'ALL' | 'OP' | 'ED' | 'FULL_SIZE' | 'TV_SIZE'
+type HomeFilter = 'ALL' | 'OP' | 'ED'
 
 export interface HomeCatalogPageProps {
   onPlayTheme?: (theme: LibraryThemeDto, artworkUrl?: string | null) => void
@@ -25,8 +26,6 @@ const filters: Array<{ value: HomeFilter; label: string }> = [
   { value: 'ALL', label: 'All' },
   { value: 'OP', label: 'Openings' },
   { value: 'ED', label: 'Endings' },
-  { value: 'FULL_SIZE', label: 'Full size' },
-  { value: 'TV_SIZE', label: 'TV size' },
 ]
 
 export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQueue }: HomeCatalogPageProps) {
@@ -38,7 +37,6 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
   })
   const libraryQuery = useLibraryQuery()
   const [activeFilter, setActiveFilter] = useState<HomeFilter>('ALL')
-  const [selectedTheme, setSelectedTheme] = useState<LibraryThemeDto | null>(null)
   const showOstsOnHome = useSyncExternalStore(subscribeToHomePreference, readShowOstsOnHome, () => true)
 
   if (home.isPending) return <CatalogLoading label="Loading your home" />
@@ -48,6 +46,7 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
   const quickPicks = selectQuickPicks(data, library, activeFilter, showOstsOnHome)
   const topSongs = selectTopSongs(data, library, showOstsOnHome)
   const heroArtwork = quickPicks[0]?.artworkUrl ?? browserAssetUrl(data.continueWatching[0]?.posterUrl)
+  const currentlyWatchingPlaylist = data.playlists.find((playlist) => playlist.name.trim().toLowerCase() === 'currently watching')
 
   return (
     <>
@@ -56,17 +55,17 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
         {heroArtwork && <div className="home-hero__backdrop" style={{ backgroundImage: `url(${JSON.stringify(heroArtwork)})` }} aria-hidden="true" />}
         <div className="home-hero__shade" aria-hidden="true" />
         <div className="home-hero__content">
-          <p className="eyebrow">Your listening space</p>
-          <h1 id="home-title">Welcome back</h1>
-          <p>Anime music made from your Kitsu library—ready whenever you are.</p>
-          <div className="home-filter-row" aria-label="Filter quick picks">
+          <p className="eyebrow">Made from your library</p>
+          <h1 id="home-title">Your anime soundtrack</h1>
+          <p>Openings and endings from the stories you are watching.</p>
+          <div className="home-filter-row" aria-label="Filter recommendations">
             {filters.map((filter) => <button key={filter.value} type="button" aria-pressed={activeFilter === filter.value} onClick={() => setActiveFilter(filter.value)}>{filter.label}</button>)}
           </div>
         </div>
       </header>
 
       <section className="catalog-section home-quick-picks" aria-labelledby="quick-picks-title">
-        <div className="catalog-section__heading"><div><p className="eyebrow">Made from your library</p><h2 id="quick-picks-title">Quick picks</h2><p>Play an opening, ending, or full song without leaving home.</p></div><div className="catalog-section__actions"><button type="button" className="button button--text" onClick={() => onPlayAll?.(quickPicks.map(({ theme }) => theme), quickPicks[0]?.artworkUrl)} disabled={!onPlayAll || quickPicks.length === 0}>Play all</button><Link to="/library?tab=songs" className="catalog-section__link">See all <ArrowRight size={15} /></Link></div></div>
+        <div className="catalog-section__heading"><div><p className="eyebrow">Picked for you</p><h2 id="quick-picks-title">Recommended</h2><p>Start with a theme from the anime in your library.</p></div><div className="catalog-section__actions"><button type="button" className="button button--text" onClick={() => onPlayAll?.(quickPicks.map(({ theme }) => theme), quickPicks[0]?.artworkUrl)} disabled={!onPlayAll || quickPicks.length === 0}>Play all</button><Link to="/library?tab=songs" className="catalog-section__link">See all <ArrowRight size={15} /></Link></div></div>
         {quickPicks.length === 0
           ? <p className="catalog-empty">No tracks match this filter yet.</p>
           : <div className="home-quick-picks__grid">{quickPicks.map(({ theme, animeTitle, artworkUrl }) => (
@@ -89,15 +88,6 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
           ))}</div>}
       </section>
 
-      {data.recentlyAdded.length > 0 && <section className="catalog-section home-recently-added" aria-labelledby="recently-added-title">
-        <div className="catalog-section__heading"><div><p className="eyebrow">Fresh from your library</p><h2 id="recently-added-title">Recently added</h2><p>Anime that joined your collection most recently.</p></div><Link to="/library" className="catalog-section__link">See all <ArrowRight size={15} /></Link></div>
-        <div className="home-recently-added__grid">{data.recentlyAdded.map((anime) => <Link className="home-recently-added__card" to={`/anime/${encodeURIComponent(anime.kitsuId)}`} key={anime.kitsuId} aria-label={anime.title ?? anime.kitsuId}>
-          {browserAssetUrl(anime.posterUrl) ? <img src={browserAssetUrl(anime.posterUrl)!} alt="" loading="lazy" /> : <span aria-hidden="true">AO</span>}
-          <strong>{anime.title ?? 'Untitled anime'}</strong>
-          <small>Added to your library</small>
-        </Link>)}</div>
-      </section>}
-
       <section className="catalog-section home-top-songs" aria-labelledby="top-songs-title">
         <div className="catalog-section__heading"><div><p className="eyebrow">Most played from your library</p><h2 id="top-songs-title">Top songs</h2><p>Keep your most-loved themes close at hand.</p></div><Link to="/library?tab=songs" className="catalog-section__link">See all <ArrowRight size={15} /></Link></div>
         {topSongs.length === 0 ? <p className="catalog-empty">No top songs are available yet.</p> : <div className="home-top-songs__list">{topSongs.map((song) => {
@@ -108,7 +98,16 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
               {artworkUrl ? <img src={artworkUrl} alt="" loading="lazy" /> : <span aria-hidden="true">AO</span>}<Play size={16} fill="currentColor" />
             </button>
             <span className="home-top-song__copy"><strong>{song.title}</strong><small>{song.artistName ?? song.animeTitle ?? theme?.themeType ?? 'Theme'}</small></span>
-            <button type="button" className="home-top-song__more" aria-label={`More actions for top song ${song.title}`} onClick={() => theme && setSelectedTheme(theme)} disabled={!theme}><MoreHorizontal size={19} /></button>
+            {theme && <TrackActionMenu
+              item={{ itemType: 'THEME', itemId: theme.id, title: song.title }}
+              menuOnly
+              liked={library?.prefsByThemeId[String(theme.id)]?.liked}
+              disliked={library?.prefsByThemeId[String(theme.id)]?.disliked}
+              preferredMode={library?.prefsByThemeId[String(theme.id)]?.preferredMode}
+              hasFullSize={Boolean(theme.mediaModes.fullSize)}
+              onPlayNext={onPlayNext ? () => onPlayNext(theme, artworkUrl) : undefined}
+              onAddToQueue={onAddToQueue ? () => onAddToQueue(theme, artworkUrl) : undefined}
+            />}
           </article>
         })}</div>}
       </section>
@@ -126,25 +125,67 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
           })}</div>}
       </section>
 
+      {data.continueWatching.length > 0 && <section className="catalog-section home-currently-watching" aria-labelledby="currently-watching-title">
+        <div className="catalog-section__heading"><div><p className="eyebrow">From your Kitsu library</p><h2 id="currently-watching-title">Currently Watching</h2><p>Jump back into the themes from your active watchlist.</p></div><Link to={currentlyWatchingPlaylist ? `/playlist/${currentlyWatchingPlaylist.id}` : '/library'} className="catalog-section__link">See all <ArrowRight size={15} /></Link></div>
+        <div className="home-currently-watching__grid">{data.continueWatching.map((anime) => <HomeAnimeCard
+          key={anime.kitsuId}
+          anime={anime}
+          themes={library ? Object.values(library.themesById).filter((theme) => !theme.deleted && theme.kitsuAnimeIds.includes(anime.kitsuId) && isPlayable(theme)) : []}
+          playlistId={currentlyWatchingPlaylist?.id}
+          onPlayAll={onPlayAll}
+        />)}</div>
+      </section>}
+
       </section>
-      {selectedTheme && <ThemeActionSheet
-      themeId={selectedTheme.id}
-      title={selectedTheme.title}
-      subtitle={[selectedTheme.themeType, selectedTheme.artists.map((artist) => artist.name).join(', ')].filter(Boolean).join(' · ')}
-      liked={library?.prefsByThemeId[String(selectedTheme.id)]?.liked}
-      disliked={library?.prefsByThemeId[String(selectedTheme.id)]?.disliked}
-      preferredMode={library?.prefsByThemeId[String(selectedTheme.id)]?.preferredMode}
-      hasFullSize={Boolean(selectedTheme.mediaModes.fullSize)}
-      inLibrary
-      inAnimeLibrary={Boolean(selectedTheme.kitsuAnimeIds.some((id) => library?.animeById[id] && !library.animeById[id]?.deleted))}
-      animeKitsuId={selectedTheme.kitsuAnimeIds[0]}
-      onPlay={onPlayTheme ? () => { onPlayTheme(selectedTheme, themeArtworkFor(selectedTheme, library)); setSelectedTheme(null) } : undefined}
-      onPlayNext={onPlayNext ? () => onPlayNext(selectedTheme, themeArtworkFor(selectedTheme, library)) : undefined}
-      onAddToQueue={onAddToQueue ? () => onAddToQueue(selectedTheme, themeArtworkFor(selectedTheme, library)) : undefined}
-      onClose={() => setSelectedTheme(null)}
-      />}
     </>
   )
+}
+
+function HomeAnimeCard({ anime, themes, playlistId, onPlayAll }: {
+  anime: BrowserHomeResponse['continueWatching'][number]
+  themes: LibraryThemeDto[]
+  playlistId?: number
+  onPlayAll?: HomeCatalogPageProps['onPlayAll']
+}) {
+  const [open, setOpen] = useState(false)
+  const [confirmingRemoval, setConfirmingRemoval] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRovingMenu<HTMLDivElement>({ open, onClose: () => setOpen(false), triggerRef })
+  const actions = useLibraryActions()
+  const navigate = useNavigate()
+  const title = anime.title ?? 'Untitled anime'
+  const artworkUrl = browserAssetUrl(anime.posterUrl)
+  const animePath = `/anime/${encodeURIComponent(anime.kitsuId)}`
+
+  useEffect(() => {
+    if (!open) return undefined
+    const close = (event: PointerEvent) => { if (!rootRef.current?.contains(event.target as Node)) setOpen(false) }
+    window.addEventListener('pointerdown', close)
+    return () => window.removeEventListener('pointerdown', close)
+  }, [open])
+
+  const remove = () => {
+    if (!confirmingRemoval) { setConfirmingRemoval(true); return }
+    setOpen(false)
+    setConfirmingRemoval(false)
+    void actions.removeAnimeFromLibrary(anime.kitsuId).catch(() => undefined)
+  }
+
+  return <article className="home-currently-watching__card" ref={rootRef}>
+    <Link to={animePath} aria-label={title}>
+      {artworkUrl ? <img src={artworkUrl} alt="" loading="lazy" /> : <span aria-hidden="true">AO</span>}
+      <strong>{title}</strong>
+      <small>Currently watching</small>
+    </Link>
+    <button ref={triggerRef} type="button" className="home-anime-actions__trigger" aria-label={`More actions for ${title}`} aria-haspopup="menu" aria-expanded={open} onClick={() => { setOpen((value) => !value); setConfirmingRemoval(false) }}><MoreHorizontal size={20} /></button>
+    {open && <div ref={menuRef} className="home-anime-actions__menu track-actions__menu" role="menu" aria-label={`${title} actions`}>
+      <button type="button" role="menuitem" onClick={() => navigate(animePath)}>Open anime</button>
+      <button type="button" role="menuitem" disabled={!onPlayAll || themes.length === 0} onClick={() => { setOpen(false); onPlayAll?.(themes, artworkUrl) }}>Play all themes</button>
+      {playlistId && <button type="button" role="menuitem" onClick={() => navigate(`/playlist/${playlistId}`)}>Open Currently Watching playlist</button>}
+      <button type="button" role="menuitem" className="track-actions__danger" onClick={remove}>{confirmingRemoval ? 'Confirm remove from library' : 'Remove from library'}</button>
+    </div>}
+  </article>
 }
 
 function selectQuickPicks(data: BrowserHomeResponse, library: NormalizedLibrary | null, filter: HomeFilter, showOstsOnHome = true) {
@@ -153,9 +194,7 @@ function selectQuickPicks(data: BrowserHomeResponse, library: NormalizedLibrary 
   return Object.values(library.themesById)
     .filter((theme) => !theme.deleted && theme.kitsuAnimeIds.some((id) => priority.has(id)))
     .filter((theme) => showOstsOnHome || !isSoundtrackTheme(theme))
-    .filter((theme) => filter === 'ALL' || filter === 'OP' || filter === 'ED'
-      ? filter === 'ALL' || (theme.themeType ?? '').toUpperCase().startsWith(filter)
-      : filter === 'FULL_SIZE' ? Boolean(theme.mediaModes.fullSize) : Boolean(theme.mediaModes.tvSize))
+    .filter((theme) => filter === 'ALL' || (theme.themeType ?? '').toUpperCase().startsWith(filter))
     .sort((left, right) => Math.min(...left.kitsuAnimeIds.map((id) => priority.get(id) ?? 999)) - Math.min(...right.kitsuAnimeIds.map((id) => priority.get(id) ?? 999)) || left.id - right.id)
     .slice(0, 6)
     .map((theme) => {

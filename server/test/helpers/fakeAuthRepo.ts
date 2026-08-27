@@ -28,6 +28,7 @@ export class FakeAuthRepo implements AuthRepo, UserProfileRepo {
     const user: StoredUser = {
       kitsuUserId: input.kitsuUserId,
       username: input.username,
+      kitsuAvatarUrl: input.kitsuAvatarUrl,
       displayName: existing?.displayName ?? null,
       avatarPath: existing?.avatarPath ?? null,
       kitsuAuthState: "OK",

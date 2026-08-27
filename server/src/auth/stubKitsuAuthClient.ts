@@ -15,6 +15,7 @@ export class StubKitsuAuthClient implements KitsuAuthClient {
     return {
       kitsuUserId: `stub-${username.trim().toLowerCase()}`,
       username: username.trim(),
+      avatarUrl: null,
       accessToken: "stub-access-token",
       refreshToken: "stub-refresh-token",
       expiresAt: new Date(Date.now() + STUB_TOKEN_TTL_MS),

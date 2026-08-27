@@ -47,7 +47,9 @@ a { color: inherit; text-decoration: none; }
 .sidebar-playlists__heading a { display: inline-grid; place-items: center; color: var(--muted); }
 .sidebar-playlists__heading a:hover { color: var(--coral); }
 .sidebar-playlists__list { display: grid; }
-.sidebar-playlists__list a { overflow: hidden; padding: .43rem .45rem; border-radius: .35rem; color: #a7adbc; font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-playlists__list a { display: flex; min-width: 0; align-items: center; gap: .5rem; overflow: hidden; padding: .43rem .45rem; border-radius: .35rem; color: #a7adbc; font-size: .82rem; white-space: nowrap; }
+.sidebar-playlists__list a svg { flex: 0 0 auto; color: var(--subtle); }
+.sidebar-playlists__list a span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sidebar-playlists__list a:hover, .sidebar-playlists__list a[aria-current="page"] { background: rgba(255,255,255,.055); color: var(--text); }
 .sidebar-playlists__list p { margin: .2rem .45rem; color: var(--subtle); font-size: .76rem; }
 .nav-divider { height: 1px; margin: 1.4rem .55rem; background: var(--line); }

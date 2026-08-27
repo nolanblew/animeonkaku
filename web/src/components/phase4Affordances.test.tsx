@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -74,7 +74,8 @@ describe('phase 4 affordance contracts', () => {
   it('opens a real action menu from each Home quick pick overflow control', async () => {
     renderHome()
 
-    const more = await screen.findByRole('button', { name: 'More actions for Signal in Violet' })
+    const recommended = await screen.findByRole('region', { name: 'Recommended' })
+    const more = within(recommended).getByRole('button', { name: 'More actions for Signal in Violet' })
     await userEvent.click(more)
 
     expect(screen.getByRole('menu', { name: 'Signal in Violet actions' })).toBeInTheDocument()

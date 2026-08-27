@@ -127,7 +127,7 @@ export function SettingsPage() {
         <section className="account-settings-card" aria-labelledby="home-preferences-title">
           <div className="account-settings-card__heading"><div><p className="account-settings-card__eyebrow">Home</p><h2 id="home-preferences-title">Home preferences</h2></div></div>
           <label className="account-settings-toggle">
-            <span><strong>Show OSTs on Home</strong><small>Include soundtrack songs in Quick picks.</small></span>
+            <span><strong>Show OSTs on Home</strong><small>Include soundtrack songs in Recommended.</small></span>
             <input aria-label="Show OSTs on Home" type="checkbox" checked={showOstsOnHome} onChange={(event) => { setShowOstsOnHome(event.target.checked); writeShowOstsOnHome(event.target.checked) }} />
           </label>
         </section>

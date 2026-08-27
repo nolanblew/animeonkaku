@@ -57,6 +57,7 @@ export type MusicSearchMode = "MANUAL" | "FAVORITES" | "PLAYLISTS" | "EVERYTHING
 export const users = pgTable("users", {
   kitsuUserId: text("kitsu_user_id").primaryKey(),
   username: text("username").notNull(),
+  kitsuAvatarUrl: text("kitsu_avatar_url"),
   // Web profile fields are deliberately separate from Kitsu identity. They
   // are never sent upstream and are safe to expose to the signed-in user.
   displayName: text("display_name"),

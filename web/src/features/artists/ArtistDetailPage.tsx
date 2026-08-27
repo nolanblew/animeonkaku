@@ -1,19 +1,23 @@
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Disc3, Play, Shuffle } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { apiClient } from '../../lib/api'
 import { browserAssetUrl } from '../../lib/assets'
 import { CatalogError, CatalogLoading } from '../catalog/CatalogError'
+import { TrackActionMenu } from '../libraryactions'
 import type { ArtistAnimeLink, ArtistDetailResponse, ArtistFullSongDto, ArtistThemeDto } from './types'
 import './artists.css'
 
 export interface ArtistDetailPageProps {
   onPlayAll?: (artist: ArtistDetailResponse, shuffle: boolean) => void
   onPlayItem?: (artist: ArtistDetailResponse, startIndex: number) => void
+  onPlayNextItem?: (artist: ArtistDetailResponse, startIndex: number) => void
+  onAddToQueueItem?: (artist: ArtistDetailResponse, startIndex: number) => void
+  onReplaceQueueItem?: (artist: ArtistDetailResponse, startIndex: number) => void
 }
 
-export function ArtistDetailPage({ onPlayAll, onPlayItem }: ArtistDetailPageProps = {}) {
+export function ArtistDetailPage({ onPlayAll, onPlayItem, onPlayNextItem, onAddToQueueItem, onReplaceQueueItem }: ArtistDetailPageProps = {}) {
   const { artistSlug } = useParams()
   const query = useQuery<ArtistDetailResponse>({
     queryKey: ['artist', artistSlug],
@@ -53,8 +57,8 @@ export function ArtistDetailPage({ onPlayAll, onPlayItem }: ArtistDetailPageProp
         </div>
       </header>
 
-      <ArtistThemeSection artist={query.data} themes={themes} onPlayItem={onPlayItem} />
-      <ArtistSongSection artist={query.data} themes={themes} songs={fullSongs} onPlayItem={onPlayItem} />
+      <ArtistThemeSection artist={query.data} themes={themes} onPlayItem={onPlayItem} onPlayNextItem={onPlayNextItem} onAddToQueueItem={onAddToQueueItem} onReplaceQueueItem={onReplaceQueueItem} />
+      <ArtistSongSection artist={query.data} themes={themes} songs={fullSongs} onPlayItem={onPlayItem} onPlayNextItem={onPlayNextItem} onAddToQueueItem={onAddToQueueItem} onReplaceQueueItem={onReplaceQueueItem} />
     </section>
   )
 }
@@ -64,33 +68,37 @@ function ArtistArtwork({ artworkUrl, name }: { artworkUrl?: string; name: string
   return <div className="artist-page__artwork">{artworkUrl && !failed ? <img src={artworkUrl} alt={`${name} artwork`} onError={() => setFailed(true)} /> : <span aria-hidden="true"><Disc3 size={64} /></span>}</div>
 }
 
-function ArtistThemeSection({ artist, themes, onPlayItem }: { artist: ArtistDetailResponse; themes: ArtistThemeDto[]; onPlayItem?: (artist: ArtistDetailResponse, startIndex: number) => void }) {
+function ArtistThemeSection({ artist, themes, onPlayItem, onPlayNextItem, onAddToQueueItem, onReplaceQueueItem }: { artist: ArtistDetailResponse; themes: ArtistThemeDto[]; onPlayItem?: (artist: ArtistDetailResponse, startIndex: number) => void; onPlayNextItem?: (artist: ArtistDetailResponse, startIndex: number) => void; onAddToQueueItem?: (artist: ArtistDetailResponse, startIndex: number) => void; onReplaceQueueItem?: (artist: ArtistDetailResponse, startIndex: number) => void }) {
   return (
     <section className="artist-page__section" aria-labelledby="artist-themes-title">
       <div className="artist-page__section-heading"><div><p className="eyebrow">Opening and ending themes</p><h2 id="artist-themes-title">Themes</h2></div><span>{themes.length}</span></div>
-      {themes.length === 0 ? <p className="catalog-empty">No ready themes are available for this artist yet.</p> : <ol className="artist-page__list">{themes.map((theme, index) => <ArtistThemeRow key={theme.id} theme={theme} onPlay={() => onPlayItem?.(artist, index)} />)}</ol>}
+      {themes.length === 0 ? <p className="catalog-empty">No ready themes are available for this artist yet.</p> : <ol className="artist-page__list">{themes.map((theme, index) => <ArtistThemeRow key={theme.id} theme={theme} onPlay={() => onPlayItem?.(artist, index)} onPlayNext={onPlayNextItem ? () => onPlayNextItem(artist, index) : undefined} onAddToQueue={onAddToQueueItem ? () => onAddToQueueItem(artist, index) : undefined} onReplaceQueue={onReplaceQueueItem ? () => onReplaceQueueItem(artist, index) : undefined} />)}</ol>}
     </section>
   )
 }
 
-function ArtistSongSection({ artist, themes, songs, onPlayItem }: { artist: ArtistDetailResponse; themes: ArtistThemeDto[]; songs: ArtistFullSongDto[]; onPlayItem?: (artist: ArtistDetailResponse, startIndex: number) => void }) {
+function ArtistSongSection({ artist, themes, songs, onPlayItem, onPlayNextItem, onAddToQueueItem, onReplaceQueueItem }: { artist: ArtistDetailResponse; themes: ArtistThemeDto[]; songs: ArtistFullSongDto[]; onPlayItem?: (artist: ArtistDetailResponse, startIndex: number) => void; onPlayNextItem?: (artist: ArtistDetailResponse, startIndex: number) => void; onAddToQueueItem?: (artist: ArtistDetailResponse, startIndex: number) => void; onReplaceQueueItem?: (artist: ArtistDetailResponse, startIndex: number) => void }) {
   return (
     <section className="artist-page__section" aria-labelledby="artist-songs-title">
       <div className="artist-page__section-heading"><div><p className="eyebrow">Ready catalog tracks</p><h2 id="artist-songs-title">Full songs</h2></div><span>{songs.length}</span></div>
-      {songs.length === 0 ? <p className="catalog-empty">No ready full songs are available for this artist yet.</p> : <ol className="artist-page__list">{songs.map((song, index) => <ArtistSongRow key={song.id} song={song} onPlay={() => onPlayItem?.(artist, themes.length + index)} />)}</ol>}
+      {songs.length === 0 ? <p className="catalog-empty">No ready full songs are available for this artist yet.</p> : <ol className="artist-page__list">{songs.map((song, index) => { const itemIndex = themes.length + index; return <ArtistSongRow key={song.id} song={song} onPlay={() => onPlayItem?.(artist, itemIndex)} onPlayNext={onPlayNextItem ? () => onPlayNextItem(artist, itemIndex) : undefined} onAddToQueue={onAddToQueueItem ? () => onAddToQueueItem(artist, itemIndex) : undefined} onReplaceQueue={onReplaceQueueItem ? () => onReplaceQueueItem(artist, itemIndex) : undefined} /> })}</ol>}
     </section>
   )
 }
 
-function ArtistThemeRow({ theme, onPlay }: { theme: ArtistThemeDto; onPlay?: () => void }) {
+function ArtistThemeRow({ theme, onPlay, onPlayNext, onAddToQueue, onReplaceQueue }: { theme: ArtistThemeDto; onPlay?: () => void; onPlayNext?: () => void; onAddToQueue?: () => void; onReplaceQueue?: () => void }) {
   const anime = theme.anime ?? theme.kitsuAnimeIds.map((kitsuId) => ({ kitsuId, title: null, titleEn: null, posterUrl: null }))
   const state = theme.audioState ?? 'Available online'
-  return <li className="artist-page__row"><button className="artist-page__row-play" type="button" disabled={!onPlay || !theme.audioUrl || theme.audioState === 'FAILED' || theme.audioState === 'MISSING'} onClick={onPlay} aria-label={`Play ${theme.title}`}><Play size={16} fill="currentColor" /></button><div className="artist-page__row-copy"><strong>{theme.title}</strong><small>{[theme.themeType, theme.artists.map((artist) => artist.name).join(', ')].filter(Boolean).join(' · ') || 'Anime theme'}</small><AnimeLinks anime={anime} /></div><span className="artist-page__row-state">{state === 'READY' ? 'Ready' : state === 'MISSING' ? 'Unavailable' : state}</span></li>
+  const navigate = useNavigate()
+  const linkedAnime = anime.find((entry) => entry.kitsuId)
+  return <li className="artist-page__row"><button className="artist-page__row-play" type="button" disabled={!onPlay || !theme.audioUrl || theme.audioState === 'FAILED' || theme.audioState === 'MISSING'} onClick={onPlay} aria-label={`Play ${theme.title}`}><Play size={16} fill="currentColor" /></button><div className="artist-page__row-copy"><strong>{theme.title}</strong><small>{[theme.themeType, theme.artists.map((artist) => artist.name).join(', ')].filter(Boolean).join(' · ') || 'Anime theme'}</small><AnimeLinks anime={anime} /></div><span className="artist-page__row-state">{state === 'READY' ? 'Ready' : state === 'MISSING' ? 'Unavailable' : state}</span><TrackActionMenu menuOnly item={{ itemType: 'THEME', itemId: theme.id, title: theme.title }} hasFullSize={Boolean(theme.mediaModes.fullSize)} onPlayNext={onPlayNext} onAddToQueue={onAddToQueue} onReplaceQueue={onReplaceQueue} onGoToAnime={linkedAnime ? () => navigate(`/anime/${encodeURIComponent(linkedAnime.kitsuId)}`) : undefined} animeName={linkedAnime?.title || linkedAnime?.titleEn} onRelatedMusic={linkedAnime ? () => navigate(`/anime/${encodeURIComponent(linkedAnime.kitsuId)}/related-music`) : undefined} /></li>
 }
 
-function ArtistSongRow({ song, onPlay }: { song: ArtistFullSongDto; onPlay?: () => void }) {
+function ArtistSongRow({ song, onPlay, onPlayNext, onAddToQueue, onReplaceQueue }: { song: ArtistFullSongDto; onPlay?: () => void; onPlayNext?: () => void; onAddToQueue?: () => void; onReplaceQueue?: () => void }) {
   const playable = song.audioAvailable !== false && Boolean(song.audioUrl)
-  return <li className="artist-page__row"><button className="artist-page__row-play" type="button" disabled={!onPlay || !playable} onClick={onPlay} aria-label={`Play ${song.title}`}><Play size={16} fill="currentColor" /></button><div className="artist-page__row-copy"><strong>{song.title}</strong><small>{song.artistCredit || 'Unknown artist'}{song.releaseId ? <> · <Link to={`/release/${song.releaseId}`}>{song.releaseTitle || 'Release'}</Link></> : null}</small><AnimeLinks anime={song.anime ?? []} /></div><span className="artist-page__row-duration">{playable ? formatDuration(song.durationSeconds) : 'Metadata only'}</span></li>
+  const navigate = useNavigate()
+  const linkedAnime = song.anime?.find((entry) => entry.kitsuId)
+  return <li className="artist-page__row"><button className="artist-page__row-play" type="button" disabled={!onPlay || !playable} onClick={onPlay} aria-label={`Play ${song.title}`}><Play size={16} fill="currentColor" /></button><div className="artist-page__row-copy"><strong>{song.title}</strong><small>{song.artistCredit || 'Unknown artist'}{song.releaseId ? <> · <Link to={`/release/${song.releaseId}`}>{song.releaseTitle || 'Release'}</Link></> : null}</small><AnimeLinks anime={song.anime ?? []} /></div><span className="artist-page__row-duration">{playable ? formatDuration(song.durationSeconds) : 'Metadata only'}</span><TrackActionMenu menuOnly item={{ itemType: 'SONG', itemId: song.id, title: song.title }} onPlayNext={playable ? onPlayNext : undefined} onAddToQueue={playable ? onAddToQueue : undefined} onReplaceQueue={playable ? onReplaceQueue : undefined} onGoToAnime={linkedAnime ? () => navigate(`/anime/${encodeURIComponent(linkedAnime.kitsuId)}`) : undefined} animeName={linkedAnime?.title || linkedAnime?.titleEn} onRelatedMusic={linkedAnime ? () => navigate(`/anime/${encodeURIComponent(linkedAnime.kitsuId)}/related-music`) : undefined} /></li>
 }
 
 function AnimeLinks({ anime }: { anime: ArtistAnimeLink[] }) {

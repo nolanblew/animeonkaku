@@ -45,7 +45,7 @@ export function AnimePage() {
 
 export function ArtistPage() {
   const player = usePlayer()
-  return <ArtistDetailPage onPlayAll={(artist, shuffle) => playArtistCollection(player, artist, shuffle)} onPlayItem={(artist, startIndex) => playArtistCollection(player, artist, false, startIndex)} />
+  return <ArtistDetailPage onPlayAll={(artist, shuffle) => playArtistCollection(player, artist, shuffle)} onPlayItem={(artist, startIndex) => playArtistCollection(player, artist, false, startIndex)} onPlayNextItem={(artist, index) => enqueueArtistItem(player, artist, index, 'next')} onAddToQueueItem={(artist, index) => enqueueArtistItem(player, artist, index, 'append')} onReplaceQueueItem={(artist, index) => replaceArtistItem(player, artist, index)} />
 }
 
 export function RelatedMusicPage() {
@@ -171,16 +171,30 @@ function replaceQueueItems(player: PlayerContextValue, items: PlayerQueueItem[],
 }
 
 function playArtistCollection(player: PlayerContextValue, artist: ArtistDetailResponse, shuffle: boolean, startIndex = 0): void {
-  const artworkUrl = resolveBrowserAsset(artist.artist.artworkUrl)
-  const themes = Array.isArray(artist.themes) ? artist.themes : []
-  const songs = Array.isArray(artist.fullSongs) ? artist.fullSongs.filter((song) => song.audioAvailable !== false && Boolean(song.audioUrl)) : []
-  const items = [
-    ...themes.map((theme) => mapThemeToQueueItem(theme as LibraryThemeDto, { artworkUrl })),
-    ...songs.map((song) => mapSongToQueueItem(song as MusicTrackDto, { artworkUrl })),
-  ]
+  const items = artistQueueItems(artist).filter((item): item is PlayerQueueItem => item !== null)
   if (items.length === 0) return
   const boundedStartIndex = Math.max(0, Math.min(startIndex, Math.max(0, items.length - 1)))
   player.playItems(items, { contextLabel: artist.artist.name || 'Artist', startIndex: boundedStartIndex, shuffle })
+}
+
+function enqueueArtistItem(player: PlayerContextValue, artist: ArtistDetailResponse, index: number, position: 'next' | 'append'): void {
+  const item = artistQueueItems(artist)[index]
+  if (item) enqueueQueueItems(player, [item], position, artist.artist.name || 'Artist')
+}
+
+function replaceArtistItem(player: PlayerContextValue, artist: ArtistDetailResponse, index: number): void {
+  const item = artistQueueItems(artist)[index]
+  if (item) replaceQueueItems(player, [item], artist.artist.name || 'Artist')
+}
+
+function artistQueueItems(artist: ArtistDetailResponse): Array<PlayerQueueItem | null> {
+  const artworkUrl = resolveBrowserAsset(artist.artist.artworkUrl)
+  const themes = Array.isArray(artist.themes) ? artist.themes : []
+  const songs = Array.isArray(artist.fullSongs) ? artist.fullSongs : []
+  return [
+    ...themes.map((theme) => theme.audioUrl && theme.audioState !== 'FAILED' && theme.audioState !== 'MISSING' ? mapThemeToQueueItem(theme as LibraryThemeDto, { artworkUrl }) : null),
+    ...songs.map((song) => song.audioAvailable !== false && song.audioUrl ? mapSongToQueueItem(song as MusicTrackDto, { artworkUrl }) : null),
+  ]
 }
 
 function playThemeCollection(player: PlayerContextValue, themes: LibraryThemeDto[], startIndex: number, shuffle: boolean, artworkUrl?: string | null): void {

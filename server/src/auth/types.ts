@@ -1,6 +1,7 @@
 export interface KitsuAuthResult {
   kitsuUserId: string;
   username: string;
+  avatarUrl?: string | null;
   accessToken: string;
   refreshToken: string | null;
   expiresAt: Date | null;
@@ -29,6 +30,7 @@ export class KitsuAuthError extends Error {
 export interface UserRecord {
   kitsuUserId: string;
   username: string;
+  kitsuAvatarUrl: string | null;
   kitsuAuthState: string;
   lastSyncAt: Date | null;
 }
@@ -45,6 +47,7 @@ export interface SessionRecord {
 export interface UpsertUserInput {
   kitsuUserId: string;
   username: string;
+  kitsuAvatarUrl: string | null;
   kitsuAccessToken: string;
   kitsuRefreshToken: string | null;
   kitsuTokenExpiresAt: Date | null;

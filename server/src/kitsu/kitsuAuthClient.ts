@@ -31,6 +31,7 @@ export class RealKitsuAuthClient implements KitsuAuthClient {
     return {
       kitsuUserId: self.id,
       username: self.name || username,
+      avatarUrl: self.avatarUrl,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       expiresAt: tokens.expiresAt,
@@ -77,11 +78,15 @@ export class RealKitsuAuthClient implements KitsuAuthClient {
     }
 
     const json = (await response.json()) as {
-      data?: Array<{ id?: unknown; attributes?: { name?: unknown; slug?: unknown } }>;
+      data?: Array<{ id?: unknown; attributes?: { name?: unknown; slug?: unknown; avatar?: unknown } }>;
     };
     const user = json.data?.[0];
     if (!user || user.id === undefined || user.id === null) return null;
     const name = user.attributes?.name ?? user.attributes?.slug;
-    return { id: String(user.id), name: typeof name === "string" ? name : "" };
+    const avatar = user.attributes?.avatar;
+    const avatarUrl = avatar && typeof avatar === "object"
+      ? ["original", "large", "medium", "small", "tiny"].map((size) => (avatar as Record<string, unknown>)[size]).find((value): value is string => typeof value === "string" && value.length > 0) ?? null
+      : null;
+    return { id: String(user.id), name: typeof name === "string" ? name : "", avatarUrl };
   }
 }
