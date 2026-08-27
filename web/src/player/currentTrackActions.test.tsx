@@ -43,6 +43,16 @@ describe('CurrentTrackActions preference subscription', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Remove like' })).toBeInTheDocument())
   })
 
+  it('omits duplicate queue actions for the track that is already playing', () => {
+    render(<QueryClientProvider client={queryClient}><CurrentTrackActions /></QueryClientProvider>)
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for Opening Theme' }))
+
+    expect(screen.queryByRole('menuitem', { name: 'Play next' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Add to queue' })).not.toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Replace queue' })).toBeInTheDocument()
+  })
+
   it('executes video, discovery, and preferred-mode callbacks through the router', async () => {
     const request = vi.spyOn(apiClient, 'request').mockImplementation(async () => ({}) as never)
     function LocationProbe() {
