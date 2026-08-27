@@ -52,6 +52,8 @@
 .catalog-select option { color: #111; }
 .catalog-load-more { justify-self: center; margin-top: .25rem; }
 .catalog-load-more span { color: var(--muted); font-size: .75rem; font-weight: 500; }
+.catalog-pagination { display: flex; align-items: center; justify-content: center; gap: .8rem; margin-top: .35rem; }
+.catalog-pagination span { min-width: 7rem; color: var(--muted); text-align: center; font-size: .84rem; }
 .catalog-empty { margin: 0; padding: 1.3rem; border: 1px dashed var(--line-strong); border-radius: .75rem; color: var(--muted); text-align: center; }
 .catalog-empty--large { display: grid; min-height: 14rem; place-items: center; align-content: center; gap: .4rem; }
 .catalog-empty--large h2 { margin: 0; }
