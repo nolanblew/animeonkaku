@@ -508,26 +508,72 @@ function unshuffle(state: QueueState): QueueState {
 }
 
 function restoreState(snapshot: QueueState): QueueState {
-  const allEntries = uniqueEntries([
+  const rawEntries = [
     ...snapshot.originalQueueEntries,
     ...snapshot.nowPlayingEntries,
     ...snapshot.historyEntries,
-  ])
-  const maxId = allEntries.reduce((max, entry) => Math.max(max, entry.queueId), 0)
+  ]
+  const maxId = rawEntries.reduce((max, entry) => Number.isSafeInteger(entry.queueId) && entry.queueId > 0 ? Math.max(max, entry.queueId) : max, 0)
+  const normalized = normalizeRestoredEntries(snapshot.nowPlayingEntries, Math.max(snapshot.nextQueueEntryId, maxId + 1))
+  const original = remapRestoredEntries(snapshot.originalQueueEntries, normalized.idsByOriginalId, normalized.nextId)
+  const history = remapRestoredEntries(uniqueEntries(snapshot.historyEntries), normalized.idsByOriginalId, original.nextId)
+  const allEntries = uniqueEntries([...original.entries, ...normalized.entries, ...history.entries])
   const validIds = new Set(allEntries.map((entry) => entry.queueId))
-  const currentIndex = snapshot.nowPlayingEntries.length === 0
+  const currentIndex = normalized.entries.length === 0
     ? 0
-    : clampIndex(snapshot.currentIndex, snapshot.nowPlayingEntries.length)
+    : clampIndex(snapshot.currentIndex, normalized.entries.length)
   return {
     ...snapshot,
-    historyEntries: uniqueEntries(snapshot.historyEntries),
+    originalQueueEntries: original.entries,
+    nowPlayingEntries: normalized.entries,
+    historyEntries: history.entries,
     playNextEntryIds: snapshot.playNextEntryIds.filter((id) => validIds.has(id)),
     addedToQueueEntryIds: snapshot.addedToQueueEntryIds.filter((id) => validIds.has(id)),
     suggestedEntryIds: snapshot.suggestedEntryIds.filter((id) => validIds.has(id)),
     playedEntryIds: appendUniqueIds([], snapshot.playedEntryIds.filter((id) => validIds.has(id))),
     currentIndex,
-    nextQueueEntryId: Math.max(snapshot.nextQueueEntryId, maxId + 1),
+    nextQueueEntryId: history.nextId,
   }
+}
+
+function normalizeRestoredEntries(entries: readonly QueueEntry[], firstId: QueueEntryId): {
+  entries: QueueEntry[]
+  idsByOriginalId: Map<QueueEntryId, QueueEntryId[]>
+  nextId: QueueEntryId
+} {
+  const used = new Set<QueueEntryId>()
+  const idsByOriginalId = new Map<QueueEntryId, QueueEntryId[]>()
+  let nextId = firstId
+  const normalized = entries.map((entry) => {
+    const usable = Number.isSafeInteger(entry.queueId) && entry.queueId > 0 && !used.has(entry.queueId)
+    const queueId = usable ? entry.queueId : nextId++
+    used.add(queueId)
+    const replacements = idsByOriginalId.get(entry.queueId) ?? []
+    replacements.push(queueId)
+    idsByOriginalId.set(entry.queueId, replacements)
+    return queueId === entry.queueId ? entry : { ...entry, queueId }
+  })
+  return { entries: normalized, idsByOriginalId, nextId }
+}
+
+function remapRestoredEntries(
+  entries: readonly QueueEntry[],
+  idsByOriginalId: ReadonlyMap<QueueEntryId, readonly QueueEntryId[]>,
+  firstId: QueueEntryId,
+): { entries: QueueEntry[]; nextId: QueueEntryId } {
+  const occurrences = new Map<QueueEntryId, number>()
+  const used = new Set<QueueEntryId>()
+  let nextId = firstId
+  const remapped = entries.map((entry) => {
+    const occurrence = occurrences.get(entry.queueId) ?? 0
+    occurrences.set(entry.queueId, occurrence + 1)
+    const candidate = idsByOriginalId.get(entry.queueId)?.[occurrence] ?? entry.queueId
+    const usable = Number.isSafeInteger(candidate) && candidate > 0 && !used.has(candidate)
+    const queueId = usable ? candidate : nextId++
+    used.add(queueId)
+    return queueId === entry.queueId ? entry : { ...entry, queueId }
+  })
+  return { entries: remapped, nextId }
 }
 
 function createEntries(items: readonly QueueItem[], nextId: QueueEntryId): {
