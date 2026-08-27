@@ -136,10 +136,14 @@ export function compileSimpleFilter(state: SimpleFilterState): FilterNodeJson {
 
   switch (state.timeMode) {
     case 'LAST_6_MONTHS':
-      if (state.timeDimension === 'WATCHED') add({ type: 'watched_on', operator: 'GT', anchor: { type: 'relative', unit: 'DAYS', amount: 182 } })
+      add(state.timeDimension === 'WATCHED'
+        ? { type: 'watched_on', operator: 'GT', anchor: { type: 'relative', unit: 'DAYS', amount: 182 } }
+        : { type: 'aired_on', operator: 'GT', anchor: { type: 'relative', unit: 'DAYS', amount: 182 } })
       break
     case 'LAST_2_YEARS':
-      if (state.timeDimension === 'WATCHED') add({ type: 'watched_on', operator: 'GT', anchor: { type: 'relative', unit: 'YEARS', amount: 2 } })
+      add(state.timeDimension === 'WATCHED'
+        ? { type: 'watched_on', operator: 'GT', anchor: { type: 'relative', unit: 'YEARS', amount: 2 } }
+        : { type: 'aired_on', operator: 'GT', anchor: { type: 'relative', unit: 'YEARS', amount: 2 } })
       break
     case 'BEFORE_2000':
       if (state.timeDimension === 'WATCHED') add(watchedYearFilter(undefined, 1999))
