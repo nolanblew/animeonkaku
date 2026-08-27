@@ -20,3 +20,5 @@ export { mapSongToQueueItem, mapThemeToQueueItem, queueItemAudioUrl, queueItemDu
 export type { PlayerQueueItem, ThemeQueueItemOptions } from './mapping'
 export { QUEUE_PERSISTENCE_VERSION, loadPersistedQueue, queuePersistenceKey, savePersistedQueue } from './queuePersistence'
 export * from './queue'
+export { windowQueueEntries } from './queueWindow'
+export type { QueueWindow, QueueWindowOptions } from './queueWindow'

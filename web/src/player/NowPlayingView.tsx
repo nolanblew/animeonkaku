@@ -1,9 +1,10 @@
 import { ChevronDown, ChevronUp, Ellipsis, Maximize, Pause, Play, Repeat, Shuffle, SkipBack, SkipForward, Trash2 } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { usePlayer } from './PlayerProvider'
 import type { PlaybackMode } from '../media/modeSwitch'
 import { CurrentTrackActions } from './CurrentTrackActions'
 import type { QueueEntry } from './queue'
+import { windowQueueEntries } from './queueWindow'
 
 export interface NowPlayingViewProps { className?: string; onCollapse?: () => void }
 
@@ -57,12 +58,21 @@ export function NowPlayingView({ className = '', onCollapse }: NowPlayingViewPro
 function PlaybackQueue() {
   const player = usePlayer()
   const [menuEntryId, setMenuEntryId] = useState<number | null>(null)
+  const [historyVisibleCount, setHistoryVisibleCount] = useState(40)
+  const [upcomingVisibleCount, setUpcomingVisibleCount] = useState(40)
   const entries = player.queueState.nowPlayingEntries
   const currentIndex = player.queueState.currentIndex
   const history = player.queueState.historyEntries ?? []
   const current = entries[currentIndex]
   const upcoming = entries.slice(currentIndex + 1)
+  const historyWindow = useMemo(() => windowQueueEntries(history, { anchor: 0, viewportSize: historyVisibleCount, overscan: 8 }), [history, historyVisibleCount])
+  const upcomingWindow = useMemo(() => windowQueueEntries(upcoming, { anchor: 0, viewportSize: upcomingVisibleCount, overscan: 8 }), [upcoming, upcomingVisibleCount])
   const menuEntry = upcoming.find((entry) => entry.queueId === menuEntryId)
+
+  useEffect(() => {
+    setHistoryVisibleCount(40)
+    setUpcomingVisibleCount(40)
+  }, [entries, history])
 
   return (
     <aside className="player-queue" aria-label="Playback queue">
@@ -71,16 +81,17 @@ function PlaybackQueue() {
         <span>{entries.length} items</span>
       </div>
       <div className="player-queue__scroll" tabIndex={0} aria-label="Scrollable playback queue">
-        {history.length > 0 && <QueueSection title="History" count={history.length}>
-          {history.map((entry, index) => <QueueRow key={`history-${entry.queueId}`} entry={entry} tone="history" position={index + 1} primaryLabel={`Replay ${entry.item.title}`} onPrimary={() => player.queue.rewindTo(index)} />)}
+        {history.length > 0 && <QueueSection title="History" count={history.length} footer={historyWindow.endExclusive < history.length ? <QueueWindowControl label="history" shown={historyWindow.endExclusive} total={history.length} onClick={() => setHistoryVisibleCount((currentCount) => Math.min(currentCount + 40, history.length))} /> : undefined}>
+          {historyWindow.entries.map((entry, index) => { const historyIndex = historyWindow.start + index; return <QueueRow key={`history-${entry.queueId}`} entry={entry} tone="history" position={historyIndex + 1} primaryLabel={`Replay ${entry.item.title}`} onPrimary={() => player.queue.rewindTo(historyIndex)} /> })}
         </QueueSection>}
         {current && <QueueSection title="Now playing" count={1}>
           <QueueRow entry={current} tone="current" position={currentIndex + 1} />
         </QueueSection>}
-        <QueueSection title="Up next" count={upcoming.length}>
+        <QueueSection title="Up next" count={upcoming.length} footer={upcomingWindow.endExclusive < upcoming.length ? <QueueWindowControl label="queue" shown={upcomingWindow.endExclusive} total={upcoming.length} onClick={() => setUpcomingVisibleCount((currentCount) => Math.min(currentCount + 40, upcoming.length))} /> : undefined}>
           {upcoming.length === 0
             ? <p className="player-muted">The queue is empty.</p>
-            : upcoming.map((entry, offset) => {
+            : upcomingWindow.entries.map((entry, windowOffset) => {
+              const offset = upcomingWindow.start + windowOffset
               const absoluteIndex = currentIndex + offset + 1
               const previous = upcoming[offset - 1]
               const afterNext = upcoming[offset + 2]
@@ -111,10 +122,15 @@ function PlaybackQueue() {
   )
 }
 
-function QueueSection({ title, count, children }: { title: string; count: number; children: ReactNode }) {
+function QueueWindowControl({ label, shown, total, onClick }: { label: string; shown: number; total: number; onClick: () => void }) {
+  return <div className="player-queue__window-controls"><span>Showing {shown} of {total} {label} items.</span><button type="button" className="player-icon-button player-icon-button--quiet" onClick={onClick}>Load more</button></div>
+}
+
+function QueueSection({ title, count, children, footer }: { title: string; count: number; children: ReactNode; footer?: ReactNode }) {
   return <div className="player-queue__section">
     <div className="player-queue__section-heading"><h3 id={`queue-${title.toLowerCase().replace(/\s+/g, '-')}`}>{title}</h3><span>{count}</span></div>
     <ol>{children}</ol>
+    {footer}
   </div>
 }
 

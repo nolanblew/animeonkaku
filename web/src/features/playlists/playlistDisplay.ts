@@ -1,5 +1,5 @@
 import { browserAssetUrl } from '../../lib/assets'
-import type { NormalizedLibrary, PlaylistDto, PlaylistPlaybackMode } from '../../lib/library'
+import type { AnimeMusicDto, MusicReleaseDto, MusicTrackDto, NormalizedLibrary, PlaylistDto, PlaylistPlaybackMode } from '../../lib/library'
 
 export interface PlaylistDisplayItem {
   key: string
@@ -17,7 +17,47 @@ export interface PlaylistDisplayItem {
   hasVideo: boolean
 }
 
-export function resolvePlaylistDisplayItems(playlist: PlaylistDto, library: NormalizedLibrary | null | undefined): PlaylistDisplayItem[] {
+export interface PlaylistSongIndexEntry {
+  song: MusicTrackDto
+  anime: AnimeMusicDto['anime']
+  release: MusicReleaseDto
+  animeId: string
+  releaseId: number
+  artworkUrl: string | null
+}
+
+export type PlaylistSongIndex = ReadonlyMap<number, PlaylistSongIndexEntry>
+
+/** Builds the song lookup once per normalized library snapshot. */
+export function buildPlaylistSongIndex(library: NormalizedLibrary | null | undefined): Map<number, PlaylistSongIndexEntry> {
+  const index = new Map<number, PlaylistSongIndexEntry>()
+  for (const catalog of Object.values(library?.musicCatalogByAnimeId ?? {})) {
+    for (const release of catalog.releases) {
+      for (const song of release.tracks) {
+        // A song ID is globally unique in the server catalog. Keeping the
+        // first occurrence also preserves the old scan's deterministic order
+        // if malformed data contains a duplicate.
+        if (!index.has(song.id)) {
+          index.set(song.id, {
+            song,
+            anime: catalog.anime,
+            release,
+            animeId: catalog.anime.kitsuId,
+            releaseId: release.id,
+            artworkUrl: release.artworkUrl ?? catalog.anime.posterUrl,
+          })
+        }
+      }
+    }
+  }
+  return index
+}
+
+export function resolvePlaylistDisplayItems(
+  playlist: PlaylistDto,
+  library: NormalizedLibrary | null | undefined,
+  songIndex: PlaylistSongIndex = buildPlaylistSongIndex(library),
+): PlaylistDisplayItem[] {
   const items = playlist.items.length > 0
     ? playlist.items
     : playlist.entries.map((itemId, index) => ({ entryId: index + 1, itemType: 'THEME' as const, itemId, modeOverride: null }))
@@ -45,26 +85,21 @@ export function resolvePlaylistDisplayItems(playlist: PlaylistDto, library: Norm
       }
     }
 
-    for (const catalog of Object.values(library?.musicCatalogByAnimeId ?? {})) {
-      for (const release of catalog.releases) {
-        const song = release.tracks.find((track) => track.id === item.itemId)
-        if (!song) continue
-        return {
-          key,
-          title: song.title,
-          subtitle: [catalog.anime.titleEn ?? catalog.anime.title, song.artistCredit || release.artistCredit].filter(Boolean).join(' · '),
-          artworkUrl: browserAssetUrl(release.artworkUrl ?? catalog.anime.posterUrl) ?? null,
-          durationSeconds: song.durationSeconds,
-          available: Boolean(song.audioUrl),
-          itemType: item.itemType,
-          itemId: item.itemId,
-          modeOverride: null,
-          liked: library?.songPrefsById[String(item.itemId)]?.liked ?? false,
-          disliked: library?.songPrefsById[String(item.itemId)]?.disliked ?? false,
-          hasFullSize: true,
-          hasVideo: false,
-        }
-      }
+    const found = songIndex.get(item.itemId)
+    if (found) return {
+      key,
+      title: found.song.title,
+      subtitle: [found.anime.titleEn ?? found.anime.title, found.song.artistCredit || found.release.artistCredit].filter(Boolean).join(' · '),
+      artworkUrl: browserAssetUrl(found.artworkUrl) ?? null,
+      durationSeconds: found.song.durationSeconds,
+      available: Boolean(found.song.audioUrl),
+      itemType: item.itemType,
+      itemId: item.itemId,
+      modeOverride: null,
+      liked: library?.songPrefsById[String(item.itemId)]?.liked ?? false,
+      disliked: library?.songPrefsById[String(item.itemId)]?.disliked ?? false,
+      hasFullSize: true,
+      hasVideo: false,
     }
     return unavailableItem(key, item.itemType, item.itemId, item.modeOverride)
   })

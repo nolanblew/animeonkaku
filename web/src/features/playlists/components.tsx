@@ -7,7 +7,7 @@ import { buildPlaylistUpdate, createDefaultSimpleFilter, DEFAULT_ADVANCED_FILTER
 import type { PlaylistCreateInput } from './api'
 import { useLibraryQuery } from '../../lib/query'
 import { PlaylistArtwork, playlistArtworkUrls } from './PlaylistArtwork'
-import { resolvePlaylistDisplayItems } from './playlistDisplay'
+import { buildPlaylistSongIndex, resolvePlaylistDisplayItems } from './playlistDisplay'
 import { TrackActionMenu } from '../libraryactions'
 import './playlists.css'
 
@@ -23,6 +23,7 @@ export interface PlaylistListProps {
 }
 
 const MAX_PLAYLIST_PAGE_SIZE = 100
+const PLAYLIST_TRACK_PAGE_SIZE = 48
 
 export function PlaylistList({ playlists, state, error, onCreate, onSelect, maxVisible = 100 }: PlaylistListProps) {
   const library = useLibraryQuery({ enabled: false }).library
@@ -278,7 +279,9 @@ export interface PlaylistDetailProps {
 export function PlaylistDetail({ playlist, library: providedLibrary, onUpdate, onDelete, onBack, onPlay, onPlayItem, onPlayNextItem, onAddToQueueItem, onPlayNext, onAddToQueue, onReplaceQueue, onRefresh }: PlaylistDetailProps) {
   const queriedLibrary = useLibraryQuery({ enabled: false }).library
   const library = providedLibrary ?? queriedLibrary
-  const rows = useMemo(() => resolvePlaylistDisplayItems(playlist, library), [library, playlist])
+  const songIndex = useMemo(() => buildPlaylistSongIndex(library), [library])
+  const rows = useMemo(() => resolvePlaylistDisplayItems(playlist, library, songIndex), [library, playlist, songIndex])
+  const [visibleTrackCount, setVisibleTrackCount] = useState(PLAYLIST_TRACK_PAGE_SIZE)
   const editableItems = useMemo(() => normalizePlaylistItems(playlist), [playlist])
   const artworkUrls = useMemo(() => playlistArtworkUrls(playlist, library), [library, playlist])
   const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -286,6 +289,8 @@ export function PlaylistDetail({ playlist, library: providedLibrary, onUpdate, o
   const [error, setError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+
+  useEffect(() => setVisibleTrackCount(PLAYLIST_TRACK_PAGE_SIZE), [playlist.id, playlist.updatedAt])
 
   const confirmDelete = async () => {
     setDeleting(true)
@@ -346,7 +351,10 @@ export function PlaylistDetail({ playlist, library: providedLibrary, onUpdate, o
       {error && <p className="playlist-field__error" role="alert">{error}</p>}
       <section className="playlist-track-section" aria-labelledby="playlist-tracks-title">
         <div className="playlist-items__heading"><div><p className="playlist-eyebrow">Playlist sequence</p><h2 id="playlist-tracks-title">Tracks</h2></div><span>{rows.length}</span></div>
-        {rows.length === 0 ? <p className="playlist-muted">This playlist is empty. Add tracks from a song’s action menu.</p> : <ol className="playlist-track-list">{rows.map((row, index) => <li key={row.key} className={['playlist-track-row', !row.available && 'playlist-track-row--unavailable', !playlist.isAuto && !playlist.isDynamic && 'playlist-track-row--reorderable'].filter(Boolean).join(' ')}><span className="playlist-track-row__number">{index + 1}</span><button type="button" className="playlist-track-row__play" onClick={() => onPlayItem?.(playlist, index)} disabled={!row.available || !onPlayItem} aria-label={`Play ${row.title}`}>{row.artworkUrl ? <img src={row.artworkUrl} alt="" loading="lazy" /> : <span aria-hidden="true"><Music2 size={20} /></span>}<i aria-hidden="true"><Play size={17} fill="currentColor" /></i></button><span className="playlist-track-row__copy"><strong>{row.title}</strong><small>{row.subtitle}</small></span><span className="playlist-track-row__features">{row.available ? <>{row.hasFullSize && row.itemType === 'THEME' && <span>Full size</span>}{row.hasVideo && <span>Video</span>}</> : <span>Unavailable</span>}</span><time>{formatPlaylistDuration(row.durationSeconds)}</time>{!playlist.isAuto && !playlist.isDynamic && <span className="playlist-track-row__reorder"><button type="button" className="playlist-icon-button" aria-label={`Move ${row.title} up`} disabled={index === 0} onClick={() => void moveItem(index, -1)}>↑</button><button type="button" className="playlist-icon-button" aria-label={`Move ${row.title} down`} disabled={index === rows.length - 1} onClick={() => void moveItem(index, 1)}>↓</button></span>}<TrackActionMenu menuOnly item={{ itemType: row.itemType, itemId: row.itemId, title: row.title, modeOverride: row.modeOverride }} liked={row.liked} disliked={row.disliked} onPlayNext={row.available && onPlayNextItem ? () => onPlayNextItem(playlist, index) : undefined} onAddToQueue={row.available && onAddToQueueItem ? () => onAddToQueueItem(playlist, index) : undefined} onRemove={!playlist.isAuto ? () => { void removeItem(index) } : undefined} /></li>)}</ol>}
+        {rows.length === 0 ? <p className="playlist-muted">This playlist is empty. Add tracks from a song’s action menu.</p> : <>
+          <ol className="playlist-track-list" aria-label="Playlist tracks" aria-setsize={rows.length}>{rows.slice(0, visibleTrackCount).map((row, index) => <li key={row.key} aria-posinset={index + 1} className={['playlist-track-row', !row.available && 'playlist-track-row--unavailable', !playlist.isAuto && !playlist.isDynamic && 'playlist-track-row--reorderable'].filter(Boolean).join(' ')}><span className="playlist-track-row__number">{index + 1}</span><button type="button" className="playlist-track-row__play" onClick={() => onPlayItem?.(playlist, index)} disabled={!row.available || !onPlayItem} aria-label={`Play ${row.title}`}>{row.artworkUrl ? <img src={row.artworkUrl} alt="" loading="lazy" /> : <span aria-hidden="true"><Music2 size={20} /></span>}<i aria-hidden="true"><Play size={17} fill="currentColor" /></i></button><span className="playlist-track-row__copy"><strong>{row.title}</strong><small>{row.subtitle}</small></span><span className="playlist-track-row__features">{row.available ? <>{row.hasFullSize && row.itemType === 'THEME' && <span>Full size</span>}{row.hasVideo && <span>Video</span>}</> : <span>Unavailable</span>}</span><time>{formatPlaylistDuration(row.durationSeconds)}</time>{!playlist.isAuto && !playlist.isDynamic && <span className="playlist-track-row__reorder"><button type="button" className="playlist-icon-button" aria-label={`Move ${row.title} up`} disabled={index === 0} onClick={() => void moveItem(index, -1)}>↑</button><button type="button" className="playlist-icon-button" aria-label={`Move ${row.title} down`} disabled={index === rows.length - 1} onClick={() => void moveItem(index, 1)}>↓</button></span>}<TrackActionMenu menuOnly item={{ itemType: row.itemType, itemId: row.itemId, title: row.title, modeOverride: row.modeOverride }} liked={row.liked} disliked={row.disliked} onPlayNext={row.available && onPlayNextItem ? () => onPlayNextItem(playlist, index) : undefined} onAddToQueue={row.available && onAddToQueueItem ? () => onAddToQueueItem(playlist, index) : undefined} onRemove={!playlist.isAuto ? () => { void removeItem(index) } : undefined} /></li>)}</ol>
+          {rows.length > visibleTrackCount && <div className="playlist-track-list__pagination"><p className="playlist-muted">Showing {Math.min(visibleTrackCount, rows.length)} of {rows.length} tracks.</p><button type="button" className="playlist-button" onClick={() => setVisibleTrackCount((current) => Math.min(current + PLAYLIST_TRACK_PAGE_SIZE, rows.length))}>Load more playlist tracks</button></div>}
+        </>}
       </section>
       {editorOpen && <div className="playlist-dialog-backdrop"><div className="playlist-dialog" role="dialog" aria-modal="true" aria-labelledby="playlist-edit-dialog-title"><PlaylistEditor playlist={playlist} onCancel={() => setEditorOpen(false)} onSubmit={async (input) => { await onUpdate(playlist.id, input as Partial<PlaylistUpdateInput> & { items?: PlaylistUpdateInput['items'] }); setEditorOpen(false) }} /></div></div>}
       {confirmingDelete && <div className="playlist-dialog-backdrop"><div className="playlist-dialog playlist-dialog--confirm" role="dialog" aria-modal="true" aria-labelledby="playlist-delete-dialog-title"><h2 id="playlist-delete-dialog-title">Delete playlist?</h2><p>This removes “{playlist.name}” from your library. The tracks themselves will stay available.</p><div className="playlist-dialog__actions"><button type="button" className="playlist-button" onClick={() => setConfirmingDelete(false)} disabled={deleting}>Keep playlist</button><button type="button" className="playlist-button playlist-button--danger" onClick={confirmDelete} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete'}</button></div></div></div>}

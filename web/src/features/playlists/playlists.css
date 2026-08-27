@@ -157,6 +157,8 @@
 .playlist-track-section .playlist-items__heading { align-items: end; }
 .playlist-track-section .playlist-items__heading h2 { margin: 0; font-size: clamp(1.4rem,2vw,1.8rem); }
 .playlist-track-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.playlist-track-list__pagination { display: flex; align-items: center; justify-content: space-between; gap: .8rem; padding: .9rem .55rem 0; }
+.playlist-track-list__pagination .playlist-muted { margin: 0; }
 .playlist-track-row { position: relative; display: grid; min-width: 0; grid-template-columns: 2rem 3.25rem minmax(0,1fr) auto 3.3rem 2.5rem; align-items: center; gap: .75rem; padding: .62rem .55rem; border-bottom: 1px solid rgba(255,255,255,.075); transition: background .16s; }
 .playlist-track-row--reorderable { grid-template-columns: 2rem 3.25rem minmax(0,1fr) auto 3.3rem max-content 2.5rem; }
 .playlist-track-row__reorder { display: flex; gap: .3rem; }

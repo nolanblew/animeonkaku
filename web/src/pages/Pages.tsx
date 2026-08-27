@@ -6,6 +6,7 @@ import { ArtistDetailPage, type ArtistDetailResponse } from '../features/artists
 import { RelatedMusicPage as RelatedMusicFeaturePage } from '../features/relatedmusic'
 import { ReleaseDetailPage } from '../features/releases'
 import { PlaylistDetail, PlaylistFeatureMessage, PlaylistManager, usePlaylist, usePlaylistMutations, usePlaylists } from '../features/playlists'
+import { buildPlaylistSongIndex } from '../features/playlists/playlistDisplay'
 import { SearchPage as AccountSearchPage, SettingsPage as AccountSettingsPage, type MusicSearchTrack } from '../features/accountsearch'
 import { mapSongToQueueItem, mapThemeToQueueItem, NowPlayingView, runPlayerViewTransition, usePlayer, type PlayerContextValue, type PlayerQueueItem } from '../player'
 import type { LibraryThemeDto, MusicReleaseDto, MusicTrackDto, NormalizedLibrary, PlaylistDto } from '../lib/library'
@@ -236,10 +237,7 @@ function playlistQueueItems(library: NormalizedLibrary, playlist: PlaylistDto): 
   const items = playlist.items.length > 0
     ? playlist.items
     : playlist.entries.map((itemId, index) => ({ entryId: index + 1, itemType: 'THEME' as const, itemId, modeOverride: null }))
-  const songs = new Map<number, { song: MusicTrackDto; artworkUrl: string | null; animeId: string }>()
-  for (const [animeId, catalog] of Object.entries(library.musicCatalogByAnimeId)) {
-    for (const release of catalog.releases) for (const song of release.tracks) songs.set(song.id, { song, artworkUrl: release.artworkUrl, animeId })
-  }
+  const songs = buildPlaylistSongIndex(library)
   return items.map((item): PlayerQueueItem | null => {
     if (item.itemType === 'SONG') {
       const found = songs.get(item.itemId)

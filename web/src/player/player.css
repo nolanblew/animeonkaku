@@ -98,6 +98,8 @@ button.player-queue__primary:hover { background: rgba(255,255,255,.065); }
 .player-queue__row-actions button { display: inline-grid; width: 1.8rem; height: 1.8rem; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #9298a5; cursor: pointer; }
 .player-queue__row-actions button:hover { background: rgba(255,255,255,.09); color: white; }
 .player-queue__row-actions button:disabled { visibility: hidden; }
+.player-queue__window-controls { display: flex; align-items: center; justify-content: space-between; gap: .6rem; margin-top: .35rem; padding: .35rem .25rem 0; color: #858b99; font-size: .68rem; }
+.player-queue__window-controls .player-icon-button { width: auto; height: auto; min-height: 1.8rem; padding: .25rem .55rem; border: 1px solid rgba(255,255,255,.12); border-radius: .45rem; color: #c3c7d0; font-size: .7rem; }
 .player-queue__menu { position: absolute; right: .8rem; bottom: .8rem; z-index: 6; display: grid; min-width: 13rem; gap: .15rem; padding: .5rem; border: 1px solid rgba(255,255,255,.15); border-radius: .75rem; background: #171a22; box-shadow: 0 18px 50px rgba(0,0,0,.5); }
 .player-queue__menu strong { padding: .45rem .55rem; overflow: hidden; font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
 .player-queue__menu button { display: flex; align-items: center; gap: .45rem; padding: .55rem; border: 0; border-radius: .45rem; background: transparent; color: #d2d5dc; text-align: left; cursor: pointer; }
