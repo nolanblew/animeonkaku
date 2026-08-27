@@ -1,4 +1,4 @@
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ListMusic, MonitorPlay } from 'lucide-react'
 import { RouteSkeleton } from '../components/RouteSkeleton'
 import { AnimeDetailPage, HomeCatalogPage, LibraryCatalogPage } from '../features/catalog'
@@ -56,15 +56,16 @@ export function PlaylistPage() {
 }
 
 export function PlaylistsPage() {
+  const [searchParams] = useSearchParams()
   const query = usePlaylists()
   const mutations = usePlaylistMutations()
   const player = usePlayer()
   const library = useLibraryQuery().library
-  return <section className="page" aria-labelledby="playlists-page-title"><h1 id="playlists-page-title" className="sr-only">Playlists</h1><PlaylistManager playlists={query.playlists} state={query.isPending ? 'loading' : query.isError ? 'error' : query.playlists.length === 0 ? 'empty' : 'ready'} error={query.isError ? 'Could not load playlists.' : undefined} onCreate={mutations.create} onUpdate={mutations.update} onDelete={mutations.remove} onPlay={library ? (playlist, shuffle) => playPlaylist(player, library, playlist, shuffle) : undefined} /></section>
+  return <section className="page" aria-labelledby="playlists-page-title"><h1 id="playlists-page-title" className="sr-only">Playlists</h1><PlaylistManager playlists={query.playlists} state={query.isPending ? 'loading' : query.isError ? 'error' : query.playlists.length === 0 ? 'empty' : 'ready'} error={query.isError ? 'Could not load playlists.' : undefined} initialCreate={searchParams.get('create') === '1'} onCreate={mutations.create} onUpdate={mutations.update} onDelete={mutations.remove} onPlay={library ? (playlist, shuffle) => playPlaylist(player, library, playlist, shuffle) : undefined} /></section>
 }
 
 export function NowPlayingPage() {
-  return <section className="now-playing-page" aria-labelledby="now-playing-title"><h1 id="now-playing-title" className="sr-only">Now playing</h1><NowPlayingView /></section>
+  return <section className="now-playing-route" aria-labelledby="now-playing-title"><h1 id="now-playing-title" className="sr-only">Now playing</h1><NowPlayingView /></section>
 }
 
 export function SettingsPage() {

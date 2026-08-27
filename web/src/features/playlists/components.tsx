@@ -298,14 +298,18 @@ export function PlaylistDetail({ playlist, onUpdate, onDelete, onBack, onPlay }:
 }
 
 export interface PlaylistManagerProps extends Omit<PlaylistListProps, 'onCreate'> {
+  initialCreate?: boolean
   onCreate: (input: PlaylistCreateInput) => Promise<unknown> | unknown
   onUpdate: PlaylistDetailProps['onUpdate']
   onDelete: PlaylistDetailProps['onDelete']
   onPlay?: PlaylistDetailProps['onPlay']
 }
 
-export function PlaylistManager({ playlists, state, error, onCreate, maxVisible }: PlaylistManagerProps) {
-  const [creating, setCreating] = useState(false)
+export function PlaylistManager({ playlists, state, error, onCreate, maxVisible, initialCreate = false }: PlaylistManagerProps) {
+  const [creating, setCreating] = useState(initialCreate)
+  useEffect(() => {
+    if (initialCreate) setCreating(true)
+  }, [initialCreate])
   const create = async (input: PlaylistCreateInput | (Partial<PlaylistUpdateInput> & { items?: PlaylistUpdateInput['items'] })) => { await onCreate(input as PlaylistCreateInput); setCreating(false) }
 
   return <div className="playlist-manager"><PlaylistList playlists={playlists} state={state} error={error} maxVisible={maxVisible} onCreate={() => setCreating(true)} />{creating && <div className="playlist-dialog-backdrop"><div className="playlist-dialog" role="dialog" aria-modal="true" aria-labelledby="playlist-create-dialog-title"><h2 id="playlist-create-dialog-title" className="sr-only">Create playlist</h2><PlaylistEditor onCancel={() => setCreating(false)} onSubmit={create} /></div></div>}</div>
