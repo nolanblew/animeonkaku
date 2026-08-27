@@ -69,7 +69,7 @@ const defaultAuth: AuthContextValue = {
   user: null,
   me: null,
   firstSync: { status: 'idle', mode: null, syncMode: null, isNewUser: false },
-  login: async (username, password) => apiClient.post<AuthLoginResponse>('/auth/login', { username, password }),
+  login: async (username, password) => apiClient.post<AuthLoginResponse>('/auth/login', { username, password, deviceName: browserDeviceName() }),
   logout: async () => { await apiClient.post('/auth/logout') },
   updateProfile: async (profile) => {
     const response = await apiClient.patch<ProfileResponse>('/auth/profile', profile)
@@ -110,7 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loginSession, meQuery.error, meQuery.isError])
 
   const login = useCallback(async (username: string, password: string): Promise<AuthLoginResponse> => {
-    const result = await apiClient.post<AuthLoginResponse>('/auth/login', { username, password })
+    const result = await apiClient.post<AuthLoginResponse>('/auth/login', { username, password, deviceName: browserDeviceName() })
     setLoginSession(result)
     setHasLoggedOut(false)
     setFirstSync({ status: 'syncing', mode: result.syncMode, syncMode: result.syncMode, isNewUser: result.isNewUser })
@@ -191,4 +191,15 @@ export function useAuth(): AuthContextValue {
 
 function isUnauthorized(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'status' in error && (error as { status?: unknown }).status === 401
+}
+
+function browserDeviceName(): string {
+  if (typeof navigator === 'undefined') return 'Web browser'
+  const identity = `${navigator.userAgent ?? ''} ${navigator.platform ?? ''}`
+  if (/windows/i.test(identity)) return 'Web · Windows'
+  if (/iphone|ipad|ipod/i.test(identity)) return 'Web · iOS'
+  if (/android/i.test(identity)) return 'Web · Android'
+  if (/macintosh|mac os|macintel/i.test(identity)) return 'Web · macOS'
+  if (/linux/i.test(identity)) return 'Web · Linux'
+  return 'Web browser'
 }
