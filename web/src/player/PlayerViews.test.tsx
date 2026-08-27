@@ -79,17 +79,15 @@ describe('player views', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Loading media')
   })
 
-  it('uses thumb preferences and makes the full-player overflow menu actionable', () => {
+  it('uses thumb preferences and omits duplicate queue actions from the active track', () => {
     renderPlayer(<NowPlayingView />)
     expect(screen.getByRole('button', { name: 'Like' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Dislike' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /unlike track|like track/i })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'More actions for Opening' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Play next' }))
-    expect(state.player.queue.playNext).toHaveBeenCalledWith([state.player.currentItem])
-    fireEvent.click(screen.getByRole('button', { name: 'More actions for Opening' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }))
-    expect(state.player.queue.addToQueue).toHaveBeenCalledWith([state.player.currentItem])
+    expect(screen.queryByRole('menuitem', { name: 'Play next' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Add to queue' })).not.toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Replace queue' })).toBeInTheDocument()
   })
 
   it('exposes the complete context-aware track menu from both full and mini players', () => {
