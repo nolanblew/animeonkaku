@@ -52,6 +52,16 @@ describe('playlist components', () => {
     expect(screen.getByText(/showing 50 of/i)).toBeInTheDocument()
   })
 
+  it('loads additional playlist pages without rendering the whole collection', async () => {
+    const playlists = Array.from({ length: 250 }, (_, id) => playlist({ id: id + 1, name: `Mix ${id + 1}` }))
+    renderWithQuery(<PlaylistList state="ready" playlists={playlists} onCreate={vi.fn()} maxVisible={50} />)
+
+    expect(screen.getAllByRole('link')).toHaveLength(50)
+    await userEvent.click(screen.getByRole('button', { name: /load more playlists/i }))
+    expect(screen.getAllByRole('link')).toHaveLength(100)
+    expect(screen.getByText(/showing 100 of 250/i)).toBeInTheDocument()
+  })
+
   it('navigates playlist cards to their detail route instead of selecting locally', async () => {
     render(<MemoryRouter initialEntries={['/playlists']}><QueryClientProvider client={new QueryClient()}><PlaylistManager playlists={[playlist()]} state="ready" onCreate={vi.fn()} onUpdate={vi.fn()} onDelete={vi.fn()} /></QueryClientProvider><RouteProbe /></MemoryRouter>)
 
