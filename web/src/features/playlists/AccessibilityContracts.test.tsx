@@ -30,13 +30,14 @@ describe('playlist dialog keyboard behavior', () => {
     await user.click(opener)
     const dialog = screen.getByRole('dialog', { name: /create playlist/i })
     const manual = within(dialog).getByRole('button', { name: /manual playlist/i })
+    const cancel = within(dialog).getByRole('button', { name: /^cancel$/i })
     const buttons = within(dialog).getAllByRole('button')
     const last = buttons[buttons.length - 1]
 
     expect(manual).toHaveFocus()
     last?.focus()
     await user.tab()
-    expect(manual).toHaveFocus()
+    expect(cancel).toHaveFocus()
 
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog', { name: /create playlist/i })).not.toBeInTheDocument()

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -97,6 +97,20 @@ describe('full-player queue menu keyboard behavior', () => {
     expect(first).toHaveFocus()
 
     await user.click(screen.getByRole('menuitem', { name: 'Close' }))
+    expect(screen.queryByRole('menu', { name: 'Ending queue actions' })).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
+  it('dismisses the queue menu on an outside pointer without losing trigger focus', async () => {
+    const user = userEvent.setup()
+    renderPlayer()
+
+    const trigger = screen.getByRole('button', { name: 'More actions for Ending in queue' })
+    await user.click(trigger)
+    expect(screen.getByRole('menu', { name: 'Ending queue actions' })).toBeInTheDocument()
+
+    fireEvent.pointerDown(document.body)
+
     expect(screen.queryByRole('menu', { name: 'Ending queue actions' })).not.toBeInTheDocument()
     expect(trigger).toHaveFocus()
   })

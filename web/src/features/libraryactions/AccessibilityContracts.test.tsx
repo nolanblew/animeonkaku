@@ -16,6 +16,7 @@ function ThemeActionSheetHarness() {
           themeId={41}
           title="Opening theme"
           subtitle="Anime · OP1"
+          onPlay={vi.fn()}
           onClose={() => setOpen(false)}
         />
       )}
@@ -39,13 +40,13 @@ describe('shared track menus', () => {
     const menu = screen.getByRole('menu', { name: 'Opening theme actions' })
     const playNext = within(menu).getByRole('menuitem', { name: 'Play next' })
     const addToQueue = within(menu).getByRole('menuitem', { name: 'Add to queue' })
-    const replaceQueue = within(menu).getByRole('menuitem', { name: 'Replace queue' })
+    const lastAction = within(menu).getByRole('menuitem', { name: 'Save to playlist' })
 
     expect(playNext).toHaveFocus()
     await user.keyboard('{ArrowDown}')
     expect(addToQueue).toHaveFocus()
     await user.keyboard('{End}')
-    expect(replaceQueue).toHaveFocus()
+    expect(lastAction).toHaveFocus()
     await user.keyboard('{Home}')
     expect(playNext).toHaveFocus()
   })
@@ -74,13 +75,14 @@ describe('theme action sheet dialog behavior', () => {
     await user.click(opener)
     const dialog = screen.getByRole('dialog', { name: 'Opening theme actions' })
     const firstAction = within(dialog).getByRole('button', { name: 'Play now' })
+    const closeButton = within(dialog).getByRole('button', { name: 'Close actions' })
     const buttons = within(dialog).getAllByRole('button')
     const lastAction = buttons[buttons.length - 1]
 
     expect(firstAction).toHaveFocus()
     lastAction?.focus()
     await user.tab()
-    expect(firstAction).toHaveFocus()
+    expect(closeButton).toHaveFocus()
 
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog', { name: 'Opening theme actions' })).not.toBeInTheDocument()

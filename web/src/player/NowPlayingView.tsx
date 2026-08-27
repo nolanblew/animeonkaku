@@ -5,6 +5,7 @@ import type { PlaybackMode } from '../media/modeSwitch'
 import { CurrentTrackActions } from './CurrentTrackActions'
 import type { QueueEntry } from './queue'
 import { windowQueueEntries } from './queueWindow'
+import { useAccessibleFocusScope } from '../components/focusScope'
 
 export interface NowPlayingViewProps { className?: string; onCollapse?: () => void }
 
@@ -68,11 +69,21 @@ function PlaybackQueue() {
   const historyWindow = useMemo(() => windowQueueEntries(history, { anchor: 0, viewportSize: historyVisibleCount, overscan: 8 }), [history, historyVisibleCount])
   const upcomingWindow = useMemo(() => windowQueueEntries(upcoming, { anchor: 0, viewportSize: upcomingVisibleCount, overscan: 8 }), [upcoming, upcomingVisibleCount])
   const menuEntry = upcoming.find((entry) => entry.queueId === menuEntryId)
+  const menuRef = useAccessibleFocusScope<HTMLDivElement>({ active: menuEntry !== undefined, onEscape: () => setMenuEntryId(null) })
 
   useEffect(() => {
     setHistoryVisibleCount(40)
     setUpcomingVisibleCount(40)
   }, [entries, history])
+
+  useEffect(() => {
+    if (!menuEntry) return undefined
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuEntryId(null)
+    }
+    window.addEventListener('pointerdown', closeOnOutsidePointer)
+    return () => window.removeEventListener('pointerdown', closeOnOutsidePointer)
+  }, [menuEntry, menuRef])
 
   return (
     <aside className="player-queue" aria-label="Playback queue">
@@ -110,13 +121,13 @@ function PlaybackQueue() {
             })}
         </QueueSection>
       </div>
-      {menuEntry && <div className="player-queue__menu" role="menu" aria-label={`${menuEntry.item.title} queue actions`}>
+      {menuEntry && <div ref={menuRef} className="player-queue__menu" role="menu" aria-label={`${menuEntry.item.title} queue actions`}>
         <strong>{menuEntry.item.title}</strong>
         {!player.isQueueEntryEligible(menuEntry.queueId) && <button type="button" role="menuitem" onClick={() => { player.queue.unskipEntry(menuEntry.queueId); setMenuEntryId(null) }}>Play this disliked item</button>}
         <button type="button" role="menuitem" onClick={() => { player.queue.moveToPlayNext(menuEntry.queueId); setMenuEntryId(null) }}>Play next</button>
         <button type="button" role="menuitem" onClick={() => { player.queue.addToQueue([menuEntry.item]); setMenuEntryId(null) }}>Add another to queue</button>
         <button type="button" role="menuitem" className="player-queue__danger" onClick={() => { player.queue.removeEntry(menuEntry.queueId); setMenuEntryId(null) }}><Trash2 size={15} /> Remove from queue</button>
-        <button type="button" onClick={() => setMenuEntryId(null)}>Close</button>
+        <button type="button" role="menuitem" onClick={() => setMenuEntryId(null)}>Close</button>
       </div>}
     </aside>
   )
