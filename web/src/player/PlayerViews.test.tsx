@@ -14,7 +14,7 @@ function renderPlayer(ui: React.ReactElement) {
 
 beforeEach(() => {
   state.player = {
-    currentItem: { id: 1, itemType: 'THEME', themeId: 1, title: 'Opening', artist: 'Band', animeId: 'anime-1', artworkUrl: '/art.jpg', audioUrl: '/audio.mp3', videoUrl: '/video.mp4', durationMs: 90_000 },
+    currentItem: { id: 1, itemType: 'THEME', themeId: 1, title: 'Opening', artist: 'Band', animeTitle: 'A Couple of Cuckoos', themeType: 'ED2', animeId: 'anime-1', artworkUrl: '/art.jpg', audioUrl: '/audio.mp3', videoUrl: '/video.mp4', durationMs: 90_000 },
     currentTime: 65,
     duration: 90,
     mode: 'VIDEO',
@@ -80,6 +80,19 @@ describe('player views', () => {
     expect(state.player.skipTo).toHaveBeenCalledWith(1)
     expect(screen.getByRole('alert')).toHaveTextContent('Recoverable error')
     expect(screen.getByRole('status')).toHaveTextContent('Loading media')
+  })
+
+  it('matches mobile title hierarchy in the mini player, full player, and queue', () => {
+    const mini = renderPlayer(<MiniPlayerView />)
+    expect(screen.getByText('A Couple of Cuckoos · ED 2')).toBeInTheDocument()
+    expect(screen.getByText('Opening · Band')).toBeInTheDocument()
+    mini.unmount()
+
+    renderPlayer(<NowPlayingView />)
+    expect(screen.getByRole('heading', { name: 'A Couple of Cuckoos · ED 2' })).toBeInTheDocument()
+    expect(screen.getByText('Opening · Band')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Show queue' }))
+    expect(screen.getByText('A Couple of Cuckoos · ED 2', { selector: '.player-queue__title' })).toBeInTheDocument()
   })
 
   it('keeps the queue hidden until requested and removes redundant row timing and section counts', () => {

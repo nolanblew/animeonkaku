@@ -114,6 +114,9 @@ describe('catalog pages', () => {
     renderWithQuery(<HomeCatalogPage onPlayTheme={onPlayTheme} />)
 
     expect(await screen.findByRole('heading', { name: 'Recommended' })).toBeInTheDocument()
+    const recommended = screen.getByRole('region', { name: 'Recommended' })
+    expect(within(recommended).getAllByText('Frieren: Beyond Journey’s End · OP', { selector: 'strong' }).length).toBeGreaterThan(0)
+    expect(within(recommended).getAllByText('Opening', { selector: 'small' }).length).toBeGreaterThan(0)
     expect(screen.queryByText('Continue watching')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Openings' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Endings' })).toBeInTheDocument()
@@ -293,6 +296,22 @@ describe('catalog pages', () => {
     expect(screen.getByRole('dialog', { name: 'Opening actions' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Play next' }))
     expect(onPlayNext).toHaveBeenCalledWith([opening], 'https://images.example/a.jpg')
+  })
+
+  it('leads anime-detail rows with naturally sorted theme types, then song and artist', async () => {
+    const ending = { ...theme(2, 'a', 'Ending song'), themeType: 'ED2', artists: [{ name: 'Ending Artist', asCharacter: null, alias: null }] }
+    const opening = { ...theme(1, 'a', 'Opening song'), themeType: 'OP1', artists: [{ name: 'Opening Artist', asCharacter: null, alias: null }] }
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ anime: anime('a', 'Frieren: Beyond Journey’s End', 'current'), themes: [ending, opening] })
+      .mockResolvedValueOnce({ anime: { kitsuId: 'a', title: 'Frieren', titleEn: 'Frieren', posterUrl: null }, releases: [] })
+
+    renderWithQuery(<Routes><Route path="/anime/:animeId" element={<AnimeDetailPage />} /></Routes>, ['/anime/a'])
+
+    await screen.findByRole('heading', { name: 'Themes' })
+    const rows = document.querySelectorAll('.catalog-theme-row')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toHaveTextContent('OP 1Opening songOpening Artist')
+    expect(rows[1]).toHaveTextContent('ED 2Ending songEnding Artist')
   })
 
   it('exposes shared actions for anime detail release tracks with anime context', async () => {

@@ -39,7 +39,7 @@ describe('playlist display metadata', () => {
     }
 
     expect(resolvePlaylistDisplayItems(playlist({ entries: [10] }), library)).toEqual([
-      expect.objectContaining({ title: 'Opening Song', subtitle: 'Series EN · OP1 · The Band', artworkUrl: '/api/poster.jpg', durationSeconds: 89.9, available: true }),
+      expect.objectContaining({ title: 'Series EN · OP 1', subtitle: 'Opening Song · The Band', artworkUrl: '/api/poster.jpg', durationSeconds: 89.9, available: true }),
     ])
   })
 
