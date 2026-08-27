@@ -1,19 +1,24 @@
 import { useQuery } from '@tanstack/react-query'
 import { ArrowRight, MoreHorizontal, Play } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { Link } from 'react-router-dom'
 import { apiClient } from '../../lib/api'
 import { browserAssetUrl } from '../../lib/assets'
+import { readShowOstsOnHome, subscribeToHomePreference } from '../../lib/homePreference'
 import type { LibraryThemeDto, NormalizedLibrary } from '../../lib/library'
 import { useLibraryQuery } from '../../lib/query'
+import { ThemeActionSheet, TrackActionMenu } from '../libraryactions'
 import { PlaylistArtwork, playlistArtworkUrls } from '../playlists'
 import { CatalogError, CatalogLoading } from './CatalogError'
-import type { BrowserHomeResponse } from './types'
+import type { BrowserHomeResponse, BrowserHomeTopSongSummary } from './types'
 
 type HomeFilter = 'ALL' | 'OP' | 'ED' | 'FULL_SIZE' | 'TV_SIZE'
 
 export interface HomeCatalogPageProps {
   onPlayTheme?: (theme: LibraryThemeDto, artworkUrl?: string | null) => void
+  onPlayAll?: (themes: LibraryThemeDto[], artworkUrl?: string | null) => void
+  onPlayNext?: (theme: LibraryThemeDto, artworkUrl?: string | null) => void
+  onAddToQueue?: (theme: LibraryThemeDto, artworkUrl?: string | null) => void
 }
 
 const filters: Array<{ value: HomeFilter; label: string }> = [
@@ -24,7 +29,7 @@ const filters: Array<{ value: HomeFilter; label: string }> = [
   { value: 'TV_SIZE', label: 'TV size' },
 ]
 
-export function HomeCatalogPage({ onPlayTheme }: HomeCatalogPageProps) {
+export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQueue }: HomeCatalogPageProps) {
   const home = useQuery<BrowserHomeResponse>({
     queryKey: ['home'],
     queryFn: ({ signal }) => apiClient.get<BrowserHomeResponse>('/v1/home?limit=24', { signal }),
@@ -33,16 +38,20 @@ export function HomeCatalogPage({ onPlayTheme }: HomeCatalogPageProps) {
   })
   const libraryQuery = useLibraryQuery()
   const [activeFilter, setActiveFilter] = useState<HomeFilter>('ALL')
+  const [selectedTheme, setSelectedTheme] = useState<LibraryThemeDto | null>(null)
+  const showOstsOnHome = useSyncExternalStore(subscribeToHomePreference, readShowOstsOnHome, () => true)
 
   if (home.isPending) return <CatalogLoading label="Loading your home" />
   if (home.isError || !home.data) return <CatalogError title="Home unavailable" error={home.error} onRetry={() => void home.refetch()} />
   const data = home.data
   const library = libraryQuery.library
-  const quickPicks = selectQuickPicks(data, library, activeFilter)
+  const quickPicks = selectQuickPicks(data, library, activeFilter, showOstsOnHome)
+  const topSongs = selectTopSongs(data, library, showOstsOnHome)
   const heroArtwork = quickPicks[0]?.artworkUrl ?? browserAssetUrl(data.continueWatching[0]?.posterUrl)
 
   return (
-    <section className="page catalog-page home-catalog" aria-labelledby="home-title">
+    <>
+      <section className="page catalog-page home-catalog" aria-labelledby="home-title">
       <header className="home-hero">
         {heroArtwork && <div className="home-hero__backdrop" style={{ backgroundImage: `url(${JSON.stringify(heroArtwork)})` }} aria-hidden="true" />}
         <div className="home-hero__shade" aria-hidden="true" />
@@ -57,7 +66,7 @@ export function HomeCatalogPage({ onPlayTheme }: HomeCatalogPageProps) {
       </header>
 
       <section className="catalog-section home-quick-picks" aria-labelledby="quick-picks-title">
-        <div className="catalog-section__heading"><div><p className="eyebrow">Made from your library</p><h2 id="quick-picks-title">Quick picks</h2><p>Play an opening, ending, or full song without leaving home.</p></div><Link to="/library?tab=songs" className="catalog-section__link">See all <ArrowRight size={15} /></Link></div>
+        <div className="catalog-section__heading"><div><p className="eyebrow">Made from your library</p><h2 id="quick-picks-title">Quick picks</h2><p>Play an opening, ending, or full song without leaving home.</p></div><div className="catalog-section__actions"><button type="button" className="button button--text" onClick={() => onPlayAll?.(quickPicks.map(({ theme }) => theme), quickPicks[0]?.artworkUrl)} disabled={!onPlayAll || quickPicks.length === 0}>Play all</button><Link to="/library?tab=songs" className="catalog-section__link">See all <ArrowRight size={15} /></Link></div></div>
         {quickPicks.length === 0
           ? <p className="catalog-empty">No tracks match this filter yet.</p>
           : <div className="home-quick-picks__grid">{quickPicks.map(({ theme, animeTitle, artworkUrl }) => (
@@ -66,9 +75,42 @@ export function HomeCatalogPage({ onPlayTheme }: HomeCatalogPageProps) {
                 {artworkUrl ? <img src={artworkUrl} alt="" /> : <span aria-hidden="true">AO</span>}<span className="home-quick-pick__play-icon"><Play size={18} fill="currentColor" /></span>
               </button>
               <span className="home-quick-pick__copy"><strong>{theme.title}</strong><small>{animeTitle} · {theme.themeType || 'Theme'}</small></span>
-              <button type="button" className="home-quick-pick__more" aria-label={`More actions for ${theme.title}`}><MoreHorizontal size={19} /></button>
+              <TrackActionMenu
+                item={{ itemType: 'THEME', itemId: theme.id, title: theme.title }}
+                menuOnly
+                liked={library?.prefsByThemeId[String(theme.id)]?.liked}
+                disliked={library?.prefsByThemeId[String(theme.id)]?.disliked}
+                preferredMode={library?.prefsByThemeId[String(theme.id)]?.preferredMode}
+                hasFullSize={Boolean(theme.mediaModes.fullSize)}
+                onPlayNext={onPlayNext ? () => onPlayNext(theme, artworkUrl) : undefined}
+                onAddToQueue={onAddToQueue ? () => onAddToQueue(theme, artworkUrl) : undefined}
+              />
             </article>
           ))}</div>}
+      </section>
+
+      {data.recentlyAdded.length > 0 && <section className="catalog-section home-recently-added" aria-labelledby="recently-added-title">
+        <div className="catalog-section__heading"><div><p className="eyebrow">Fresh from your library</p><h2 id="recently-added-title">Recently added</h2><p>Anime that joined your collection most recently.</p></div><Link to="/library" className="catalog-section__link">See all <ArrowRight size={15} /></Link></div>
+        <div className="home-recently-added__grid">{data.recentlyAdded.map((anime) => <Link className="home-recently-added__card" to={`/anime/${encodeURIComponent(anime.kitsuId)}`} key={anime.kitsuId} aria-label={anime.title ?? anime.kitsuId}>
+          {browserAssetUrl(anime.posterUrl) ? <img src={browserAssetUrl(anime.posterUrl)!} alt="" loading="lazy" /> : <span aria-hidden="true">AO</span>}
+          <strong>{anime.title ?? 'Untitled anime'}</strong>
+          <small>Added to your library</small>
+        </Link>)}</div>
+      </section>}
+
+      <section className="catalog-section home-top-songs" aria-labelledby="top-songs-title">
+        <div className="catalog-section__heading"><div><p className="eyebrow">Most played from your library</p><h2 id="top-songs-title">Top songs</h2><p>Keep your most-loved themes close at hand.</p></div><Link to="/library?tab=songs" className="catalog-section__link">See all <ArrowRight size={15} /></Link></div>
+        {topSongs.length === 0 ? <p className="catalog-empty">No top songs are available yet.</p> : <div className="home-top-songs__list">{topSongs.map((song) => {
+          const artworkUrl = song.artworkUrl
+          const theme = song.theme
+          return <article className="home-top-song" key={song.id}>
+            <button type="button" className="home-top-song__play" aria-label={`Play ${song.title}`} disabled={!onPlayTheme || !theme || !isPlayable(theme)} onClick={() => theme && onPlayTheme?.(theme, artworkUrl)}>
+              {artworkUrl ? <img src={artworkUrl} alt="" loading="lazy" /> : <span aria-hidden="true">AO</span>}<Play size={16} fill="currentColor" />
+            </button>
+            <span className="home-top-song__copy"><strong>{song.title}</strong><small>{song.artistName ?? song.animeTitle ?? theme?.themeType ?? 'Theme'}</small></span>
+            <button type="button" className="home-top-song__more" aria-label={`More actions for top song ${song.title}`} onClick={() => theme && setSelectedTheme(theme)} disabled={!theme}><MoreHorizontal size={19} /></button>
+          </article>
+        })}</div>}
       </section>
 
       <section className="catalog-section" aria-labelledby="home-playlists-title">
@@ -84,15 +126,33 @@ export function HomeCatalogPage({ onPlayTheme }: HomeCatalogPageProps) {
           })}</div>}
       </section>
 
-    </section>
+      </section>
+      {selectedTheme && <ThemeActionSheet
+      themeId={selectedTheme.id}
+      title={selectedTheme.title}
+      subtitle={[selectedTheme.themeType, selectedTheme.artists.map((artist) => artist.name).join(', ')].filter(Boolean).join(' · ')}
+      liked={library?.prefsByThemeId[String(selectedTheme.id)]?.liked}
+      disliked={library?.prefsByThemeId[String(selectedTheme.id)]?.disliked}
+      preferredMode={library?.prefsByThemeId[String(selectedTheme.id)]?.preferredMode}
+      hasFullSize={Boolean(selectedTheme.mediaModes.fullSize)}
+      inLibrary
+      inAnimeLibrary={Boolean(selectedTheme.kitsuAnimeIds.some((id) => library?.animeById[id] && !library.animeById[id]?.deleted))}
+      animeKitsuId={selectedTheme.kitsuAnimeIds[0]}
+      onPlay={onPlayTheme ? () => { onPlayTheme(selectedTheme, themeArtworkFor(selectedTheme, library)); setSelectedTheme(null) } : undefined}
+      onPlayNext={onPlayNext ? () => onPlayNext(selectedTheme, themeArtworkFor(selectedTheme, library)) : undefined}
+      onAddToQueue={onAddToQueue ? () => onAddToQueue(selectedTheme, themeArtworkFor(selectedTheme, library)) : undefined}
+      onClose={() => setSelectedTheme(null)}
+      />}
+    </>
   )
 }
 
-function selectQuickPicks(data: BrowserHomeResponse, library: NormalizedLibrary | null, filter: HomeFilter) {
+function selectQuickPicks(data: BrowserHomeResponse, library: NormalizedLibrary | null, filter: HomeFilter, showOstsOnHome = true) {
   if (!library) return []
   const priority = new Map(data.continueWatching.map((anime, index) => [anime.kitsuId, index]))
   return Object.values(library.themesById)
     .filter((theme) => !theme.deleted && theme.kitsuAnimeIds.some((id) => priority.has(id)))
+    .filter((theme) => showOstsOnHome || !isSoundtrackTheme(theme))
     .filter((theme) => filter === 'ALL' || filter === 'OP' || filter === 'ED'
       ? filter === 'ALL' || (theme.themeType ?? '').toUpperCase().startsWith(filter)
       : filter === 'FULL_SIZE' ? Boolean(theme.mediaModes.fullSize) : Boolean(theme.mediaModes.tvSize))
@@ -100,8 +160,69 @@ function selectQuickPicks(data: BrowserHomeResponse, library: NormalizedLibrary 
     .slice(0, 6)
     .map((theme) => {
       const anime = theme.kitsuAnimeIds.map((id) => library.animeById[id]).find(Boolean)
-      return { theme, animeTitle: anime?.title ?? anime?.titleEn ?? 'Anime Ongaku', artworkUrl: browserAssetUrl(anime?.posterUrl ?? anime?.coverUrl) }
+      return { theme, animeTitle: anime?.title ?? anime?.titleEn ?? 'Anime Ongaku', artworkUrl: themeArtworkFor(theme, library) }
     })
+}
+
+interface HomeTopSong {
+  id: number
+  title: string
+  artistName: string | null
+  animeTitle: string | null
+  artworkUrl: string | null
+  theme?: LibraryThemeDto
+}
+
+function selectTopSongs(data: BrowserHomeResponse, library: NormalizedLibrary | null, showOstsOnHome: boolean): HomeTopSong[] {
+  const summaries = data.topSongs
+  if (summaries) return summaries
+    .filter((summary) => showOstsOnHome || !isSoundtrackSummary(summary))
+    .map((summary) => {
+      const theme = library?.themesById[String(summary.id)]
+      const artistName = summary.artistName ?? theme?.artists.map((artist) => artist.name).filter(Boolean).join(', ') ?? null
+      return {
+        id: summary.id,
+        title: summary.title || theme?.title || 'Untitled song',
+        artistName,
+        animeTitle: summary.animeTitle ?? null,
+        artworkUrl: browserAssetUrl(summary.artworkUrl) ?? (theme ? themeArtworkFor(theme, library) : null),
+        theme,
+      }
+    })
+  if (!library) return []
+  return Object.values(library.themesById)
+    .filter((theme) => !theme.deleted && isPlayable(theme) && (showOstsOnHome || !isSoundtrackTheme(theme)))
+    .sort((left, right) => {
+      const leftPreference = library.prefsByThemeId[String(left.id)]
+      const rightPreference = library.prefsByThemeId[String(right.id)]
+      return (rightPreference?.playCount ?? 0) - (leftPreference?.playCount ?? 0)
+        || (rightPreference?.lastPlayedAt ?? 0) - (leftPreference?.lastPlayedAt ?? 0)
+        || right.updatedAt - left.updatedAt
+        || left.id - right.id
+    })
+    .slice(0, 10)
+    .map((theme) => ({
+      id: theme.id,
+      title: theme.title,
+      artistName: theme.artists.map((artist) => artist.name).filter(Boolean).join(', ') || null,
+      animeTitle: theme.kitsuAnimeIds.map((id) => library.animeById[id]?.title ?? library.animeById[id]?.titleEn).find(Boolean) ?? null,
+      artworkUrl: themeArtworkFor(theme, library),
+      theme,
+    }))
+}
+
+function isSoundtrackSummary(summary: BrowserHomeTopSongSummary): boolean {
+  return summary.relationshipType?.toUpperCase() === 'SOUNDTRACK'
+}
+
+function isSoundtrackTheme(theme: LibraryThemeDto): boolean {
+  return /^(OST|SOUNDTRACK)\b/i.test(theme.themeType?.trim() ?? '')
+}
+
+function themeArtworkFor(theme: LibraryThemeDto, library: NormalizedLibrary | null): string | null {
+  if (!library) return null
+  const anime = theme.kitsuAnimeIds.map((id) => library.animeById[id]).find((entry) => entry && !entry.deleted)
+  return browserAssetUrl(anime?.posterUrl ?? anime?.coverUrl) ?? null
 }
 
 function isPlayable(theme: LibraryThemeDto): boolean {

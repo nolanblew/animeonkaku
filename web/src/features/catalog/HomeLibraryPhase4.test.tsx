@@ -166,25 +166,25 @@ describe('Phase 4 Home and Library navigation contracts', () => {
     vi.mocked(apiClient.get).mockResolvedValue(homeResponse() as never)
     const onPlayAll = vi.fn()
 
-    renderWithQuery(<HomeCatalogPage {...({ onPlayAll } as never)} />)
+    renderWithQuery(<HomeCatalogPage onPlayAll={onPlayAll} />)
 
     await screen.findByRole('heading', { name: 'Quick picks' })
     await userEvent.click(screen.getByRole('button', { name: 'Play all' }))
 
-    expect(onPlayAll).toHaveBeenCalledWith(expect.any(Array))
+    expect(onPlayAll).toHaveBeenCalledWith(expect.any(Array), expect.anything())
   })
 
-  it('opens the shared mobile-style action sheet for a Quick pick overflow button', async () => {
+  it('opens the shared menu for a Quick pick overflow button', async () => {
     vi.mocked(apiClient.get).mockResolvedValue(homeResponse() as never)
     const onPlayNext = vi.fn()
 
-    renderWithQuery(<HomeCatalogPage {...({ onPlayNext } as never)} />)
+    renderWithQuery(<HomeCatalogPage onPlayNext={onPlayNext} />)
 
     await screen.findByRole('heading', { name: 'Quick picks' })
     await userEvent.click(screen.getByRole('button', { name: 'More actions for Opening' }))
 
-    expect(screen.getByRole('dialog', { name: 'Opening actions' })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Play next' }))
+    expect(screen.getByRole('menu', { name: 'Opening actions' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Play next' }))
     expect(onPlayNext).toHaveBeenCalledTimes(1)
   })
 })

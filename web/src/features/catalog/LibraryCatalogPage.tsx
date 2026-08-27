@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowDownUp, ListMusic, MoreHorizontal, Play, Search, SlidersHorizontal, UserRound } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { browserAssetUrl } from '../../lib/assets'
 import { selectActiveAnime, type LibraryThemeDto, type NormalizedLibrary } from '../../lib/library'
 import { useLibraryQuery } from '../../lib/query'
@@ -20,10 +20,12 @@ const PAGE_SIZE = 48
 
 export function LibraryCatalogPage({ onPlayTheme, onPlayNext, onAddToQueue }: LibraryCatalogPageProps = {}) {
   const query = useLibraryQuery()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('all')
   const [sort, setSort] = useState<LibrarySort>('recent')
-  const [tab, setTab] = useState<LibraryTab>('anime')
+  const urlTab = parseLibraryTab(searchParams.get('tab'))
+  const [tab, setTab] = useState<LibraryTab>(urlTab)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [selectedTheme, setSelectedTheme] = useState<LibraryThemeDto | null>(null)
   const [selectedArtist, setSelectedArtist] = useState<string | null>(null)
@@ -60,6 +62,7 @@ export function LibraryCatalogPage({ onPlayTheme, onPlayNext, onAddToQueue }: Li
         : filteredAnime.length
 
   useEffect(() => setVisibleCount(PAGE_SIZE), [normalizedSearch, selectedArtist, tab])
+  useEffect(() => setTab(urlTab), [urlTab])
 
   if (query.isPending) return <CatalogLoading label="Loading your library" />
   if (query.isError || !query.library) return <CatalogError title="Library unavailable" error={query.error} onRetry={() => void query.refetch()} />
@@ -73,10 +76,20 @@ export function LibraryCatalogPage({ onPlayTheme, onPlayNext, onAddToQueue }: Li
           <h1 id="library-title">Library</h1>
           <p>Your synced anime, playable themes, artists, and playlists—kept responsive even when the collection grows into the thousands.</p>
         </div>
-        <div className="catalog-page__stat"><strong>{total.toLocaleString()}</strong><span>{tab}</span></div>
+        <div className="catalog-page__stat"><strong>{total.toLocaleString()}</strong><span>{libraryTabLabel(tab)}</span></div>
       </header>
 
-      <LibraryTabs tab={tab} onChange={(next) => { setTab(next); setSelectedArtist(null); setSearch('') }} />
+      <LibraryTabs tab={tab} onChange={(next) => {
+        setTab(next)
+        setSelectedArtist(null)
+        setSearch('')
+        setSearchParams((previous) => {
+          const nextParams = new URLSearchParams(previous)
+          if (next === 'anime') nextParams.delete('tab')
+          else nextParams.set('tab', next)
+          return nextParams
+        }, { replace: true })
+      }} />
 
       {tab === 'anime'
         ? <AnimeLibraryView anime={filteredAnime} library={query.library} search={search} status={status} sort={sort} statuses={statuses} onSearch={setSearch} onStatus={setStatus} onSort={setSort} />
@@ -93,9 +106,17 @@ export function LibraryCatalogPage({ onPlayTheme, onPlayNext, onAddToQueue }: Li
   )
 }
 
+function parseLibraryTab(value: string | null): LibraryTab {
+  return value === 'songs' || value === 'artists' || value === 'playlists' ? value : 'anime'
+}
+
 function LibraryTabs({ tab, onChange }: { tab: LibraryTab; onChange: (tab: LibraryTab) => void }) {
-  const tabs: Array<[LibraryTab, string]> = [['anime', 'Animes'], ['songs', 'Songs'], ['artists', 'Artists'], ['playlists', 'Playlists']]
+  const tabs: Array<[LibraryTab, string]> = [['anime', 'Anime'], ['songs', 'Songs'], ['artists', 'Artists'], ['playlists', 'Playlists']]
   return <div className="catalog-library-tabs" role="tablist" aria-label="Library sections">{tabs.map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => onChange(value)}>{label}</button>)}</div>
+}
+
+function libraryTabLabel(tab: LibraryTab): string {
+  return tab === 'anime' ? 'Anime' : tab[0].toUpperCase() + tab.slice(1)
 }
 
 function AnimeLibraryView({ anime, library, search, status, sort, statuses, onSearch, onStatus, onSort }: {

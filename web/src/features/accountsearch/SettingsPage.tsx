@@ -2,6 +2,7 @@ import { Camera, LogOut, Save, Settings2, Trash2, UserRound } from 'lucide-react
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthProvider'
+import { readShowOstsOnHome, subscribeToHomePreference, writeShowOstsOnHome } from '../../lib/homePreference'
 import './accountsearch.css'
 
 export const MAX_AVATAR_BYTES = 2 * 1024 * 1024
@@ -22,8 +23,10 @@ export function SettingsPage() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [feedback, setFeedback] = useState<{ kind: 'status' | 'error'; message: string } | null>(null)
+  const [showOstsOnHome, setShowOstsOnHome] = useState(readShowOstsOnHome)
 
   useEffect(() => setDisplayName(account?.displayName ?? ''), [account?.displayName])
+  useEffect(() => subscribeToHomePreference(() => setShowOstsOnHome(readShowOstsOnHome())), [])
 
   if (!account) {
     return <section className="account-settings-page" aria-labelledby="account-settings-title"><header className="account-settings-page__header"><p className="account-settings-page__eyebrow">Personalize</p><h1 id="account-settings-title">Account settings</h1></header><p className="account-settings-empty">Your account details are not available. Sign in again to manage settings.</p></section>
@@ -119,6 +122,14 @@ export function SettingsPage() {
           <div className="account-settings-card__heading"><div><p className="account-settings-card__eyebrow">Library</p><h2 id="sync-management-title">Kitsu library sync</h2></div></div>
           <p className="account-settings-help">Review progress, retry an interrupted import, or request a full library re-sync.</p>
           <NavLink className="account-settings-button" to="/sync">Manage library sync</NavLink>
+        </section>
+
+        <section className="account-settings-card" aria-labelledby="home-preferences-title">
+          <div className="account-settings-card__heading"><div><p className="account-settings-card__eyebrow">Home</p><h2 id="home-preferences-title">Home preferences</h2></div></div>
+          <label className="account-settings-toggle">
+            <span><strong>Show OSTs on Home</strong><small>Include soundtrack songs in Quick picks.</small></span>
+            <input aria-label="Show OSTs on Home" type="checkbox" checked={showOstsOnHome} onChange={(event) => { setShowOstsOnHome(event.target.checked); writeShowOstsOnHome(event.target.checked) }} />
+          </label>
         </section>
 
         <section className="account-settings-card account-settings-card--wide" aria-labelledby="devices-title">

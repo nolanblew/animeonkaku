@@ -15,10 +15,20 @@ export interface BrowserHomePlaylistSummary {
   updatedAt: number
 }
 
+export interface BrowserHomeTopSongSummary {
+  id: number
+  title: string
+  artistName?: string | null
+  animeTitle?: string | null
+  artworkUrl?: string | null
+  relationshipType?: string | null
+}
+
 export interface BrowserHomeResponse {
   serverTime: number
   continueWatching: BrowserHomeAnimeSummary[]
   recentlyAdded: BrowserHomeAnimeSummary[]
+  topSongs?: BrowserHomeTopSongSummary[]
   playlists: BrowserHomePlaylistSummary[]
   nextCursor: string | null
 }

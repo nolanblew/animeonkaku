@@ -15,7 +15,12 @@ import { useLibraryQuery } from '../lib/query'
 
 export function HomePage() {
   const player = usePlayer()
-  return <HomeCatalogPage onPlayTheme={(theme, artworkUrl) => player.playTheme(theme, { artworkUrl: resolveBrowserAsset(artworkUrl) })} />
+  return <HomeCatalogPage
+    onPlayTheme={(theme, artworkUrl) => player.playTheme(theme, { artworkUrl: resolveBrowserAsset(artworkUrl) })}
+    onPlayAll={(themes, artworkUrl) => playThemeCollection(player, themes, 0, false, artworkUrl)}
+    onPlayNext={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'next', artworkUrl)}
+    onAddToQueue={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'append', artworkUrl)}
+  />
 }
 
 export function LibraryPage() {
