@@ -2,6 +2,7 @@ import { ListMusic, Maximize, Pause, Play, Repeat2, Shuffle, SkipBack, SkipForwa
 import { useState } from 'react'
 import { usePlayer } from './PlayerProvider'
 import { CurrentTrackActions } from './CurrentTrackActions'
+import { queueItemLoudnessVolume } from './mapping'
 
 export interface MiniPlayerViewProps {
   className?: string
@@ -17,9 +18,10 @@ export function MiniPlayerView({ className = '', onOpen }: MiniPlayerViewProps) 
   }
   const changeVolume = (value: number) => {
     const bounded = Math.max(0, Math.min(100, value))
+    const contentGain = queueItemLoudnessVolume(current, player.mode)
     setVolume(bounded)
-    if (player.audioElement) player.audioElement.volume = bounded / 100
-    if (player.videoElement) player.videoElement.volume = bounded / 100
+    if (player.audioElement) player.audioElement.volume = (bounded / 100) * contentGain
+    if (player.videoElement) player.videoElement.volume = (bounded / 100) * contentGain
   }
   return (
     <section className={['player-mini-player', className].filter(Boolean).join(' ')} aria-label="Mini player" data-testid="mini-player-view">

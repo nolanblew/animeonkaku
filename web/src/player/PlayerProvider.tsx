@@ -19,6 +19,7 @@ import {
   mapThemeToQueueItem,
   queueItemAudioUrl,
   queueItemDurationMs,
+  queueItemLoudnessVolume,
   queueItemVideoUrl,
   type PlayerQueueItem,
   type ThemeQueueItemOptions,
@@ -31,6 +32,7 @@ import {
   type QueuePreferenceSnapshot,
 } from './preferenceQueue'
 import { loadPersistedQueue, savePersistedQueue } from './queuePersistence'
+import { loadRememberedAudioMode, saveRememberedAudioMode } from './playbackPreferences'
 
 export interface PlayerState {
   readonly queueState: QueueState
@@ -107,10 +109,13 @@ export function PlayerProvider({
   store,
   mediaCache,
   api = apiClient,
-  initialMode = 'TV_SIZE',
+  initialMode,
   persistenceUserId,
   preferenceSnapshot = emptyQueuePreferenceSnapshot,
 }: PlayerProviderProps) {
+  const rememberedAudioMode = persistenceUserId ? loadRememberedAudioMode(persistenceUserId) : undefined
+  const initialPlaybackMode = initialMode ?? rememberedAudioMode ?? 'TV_SIZE'
+  const explicitInitialAudioMode = initialMode === 'TV_SIZE' || initialMode === 'FULL_SIZE' ? initialMode : undefined
   const queue = useMemo(() => providedQueue ?? store ?? new QueueStore(
     persistenceUserId ? loadPersistedQueue(persistenceUserId) : undefined,
   ), [providedQueue, persistenceUserId, store])
@@ -124,7 +129,7 @@ export function PlayerProvider({
   const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null)
   const [videoConfirmation, setVideoConfirmation] = useState<VideoConfirmationRequest | null>(null)
   const confirmedVideoKeysRef = useRef(new Set<string>())
-  const modeRef = useRef<PlaybackMode>(initialMode)
+  const modeRef = useRef<PlaybackMode>(initialPlaybackMode)
   const activeMediaRef = useRef<HTMLMediaElement | null>(null)
   const mediaSessionRef = useRef<BrowserMediaSession | null>(null)
   const sourceReadyRef = useRef<Promise<void>>(Promise.resolve())
@@ -135,7 +140,7 @@ export function PlayerProvider({
   const shouldAutoplayRef = useRef(false)
   const callbacksRef = useRef<MediaCallbacks>({})
   const recordedPlayQueueIdsRef = useRef(new Set<number>())
-  const [mode, setModeState] = useState<PlaybackMode>(initialMode)
+  const [mode, setModeState] = useState<PlaybackMode>(initialPlaybackMode)
   const [isPlaying, setIsPlaying] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [isEnded, setIsEnded] = useState(false)
@@ -205,6 +210,11 @@ export function PlayerProvider({
     savePersistedQueue(persistenceUserId, queueState)
   }, [persistenceUserId, queueState])
 
+  useEffect(() => {
+    if (!persistenceUserId || !explicitInitialAudioMode) return
+    saveRememberedAudioMode(persistenceUserId, explicitInitialAudioMode)
+  }, [explicitInitialAudioMode, persistenceUserId])
+
   const updatePosition = useCallback((media?: HTMLMediaElement | null) => {
     const active = media ?? activeMediaRef.current
     if (!active) return
@@ -273,8 +283,11 @@ export function PlayerProvider({
     }
     modeRef.current = nextMode
     setModeState(nextMode)
+    if (persistenceUserId && (nextMode === 'TV_SIZE' || nextMode === 'FULL_SIZE')) {
+      saveRememberedAudioMode(persistenceUserId, nextMode)
+    }
     setError(null)
-  }, [currentEntry, currentTime, isPlaying, preferenceSnapshot, queueState.unskippedEntryIds])
+  }, [currentEntry, currentTime, isPlaying, persistenceUserId, preferenceSnapshot, queueState.unskippedEntryIds])
 
   const setMode = useCallback((nextMode: PlaybackMode) => {
     const item = currentEntry?.item
@@ -493,6 +506,7 @@ export function PlayerProvider({
     activeMediaRef.current = media
     inactive?.pause()
     if (!media) return
+    media.volume = item ? queueItemLoudnessVolume(item, nextMode) : 1
     if (!activeSourceUrl) {
       media.removeAttribute('src')
       media.load()

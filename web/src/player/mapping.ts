@@ -1,4 +1,4 @@
-import type { LibraryThemeDto, MusicTrackDto } from '../lib/library'
+import type { LibraryThemeDto, LoudnessDto, MusicTrackDto } from '../lib/library'
 import type { PlaybackMode } from '../media/modeSwitch'
 import type { QueueItem } from './queue'
 
@@ -9,6 +9,8 @@ export interface PlayerQueueItem extends QueueItem {
   readonly fullAudioUrl?: string
   readonly tvDurationMs?: number
   readonly fullDurationMs?: number
+  readonly tvLoudness?: LoudnessDto
+  readonly fullLoudness?: LoudnessDto
   readonly videoMimeType?: string | null
   readonly videoSpoiler?: boolean
   readonly videoNsfw?: boolean
@@ -44,11 +46,15 @@ export function mapThemeToQueueItem(theme: LibraryThemeDto, options: ThemeQueueI
     audioUrl,
     videoUrl,
     itemType: 'THEME',
-    mode: selectedMode,
+    // An absent mode inherits the provider's remembered user default. Playlist
+    // projections pass an explicit mode when their policy requires one.
+    mode: options.mode,
     tvAudioUrl,
     fullAudioUrl,
     tvDurationMs: secondsToMilliseconds(tv?.durationSeconds ?? theme.durationSeconds),
     fullDurationMs: secondsToMilliseconds(full?.durationSeconds),
+    tvLoudness: tv?.loudness,
+    fullLoudness: full?.loudness,
     videoMimeType: video?.mimeType ?? null,
     videoSpoiler: Boolean(video?.spoiler),
     videoNsfw: Boolean(video?.nsfw),
@@ -71,6 +77,7 @@ export function mapSongToQueueItem(song: MusicTrackDto, options: Omit<ThemeQueue
     tvAudioUrl: undefined,
     fullAudioUrl: song.audioUrl || undefined,
     fullDurationMs: secondsToMilliseconds(song.durationSeconds),
+    fullLoudness: song.loudness,
     songId: song.id,
   }
 }
@@ -96,6 +103,17 @@ export function queueItemDurationMs(item: QueueItem, mode: PlaybackMode): number
   const candidate = item as PlayerQueueItem
   const duration = mode === 'FULL_SIZE' ? candidate.fullDurationMs : candidate.tvDurationMs
   return Number.isFinite(duration) && (duration ?? 0) > 0 ? duration : item.durationMs
+}
+
+/** Converts a ready loudness profile into a safe HTMLMediaElement attenuation. */
+export function queueItemLoudnessVolume(item: QueueItem, mode: PlaybackMode): number {
+  if (mode === 'VIDEO') return 1
+  const candidate = item as PlayerQueueItem
+  const loudness = mode === 'FULL_SIZE' ? candidate.fullLoudness : candidate.tvLoudness
+  if (!loudness || loudness.state !== 'READY' || !Number.isFinite(loudness.gainDb)) return 1
+  const gainDb = Math.max(-60, Math.min(0, loudness.gainDb))
+  const volume = 10 ** (gainDb / 20)
+  return Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 1
 }
 
 function secondsToMilliseconds(value: number | null | undefined): number | undefined {

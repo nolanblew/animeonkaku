@@ -71,10 +71,11 @@ function AnimeMusicTrackRow({ track, release, anime, artworkUrl, onPlay, onPlayN
   const artist = track.artistCredit.trim() || release.artistCredit.trim()
   const artistSlug = artistRouteSlug(artist)
   const playable = Boolean(track.audioUrl && track.title.trim())
-  return <li><div className="catalog-release-track-row"><button type="button" disabled={!onPlay} onClick={() => onPlay?.(track, artworkUrl, anime.kitsuId)} aria-label={`Play ${title}`}><Play size={13} fill="currentColor" /><span>{title}</span><time>{formatDuration(track.durationSeconds)}</time></button><TrackActionMenu menuOnly item={{ itemType: 'SONG', itemId: track.id, title }} onPlayNext={playable && onPlayNext ? () => onPlayNext(track, release, anime.kitsuId) : undefined} onAddToQueue={playable && onAddToQueue ? () => onAddToQueue(track, release, anime.kitsuId) : undefined} onReplaceQueue={playable && onReplaceQueue ? () => onReplaceQueue(track, release, anime.kitsuId) : undefined} onGoToArtist={artistSlug ? () => onNavigate(`/artist/${encodeURIComponent(artistSlug)}`) : undefined} artistName={artistSlug ? artist : undefined} onGoToAnime={() => onNavigate(`/anime/${encodeURIComponent(anime.kitsuId)}`)} animeName={displayTitle(anime)} onRelatedMusic={() => onNavigate(`/anime/${encodeURIComponent(anime.kitsuId)}/related-music`)} /></div></li>
+  const duration = formatDuration(track.durationSeconds)
+  return <li><div className="catalog-release-track-row"><button type="button" disabled={!onPlay} onClick={() => onPlay?.(track, artworkUrl, anime.kitsuId)} aria-label={`Play ${title}`}><Play size={13} fill="currentColor" /><span>{title}</span>{duration && <time>{duration}</time>}</button><TrackActionMenu menuOnly item={{ itemType: 'SONG', itemId: track.id, title }} onPlayNext={playable && onPlayNext ? () => onPlayNext(track, release, anime.kitsuId) : undefined} onAddToQueue={playable && onAddToQueue ? () => onAddToQueue(track, release, anime.kitsuId) : undefined} onReplaceQueue={playable && onReplaceQueue ? () => onReplaceQueue(track, release, anime.kitsuId) : undefined} onGoToArtist={artistSlug ? () => onNavigate(`/artist/${encodeURIComponent(artistSlug)}`) : undefined} artistName={artistSlug ? artist : undefined} onGoToAnime={() => onNavigate(`/anime/${encodeURIComponent(anime.kitsuId)}`)} animeName={displayTitle(anime)} onRelatedMusic={() => onNavigate(`/anime/${encodeURIComponent(anime.kitsuId)}/related-music`)} /></div></li>
 }
 
-function formatDuration(seconds: number | null): string {
-  if (!seconds || !Number.isFinite(seconds)) return '--:--'
+function formatDuration(seconds: number | null): string | null {
+  if (!seconds || !Number.isFinite(seconds)) return null
   return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
 }

@@ -1,5 +1,4 @@
 import {
-  Bell,
   House,
   Library,
   Menu,
@@ -160,10 +159,6 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
             <kbd>⌘ K</kbd>
           </form>
           <div className="topbar__actions">
-            <button className="icon-button icon-button--quiet hide-narrow" type="button" aria-label="Notifications">
-              <span className="notification-dot" aria-hidden="true" />
-              <Bell size={19} aria-hidden="true" />
-            </button>
             <button className="topbar__avatar" type="button" aria-label="Open profile menu" aria-expanded={topbarProfileOpen} aria-haspopup="menu" onClick={() => setTopbarProfileOpen((open) => !open)}>
               {avatarUrl ? <img src={avatarUrl} alt="" /> : <UserRound size={19} />}
             </button>

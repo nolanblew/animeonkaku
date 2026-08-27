@@ -12,6 +12,7 @@ vi.mock('../lib/query', () => ({
 
 import { ResponsiveShell } from './ResponsiveShell'
 import { HomeCatalogPage } from '../features/catalog/HomeCatalogPage'
+import { PlayerProvider, QueueStore } from '../player'
 
 function libraryFixture(): NormalizedLibrary {
   const base = createEmptyLibrary()
@@ -84,7 +85,9 @@ describe('phase 4 affordance contracts', () => {
     render(
       <QueryClientProvider client={client}>
         <MemoryRouter initialEntries={['/library']}>
-          <ResponsiveShell><h1>Library content</h1></ResponsiveShell>
+          <PlayerProvider queueStore={new QueueStore()}>
+            <ResponsiveShell><h1>Library content</h1></ResponsiveShell>
+          </PlayerProvider>
         </MemoryRouter>
       </QueryClientProvider>,
     )

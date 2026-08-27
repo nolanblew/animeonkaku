@@ -115,7 +115,7 @@ function ReleaseTrackRow({ track, release, index, onPlay, onPlayNext, onAddToQue
       <button className="release-track-list__play" type="button" aria-label={`Play ${title}`} disabled={!onPlay} onClick={() => onPlay?.(track, release, index)}><Play size={15} fill="currentColor" /></button>
       <span className="release-track-list__copy"><strong>{title}</strong><small>{artist}</small></span>
       <span className="release-track-list__track-number">{track.trackNumber ?? '—'}</span>
-      <time className="release-track-list__duration">{formatDuration(track.durationSeconds)}</time>
+      {formatDuration(track.durationSeconds) && <time className="release-track-list__duration">{formatDuration(track.durationSeconds)}</time>}
       <TrackActionMenu
         menuOnly
         item={{ itemType: 'SONG', itemId: track.id, title }}
@@ -152,7 +152,7 @@ function formatReleaseDate(value: string): string | undefined {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' }).format(date)
 }
 
-function formatDuration(seconds: number | null): string {
-  if (!seconds || !Number.isFinite(seconds)) return '--:--'
+function formatDuration(seconds: number | null): string | null {
+  if (!seconds || !Number.isFinite(seconds)) return null
   return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
 }

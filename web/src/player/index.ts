@@ -16,9 +16,10 @@ export {
   nextEligibleQueueIndex,
 } from './preferenceQueue'
 export type { QueuePreferenceSnapshot, QueueSongPreference, QueueThemePreference } from './preferenceQueue'
-export { mapSongToQueueItem, mapThemeToQueueItem, queueItemAudioUrl, queueItemDurationMs, queueItemVideoUrl } from './mapping'
+export { mapSongToQueueItem, mapThemeToQueueItem, queueItemAudioUrl, queueItemDurationMs, queueItemLoudnessVolume, queueItemVideoUrl } from './mapping'
 export type { PlayerQueueItem, ThemeQueueItemOptions } from './mapping'
 export { QUEUE_PERSISTENCE_VERSION, loadPersistedQueue, queuePersistenceKey, savePersistedQueue } from './queuePersistence'
+export { PLAYBACK_PREFERENCES_VERSION, loadRememberedAudioMode, playbackPreferencesKey, saveRememberedAudioMode } from './playbackPreferences'
 export * from './queue'
 export { windowQueueEntries } from './queueWindow'
 export type { QueueWindow, QueueWindowOptions } from './queueWindow'
