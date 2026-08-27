@@ -109,13 +109,25 @@ describe('player views', () => {
 
     const handle = screen.getByRole('button', { name: 'Drag A very long queue title that should remain readable across the row to reorder' })
     const endingRow = screen.getByText('Ending').closest('[data-queue-id]') as HTMLElement
-    vi.spyOn(document, 'elementFromPoint').mockReturnValue(endingRow)
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: vi.fn(() => endingRow) })
 
     fireEvent.pointerDown(handle, { pointerId: 1, pointerType: 'mouse', clientX: 10, clientY: 10 })
     fireEvent.pointerMove(handle, { pointerId: 1, pointerType: 'mouse', clientX: 10, clientY: 24 })
     fireEvent.pointerUp(handle, { pointerId: 1, pointerType: 'mouse', clientX: 10, clientY: 24 })
 
     expect(state.player.queue.moveEntry).toHaveBeenCalledWith(3, 2)
+  })
+
+  it('treats an immediate vertical touch move as scrolling instead of reordering', () => {
+    renderPlayer(<NowPlayingView />)
+    fireEvent.click(screen.getByRole('button', { name: 'Show queue' }))
+    const handle = screen.getByRole('button', { name: 'Drag Ending to reorder' })
+
+    fireEvent.pointerDown(handle, { pointerId: 2, pointerType: 'touch', clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(handle, { pointerId: 2, pointerType: 'touch', clientX: 10, clientY: 30 })
+    fireEvent.pointerUp(handle, { pointerId: 2, pointerType: 'touch', clientX: 10, clientY: 30 })
+
+    expect(state.player.queue.moveEntry).not.toHaveBeenCalled()
   })
 
   it('uses thumb preferences and omits duplicate queue actions from the active track', () => {
@@ -198,6 +210,7 @@ describe('player views', () => {
     const { rerender } = render(<QueryClientProvider client={queryClient}><MiniPlayerView /></QueryClientProvider>)
     expect(screen.getByText('Nothing playing')).toBeInTheDocument()
     rerender(<QueryClientProvider client={queryClient}><NowPlayingView /></QueryClientProvider>)
+    fireEvent.click(screen.getByRole('button', { name: 'Show queue' }))
     expect(screen.getByText('The queue is empty.')).toBeInTheDocument()
     expect(screen.getByText('Video unavailable for this theme.')).toBeInTheDocument()
   })
