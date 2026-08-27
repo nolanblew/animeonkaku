@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import type { PlaylistDto } from '../../lib/library'
 import { PlaylistDetail, PlaylistEditor, PlaylistList, PlaylistManager } from './components'
@@ -28,6 +28,10 @@ function renderWithQuery(ui: React.ReactElement) {
   return render(<MemoryRouter><QueryClientProvider client={queryClient}>{ui}</QueryClientProvider></MemoryRouter>)
 }
 
+function RouteProbe() {
+  return <output data-testid="route">{useLocation().pathname}</output>
+}
+
 describe('playlist components', () => {
   it('renders list loading, empty, and error states with accessible labels', () => {
     const onCreate = vi.fn()
@@ -46,6 +50,14 @@ describe('playlist components', () => {
     await userEvent.type(search, 'Mix 1')
     expect(screen.getAllByRole('link')).toHaveLength(50)
     expect(screen.getByText(/showing 50 of/i)).toBeInTheDocument()
+  })
+
+  it('navigates playlist cards to their detail route instead of selecting locally', async () => {
+    render(<MemoryRouter initialEntries={['/playlists']}><QueryClientProvider client={new QueryClient()}><PlaylistManager playlists={[playlist()]} state="ready" onCreate={vi.fn()} onUpdate={vi.fn()} onDelete={vi.fn()} /></QueryClientProvider><RouteProbe /></MemoryRouter>)
+
+    await userEvent.click(screen.getByRole('link', { name: /night drive/i }))
+
+    expect(screen.getByTestId('route')).toHaveTextContent('/playlist/2')
   })
 
   it('supports accessible detail editing, reorder, remove, and delete confirmation', async () => {
