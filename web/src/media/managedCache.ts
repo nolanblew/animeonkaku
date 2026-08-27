@@ -188,7 +188,7 @@ export async function sweepManagedMediaCaches(options: ManagedMediaCacheSweepOpt
     `anime-ongaku-next-audio${suffix}-v`,
     `anime-ongaku-images${suffix}-v`,
   ]
-  const stale = names.filter((name) => prefixes.some((prefix) => name.startsWith(prefix)) && !current.has(name))
+  const stale = names.filter((name) => prefixes.some((prefix) => name.startsWith(prefix)) && /-v\d+$/.test(name) && !current.has(name))
   await Promise.all(stale.map((name) => options.storage.delete(name)))
 }
 
