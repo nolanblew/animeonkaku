@@ -1,20 +1,26 @@
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, CalendarDays, Disc3, Play, Shuffle } from 'lucide-react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useState } from 'react'
 import { apiClient } from '../../lib/api'
 import { browserAssetUrl } from '../../lib/assets'
 import type { MusicReleaseDto, MusicTrackDto } from '../../lib/library'
+import { artistRouteSlug } from '../../lib/navigation'
+import { TrackActionMenu } from '../libraryactions'
 import { CatalogError, CatalogLoading } from '../catalog/CatalogError'
 import './releases.css'
 
 export interface ReleaseDetailPageProps {
   onPlayAll?: (release: MusicReleaseDto, shuffle: boolean) => void
   onPlayTrack?: (track: MusicTrackDto, release: MusicReleaseDto, startIndex: number) => void
+  onPlayNextTrack?: (track: MusicTrackDto, release: MusicReleaseDto) => void
+  onAddToQueueTrack?: (track: MusicTrackDto, release: MusicReleaseDto) => void
+  onReplaceQueueTrack?: (track: MusicTrackDto, release: MusicReleaseDto) => void
 }
 
-export function ReleaseDetailPage({ onPlayAll, onPlayTrack }: ReleaseDetailPageProps = {}) {
+export function ReleaseDetailPage({ onPlayAll, onPlayTrack, onPlayNextTrack, onAddToQueueTrack, onReplaceQueueTrack }: ReleaseDetailPageProps = {}) {
   const { releaseId } = useParams()
+  const navigate = useNavigate()
   const parsedReleaseId = parseReleaseId(releaseId)
   const query = useQuery<MusicReleaseDto>({
     queryKey: ['music-release', parsedReleaseId],
@@ -70,7 +76,7 @@ export function ReleaseDetailPage({ onPlayAll, onPlayTrack }: ReleaseDetailPageP
         <div className="release-page__section-heading"><div><p className="eyebrow">Tracklist</p><h2 id="release-tracks-title">Tracks</h2></div><span>{tracks.length}</span></div>
         {tracks.length === 0
           ? <p className="catalog-empty">No ready tracks are available for this release yet.</p>
-          : <ol className="release-track-list">{tracks.map((track, index) => <ReleaseTrackRow key={`${track.id}-${index}`} track={track} release={release} index={index} onPlay={onPlayTrack} />)}</ol>}
+          : <ol className="release-track-list">{tracks.map((track, index) => <ReleaseTrackRow key={`${track.id}-${index}`} track={track} release={release} index={index} onPlay={onPlayTrack} onPlayNext={onPlayNextTrack} onAddToQueue={onAddToQueueTrack} onReplaceQueue={onReplaceQueueTrack} onNavigate={navigate} />)}</ol>}
       </section>
     </section>
   )
@@ -87,9 +93,22 @@ function ReleaseArtwork({ artworkUrl, title }: { artworkUrl?: string; title: str
   )
 }
 
-function ReleaseTrackRow({ track, release, index, onPlay }: { track: MusicTrackDto; release: MusicReleaseDto; index: number; onPlay?: (track: MusicTrackDto, release: MusicReleaseDto, startIndex: number) => void }) {
+function ReleaseTrackRow({ track, release, index, onPlay, onPlayNext, onAddToQueue, onReplaceQueue, onNavigate }: {
+  track: MusicTrackDto
+  release: MusicReleaseDto
+  index: number
+  onPlay?: (track: MusicTrackDto, release: MusicReleaseDto, startIndex: number) => void
+  onPlayNext?: (track: MusicTrackDto, release: MusicReleaseDto) => void
+  onAddToQueue?: (track: MusicTrackDto, release: MusicReleaseDto) => void
+  onReplaceQueue?: (track: MusicTrackDto, release: MusicReleaseDto) => void
+  onNavigate: (to: string) => void
+}) {
   const title = track.title.trim() || 'Untitled track'
-  const artist = track.artistCredit.trim() || artistNames(track)
+  const trackArtist = track.artistCredit.trim() || release.artistCredit.trim()
+  const artist = trackArtist || artistNames(track)
+  const artistSlug = artistRouteSlug(trackArtist)
+  const anime = release.anime?.find((entry) => entry.kitsuId && (entry.title || entry.titleEn))
+  const playable = Boolean(track.audioUrl && track.title.trim())
   return (
     <li className="release-track-list__row">
       <span className="release-track-list__number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
@@ -97,6 +116,18 @@ function ReleaseTrackRow({ track, release, index, onPlay }: { track: MusicTrackD
       <span className="release-track-list__copy"><strong>{title}</strong><small>{artist}</small></span>
       <span className="release-track-list__track-number">{track.trackNumber ?? '—'}</span>
       <time className="release-track-list__duration">{formatDuration(track.durationSeconds)}</time>
+      <TrackActionMenu
+        menuOnly
+        item={{ itemType: 'SONG', itemId: track.id, title }}
+        onPlayNext={playable && onPlayNext ? () => onPlayNext(track, release) : undefined}
+        onAddToQueue={playable && onAddToQueue ? () => onAddToQueue(track, release) : undefined}
+        onReplaceQueue={playable && onReplaceQueue ? () => onReplaceQueue(track, release) : undefined}
+        onGoToArtist={artistSlug ? () => onNavigate(`/artist/${encodeURIComponent(artistSlug)}`) : undefined}
+        artistName={artistSlug ? artist : undefined}
+        onGoToAnime={anime ? () => onNavigate(`/anime/${encodeURIComponent(anime.kitsuId)}`) : undefined}
+        animeName={anime ? anime.title || anime.titleEn : undefined}
+        onRelatedMusic={anime ? () => onNavigate(`/anime/${encodeURIComponent(anime.kitsuId)}/related-music`) : undefined}
+      />
     </li>
   )
 }

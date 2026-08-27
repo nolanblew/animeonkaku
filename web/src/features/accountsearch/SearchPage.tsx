@@ -3,7 +3,9 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { apiClient } from '../../lib/api'
 import { createEmptyLibrary, type NormalizedLibrary } from '../../lib/library'
+import { artistRouteSlug } from '../../lib/navigation'
 import { useLibraryQuery } from '../../lib/query'
+import { TrackActionMenu } from '../libraryactions'
 import {
   findLibraryMatches,
   MAX_LIBRARY_RESULTS,
@@ -22,6 +24,9 @@ export interface SearchPageProps {
   debounceMs?: number
   onPlayTheme?: (theme: LibraryThemeDto) => void
   onPlayTrack?: (result: MusicSearchTrack) => void
+  onPlayNextTrack?: (result: MusicSearchTrack) => void
+  onAddToQueueTrack?: (result: MusicSearchTrack) => void
+  onReplaceQueueTrack?: (result: MusicSearchTrack) => void
 }
 
 export function SearchPage(props: SearchPageProps = {}) {
@@ -34,7 +39,7 @@ function SearchPageWithLibraryQuery(props: SearchPageProps) {
   return <SearchPageContent {...props} suppliedLibrary={props.library ?? libraryQuery.library} />
 }
 
-function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, onPlayTheme, onPlayTrack }: SearchPageProps & { suppliedLibrary?: NormalizedLibrary | null }) {
+function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, onPlayTheme, onPlayTrack, onPlayNextTrack, onAddToQueueTrack, onReplaceQueueTrack }: SearchPageProps & { suppliedLibrary?: NormalizedLibrary | null }) {
   const [params] = useSearchParams()
   const navigate = useNavigate()
   const routeQuery = params.get('q') ?? ''
@@ -127,8 +132,8 @@ function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, o
         <section className="account-search-results" aria-labelledby="music-match-title">
           <div className="account-search-results__heading"><h2 id="music-match-title">Music catalog</h2><span>Server results</span></div>
           <div className="account-search-results__groups">
-            {serverResults.tracks.length > 0 && <div className="account-search-results__group"><h3>Tracks</h3><ul>{serverResults.tracks.map((result, index) => <li key={`track-${result.track?.id ?? index}`}><span className="account-search-result-copy"><strong>{result.track?.title ?? 'Untitled track'}</strong><span>{result.track?.artistCredit ?? result.releaseTitle ?? result.anime?.title ?? 'Music track'}</span></span>{onPlayTrack && <button type="button" aria-label={`Play ${result.track?.title ?? 'untitled track'}`} onClick={() => onPlayTrack(result)}>Play</button>}</li>)}</ul></div>}
-            {serverResults.releases.length > 0 && <div className="account-search-results__group"><h3>Releases</h3><ul>{serverResults.releases.map((result, index) => <li key={`release-${result.release?.id ?? index}`}><strong>{result.release?.title ?? 'Untitled release'}</strong><span>{result.anime?.map((anime) => anime.title ?? anime.titleEn).filter(Boolean).join(', ') || result.release?.artistCredit || 'Music release'}</span></li>)}</ul></div>}
+            {serverResults.tracks.length > 0 && <div className="account-search-results__group"><h3>Tracks</h3><ul>{serverResults.tracks.map((result, index) => <SearchTrackRow key={`track-${result.track?.id ?? index}`} result={result} onPlay={onPlayTrack} onPlayNext={onPlayNextTrack} onAddToQueue={onAddToQueueTrack} onReplaceQueue={onReplaceQueueTrack} onNavigate={navigate} />)}</ul></div>}
+            {serverResults.releases.length > 0 && <div className="account-search-results__group"><h3>Releases</h3><ul>{serverResults.releases.map((result, index) => <li key={`release-${result.release?.id ?? index}`}><span className="account-search-result-copy">{validId(result.release?.id) ? <Link to={`/release/${result.release!.id}`}>{result.release?.title ?? 'Untitled release'}</Link> : <strong>{result.release?.title ?? 'Untitled release'}</strong>}<span>{result.anime?.map((anime) => anime.title ?? anime.titleEn).filter(Boolean).join(', ') || result.release?.artistCredit || 'Music release'}</span></span></li>)}</ul></div>}
           </div>
         </section>
       )}
@@ -136,6 +141,27 @@ function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, o
       {query && requestState === 'success' && !hasResults && <section className="account-search-empty" aria-live="polite"><h2>No matches found</h2><p>Try a different title, artist, or playlist name.</p></section>}
     </section>
   )
+}
+
+function SearchTrackRow({ result, onPlay, onPlayNext, onAddToQueue, onReplaceQueue, onNavigate }: {
+  result: MusicSearchTrack
+  onPlay?: (result: MusicSearchTrack) => void
+  onPlayNext?: (result: MusicSearchTrack) => void
+  onAddToQueue?: (result: MusicSearchTrack) => void
+  onReplaceQueue?: (result: MusicSearchTrack) => void
+  onNavigate: (to: string) => void
+}) {
+  const track = result.track
+  const title = track?.title?.trim() || 'Untitled track'
+  const artist = track?.artistCredit?.trim() || result.releaseTitle || result.anime?.title || 'Music track'
+  const artistSlug = artistRouteSlug(track?.artistCredit ?? '')
+  const anime = result.anime?.kitsuId ? result.anime : undefined
+  const canAct = validId(track?.id) && Boolean(track?.audioUrl && track.title?.trim())
+  return <li><span className="account-search-result-copy"><strong>{title}</strong><span>{artist}</span></span><div className="account-search-result-actions">{canAct && onPlay && <button type="button" aria-label={`Play ${title}`} onClick={() => onPlay(result)}>Play</button>}{canAct && <TrackActionMenu menuOnly item={{ itemType: 'SONG', itemId: track!.id!, title }} onPlayNext={onPlayNext ? () => onPlayNext(result) : undefined} onAddToQueue={onAddToQueue ? () => onAddToQueue(result) : undefined} onReplaceQueue={onReplaceQueue ? () => onReplaceQueue(result) : undefined} onGoToArtist={artistSlug ? () => onNavigate(`/artist/${encodeURIComponent(artistSlug)}`) : undefined} artistName={artistSlug ? track?.artistCredit : undefined} onGoToAnime={anime ? () => onNavigate(`/anime/${encodeURIComponent(anime.kitsuId!)}`) : undefined} animeName={anime?.title || anime?.titleEn || undefined} onRelatedMusic={anime ? () => onNavigate(`/anime/${encodeURIComponent(anime.kitsuId!)}/related-music`) : undefined} />}</div></li>
+}
+
+function validId(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
 }
 
 function LocalGroup({ title, items }: { title: string; items: Array<{ id: string; title: string; detail: string; href?: string; action?: { label: string; onClick: () => void } }> }) {

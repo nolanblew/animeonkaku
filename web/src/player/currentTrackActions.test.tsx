@@ -13,6 +13,7 @@ describe('CurrentTrackActions preference subscription', () => {
   beforeEach(() => {
     playerState.player = {
       currentItem: { id: 44, itemType: 'THEME', themeId: 44, title: 'Opening Theme' },
+      playItems: vi.fn(),
       queue: { playNext: vi.fn(), addToQueue: vi.fn() },
     }
     queryClient.clear()

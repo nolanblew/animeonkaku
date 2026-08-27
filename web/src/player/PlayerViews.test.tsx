@@ -14,7 +14,7 @@ function renderPlayer(ui: React.ReactElement) {
 
 beforeEach(() => {
   state.player = {
-    currentItem: { id: 1, itemType: 'THEME', themeId: 1, title: 'Opening', artist: 'Band', artworkUrl: '/art.jpg', durationMs: 90_000 },
+    currentItem: { id: 1, itemType: 'THEME', themeId: 1, title: 'Opening', artist: 'Band', animeId: 'anime-1', artworkUrl: '/art.jpg', audioUrl: '/audio.mp3', videoUrl: '/video.mp4', durationMs: 90_000 },
     currentTime: 65,
     duration: 90,
     mode: 'VIDEO',
@@ -43,6 +43,7 @@ beforeEach(() => {
     setMode: vi.fn(),
     requestFullscreen: vi.fn().mockResolvedValue(undefined),
     skipTo: vi.fn(),
+    playItems: vi.fn(),
     queue: { playNext: vi.fn(), addToQueue: vi.fn() },
   }
 })
@@ -100,6 +101,8 @@ describe('player views', () => {
       expect(screen.getByRole('menuitem', { name: 'Go to anime' })).toBeInTheDocument()
       expect(screen.getByRole('menuitem', { name: 'Related Music' })).toBeInTheDocument()
       expect(screen.getByRole('menuitem', { name: 'Prefer Full Size' })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Replace queue' }))
+      expect(state.player.playItems).toHaveBeenCalledWith([state.player.currentItem], { contextLabel: 'Now playing', startIndex: 0, shuffle: false })
     }
 
     const full = renderPlayer(<NowPlayingView />)

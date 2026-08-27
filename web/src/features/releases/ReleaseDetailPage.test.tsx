@@ -44,12 +44,12 @@ function release(overrides: Partial<MusicReleaseDto> = {}): MusicReleaseDto {
   }
 }
 
-function renderPage(path = '/release/42') {
+function renderPage(path = '/release/42', props: React.ComponentProps<typeof ReleaseDetailPage> = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[path]}>
-        <Routes><Route path="/release/:releaseId" element={<ReleaseDetailPage />} /><Route path="*" element={<ReleaseDetailPage />} /></Routes>
+        <Routes><Route path="/release/:releaseId" element={<ReleaseDetailPage {...props} />} /><Route path="*" element={<ReleaseDetailPage {...props} />} /></Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -93,7 +93,10 @@ describe('release detail page', () => {
 
   it('exposes the shared track actions on release rows with release context', async () => {
     vi.mocked(apiClient.get).mockResolvedValue(release())
-    renderPage()
+    const onPlayNextTrack = vi.fn()
+    const onAddToQueueTrack = vi.fn()
+    const onReplaceQueueTrack = vi.fn()
+    renderPage('/release/42', { onPlayNextTrack, onAddToQueueTrack, onReplaceQueueTrack })
 
     await screen.findByRole('heading', { name: 'Signal in the Static' })
     await userEvent.click(screen.getByRole('button', { name: 'More actions for First Transmission' }))
@@ -105,6 +108,15 @@ describe('release detail page', () => {
     expect(screen.getByRole('menuitem', { name: 'Go to Neon Harbor' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Go to Signal Breaker' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Related Music' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Play next' }))
+    expect(onPlayNextTrack).toHaveBeenCalledWith(expect.objectContaining({ id: 10 }), expect.objectContaining({ id: 42 }))
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for First Transmission' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }))
+    expect(onAddToQueueTrack).toHaveBeenCalledWith(expect.objectContaining({ id: 10 }), expect.objectContaining({ id: 42 }))
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for First Transmission' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Replace queue' }))
+    expect(onReplaceQueueTrack).toHaveBeenCalledWith(expect.objectContaining({ id: 10 }), expect.objectContaining({ id: 42 }))
   })
 
   it('renders an explicit empty state for a release without ready tracks', async () => {

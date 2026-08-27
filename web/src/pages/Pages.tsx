@@ -28,13 +28,13 @@ export function SearchPage() {
   return <AccountSearchPage onPlayTheme={(theme) => {
     const anime = theme.kitsuAnimeIds.map((id) => library?.animeById[id]).find(Boolean)
     player.playTheme(theme, { artworkUrl: browserAssetUrl(anime?.posterUrl), animeId: anime?.kitsuId })
-  }} onPlayTrack={(result) => playSearchTrack(player.playSong, result)} />
+  }} onPlayTrack={(result) => playSearchTrack(player.playSong, result)} onPlayNextTrack={(result) => enqueueSearchTrack(player, result, 'next')} onAddToQueueTrack={(result) => enqueueSearchTrack(player, result, 'append')} onReplaceQueueTrack={(result) => replaceSearchTrack(player, result)} />
 }
 
 export function AnimePage() {
   const player = usePlayer()
   const playThemes = (themes: LibraryThemeDto[], startIndex = 0, shuffle = false, artworkUrl?: string | null) => playThemeCollection(player, themes, startIndex, shuffle, artworkUrl)
-  return <AnimeDetailPage onPlayThemes={playThemes} onPlayNext={(themes, artworkUrl) => insertThemeCollection(player, themes, 'next', artworkUrl)} onAddToQueue={(themes, artworkUrl) => insertThemeCollection(player, themes, 'append', artworkUrl)} onPlaySong={(song, artworkUrl, animeId) => player.playSong(song, { artworkUrl: resolveBrowserAsset(artworkUrl), animeId })} />
+  return <AnimeDetailPage onPlayThemes={playThemes} onPlayNext={(themes, artworkUrl) => insertThemeCollection(player, themes, 'next', artworkUrl)} onAddToQueue={(themes, artworkUrl) => insertThemeCollection(player, themes, 'append', artworkUrl)} onPlaySong={(song, artworkUrl, animeId) => player.playSong(song, { artworkUrl: resolveBrowserAsset(artworkUrl), animeId })} onPlayNextSong={(song, release, animeId) => enqueueSong(player, song, release.title, resolveBrowserAsset(release.artworkUrl), animeId, 'next')} onAddToQueueSong={(song, release, animeId) => enqueueSong(player, song, release.title, resolveBrowserAsset(release.artworkUrl), animeId, 'append')} onReplaceQueueSong={(song, release, animeId) => replaceSong(player, song, release.title, resolveBrowserAsset(release.artworkUrl), animeId)} />
 }
 
 export function ArtistPage() {
@@ -48,7 +48,7 @@ export function RelatedMusicPage() {
 
 export function ReleasePage() {
   const player = usePlayer()
-  return <ReleaseDetailPage onPlayAll={(release, shuffle) => playReleaseCollection(player, release, shuffle)} onPlayTrack={(track, release, startIndex) => playReleaseTrack(player, track, release, startIndex)} />
+  return <ReleaseDetailPage onPlayAll={(release, shuffle) => playReleaseCollection(player, release, shuffle)} onPlayTrack={(track, release, startIndex) => playReleaseTrack(player, track, release, startIndex)} onPlayNextTrack={(track, release) => enqueueSong(player, track, release.title, resolveBrowserAsset(release.artworkUrl), release.anime?.find((anime) => anime.kitsuId)?.kitsuId, 'next')} onAddToQueueTrack={(track, release) => enqueueSong(player, track, release.title, resolveBrowserAsset(release.artworkUrl), release.anime?.find((anime) => anime.kitsuId)?.kitsuId, 'append')} onReplaceQueueTrack={(track, release) => replaceSong(player, track, release.title, resolveBrowserAsset(release.artworkUrl), release.anime?.find((anime) => anime.kitsuId)?.kitsuId)} />
 }
 
 export function PlaylistPage() {
@@ -87,9 +87,15 @@ export function SettingsPage() {
 }
 
 function playSearchTrack(playSong: (song: MusicTrackDto, options?: { artworkUrl?: string | null; animeId?: string | number | null }) => void, result: MusicSearchTrack): void {
+  const song = searchTrackDto(result)
+  if (!song) return
+  playSong(song, { artworkUrl: resolveBrowserAsset(result.anime?.posterUrl), animeId: result.anime?.kitsuId })
+}
+
+function searchTrackDto(result: MusicSearchTrack): MusicTrackDto | null {
   const track = result.track
-  if (!track || typeof track.id !== 'number' || !track.audioUrl || !track.title) return
-  playSong({
+  if (!track || typeof track.id !== 'number' || !Number.isSafeInteger(track.id) || track.id <= 0 || !track.audioUrl || !track.title) return null
+  return {
     id: track.id,
     title: track.title,
     titleEnglish: null,
@@ -103,7 +109,21 @@ function playSearchTrack(playSong: (song: MusicTrackDto, options?: { artworkUrl?
     discNumber: 1,
     trackNumber: null,
     displayOrder: 0,
-  }, { artworkUrl: resolveBrowserAsset(result.anime?.posterUrl), animeId: result.anime?.kitsuId })
+  }
+}
+
+function enqueueSearchTrack(player: PlayerContextValue, result: MusicSearchTrack, position: 'next' | 'append'): void {
+  const song = searchTrackDto(result)
+  if (!song) return
+  const item = mapSongToQueueItem(song, { artworkUrl: resolveBrowserAsset(result.anime?.posterUrl), animeId: result.anime?.kitsuId })
+  enqueueQueueItems(player, [item], position, result.releaseTitle || 'Search results')
+}
+
+function replaceSearchTrack(player: PlayerContextValue, result: MusicSearchTrack): void {
+  const song = searchTrackDto(result)
+  if (!song) return
+  const item = mapSongToQueueItem(song, { artworkUrl: resolveBrowserAsset(result.anime?.posterUrl), animeId: result.anime?.kitsuId })
+  replaceQueueItems(player, [item], result.releaseTitle || 'Search results')
 }
 
 function playReleaseCollection(player: PlayerContextValue, release: MusicReleaseDto, shuffle: boolean, startIndex = 0): void {
@@ -116,6 +136,32 @@ function playReleaseCollection(player: PlayerContextValue, release: MusicRelease
 
 function playReleaseTrack(player: PlayerContextValue, _track: MusicTrackDto, release: MusicReleaseDto, startIndex = 0): void {
   playReleaseCollection(player, release, false, startIndex)
+}
+
+function enqueueSong(player: PlayerContextValue, song: MusicTrackDto, contextLabel: string, artworkUrl?: string, animeId?: string, position: 'next' | 'append' = 'append'): void {
+  const item = mapSongToQueueItem(song, { artworkUrl, animeId })
+  enqueueQueueItems(player, [item], position, contextLabel)
+}
+
+function replaceSong(player: PlayerContextValue, song: MusicTrackDto, contextLabel: string, artworkUrl?: string, animeId?: string): void {
+  const item = mapSongToQueueItem(song, { artworkUrl, animeId })
+  replaceQueueItems(player, [item], contextLabel)
+}
+
+function enqueueQueueItems(player: PlayerContextValue, items: PlayerQueueItem[], position: 'next' | 'append', contextLabel: string): void {
+  if (items.length === 0) return
+  if (!player.currentItem) {
+    player.playItem(items[0]!, { contextLabel })
+    if (items.length > 1) player.queue.addToQueue(items.slice(1))
+    return
+  }
+  if (position === 'next') player.queue.playNext(items)
+  else player.queue.addToQueue(items)
+}
+
+function replaceQueueItems(player: PlayerContextValue, items: PlayerQueueItem[], contextLabel: string): void {
+  if (items.length === 0) return
+  player.playItems(items, { contextLabel, startIndex: 0, shuffle: false })
 }
 
 function playArtistCollection(player: PlayerContextValue, artist: ArtistDetailResponse, shuffle: boolean, startIndex = 0): void {

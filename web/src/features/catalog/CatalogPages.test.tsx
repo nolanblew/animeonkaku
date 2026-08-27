@@ -272,7 +272,10 @@ describe('catalog pages', () => {
       .mockResolvedValueOnce({ anime: anime('a', 'Frieren: Beyond Journey’s End', 'current'), themes: [] })
       .mockResolvedValueOnce({ anime: { kitsuId: 'a', title: 'Frieren', titleEn: 'Frieren', posterUrl: null }, releases: [{ id: 3, title: 'Season One', titleEnglish: null, titleRomaji: null, titleJapanese: null, artistCredit: 'Neon Harbor', artistNames: [], relationshipType: 'THEME', releaseDate: null, year: 2024, artworkUrl: null, tracks: [fullSong] }] })
 
-    renderWithQuery(<Routes><Route path="/anime/:animeId" element={<AnimeDetailPage onPlaySong={vi.fn()} />} /></Routes>, ['/anime/a'])
+    const onPlayNextSong = vi.fn()
+    const onAddToQueueSong = vi.fn()
+    const onReplaceQueueSong = vi.fn()
+    renderWithQuery(<Routes><Route path="/anime/:animeId" element={<AnimeDetailPage onPlaySong={vi.fn()} onPlayNextSong={onPlayNextSong} onAddToQueueSong={onAddToQueueSong} onReplaceQueueSong={onReplaceQueueSong} />} /></Routes>, ['/anime/a'])
 
     await screen.findByRole('heading', { name: 'Frieren: Beyond Journey’s End' })
     await userEvent.click(screen.getByRole('button', { name: 'More actions for Full song' }))
@@ -284,6 +287,15 @@ describe('catalog pages', () => {
     expect(screen.getByRole('menuitem', { name: 'Go to Neon Harbor' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Go to Frieren: Beyond Journey’s End' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Related Music' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Play next' }))
+    expect(onPlayNextSong).toHaveBeenCalledWith(expect.objectContaining({ id: 90 }), expect.objectContaining({ id: 3 }), 'a')
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Full song' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }))
+    expect(onAddToQueueSong).toHaveBeenCalledWith(expect.objectContaining({ id: 90 }), expect.objectContaining({ id: 3 }), 'a')
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Full song' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Replace queue' }))
+    expect(onReplaceQueueSong).toHaveBeenCalledWith(expect.objectContaining({ id: 90 }), expect.objectContaining({ id: 3 }), 'a')
   })
 
   it('keeps detail themes and releases useful when either detail request is empty', async () => {

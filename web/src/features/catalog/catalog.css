@@ -134,6 +134,8 @@
 .catalog-release-tracks button:disabled { cursor: not-allowed; opacity: .45; }
 .catalog-release-tracks span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .catalog-release-tracks time { color: var(--subtle); font-size: .67rem; }
+.catalog-release-track-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .35rem; }
+.catalog-release-track-row > .track-actions { justify-self: end; }
 .catalog-artist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: .65rem; }
 .catalog-artist-grid > button { display: flex; min-width: 0; align-items: center; gap: .7rem; padding: .8rem; border: 1px solid var(--line); border-radius: .65rem; background: rgba(19,23,31,.65); color: var(--text); text-align: left; cursor: pointer; }
 .catalog-artist-grid > button:hover { border-color: rgba(71,217,232,.4); }

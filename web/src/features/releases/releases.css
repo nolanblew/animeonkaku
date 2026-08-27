@@ -16,10 +16,11 @@
 .release-page__section-heading h2 { margin: 0; font-size: clamp(1.35rem, 2vw, 1.75rem); }
 .release-page__section-heading > span { color: var(--cyan); font-size: .8rem; }
 .release-track-list { display: grid; gap: .35rem; margin: 0; padding: 0; list-style: none; }
-.release-track-list__row { display: grid; grid-template-columns: 2.1rem 2.35rem minmax(0, 1fr) 3rem 4.25rem; align-items: center; gap: .7rem; min-width: 0; padding: .7rem .85rem; border: 1px solid var(--line); border-radius: .65rem; background: rgba(19,23,31,.65); }
+.release-track-list__row { display: grid; grid-template-columns: 2.1rem 2.35rem minmax(0, 1fr) 3rem 4.25rem auto; align-items: center; gap: .7rem; min-width: 0; padding: .7rem .85rem; border: 1px solid var(--line); border-radius: .65rem; background: rgba(19,23,31,.65); }
 .release-track-list__number, .release-track-list__track-number, .release-track-list__duration { color: var(--subtle); font-size: .75rem; }
 .release-track-list__track-number { text-align: center; }
 .release-track-list__duration { text-align: right; }
+.release-track-list__row > .track-actions { justify-self: end; }
 .release-track-list__play { display: inline-grid; width: 2.25rem; height: 2.25rem; place-items: center; border: 0; border-radius: 50%; background: var(--coral); color: white; cursor: pointer; }
 .release-track-list__play:disabled { cursor: not-allowed; opacity: .45; }
 .release-track-list__copy { display: grid; min-width: 0; gap: .2rem; }
@@ -32,6 +33,6 @@
 }
 @media (max-width: 430px) {
   .release-page__artwork { width: min(78vw, 19rem); }
-  .release-track-list__row { grid-template-columns: 1.8rem 2.2rem minmax(0, 1fr) 3.8rem; gap: .45rem; padding-inline: .6rem; }
+  .release-track-list__row { grid-template-columns: 1.8rem 2.2rem minmax(0, 1fr) 3.8rem auto; gap: .45rem; padding-inline: .6rem; }
   .release-track-list__track-number { display: none; }
 }

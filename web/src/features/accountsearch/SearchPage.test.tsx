@@ -89,7 +89,7 @@ describe('SearchPage', () => {
   it('reads the router query, debounces the server request, and combines bounded local matches', async () => {
     vi.useFakeTimers()
     mockedGet.mockResolvedValue({
-      tracks: [{ anime: { title: 'Naruto' }, releaseTitle: 'Best Collection', track: { id: 10, title: 'Blue Bird', artistCredit: 'Ikimonogakari' } }],
+      tracks: [{ anime: { title: 'Naruto' }, releaseTitle: 'Best Collection', track: { id: 10, title: 'Blue Bird', artistCredit: 'Ikimonogakari', audioUrl: '/v1/media/songs/10/audio' } }],
       releases: [{ anime: [{ title: 'Naruto' }], release: { id: 20, title: 'Naruto Collection', artistCredit: 'Various', tracks: [] } }],
     })
 

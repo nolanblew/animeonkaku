@@ -180,8 +180,14 @@ describe('page-to-player wiring', () => {
     captures.animeProps.onPlayNext([opening, ending], '/poster.jpg')
     captures.animeProps.onAddToQueue([ending], '/poster.jpg')
     captures.animeProps.onPlaySong(song, '/cover.jpg', 'anime-1')
+    captures.animeProps.onPlayNextSong(song, release, 'anime-1')
+    captures.animeProps.onAddToQueueSong(song, release, 'anime-1')
+    captures.animeProps.onReplaceQueueSong(song, release, 'anime-1')
     expect(captures.player.queue.playNext).toHaveBeenCalled()
     expect(captures.player.playSong).toHaveBeenCalledWith(song, { artworkUrl: '/api/cover.jpg', animeId: 'anime-1' })
+    expect(captures.player.queue.playNext).toHaveBeenCalledWith([expect.objectContaining({ songId: 90 })])
+    expect(captures.player.queue.addToQueue).toHaveBeenCalledWith([expect.objectContaining({ songId: 90 })])
+    expect(captures.player.playItems).toHaveBeenCalledWith([expect.objectContaining({ songId: 90 })], { contextLabel: 'Release album', startIndex: 0, shuffle: false })
   })
 
   it('connects release album playback and individual song playback', () => {
@@ -200,6 +206,12 @@ describe('page-to-player wiring', () => {
       expect.objectContaining({ songId: 90 }),
       expect.objectContaining({ songId: 91 }),
     ], { contextLabel: 'Release album', startIndex: 1, shuffle: false })
+    captures.releaseProps.onPlayNextTrack(song, release)
+    captures.releaseProps.onAddToQueueTrack(song, release)
+    captures.releaseProps.onReplaceQueueTrack(song, release)
+    expect(captures.player.queue.playNext).toHaveBeenCalledWith([expect.objectContaining({ songId: 90 })])
+    expect(captures.player.queue.addToQueue).toHaveBeenCalledWith([expect.objectContaining({ songId: 90 })])
+    expect(captures.player.playItems).toHaveBeenLastCalledWith([expect.objectContaining({ songId: 90 })], { contextLabel: 'Release album', startIndex: 0, shuffle: false })
   })
 
   it('only forwards playable search results and resolves library artwork', () => {
@@ -210,6 +222,13 @@ describe('page-to-player wiring', () => {
     captures.searchProps.onPlayTrack({ track: { id: 'bad' } })
     captures.searchProps.onPlayTrack({ anime: { kitsuId: 'anime-1', posterUrl: '/search.jpg' }, track: { id: 90, title: 'Full song', audioUrl: '/song', artistCredit: 'Band', durationSeconds: 200 } })
     expect(captures.player.playSong).toHaveBeenCalledWith(expect.objectContaining({ id: 90, audioUrl: '/song' }), { artworkUrl: '/api/search.jpg', animeId: 'anime-1' })
+    const searchResult = { anime: { kitsuId: 'anime-1', posterUrl: '/search.jpg' }, releaseTitle: 'Search album', track: { id: 90, title: 'Full song', audioUrl: '/song', artistCredit: 'Band', durationSeconds: 200 } }
+    captures.searchProps.onPlayNextTrack(searchResult)
+    captures.searchProps.onAddToQueueTrack(searchResult)
+    captures.searchProps.onReplaceQueueTrack(searchResult)
+    expect(captures.player.queue.playNext).toHaveBeenCalledWith([expect.objectContaining({ songId: 90 })])
+    expect(captures.player.queue.addToQueue).toHaveBeenCalledWith([expect.objectContaining({ songId: 90 })])
+    expect(captures.player.playItems).toHaveBeenLastCalledWith([expect.objectContaining({ songId: 90 })], { contextLabel: 'Search album', startIndex: 0, shuffle: false })
   })
 
   it('renders each playlist route state and deletes back to the collection', async () => {

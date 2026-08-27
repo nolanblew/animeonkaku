@@ -72,6 +72,7 @@
 .account-search-results__group li strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-search-results__group li span { overflow: hidden; color: var(--muted, #a2a7b5); font-size: .8rem; text-overflow: ellipsis; white-space: nowrap; }
 .account-search-results__group li button { border: 1px solid var(--line-strong, #3a3c48); border-radius: .45rem; padding: .35rem .55rem; background: transparent; color: var(--cyan, #70dce5); font: inherit; font-size: .78rem; font-weight: 700; cursor: pointer; }
+.account-search-result-actions { display: inline-flex; align-items: center; gap: .35rem; }
 
 .account-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
 .account-settings-card--wide { grid-column: 1 / -1; }
