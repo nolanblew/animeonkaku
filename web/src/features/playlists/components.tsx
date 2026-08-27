@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Check, ListPlus, Sparkles } from 'lucide-react'
-import type { PlaylistDto, PlaylistPlaybackMode } from '../../lib/library'
+import { ArrowLeft, ArrowRight, Check, ListPlus, Music2, Pencil, Play, Shuffle, Sparkles, Trash2 } from 'lucide-react'
+import type { NormalizedLibrary, PlaylistDto, PlaylistPlaybackMode } from '../../lib/library'
 import { DynamicPlaylistBuilder } from './dynamicBuilder'
 import { buildPlaylistUpdate, createDefaultSimpleFilter, DEFAULT_ADVANCED_FILTER, DEFAULT_SORT_SPEC, deserializeDynamicSpec, deserializeSortSpec, formatJsonEditorValue, normalizePlaylistItems, parseJsonEditorValue, removePlaylistItem, reorderPlaylistItems, sanitizePlaylistName, validatePlaylistForm, type DynamicCreatedMode, type DynamicPlaylistMode, type FilterNodeJson, type PlaylistEditorValues, type PlaylistEntryModel, type PlaylistFormErrors, type PlaylistUpdateInput, type SimpleFilterState, type SortSpecJson } from './model'
 import type { PlaylistCreateInput } from './api'
 import { useLibraryQuery } from '../../lib/query'
 import { PlaylistArtwork, playlistArtworkUrls } from './PlaylistArtwork'
+import { resolvePlaylistDisplayItems } from './playlistDisplay'
 import './playlists.css'
 
 export type PlaylistListState = 'loading' | 'ready' | 'empty' | 'error'
@@ -212,7 +213,6 @@ export function PlaylistEditor({ playlist, onSubmit, onCancel }: PlaylistEditorP
           {values.useExpertJson === true && <button type="button" className="playlist-button" onClick={() => setValue('useExpertJson', false)}>Return to builder controls</button>}
         </details>
       </section>}
-      {!isCreate && <PlaylistItemsEditor items={items} onChange={setItems} readOnly={Boolean(playlist?.isDynamic && dynamicMode === 'AUTO')} />}
       {submitError && <p className="playlist-field__error" role="alert">{submitError}</p>}
       {isSmartCreate && wizardStep === 1 && <div className="playlist-editor__wizard-actions"><button type="button" className="playlist-button" onClick={() => setCreationKind(null)}><ArrowLeft size={16} /> Back</button><button type="button" className="playlist-button playlist-button--primary" onClick={continueToRules}>Continue to rules <ArrowRight size={16} /></button></div>}
       {isSmartCreate && wizardStep === 2 && <div className="playlist-editor__wizard-actions"><button type="button" className="playlist-button" onClick={() => setWizardStep(1)}><ArrowLeft size={16} /> Details</button><button type="button" className="playlist-button playlist-button--primary" onClick={() => setWizardStep(3)}>Review playlist <ArrowRight size={16} /></button></div>}
@@ -260,13 +260,15 @@ export function PlaylistItemsEditor({ items, onChange, readOnly = false }: Playl
 
 export interface PlaylistDetailProps {
   playlist: PlaylistDto
+  library?: NormalizedLibrary | null
   onUpdate: (id: number, input: Partial<PlaylistUpdateInput> & { items?: PlaylistUpdateInput['items'] }) => Promise<unknown> | unknown
   onDelete: (id: number) => Promise<unknown> | unknown
   onBack?: () => void
   onPlay?: (playlist: PlaylistDto, shuffle: boolean) => void
+  onPlayItem?: (playlist: PlaylistDto, index: number) => void
 }
 
-export function PlaylistDetail({ playlist, onUpdate, onDelete, onBack, onPlay }: PlaylistDetailProps) {
+function PlaylistDetailLegacy({ playlist, onUpdate, onDelete, onBack, onPlay }: PlaylistDetailProps) {
   const library = useLibraryQuery({ enabled: false }).library
   const [items, setItems] = useState(() => normalizePlaylistItems(playlist))
   const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -295,6 +297,60 @@ export function PlaylistDetail({ playlist, onUpdate, onDelete, onBack, onPlay }:
   }
 
   return <section className="playlist-detail" aria-labelledby="playlist-detail-title">{onBack && <button type="button" className="playlist-button playlist-button--quiet" onClick={onBack}>← All playlists</button>}<header className="playlist-detail__header"><div className="playlist-detail__art" aria-hidden="true">{playlist.isDynamic ? '✦' : '♫'}</div><div className="playlist-detail__copy"><p className="playlist-eyebrow">{playlist.isDynamic ? 'Smart playlist' : 'Playlist'}</p><h1 id="playlist-detail-title">{playlist.name}</h1><p>{items.length} {items.length === 1 ? 'track' : 'tracks'} · {playlist.defaultMode === 'FULL_SIZE' ? 'Full size' : 'TV size'} default</p></div><div className="playlist-detail__actions">{onPlay && <><button type="button" className="playlist-button playlist-button--primary" onClick={() => onPlay(playlist, false)} disabled={items.length === 0}>Play</button><button type="button" className="playlist-button" onClick={() => onPlay(playlist, true)} disabled={items.length === 0}>Shuffle</button></>}{!playlist.isAuto && <button type="button" className="playlist-button" onClick={() => setEditorOpen(true)}>Edit</button>}{!playlist.isAuto && <button type="button" className="playlist-button playlist-button--danger" onClick={() => setConfirmingDelete(true)}>Delete playlist</button>}</div></header>{error && <p className="playlist-field__error" role="alert">{error}</p>}<PlaylistItemsEditor items={items} onChange={saveItems} readOnly={playlist.isDynamic && playlist.autoUpdate} />{editorOpen && <div className="playlist-dialog-backdrop"><div className="playlist-dialog" role="dialog" aria-modal="true" aria-labelledby="playlist-edit-dialog-title"><PlaylistEditor playlist={playlist} onCancel={() => setEditorOpen(false)} onSubmit={async (input) => { await onUpdate(playlist.id, input as Partial<PlaylistUpdateInput> & { items?: PlaylistUpdateInput['items'] }); setEditorOpen(false) }} /></div></div>}{confirmingDelete && <div className="playlist-dialog-backdrop"><div className="playlist-dialog playlist-dialog--confirm" role="dialog" aria-modal="true" aria-labelledby="playlist-delete-dialog-title"><h2 id="playlist-delete-dialog-title">Delete playlist?</h2><p>This removes “{playlist.name}” from your library. The tracks themselves will stay available.</p><div className="playlist-dialog__actions"><button type="button" className="playlist-button" onClick={() => setConfirmingDelete(false)} disabled={deleting}>Keep playlist</button><button type="button" className="playlist-button playlist-button--danger" onClick={confirmDelete} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete'}</button></div></div></div>}</section>
+}
+
+export function PlaylistDetail({ playlist, library: providedLibrary, onUpdate, onDelete, onBack, onPlay, onPlayItem }: PlaylistDetailProps) {
+  const queriedLibrary = useLibraryQuery({ enabled: false }).library
+  const library = providedLibrary ?? queriedLibrary
+  const rows = useMemo(() => resolvePlaylistDisplayItems(playlist, library), [library, playlist])
+  const artworkUrls = useMemo(() => playlistArtworkUrls(playlist, library), [library, playlist])
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const confirmDelete = async () => {
+    setDeleting(true)
+    setError(null)
+    try { await onDelete(playlist.id) } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Could not delete playlist.')
+      setDeleting(false)
+      setConfirmingDelete(false)
+    }
+  }
+
+  return (
+    <section className="playlist-detail playlist-detail--catalog" aria-labelledby="playlist-detail-title">
+      {onBack && <button type="button" className="playlist-button playlist-button--quiet playlist-detail__back" onClick={onBack}><ArrowLeft size={16} /> All playlists</button>}
+      <header className="playlist-detail__hero">
+        {artworkUrls[0] && <div className="playlist-detail__backdrop" data-testid="playlist-hero-backdrop" style={{ backgroundImage: `url(${JSON.stringify(artworkUrls[0])})` }} aria-hidden="true" />}
+        <PlaylistArtwork playlistId={playlist.id} name={playlist.name} artworkUrls={artworkUrls} className="playlist-detail__collage" />
+        <div className="playlist-detail__copy">
+          <p className="playlist-eyebrow">{playlist.isDynamic ? 'Smart playlist' : playlist.isAuto ? 'Auto playlist' : 'Playlist'}</p>
+          <h1 id="playlist-detail-title">{playlist.name}</h1>
+          <p>{rows.length} {rows.length === 1 ? 'track' : 'tracks'} · {playlist.defaultMode === 'FULL_SIZE' ? 'Full size' : 'TV size'} default{playlist.isDynamic && playlist.autoUpdate ? ' · Auto-updating' : ''}</p>
+          <div className="playlist-detail__actions">
+            {onPlay && <><button type="button" className="playlist-button playlist-button--primary" onClick={() => onPlay(playlist, false)} disabled={rows.length === 0}><Play size={17} fill="currentColor" /> Play all</button><button type="button" className="playlist-button" onClick={() => onPlay(playlist, true)} disabled={rows.length === 0}><Shuffle size={17} /> Shuffle</button></>}
+            {!playlist.isAuto && <button type="button" className="playlist-button" onClick={() => setEditorOpen(true)}><Pencil size={16} /> Edit</button>}
+            {!playlist.isAuto && <button type="button" className="playlist-button playlist-button--danger" aria-label="Delete playlist" onClick={() => setConfirmingDelete(true)}><Trash2 size={16} /> Delete</button>}
+          </div>
+        </div>
+      </header>
+      {error && <p className="playlist-field__error" role="alert">{error}</p>}
+      <section className="playlist-track-section" aria-labelledby="playlist-tracks-title">
+        <div className="playlist-items__heading"><div><p className="playlist-eyebrow">Playlist sequence</p><h2 id="playlist-tracks-title">Tracks</h2></div><span>{rows.length}</span></div>
+        {rows.length === 0 ? <p className="playlist-muted">This playlist is empty. Add tracks from a song’s action menu.</p> : <ol className="playlist-track-list">{rows.map((row, index) => <li key={row.key} className={!row.available ? 'playlist-track-row playlist-track-row--unavailable' : 'playlist-track-row'}><span className="playlist-track-row__number">{index + 1}</span><button type="button" className="playlist-track-row__play" onClick={() => onPlayItem?.(playlist, index)} disabled={!row.available || !onPlayItem} aria-label={`Play ${row.title}`}>{row.artworkUrl ? <img src={row.artworkUrl} alt="" loading="lazy" /> : <span aria-hidden="true"><Music2 size={20} /></span>}<i aria-hidden="true"><Play size={17} fill="currentColor" /></i></button><span className="playlist-track-row__copy"><strong>{row.title}</strong><small>{row.subtitle}</small></span><span className="playlist-track-row__mode">{row.available ? playlist.defaultMode === 'FULL_SIZE' ? 'Full size' : 'TV size' : 'Unavailable'}</span><time>{formatPlaylistDuration(row.durationSeconds)}</time></li>)}</ol>}
+      </section>
+      {editorOpen && <div className="playlist-dialog-backdrop"><div className="playlist-dialog" role="dialog" aria-modal="true" aria-labelledby="playlist-edit-dialog-title"><PlaylistEditor playlist={playlist} onCancel={() => setEditorOpen(false)} onSubmit={async (input) => { await onUpdate(playlist.id, input as Partial<PlaylistUpdateInput> & { items?: PlaylistUpdateInput['items'] }); setEditorOpen(false) }} /></div></div>}
+      {confirmingDelete && <div className="playlist-dialog-backdrop"><div className="playlist-dialog playlist-dialog--confirm" role="dialog" aria-modal="true" aria-labelledby="playlist-delete-dialog-title"><h2 id="playlist-delete-dialog-title">Delete playlist?</h2><p>This removes “{playlist.name}” from your library. The tracks themselves will stay available.</p><div className="playlist-dialog__actions"><button type="button" className="playlist-button" onClick={() => setConfirmingDelete(false)} disabled={deleting}>Keep playlist</button><button type="button" className="playlist-button playlist-button--danger" onClick={confirmDelete} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete'}</button></div></div></div>}
+    </section>
+  )
+}
+
+function formatPlaylistDuration(value: number | null): string {
+  if (!value || value <= 0) return '—'
+  const seconds = Math.floor(value)
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
 
 export interface PlaylistManagerProps extends Omit<PlaylistListProps, 'onCreate'> {

@@ -1,11 +1,11 @@
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ListMusic, MonitorPlay } from 'lucide-react'
 import { RouteSkeleton } from '../components/RouteSkeleton'
 import { AnimeDetailPage, HomeCatalogPage, LibraryCatalogPage } from '../features/catalog'
 import { ReleaseDetailPage } from '../features/releases'
 import { PlaylistDetail, PlaylistFeatureMessage, PlaylistManager, usePlaylist, usePlaylistMutations, usePlaylists } from '../features/playlists'
 import { SearchPage as AccountSearchPage, SettingsPage as AccountSettingsPage, type MusicSearchTrack } from '../features/accountsearch'
-import { mapSongToQueueItem, mapThemeToQueueItem, NowPlayingView, usePlayer, type PlayerContextValue, type PlayerQueueItem } from '../player'
+import { mapSongToQueueItem, mapThemeToQueueItem, NowPlayingView, runPlayerViewTransition, usePlayer, type PlayerContextValue, type PlayerQueueItem } from '../player'
 import type { LibraryThemeDto, MusicReleaseDto, MusicTrackDto, NormalizedLibrary, PlaylistDto } from '../lib/library'
 import { browserAssetUrl } from '../lib/assets'
 import { useLibraryQuery } from '../lib/query'
@@ -52,7 +52,7 @@ export function PlaylistPage() {
   if (query.isPending) return <PlaylistFeatureMessage>Loading playlist…</PlaylistFeatureMessage>
   if (query.isError) return <PlaylistFeatureMessage>Could not load this playlist. Try again in a moment.</PlaylistFeatureMessage>
   if (!query.playlist) return <RouteSkeleton eyebrow="Playlist" title="Playlist not found" description="This playlist may have been removed on another device." icon={ListMusic} />
-  return <PlaylistDetail playlist={query.playlist} onUpdate={mutations.update} onDelete={async (playlist) => { await mutations.remove(playlist); navigate('/playlists', { replace: true }) }} onBack={() => navigate('/playlists')} onPlay={library ? (playlist, shuffle) => playPlaylist(player, library, playlist, shuffle) : undefined} />
+  return <PlaylistDetail playlist={query.playlist} library={library} onUpdate={mutations.update} onDelete={async (playlist) => { await mutations.remove(playlist); navigate('/playlists', { replace: true }) }} onBack={() => navigate('/playlists')} onPlay={library ? (playlist, shuffle) => playPlaylist(player, library, playlist, shuffle) : undefined} onPlayItem={library ? (playlist, index) => playPlaylist(player, library, playlist, false, index) : undefined} />
 }
 
 export function PlaylistsPage() {
@@ -65,7 +65,10 @@ export function PlaylistsPage() {
 }
 
 export function NowPlayingPage() {
-  return <section className="now-playing-route" aria-labelledby="now-playing-title"><h1 id="now-playing-title" className="sr-only">Now playing</h1><NowPlayingView /></section>
+  const navigate = useNavigate()
+  const location = useLocation()
+  const playerReturnTo = (location.state as { playerReturnTo?: string } | null)?.playerReturnTo ?? '/'
+  return <section className="now-playing-route" aria-labelledby="now-playing-title"><h1 id="now-playing-title" className="sr-only">Now playing</h1><NowPlayingView onCollapse={() => runPlayerViewTransition(() => navigate(playerReturnTo, { replace: true }))} /></section>
 }
 
 export function SettingsPage() {
@@ -133,7 +136,7 @@ function resolveBrowserAsset(value: string | null | undefined): string | undefin
   return browserAssetUrl(value)
 }
 
-function playPlaylist(player: PlayerContextValue, library: NormalizedLibrary, playlist: PlaylistDto, shuffle: boolean): void {
+function playPlaylist(player: PlayerContextValue, library: NormalizedLibrary, playlist: PlaylistDto, shuffle: boolean, startIndex = 0): void {
   const items = playlist.items.length > 0
     ? playlist.items
     : playlist.entries.map((itemId, index) => ({ entryId: index + 1, itemType: 'THEME' as const, itemId, modeOverride: null }))
@@ -153,10 +156,11 @@ function playPlaylist(player: PlayerContextValue, library: NormalizedLibrary, pl
     const mode = item.modeOverride ?? (playlist.overrideUserPreference ? playlist.defaultMode : preferredMode ?? playlist.defaultMode)
     return [mapThemeToQueueItem(theme, { artworkUrl: resolveBrowserAsset(anime?.posterUrl ?? anime?.coverUrl), animeId: anime?.kitsuId, mode })]
   })
-  if (queueItems.length === 0) return
-  player.playItem(queueItems[0]!, { contextLabel: playlist.name })
-  if (queueItems.length > 1) player.queue.addToQueue(queueItems.slice(1))
-  if (shuffle && queueItems.length > 1) player.setShuffle(true)
+  const playableItems = queueItems.slice(Math.max(0, Math.min(startIndex, queueItems.length - 1)))
+  if (playableItems.length === 0) return
+  player.playItem(playableItems[0]!, { contextLabel: playlist.name })
+  if (playableItems.length > 1) player.queue.addToQueue(playableItems.slice(1))
+  if (shuffle && playableItems.length > 1) player.setShuffle(true)
 }
 
 export function ServerErrorPage() {

@@ -6,7 +6,7 @@ export { NowPlayingView } from './NowPlayingView'
 export type { NowPlayingViewProps } from './NowPlayingView'
 export { MiniPlayerView } from './MiniPlayerView'
 export type { MiniPlayerViewProps } from './MiniPlayerView'
+export { runPlayerViewTransition } from './viewTransition'
 export { mapSongToQueueItem, mapThemeToQueueItem, queueItemAudioUrl, queueItemDurationMs, queueItemVideoUrl } from './mapping'
 export type { PlayerQueueItem, ThemeQueueItemOptions } from './mapping'
 export * from './queue'
-

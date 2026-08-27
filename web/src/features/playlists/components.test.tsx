@@ -109,7 +109,7 @@ describe('playlist components', () => {
     expect(screen.queryByRole('button', { name: /remove .* from playlist/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /add track/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: /catalog id/i })).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: /^play$/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^play all$/i }))
     expect(onPlay).toHaveBeenCalledWith(expect.objectContaining({ id: 2 }), false)
     await userEvent.click(screen.getByRole('button', { name: 'Play Real Opening' }))
     expect(onPlayItem).toHaveBeenCalledWith(expect.objectContaining({ id: 2 }), 0)

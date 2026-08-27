@@ -12,7 +12,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Brand } from './BrandMark'
 import { useAuth } from '../auth/AuthProvider'
-import { MiniPlayerView } from '../player'
+import { MiniPlayerView, runPlayerViewTransition } from '../player'
 import { useLibraryQuery } from '../lib/query'
 
 const primaryNavigation = [
@@ -86,6 +86,10 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
     const value = query.trim()
     navigate(value ? `/search?q=${encodeURIComponent(value)}` : '/search')
     closeNavigation()
+  }
+  const openExpandedPlayer = () => {
+    const playerReturnTo = `${location.pathname}${location.search}${location.hash}`
+    runPlayerViewTransition(() => navigate('/now-playing', { state: { playerReturnTo } }))
   }
 
   return (
@@ -177,7 +181,7 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
           {children ?? <Outlet />}
         </main>
       </div>
-      {location.pathname !== '/now-playing' && <MiniPlayerView onOpen={() => navigate('/now-playing')} />}
+      {location.pathname !== '/now-playing' && <MiniPlayerView onOpen={openExpandedPlayer} />}
     </div>
   )
 }

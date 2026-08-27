@@ -25,7 +25,7 @@ export function MiniPlayerView({ className = '', onOpen }: MiniPlayerViewProps) 
     <section className={['player-mini-player', className].filter(Boolean).join(' ')} aria-label="Mini player" data-testid="mini-player-view">
       <div className="player-mini-player__identity">
         <button className="player-mini-player__track" type="button" onClick={onOpen} disabled={!onOpen} aria-label={`Open now playing for ${current.title}`}>
-          {current.artworkUrl ? <img src={current.artworkUrl} alt="" /> : <span className="player-mini-player__artwork" aria-hidden="true">AO</span>}
+          {current.artworkUrl ? <img className="player-shared-artwork" src={current.artworkUrl} alt="" /> : <span className="player-mini-player__artwork player-shared-artwork" aria-hidden="true">AO</span>}
           <span className="player-mini-player__meta"><strong>{current.title}</strong><small>{current.artist ?? current.album ?? 'Anime Ongaku'}</small></span>
         </button>
         <button type="button" className="player-icon-button player-icon-button--quiet" aria-label={liked ? 'Unlike track' : 'Like track'} aria-pressed={liked} onClick={() => setLiked((value) => !value)}><Heart size={18} fill={liked ? 'currentColor' : 'none'} /></button>
