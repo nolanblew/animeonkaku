@@ -18,7 +18,7 @@ describe('LoginPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /sign in/i }))
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/could not sign you in/i))
-    expect(apiClient.post).toHaveBeenCalledWith('/auth/login', { username: 'fan@example.test', password: 'not-a-real-password' })
+    expect(apiClient.post).toHaveBeenCalledWith('/auth/login', { username: 'fan@example.test', password: 'not-a-real-password', deviceName: 'Web browser' })
   })
 
   it('navigates home after a successful sign-in', async () => {
