@@ -45,7 +45,7 @@ export function PlaylistList({ playlists, state, error, onCreate, onSelect, maxV
       {state !== 'loading' && state !== 'error' && visible.length > 0 && (
         <>
           <div className="playlist-cards">
-            {visible.map((playlist) => <Link className="playlist-card" to={`/playlist/${playlist.id}`} key={playlist.id} onClick={(event) => { if (onSelect) { event.preventDefault(); onSelect(playlist.id) } }}>
+            {visible.map((playlist) => <Link className="playlist-card" to={`/playlist/${playlist.id}`} key={playlist.id} onClick={() => onSelect?.(playlist.id)}>
               <span className="playlist-card__art" aria-hidden="true">{playlist.isDynamic ? '✦' : '♫'}</span>
               <span className="playlist-card__copy"><strong>{playlist.name}</strong><small>{playlist.isDynamic ? 'Smart playlist' : `${playlist.items.length || playlist.entries.length} tracks`}</small></span>
               <span className="playlist-card__arrow" aria-hidden="true">→</span>
@@ -239,13 +239,11 @@ export interface PlaylistManagerProps extends Omit<PlaylistListProps, 'onCreate'
   onPlay?: PlaylistDetailProps['onPlay']
 }
 
-export function PlaylistManager({ playlists, state, error, onCreate, onUpdate, onDelete, onPlay, maxVisible }: PlaylistManagerProps) {
+export function PlaylistManager({ playlists, state, error, onCreate, maxVisible }: PlaylistManagerProps) {
   const [creating, setCreating] = useState(false)
-  const [selectedId, setSelectedId] = useState<number | null>(null)
-  const selected = selectedId === null ? null : playlists.find((playlist) => playlist.id === selectedId && !playlist.deleted) ?? null
   const create = async (input: PlaylistCreateInput | (Partial<PlaylistUpdateInput> & { items?: PlaylistUpdateInput['items'] })) => { await onCreate(input as PlaylistCreateInput); setCreating(false) }
 
-  return <div className="playlist-manager">{!selected && <PlaylistList playlists={playlists} state={state} error={error} maxVisible={maxVisible} onCreate={() => setCreating(true)} onSelect={setSelectedId} />}{selected && <PlaylistDetail playlist={selected} onUpdate={onUpdate} onDelete={async (id) => { await onDelete(id); setSelectedId(null) }} onBack={() => setSelectedId(null)} onPlay={onPlay} />}{creating && <div className="playlist-dialog-backdrop"><div className="playlist-dialog" role="dialog" aria-modal="true" aria-labelledby="playlist-create-dialog-title"><h2 id="playlist-create-dialog-title" className="sr-only">Create playlist</h2><PlaylistEditor onCancel={() => setCreating(false)} onSubmit={create} /></div></div>}</div>
+  return <div className="playlist-manager"><PlaylistList playlists={playlists} state={state} error={error} maxVisible={maxVisible} onCreate={() => setCreating(true)} />{creating && <div className="playlist-dialog-backdrop"><div className="playlist-dialog" role="dialog" aria-modal="true" aria-labelledby="playlist-create-dialog-title"><h2 id="playlist-create-dialog-title" className="sr-only">Create playlist</h2><PlaylistEditor onCancel={() => setCreating(false)} onSubmit={create} /></div></div>}</div>
 }
 
 function editorValuesFor(playlist: PlaylistDto): PlaylistEditorValues {
