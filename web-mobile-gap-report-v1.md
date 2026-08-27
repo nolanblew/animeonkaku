@@ -290,3 +290,29 @@ One source-only candidate was downgraded: the numeric `PlaylistItemsEditor` look
 - The authenticated QA runtime was used to verify route content, inert controls, URL-tab behavior, and DOM scale. Media Session behavior was source/test audited rather than verified on Windows, macOS, and mobile OS surfaces in this pass.
 - No Android device UI replay was required for this comparison; Android behavior was traced from the mature source and its existing architecture/tests.
 - Performance findings identify concrete unbounded DOM/lookup paths, but this pass did not run a formal CPU, network, or heap benchmark. Those measurements are part of the recommended follow-up gates.
+
+## Implementation closeout — 2026-08-27
+
+The findings above describe the pre-implementation audit snapshot. All four recommended phases have since been implemented on `codex/web-player`.
+
+| Requirement | Closeout status |
+|---|---|
+| Mobile library parity | Complete for the web scope: anime, songs/themes, artists, releases, manual and smart playlists, creation/edit/delete, structured simple/advanced rules, manual reordering, snapshot refresh, shared row actions, and live query invalidation are wired. Playlist additions remain intentionally song-action-only. |
+| Kitsu account lifecycle | Complete: login/lookup-or-creation, Full/Delta first sync, progress/status, ordinary sync, confirmed full re-sync, retained partial results, unmatched/upstream-blocked states, profile/avatar editing, device information, reconnect state, logout, and local unlink are present. Android's apparent pause/resume/cancel handlers are no-ops, so the web does not advertise controls that the platform cannot actually perform. |
+| Playback and OS integration | Complete within browser APIs: contextual queue construction, stable duplicate identities, history/up-next removal and reordering, disliked-item skip/unskip, repeat/shuffle, TV/Full/Video switching, spoiler/NSFW warnings, thumbs, Media Session metadata/actions/position, persisted per-user TV/Full default, and safe loudness attenuation are covered. Video remains session-only and never overwrites the remembered audio mode. |
+| Light caching | Complete: audio is reconciled strictly to the next three queue entries; artwork is bounded to current plus next three; cache ownership is stable per account/version; stale owned versions are swept; unrelated account caches are preserved; clear/logout cleanup is explicit. |
+| Responsive UI and accessibility | Complete for the audited surfaces: desktop/compact/mobile shell, viewport-locked full player, bounded queue surface, reduced-motion handling, URL-addressable Library tabs, complete Home sections/actions, keyboard-navigable menus, focus-trapped dialogs, Escape/outside dismissal where appropriate, and focus restoration are implemented. |
+| Large-library performance | Complete for the defined automated gates: playlist and queue DOM are bounded/windowed, song lookup is pre-indexed, 1,000/1,200-item contracts pass, and deterministic repeated playback/navigation resource-retention soak tests pass. |
+| Search and resilience | Complete: artist/release navigation and shared actions are present; transient failures retain the last usable server results, label them as previous results, expose Retry, and recover without discarding local matches. Reauthentication preserves a bounded, expiring, non-sensitive route/queue/playback snapshot. |
+| Home and presentation polish | Complete: Quick Picks Play all and overflow actions, Top songs, Recently added, the Show OSTs on Home preference, singular “Anime” copy, removal of the inert notification affordance, and omission of unknown-duration placeholders are implemented. |
+| Root/API/error boundary | Complete: the SPA remains at `/`, browser requests use `/api`, server/external access stays behind server APIs, and safe expandable 404/500 diagnostics remain in place. |
+| Downloads/offline, analytics, crash logging | Intentionally excluded, matching the original web scope. |
+
+### Closeout verification
+
+- Web: 62 test files and 283 tests pass; coverage is 83.99% statements, 77.18% branches, 81.46% functions, and 89.33% lines; TypeScript and the production Vite build pass.
+- Server: 75 test files pass with 11 skipped; 628 tests pass with 40 skipped; TypeScript passes.
+- Android reference: focused queue, API, playlist, sync-source, artist, and related-music suites pass. Pixel 7 Pro runtime checks confirmed the mature queue/sync semantics and no FATAL/ANR; the final Phase 4 visual replay was blocked when the device returned to its biometric lockscreen.
+- QA runtime: the current server/web image is deployed to the isolated QA stack; database and API are healthy; `/healthz` and `/` return 200; the persisted synthetic fixture remains present.
+- Browser automation limitation: after a failed localhost navigation was replaced with a `data:` error document, the in-app Browser URL policy refused navigation back to the healthy localhost origin. Current UI behavior is therefore covered by component/integration tests and the deployed HTTP runtime, but a final authenticated visual replay in that browser is not claimed.
+- OS-specific Media Session presentation and live heap snapshots still require manual browser/OS observation on Windows/macOS/mobile; the implementation and deterministic lifecycle gates are complete, but those external observations are not overstated.
