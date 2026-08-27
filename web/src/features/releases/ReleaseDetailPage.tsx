@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, CalendarDays, Disc3, Play, Shuffle } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
+import { useState } from 'react'
 import { apiClient } from '../../lib/api'
 import { browserAssetUrl } from '../../lib/assets'
 import type { MusicReleaseDto, MusicTrackDto } from '../../lib/library'
@@ -43,9 +44,7 @@ export function ReleaseDetailPage({ onPlayAll, onPlayTrack }: ReleaseDetailPageP
     <section className="page release-page" aria-labelledby="release-title">
       <Link className="catalog-back-link" to="/library"><ArrowLeft size={16} /> Back to library</Link>
       <header className="release-page__hero">
-        <div className="release-page__artwork">
-          {artworkUrl ? <img src={artworkUrl} alt={`${title} artwork`} /> : <span aria-hidden="true"><Disc3 size={64} /></span>}
-        </div>
+        <ReleaseArtwork key={artworkUrl ?? 'release-artwork-fallback'} artworkUrl={artworkUrl} title={title} />
         <div className="release-page__copy">
           <p className="eyebrow">Music release</p>
           <h1 id="release-title">{title}</h1>
@@ -74,6 +73,17 @@ export function ReleaseDetailPage({ onPlayAll, onPlayTrack }: ReleaseDetailPageP
           : <ol className="release-track-list">{tracks.map((track, index) => <ReleaseTrackRow key={`${track.id}-${index}`} track={track} release={release} index={index} onPlay={onPlayTrack} />)}</ol>}
       </section>
     </section>
+  )
+}
+
+function ReleaseArtwork({ artworkUrl, title }: { artworkUrl?: string; title: string }) {
+  const [failed, setFailed] = useState(false)
+  return (
+    <div className="release-page__artwork">
+      {artworkUrl && !failed
+        ? <img src={artworkUrl} alt={`${title} artwork`} onError={() => setFailed(true)} />
+        : <span aria-hidden="true"><Disc3 size={64} /></span>}
+    </div>
   )
 }
 
