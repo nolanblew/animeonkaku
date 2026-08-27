@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -82,7 +82,10 @@ function mockStatus(status: SyncStatus) {
   })
 }
 
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
 
 describe('SyncPage authenticated Kitsu sync lifecycle', () => {
   it('gates first-sync controls and shows Full progress until the server reports completion', async () => {
@@ -149,7 +152,11 @@ describe('SyncPage authenticated Kitsu sync lifecycle', () => {
     expect(within(dialog).getByText(/existing library data|play counts|history/i)).toBeInTheDocument()
     expect(post).not.toHaveBeenCalled()
 
-    await user.click(within(dialog).getByRole('button', { name: /re-sync|confirm/i }))
+    await user.click(within(dialog).getByRole('button', { name: /cancel/i }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /re-sync all|full re-sync/i }))
+    const reopened = await screen.findByRole('dialog', { name: /re-sync|full sync/i })
+    await user.click(within(reopened).getByRole('button', { name: /re-sync|confirm/i }))
     await waitFor(() => expect(post).toHaveBeenCalledWith('/v1/sync', { full: true }))
   })
 
@@ -188,5 +195,57 @@ describe('SyncPage authenticated Kitsu sync lifecycle', () => {
 
     await userEvent.setup().click(await screen.findByRole('button', { name: /unlink kitsu|unlink account/i }))
     await waitFor(() => expect(auth.logout).toHaveBeenCalledTimes(1))
+  })
+
+  it('reports an initial status read failure', async () => {
+    mockedUseAuth.mockReturnValue(makeAuth())
+    vi.spyOn(apiClient, 'get').mockRejectedValue(new Error('status unavailable'))
+    renderPage()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not read the current sync status/i)
+    expect(screen.getByRole('heading', { name: 'Library sync' })).toBeInTheDocument()
+  })
+
+  it('reports transient polling failures while keeping the active sync visible', async () => {
+    mockedUseAuth.mockReturnValue(makeAuth())
+    let reads = 0
+    vi.spyOn(apiClient, 'get').mockImplementation(async () => {
+      reads += 1
+      if (reads === 1) return makeStatus({ state: 'RUNNING', phase: 'MAPPING_THEMES' })
+      throw new Error('poll unavailable')
+    })
+    let pollCallback: (() => void) | null = null
+    const setInterval = vi.spyOn(window, 'setInterval').mockImplementation((handler) => {
+      pollCallback = handler as () => void
+      return 1
+    })
+    renderPage()
+
+    expect(await screen.findByRole('heading', { name: 'Library sync' })).toBeInTheDocument()
+    await waitFor(() => expect(setInterval).toHaveBeenCalled())
+    await act(async () => { pollCallback?.(); await Promise.resolve() })
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not refresh sync progress/i)
+    expect(reads).toBe(2)
+  })
+
+  it('surfaces an enqueue failure and clears the pending state', async () => {
+    mockedUseAuth.mockReturnValue(makeAuth())
+    mockStatus(makeStatus())
+    vi.spyOn(apiClient, 'post').mockRejectedValue(new Error('enqueue unavailable'))
+    renderPage()
+
+    await userEvent.setup().click(await screen.findByRole('button', { name: /sync now|sync library/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not start the sync/i)
+    expect(screen.getByRole('button', { name: /sync now|sync library/i })).toBeEnabled()
+  })
+
+  it('navigates to login even when logout rejects', async () => {
+    const auth = makeAuth({ logout: vi.fn().mockRejectedValue(new Error('logout unavailable')) })
+    mockedUseAuth.mockReturnValue(auth)
+    mockStatus(makeStatus())
+    renderPage()
+
+    await userEvent.setup().click(await screen.findByRole('button', { name: /unlink kitsu|unlink account/i }))
+    expect(await screen.findByText('Login route')).toBeInTheDocument()
   })
 })

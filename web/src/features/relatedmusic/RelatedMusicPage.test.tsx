@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -85,14 +85,25 @@ const status: MusicRequestStatusResponse = {
   ],
 }
 
-function renderPage() {
+function renderPage(onOpenRelease?: (release: MusicReleaseDto) => void) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={['/anime/anime-1/related-music']}>
         <Routes>
-          <Route path="/anime/:kitsuId/related-music" element={<RelatedMusicPage />} />
+          <Route path="/anime/:kitsuId/related-music" element={<RelatedMusicPage onOpenRelease={onOpenRelease} />} />
         </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
+
+function renderInvalidPage() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/related']}>
+        <Routes><Route path="/related" element={<RelatedMusicPage />} /></Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -141,5 +152,68 @@ describe('related music page', () => {
     expect(apiClient.post).toHaveBeenCalledWith('/v1/anime/anime-1/music-requests/full-songs')
     expect(await screen.findByText(/full-song request queued/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Signal in the Static' })).toHaveAttribute('href', '/release/42')
+  })
+
+  it('retries the related-music request after the discovery endpoint fails', async () => {
+    let musicCalls = 0
+    vi.mocked(apiClient.get).mockImplementation(async (path) => {
+      if (path === '/v1/anime/anime-1/music') {
+        musicCalls += 1
+        if (musicCalls === 1) throw new Error('discovery unavailable')
+        return music
+      }
+      if (path === '/v1/anime/anime-1/music-requests/status') return status
+      throw new Error(`Unexpected GET ${path}`)
+    })
+    renderPage()
+
+    expect(await screen.findByRole('heading', { name: 'Related music unavailable' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByRole('heading', { name: 'Related Music' })).toBeInTheDocument()
+    expect(musicCalls).toBe(2)
+  })
+
+  it('surfaces request-status failures and retries the status query', async () => {
+    let statusCalls = 0
+    vi.mocked(apiClient.get).mockImplementation(async (path) => {
+      if (path === '/v1/anime/anime-1/music') return music
+      if (path === '/v1/anime/anime-1/music-requests/status') {
+        statusCalls += 1
+        if (statusCalls === 1) throw new Error('status unavailable')
+        return status
+      }
+      throw new Error(`Unexpected GET ${path}`)
+    })
+    renderPage()
+
+    expect(await screen.findByText(/Could not load request status/i)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Request Full Songs' })).toBeEnabled())
+    expect(statusCalls).toBe(2)
+  })
+
+  it('reports provider request errors and forwards release-card activation', async () => {
+    vi.mocked(apiClient.get).mockImplementation(async (path) => {
+      if (path === '/v1/anime/anime-1/music') return music
+      if (path === '/v1/anime/anime-1/music-requests/status') return status
+      throw new Error(`Unexpected GET ${path}`)
+    })
+    vi.mocked(apiClient.post).mockRejectedValue(new Error('provider unavailable'))
+    const onOpenRelease = vi.fn()
+    renderPage(onOpenRelease)
+
+    await screen.findByRole('heading', { name: 'Related Music' })
+    await userEvent.click(screen.getByRole('button', { name: 'Request Full Songs' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('provider unavailable')
+
+    await userEvent.click(screen.getByRole('link', { name: 'Signal in the Static' }))
+    expect(onOpenRelease).toHaveBeenCalledWith(music.releases[0])
+  })
+
+  it('rejects a route without an anime identifier before making requests', () => {
+    renderInvalidPage()
+
+    expect(screen.getByRole('heading', { name: 'Related music unavailable' })).toBeInTheDocument()
+    expect(apiClient.get).not.toHaveBeenCalled()
   })
 })

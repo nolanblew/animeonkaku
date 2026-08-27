@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -122,6 +122,8 @@ describe('artist detail page', () => {
     expect(screen.getByText('Ichiban no Takaramono (Full Size)')).toBeInTheDocument()
     expect(screen.getAllByRole('link', { name: 'Signal Breaker' })).toHaveLength(2)
     expect(screen.getAllByRole('link', { name: 'Signal Breaker' })[0]).toHaveAttribute('href', '/anime/anime-1')
+    fireEvent.error(screen.getByRole('img', { name: 'Karuta artwork' }))
+    expect(screen.queryByRole('img', { name: 'Karuta artwork' })).not.toBeInTheDocument()
     expect(apiClient.get).toHaveBeenCalledWith('/v1/artists/karuta', expect.anything())
   })
 
@@ -141,5 +143,57 @@ describe('artist detail page', () => {
     expect(onPlayAll).toHaveBeenNthCalledWith(2, response, true)
     expect(onPlayItem).toHaveBeenNthCalledWith(1, response, 0)
     expect(onPlayItem).toHaveBeenNthCalledWith(2, response, 1)
+  })
+
+  it('renders fallback artist rows for incomplete theme and song metadata', async () => {
+    const fallbackTheme = {
+      ...themes[0],
+      title: 'Unmatched theme',
+      themeType: null,
+      artists: [],
+      audioUrl: '',
+      audioState: undefined,
+      anime: undefined,
+      kitsuAnimeIds: ['anime-without-title'],
+    }
+    const metadataSong = {
+      ...fullSongs[0],
+      title: 'Metadata only',
+      audioUrl: undefined,
+      audioAvailable: false,
+      artistCredit: '',
+      releaseId: null,
+      releaseTitle: null,
+      anime: [],
+    }
+    vi.mocked(apiClient.get).mockResolvedValue({
+      artist: { ...response.artist, name: ' ', artworkUrl: null },
+      themes: [fallbackTheme],
+      fullSongs: [metadataSong],
+    })
+    renderPage()
+
+    expect(await screen.findByRole('heading', { name: 'Unknown artist' })).toBeInTheDocument()
+    expect(screen.getByText('Unmatched theme')).toBeInTheDocument()
+    expect(screen.getByText('Available online')).toBeInTheDocument()
+    expect(screen.getByText('Anime theme')).toBeInTheDocument()
+    expect(screen.getAllByText('Metadata only')).toHaveLength(2)
+    expect(screen.getAllByText('Unknown artist')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: 'Play Metadata only' })).toBeDisabled()
+  })
+
+  it('retries after the artist endpoint fails', async () => {
+    let calls = 0
+    vi.mocked(apiClient.get).mockImplementation(async () => {
+      calls += 1
+      if (calls === 1) throw new Error('artist unavailable')
+      return response
+    })
+    renderPage()
+
+    expect(await screen.findByRole('heading', { name: 'Artist unavailable' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByRole('heading', { name: 'Karuta' })).toBeInTheDocument()
+    expect(calls).toBe(2)
   })
 })

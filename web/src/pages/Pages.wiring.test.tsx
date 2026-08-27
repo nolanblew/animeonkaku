@@ -5,6 +5,7 @@ import type { LibraryThemeDto, MusicReleaseDto, MusicTrackDto, NormalizedLibrary
 
 const captures = vi.hoisted(() => ({
   animeProps: null as any,
+  artistProps: null as any,
   releaseProps: null as any,
   libraryProps: null as any,
   searchProps: null as any,
@@ -21,6 +22,14 @@ vi.mock('../features/catalog', () => ({
   HomeCatalogPage: () => <h2>Mock home catalog</h2>,
   LibraryCatalogPage: (props: unknown) => { captures.libraryProps = props; return <h2>Mock library catalog</h2> },
   AnimeDetailPage: (props: unknown) => { captures.animeProps = props; return <h2>Mock anime detail</h2> },
+}))
+
+vi.mock('../features/artists', () => ({
+  ArtistDetailPage: (props: unknown) => { captures.artistProps = props; return <h2>Mock artist detail</h2> },
+}))
+
+vi.mock('../features/relatedmusic', () => ({
+  RelatedMusicPage: () => <h2>Mock related music</h2>,
 }))
 
 vi.mock('../features/accountsearch', () => ({
@@ -48,7 +57,7 @@ vi.mock('../player', async (importOriginal) => {
   return { ...original, usePlayer: () => captures.player, NowPlayingView: () => <h2>Mock now playing</h2> }
 })
 
-import { AnimePage, HomePage, LibraryPage, NowPlayingPage, PlaylistPage, PlaylistsPage, ReleasePage, SearchPage, SettingsPage } from './Pages'
+import { AnimePage, ArtistPage, HomePage, LibraryPage, NowPlayingPage, PlaylistPage, PlaylistsPage, RelatedMusicPage, ReleasePage, SearchPage, SettingsPage } from './Pages'
 
 const opening = theme(11, 'anime-1', 'Opening')
 const ending = theme(12, 'anime-1', 'Ending')
@@ -140,7 +149,7 @@ function renderPath(element: React.ReactElement, path = '/', route = '*') {
 beforeEach(() => {
   captures.player = playerMock()
   captures.libraryQuery = { library }
-  captures.mutations = { create: vi.fn(), update: vi.fn(), remove: vi.fn().mockResolvedValue(undefined) }
+  captures.mutations = { create: vi.fn(), update: vi.fn(), remove: vi.fn().mockResolvedValue(undefined), refresh: vi.fn() }
   captures.playlistQuery = { isPending: false, isError: false, playlist }
   captures.playlistsQuery = { isPending: false, isError: false, playlists: [playlist] }
 })
@@ -153,6 +162,21 @@ describe('page-to-player wiring', () => {
     expect(screen.getByText('Mock now playing')).toBeInTheDocument()
     renderPath(<SettingsPage />)
     expect(screen.getByText('Mock account settings')).toBeInTheDocument()
+    renderPath(<RelatedMusicPage />)
+    expect(screen.getByText('Mock related music')).toBeInTheDocument()
+  })
+
+  it('connects artist collection playback and safely ignores unavailable collections', () => {
+    renderPath(<ArtistPage />)
+    const artist = { artist: { name: 'Neon Harbor', artworkUrl: '/artist.jpg' }, themes: [opening], fullSongs: [{ ...song, audioAvailable: false }] }
+    captures.artistProps.onPlayAll(artist, true)
+    expect(captures.player.playItems).toHaveBeenCalledWith([expect.objectContaining({ themeId: 11, artworkUrl: '/api/artist.jpg' })], { contextLabel: 'Neon Harbor', startIndex: 0, shuffle: true })
+
+    captures.artistProps.onPlayItem(artist, 99)
+    expect(captures.player.playItems).toHaveBeenLastCalledWith([expect.objectContaining({ themeId: 11 })], { contextLabel: 'Neon Harbor', startIndex: 0, shuffle: false })
+
+    captures.artistProps.onPlayAll({ artist: { name: '', artworkUrl: null }, themes: null, fullSongs: null }, false)
+    expect(captures.player.playItems).toHaveBeenCalledTimes(2)
   })
 
   it('connects library play, play-next, append, and empty-queue bootstrapping', () => {
@@ -268,6 +292,25 @@ describe('page-to-player wiring', () => {
       expect.objectContaining({ themeId: 12 }),
       expect.objectContaining({ songId: 90 }),
     ], { contextLabel: 'Mixed modes', startIndex: 2, shuffle: false })
+    captures.playlistDetailProps.onPlayNextItem(playlist, 0)
+    captures.playlistDetailProps.onAddToQueueItem(playlist, 1)
+    expect(captures.player.queue.playNext).toHaveBeenCalledWith([expect.objectContaining({ themeId: 11 })])
+    expect(captures.player.queue.addToQueue).toHaveBeenCalledWith([expect.objectContaining({ songId: 90 })])
+
+    captures.playlistDetailProps.onPlayNext(playlist)
+    captures.playlistDetailProps.onAddToQueue(playlist)
+    captures.playlistDetailProps.onReplaceQueue(playlist)
+    expect(captures.player.playItems).toHaveBeenLastCalledWith(expect.arrayContaining([expect.objectContaining({ themeId: 11 }), expect.objectContaining({ songId: 90 })]), { contextLabel: 'Mixed modes', startIndex: 0, shuffle: false })
+
+    captures.player.currentItem = null
+    captures.playlistDetailProps.onPlayNextItem(playlist, 0)
+    expect(captures.player.playItem).toHaveBeenCalledWith(expect.objectContaining({ themeId: 11 }), { contextLabel: 'Mixed modes' })
+    captures.playlistDetailProps.onAddToQueue(playlist)
+    expect(captures.player.queue.addToQueue).toHaveBeenLastCalledWith([expect.objectContaining({ songId: 90 })])
+    captures.playlistDetailProps.onPlayNext({ ...playlist, items: [{ entryId: 1, itemType: 'THEME', itemId: 999, modeOverride: null }] })
+    expect(captures.player.playItem).toHaveBeenCalledTimes(2)
+    captures.playlistDetailProps.onRefresh(playlist)
+    expect(captures.mutations.refresh).toHaveBeenCalledWith(7)
     await act(async () => captures.playlistDetailProps.onDelete(7))
     expect(screen.getByText('Playlist destination')).toBeInTheDocument()
   })
