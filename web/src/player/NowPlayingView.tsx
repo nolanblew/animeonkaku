@@ -1,7 +1,9 @@
-import { ChevronDown, Maximize, Pause, Play, Repeat, Shuffle, SkipBack, SkipForward } from 'lucide-react'
+import { ChevronDown, ChevronUp, Ellipsis, Maximize, Pause, Play, Repeat, Shuffle, SkipBack, SkipForward, Trash2 } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
 import { usePlayer } from './PlayerProvider'
 import type { PlaybackMode } from '../media/modeSwitch'
 import { CurrentTrackActions } from './CurrentTrackActions'
+import type { QueueEntry } from './queue'
 
 export interface NowPlayingViewProps { className?: string; onCollapse?: () => void }
 
@@ -10,7 +12,6 @@ export function NowPlayingView({ className = '', onCollapse }: NowPlayingViewPro
   const current = player.currentItem
   const title = current?.title ?? 'Nothing playing'
   const artist = current?.artist ?? 'Choose a theme or song to begin.'
-  const upcoming = player.queueState.nowPlayingEntries.slice(player.queueState.currentIndex + 1)
   const isVideo = player.mode === 'VIDEO'
 
   const chooseSong = () => player.setMode(player.fullSizeAvailable ? 'FULL_SIZE' : 'TV_SIZE')
@@ -43,7 +44,7 @@ export function NowPlayingView({ className = '', onCollapse }: NowPlayingViewPro
           {!player.videoAvailable && <p className="player-muted">Video unavailable for this theme.</p>}
         </div>
 
-        <aside className="player-queue" aria-label="Up next"><div className="player-queue__heading"><p className="player-eyebrow">Queue</p><h2>Up next</h2><span>{upcoming.length}</span></div>{upcoming.length === 0 ? <p className="player-muted">The queue is empty.</p> : <ol>{upcoming.map((entry, offset) => <li key={entry.queueId}><button type="button" onClick={() => player.skipTo(player.queueState.currentIndex + offset + 1)} aria-label={`Play ${entry.item.title}`}><span className="player-queue__index">{offset + 1}</span><span><strong>{entry.item.title}</strong><small>{entry.item.artist ?? entry.item.album ?? 'Anime Ongaku'}</small></span><time>{formatTime((entry.item.durationMs ?? 0) / 1000)}</time></button></li>)}</ol>}</aside>
+        <PlaybackQueue />
       </div>
     </section>
   )
@@ -51,6 +52,91 @@ export function NowPlayingView({ className = '', onCollapse }: NowPlayingViewPro
   function ModeButton({ mode, label, disabled = false }: { mode: PlaybackMode; label: string; disabled?: boolean }) {
     return <button type="button" className="player-mode-button" onClick={() => player.setMode(mode)} aria-pressed={player.mode === mode} disabled={disabled}>{label}</button>
   }
+}
+
+function PlaybackQueue() {
+  const player = usePlayer()
+  const [menuEntryId, setMenuEntryId] = useState<number | null>(null)
+  const entries = player.queueState.nowPlayingEntries
+  const currentIndex = player.queueState.currentIndex
+  const history = player.queueState.historyEntries ?? []
+  const current = entries[currentIndex]
+  const upcoming = entries.slice(currentIndex + 1)
+  const menuEntry = upcoming.find((entry) => entry.queueId === menuEntryId)
+
+  return (
+    <aside className="player-queue" aria-label="Playback queue">
+      <div className="player-queue__heading">
+        <div><p className="player-eyebrow">Queue</p><h2>{player.queueState.contextLabel || 'Listening session'}</h2></div>
+        <span>{entries.length} items</span>
+      </div>
+      <div className="player-queue__scroll" tabIndex={0} aria-label="Scrollable playback queue">
+        {history.length > 0 && <QueueSection title="History" count={history.length}>
+          {history.map((entry, index) => <QueueRow key={`history-${entry.queueId}`} entry={entry} tone="history" position={index + 1} primaryLabel={`Replay ${entry.item.title}`} onPrimary={() => player.queue.rewindTo(index)} />)}
+        </QueueSection>}
+        {current && <QueueSection title="Now playing" count={1}>
+          <QueueRow entry={current} tone="current" position={currentIndex + 1} />
+        </QueueSection>}
+        <QueueSection title="Up next" count={upcoming.length}>
+          {upcoming.length === 0
+            ? <p className="player-muted">The queue is empty.</p>
+            : upcoming.map((entry, offset) => {
+              const absoluteIndex = currentIndex + offset + 1
+              const previous = upcoming[offset - 1]
+              const afterNext = upcoming[offset + 2]
+              return <QueueRow
+                key={entry.queueId}
+                entry={entry}
+                tone="upcoming"
+                position={absoluteIndex + 1}
+                primaryLabel={`Play ${entry.item.title}`}
+                onPrimary={() => player.skipTo(absoluteIndex)}
+                onMoveUp={previous ? () => player.queue.moveEntry(entry.queueId, previous.queueId) : undefined}
+                onMoveDown={upcoming[offset + 1] ? () => player.queue.moveEntry(entry.queueId, afterNext?.queueId) : undefined}
+                onMore={() => setMenuEntryId((open) => open === entry.queueId ? null : entry.queueId)}
+                menuOpen={menuEntryId === entry.queueId}
+              />
+            })}
+        </QueueSection>
+      </div>
+      {menuEntry && <div className="player-queue__menu" role="menu" aria-label={`${menuEntry.item.title} queue actions`}>
+        <strong>{menuEntry.item.title}</strong>
+        <button type="button" role="menuitem" onClick={() => { player.queue.moveToPlayNext(menuEntry.queueId); setMenuEntryId(null) }}>Play next</button>
+        <button type="button" role="menuitem" onClick={() => { player.queue.addToQueue([menuEntry.item]); setMenuEntryId(null) }}>Add another to queue</button>
+        <button type="button" role="menuitem" className="player-queue__danger" onClick={() => { player.queue.removeEntry(menuEntry.queueId); setMenuEntryId(null) }}><Trash2 size={15} /> Remove from queue</button>
+        <button type="button" onClick={() => setMenuEntryId(null)}>Close</button>
+      </div>}
+    </aside>
+  )
+}
+
+function QueueSection({ title, count, children }: { title: string; count: number; children: ReactNode }) {
+  return <section className="player-queue__section" aria-labelledby={`queue-${title.toLowerCase().replace(/\s+/g, '-')}`}>
+    <div className="player-queue__section-heading"><h3 id={`queue-${title.toLowerCase().replace(/\s+/g, '-')}`}>{title}</h3><span>{count}</span></div>
+    <ol>{children}</ol>
+  </section>
+}
+
+function QueueRow({ entry, tone, position, primaryLabel, onPrimary, onMoveUp, onMoveDown, onMore, menuOpen = false }: {
+  entry: QueueEntry
+  tone: 'history' | 'current' | 'upcoming'
+  position: number
+  primaryLabel?: string
+  onPrimary?: () => void
+  onMoveUp?: () => void
+  onMoveDown?: () => void
+  onMore?: () => void
+  menuOpen?: boolean
+}) {
+  const copy = <><span className="player-queue__index">{position}</span><span className="player-queue__copy"><strong>{entry.item.title}</strong><small>{entry.item.artist ?? entry.item.album ?? 'Anime Ongaku'}</small></span><time>{formatTime((entry.item.durationMs ?? 0) / 1000)}</time></>
+  return <li className={`player-queue__row player-queue__row--${tone}`}>
+    {onPrimary ? <button type="button" className="player-queue__primary" onClick={onPrimary} aria-label={primaryLabel}>{copy}</button> : <div className="player-queue__primary" aria-current="true">{copy}</div>}
+    {tone === 'upcoming' && <div className="player-queue__row-actions">
+      <button type="button" onClick={onMoveUp} disabled={!onMoveUp} aria-label={`Move ${entry.item.title} up`}><ChevronUp size={15} /></button>
+      <button type="button" onClick={onMoveDown} disabled={!onMoveDown} aria-label={`Move ${entry.item.title} down`}><ChevronDown size={15} /></button>
+      <button type="button" onClick={onMore} aria-label={`More actions for ${entry.item.title} in queue`} aria-haspopup="menu" aria-expanded={menuOpen}><Ellipsis size={17} /></button>
+    </div>}
+  </li>
 }
 
 function formatTime(value: number): string {

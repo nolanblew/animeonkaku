@@ -97,11 +97,11 @@ describe('accessible full-player queue surface', () => {
     expect(state.player.queue.moveEntry).toHaveBeenCalledWith(15, 14)
 
     fireEvent.click(within(queue).getByRole('button', { name: 'More actions for Upcoming four in queue' }))
-    fireEvent.click(within(queue).getByRole('menuitem', { name: 'Play next' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Play next' }))
     expect(state.player.queue.moveToPlayNext).toHaveBeenCalledWith(16)
 
     fireEvent.click(within(queue).getByRole('button', { name: 'More actions for Upcoming four in queue' }))
-    fireEvent.click(within(queue).getByRole('menuitem', { name: 'Remove from queue' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove from queue' }))
     expect(state.player.queue.removeEntry).toHaveBeenCalledWith(16)
     expect(within(queue).queryByRole('button', { name: 'Remove Current theme from queue' })).not.toBeInTheDocument()
   })
