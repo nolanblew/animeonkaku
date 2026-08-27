@@ -17,14 +17,24 @@ export interface PlaylistListProps {
   maxVisible?: number
 }
 
+const MAX_PLAYLIST_PAGE_SIZE = 100
+
 export function PlaylistList({ playlists, state, error, onCreate, onSelect, maxVisible = 100 }: PlaylistListProps) {
   const [filter, setFilter] = useState('')
-  const visible = useMemo(() => {
+  const pageSize = normalizePlaylistPageSize(maxVisible)
+  const [visibleCount, setVisibleCount] = useState(pageSize)
+  const filtered = useMemo(() => {
     const query = filter.trim().toLocaleLowerCase()
     return playlists
       .filter((playlist) => !playlist.deleted && (query.length === 0 || playlist.name.toLocaleLowerCase().includes(query)))
-      .slice(0, Math.max(1, maxVisible))
-  }, [filter, maxVisible, playlists])
+  }, [filter, playlists])
+  const visible = filtered.slice(0, visibleCount)
+
+  useEffect(() => setVisibleCount(pageSize), [pageSize])
+  const changeFilter = (value: string) => {
+    setFilter(value)
+    setVisibleCount(pageSize)
+  }
 
   return (
     <section className="playlist-list" aria-labelledby="playlist-list-title">
@@ -37,7 +47,7 @@ export function PlaylistList({ playlists, state, error, onCreate, onSelect, maxV
       </header>
       <label className="playlist-field playlist-list__filter">
         <span>Filter playlists</span>
-        <input aria-label="Filter playlists" type="search" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Search your playlists" />
+        <input aria-label="Filter playlists" type="search" value={filter} onChange={(event) => changeFilter(event.target.value)} placeholder="Search your playlists" />
       </label>
       {state === 'loading' && <p className="playlist-state" role="status">Loading playlists…</p>}
       {state === 'error' && <p className="playlist-state playlist-state--error" role="alert">{error ?? 'Could not load playlists.'}</p>}
@@ -51,11 +61,16 @@ export function PlaylistList({ playlists, state, error, onCreate, onSelect, maxV
               <span className="playlist-card__arrow" aria-hidden="true">→</span>
             </Link>)}
           </div>
-          {playlists.filter((playlist) => !playlist.deleted && (filter.trim().length === 0 || playlist.name.toLocaleLowerCase().includes(filter.trim().toLocaleLowerCase()))).length > visible.length && <p className="playlist-list__count">Showing {visible.length} of {playlists.length} playlists. Refine the filter to find another playlist.</p>}
+          {filtered.length > visible.length && <div className="playlist-list__pagination"><p className="playlist-list__count">Showing {visible.length} of {filtered.length} playlists.</p><button type="button" className="playlist-button" onClick={() => setVisibleCount((current) => Math.min(current + pageSize, filtered.length))}>Load more playlists</button></div>}
         </>
       )}
     </section>
   )
+}
+
+function normalizePlaylistPageSize(value: number): number {
+  if (!Number.isFinite(value)) return MAX_PLAYLIST_PAGE_SIZE
+  return Math.min(MAX_PLAYLIST_PAGE_SIZE, Math.max(1, Math.floor(value)))
 }
 
 export interface PlaylistEditorProps {
