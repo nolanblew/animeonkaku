@@ -13,11 +13,13 @@ function entry(queueId: number, title: string) {
 }
 
 function renderPlayer() {
-  return render(
+  const result = render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <NowPlayingView />
     </QueryClientProvider>,
   )
+  fireEvent.click(screen.getByRole('button', { name: 'Show queue' }))
+  return result
 }
 
 beforeEach(() => {

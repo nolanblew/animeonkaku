@@ -11,11 +11,13 @@ vi.mock('./PlayerProvider', () => ({ usePlayer: () => state.player }))
 import { NowPlayingView } from './NowPlayingView'
 
 function renderPlayer() {
-  return render(
+  const result = render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <NowPlayingView />
     </QueryClientProvider>,
   )
+  fireEvent.click(screen.getByRole('button', { name: 'Show queue' }))
+  return result
 }
 
 beforeEach(() => {
