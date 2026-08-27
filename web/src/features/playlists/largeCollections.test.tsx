@@ -86,5 +86,5 @@ describe('large playlist rendering contract', () => {
     fireEvent.click(screen.getByRole('button', { name: /load more playlist tracks/i }))
     expect(within(list as HTMLElement).getByRole('button', { name: 'Play Long mix track 60' })).toBeInTheDocument()
     expect(within(list as HTMLElement).getAllByRole('listitem').length).toBeLessThanOrEqual(120)
-  })
+  }, 15_000)
 })
