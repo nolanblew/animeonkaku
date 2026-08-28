@@ -151,7 +151,13 @@ class SearchViewModel @Inject constructor(
 
     val localAnime: StateFlow<List<AnimeEntity>> = localSearchQuery
         .flatMapLatest { q ->
-            if (q.isBlank()) flowOf(emptyList()) else animeDao.searchAnime(q)
+            if (q.isBlank()) {
+                flowOf(emptyList())
+            } else {
+                animeDao.observeAll().map { candidates ->
+                    searchAnimeCandidates(q, candidates)
+                }
+            }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
