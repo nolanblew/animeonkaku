@@ -127,6 +127,34 @@ describe("KitsuClient.getLibraryEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["1"]);
     expect(requests).toHaveLength(1);
   });
+
+  it("continues pagination when a page contains only non-anime media", async () => {
+    const mangaPage = JSON.stringify({
+      data: [{
+        ...libraryEntry("102592305"),
+        id: "102592305",
+        relationships: {
+          anime: { data: null },
+          media: { data: { type: "manga", id: "70721" } },
+        },
+      }],
+      included: [],
+      meta: { count: 2 },
+    });
+    const animePage = JSON.stringify({
+      data: [libraryEntry("1")],
+      included: [includedAnime("1", "Frieren")],
+      meta: { count: 2 },
+    });
+    const { client } = makeClient([
+      { match: "page%5Boffset%5D=0", response: { status: 200, body: mangaPage } },
+      { match: "page%5Boffset%5D=1", response: { status: 200, body: animePage } },
+    ], 1);
+
+    const entries = await client.getLibraryEntries("12345");
+
+    expect(entries.map((entry) => entry.id)).toEqual(["1"]);
+  });
 });
 
 describe("KitsuClient.getLibraryEntriesUpdatedSince", () => {
