@@ -97,7 +97,12 @@ describe('accessible full-player queue surface', () => {
     fireEvent.click(within(queue).getByRole('button', { name: 'Replay History two' }))
     expect(state.player.queue.rewindTo).toHaveBeenCalledWith(1)
 
-    fireEvent.click(within(queue).getByRole('button', { name: 'Move Upcoming three up' }))
+    const dragHandle = within(queue).getByRole('button', { name: 'Drag Upcoming three to reorder' })
+    const targetRow = within(queue).getByRole('button', { name: 'Play Upcoming two' }).closest('[data-queue-id]') as HTMLElement
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: vi.fn(() => targetRow) })
+    fireEvent.pointerDown(dragHandle, { pointerId: 11, pointerType: 'mouse', clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(dragHandle, { pointerId: 11, pointerType: 'mouse', clientX: 10, clientY: 24 })
+    fireEvent.pointerUp(dragHandle, { pointerId: 11, pointerType: 'mouse', clientX: 10, clientY: 24 })
     expect(state.player.queue.moveEntry).toHaveBeenCalledWith(15, 14)
 
     fireEvent.click(within(queue).getByRole('button', { name: 'More actions for Upcoming four in queue' }))

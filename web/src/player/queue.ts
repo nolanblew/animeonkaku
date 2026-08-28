@@ -225,9 +225,14 @@ function playContext(state: QueueState, action: Extract<QueueAction, { type: 'pl
 
   const { entries, nextId } = createEntries(action.items, state.nextQueueEntryId)
   const requestedIndex = clampIndex(action.startIndex ?? 0, entries.length)
-  const current = entries[requestedIndex]
+  const selected = entries[requestedIndex]
+  const shuffled = action.shuffle ? shuffleEntries(entries, action.random) : undefined
+  const current = action.shuffle && requestedIndex === 0 ? shuffled?.[0] : selected
+  if (!current) return state
   const nowPlaying = action.shuffle
-    ? [current, ...shuffleEntries(entries.filter((entry) => entry.queueId !== current.queueId), action.random)]
+    ? [current, ...(requestedIndex === 0
+      ? shuffled!.slice(1)
+      : shuffleEntries(entries.filter((entry) => entry.queueId !== current.queueId), action.random))]
     : entries
   const suggestedEntryIds = !action.shuffle && action.suggestedFrom !== undefined
     ? entries
