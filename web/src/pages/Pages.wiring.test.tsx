@@ -193,6 +193,18 @@ describe('page-to-player wiring', () => {
     expect(captures.player.playItem).toHaveBeenCalledWith(expect.objectContaining({ themeId: 11 }), { contextLabel: 'Queue' })
   })
 
+  it('connects the library anime Play anime action to replacing the queue with that anime themes', () => {
+    renderPath(<LibraryPage />)
+
+    expect(captures.libraryProps.onPlayAnime).toEqual(expect.any(Function))
+    captures.libraryProps.onPlayAnime(library.animeById['anime-1'])
+
+    expect(captures.player.playItems).toHaveBeenCalledWith([
+      expect.objectContaining({ themeId: 11 }),
+      expect.objectContaining({ themeId: 12 }),
+    ], { contextLabel: 'Anime themes', startIndex: 0, shuffle: false })
+  })
+
   it('connects anime collection playback, shuffle, insertion, and full songs', () => {
     renderPath(<AnimePage />)
     captures.animeProps.onPlayThemes([], 0, false, null)

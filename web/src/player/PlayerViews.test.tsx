@@ -32,7 +32,7 @@ beforeEach(() => {
       repeatMode: 'off',
       nowPlayingEntries: [
         { queueId: 1, item: { id: 1, itemType: 'THEME', title: 'Opening', artist: 'Band', animeTitle: 'A Couple of Cuckoos', themeType: 'ED2' } },
-        { queueId: 2, item: { id: 2, title: 'Ending', album: 'ED', durationMs: 61_000 } },
+        { queueId: 2, item: { id: 2, itemType: 'SONG', songId: 2, title: 'Ending', artist: 'Queue Artist', animeId: 'queue-anime', animeTitle: 'Queue Anime', album: 'ED', durationMs: 61_000 } },
         { queueId: 3, item: { id: 3, title: 'A very long queue title that should remain readable across the row', artist: 'Long-name artist' } },
       ],
     },
@@ -153,6 +153,8 @@ describe('player views', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'More actions for Ending in queue' }))
     expect(endingRow.querySelector('[role="menu"]')).not.toBeNull()
+    expect(screen.getByRole('menuitem', { name: 'Go to Queue Artist' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Go to Queue Anime' })).toBeInTheDocument()
     expect(queue.querySelector(':scope > .player-queue__menu')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Close queue' }))

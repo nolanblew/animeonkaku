@@ -90,6 +90,35 @@ describe('accessible full-player queue surface', () => {
     expect(playerCss).not.toMatch(/player-queue li:nth-child/)
   })
 
+  it('opens with the current item after at most three history rows while older history stays above the scroll window', () => {
+    const historyEntries = Array.from({ length: 7 }, (_, index) => entry(30 + index, `History ${index + 1}`))
+    const currentEntry = entry(37, 'Current theme')
+    const upcomingEntry = entry(38, 'Upcoming one')
+    const nowPlayingEntries = [...historyEntries, currentEntry, upcomingEntry]
+    state.player = {
+      ...state.player,
+      currentItem: currentEntry.item,
+      queueState: {
+        ...state.player.queueState,
+        currentIndex: historyEntries.length,
+        historyEntries,
+        nowPlayingEntries,
+      },
+    }
+
+    renderPlayer()
+
+    const queue = screen.getByRole('complementary', { name: 'Playback queue' })
+    const historyRows = queue.querySelectorAll('li.player-queue__row--history')
+    expect(historyRows).toHaveLength(3)
+    expect(within(queue).getByText('History 5')).toBeInTheDocument()
+    expect(within(queue).getByText('History 6')).toBeInTheDocument()
+    expect(within(queue).getByText('History 7')).toBeInTheDocument()
+    expect(within(queue).queryByText('History 1')).not.toBeInTheDocument()
+    expect(within(queue).getByText('Current theme')).toBeInTheDocument()
+    expect(within(queue).getByLabelText('Scrollable playback queue')).toHaveAttribute('tabindex', '0')
+  })
+
   it('uses stable queue-entry identity for replay, reorder, play-next, and removal', () => {
     renderPlayer()
     const queue = screen.getByRole('complementary', { name: 'Playback queue' })

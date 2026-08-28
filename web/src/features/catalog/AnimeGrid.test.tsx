@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { LibraryAnimeDto } from '../../lib/library'
 import { AnimeGrid } from './AnimeGrid'
 
@@ -46,5 +46,20 @@ describe('AnimeGrid', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Next anime page' }))
     expect(screen.getAllByTestId('anime-card')).toHaveLength(1)
     expect(screen.getByText('Page 3 of 3')).toBeInTheDocument()
+  })
+
+  it('uses a Play anime hover action without an up arrow and preserves normal card navigation', async () => {
+    const show = anime(1)
+    const onPlayAnime = vi.fn()
+
+    render(<MemoryRouter><AnimeGrid anime={[show]} {...({ onPlayAnime } as any)} /></MemoryRouter>)
+
+    const card = screen.getByTestId('anime-card')
+    expect(screen.queryByText('Open anime')).not.toBeInTheDocument()
+    expect(card.querySelector('svg.lucide-arrow-up-right')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Anime 1' })).toHaveAttribute('href', '/anime/1')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Play anime' }))
+    expect(onPlayAnime).toHaveBeenCalledWith(show)
   })
 })
