@@ -21,3 +21,5 @@ internal fun libraryGridColumns(widthDp: Int, kind: LibraryGridKind): Int = when
 }
 
 internal fun libraryPosterAspectRatio(): Float = 2f / 3f
+
+internal fun libraryGridBottomClearanceDp(): Int = 90

@@ -480,6 +480,9 @@ fun LibraryScreen(
                                         onClick = { onOpenAnime(animeItem.kitsuId) }
                                     )
                                 }
+                                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                                    Spacer(modifier = Modifier.height(libraryGridBottomClearanceDp().dp))
+                                }
                             }
                         }
                     }
