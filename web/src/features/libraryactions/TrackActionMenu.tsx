@@ -42,11 +42,24 @@ export function TrackActionMenu({ item, liked = false, disliked = false, menuOnl
   const [loading, setLoading] = useState(false)
   const [pickerError, setPickerError] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
+  const [localLiked, setLocalLiked] = useState(Boolean(liked))
+  const [localDisliked, setLocalDisliked] = useState(Boolean(disliked))
+  const optimisticPreference = useRef<{ liked: boolean; disliked: boolean } | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRovingMenu<HTMLDivElement>({ open, onClose: () => setOpen(false), triggerRef })
   const pickerRef = useAccessibleFocusScope<HTMLElement>({ active: pickerOpen, onEscape: () => setPickerOpen(false), restoreFocusRef: triggerRef })
   const playlistItem: PlaylistItemInput = { itemType: item.itemType, itemId: item.itemId, modeOverride: item.itemType === 'THEME' ? item.modeOverride ?? null : null }
+
+  useEffect(() => {
+    const incoming = { liked: Boolean(liked), disliked: Boolean(disliked) }
+    const optimistic = optimisticPreference.current
+    if (optimistic && optimistic.liked === incoming.liked && optimistic.disliked === incoming.disliked) optimisticPreference.current = null
+    if (!optimisticPreference.current) {
+      setLocalLiked(incoming.liked)
+      setLocalDisliked(incoming.disliked)
+    }
+  }, [liked, disliked])
 
   useEffect(() => {
     if (!open) return undefined
@@ -56,9 +69,21 @@ export function TrackActionMenu({ item, liked = false, disliked = false, menuOnl
   }, [open])
 
   const updatePreference = (kind: 'liked' | 'disliked', value: boolean) => {
+    const previous = { liked: localLiked, disliked: localDisliked }
+    const next = {
+      liked: kind === 'liked' ? value : value ? false : previous.liked,
+      disliked: kind === 'disliked' ? value : value ? false : previous.disliked,
+    }
+    optimisticPreference.current = next
+    setLocalLiked(next.liked)
+    setLocalDisliked(next.disliked)
     const patch = { [kind]: value }
     const request = item.itemType === 'SONG' ? actions.updateSongPreference(item.itemId, patch) : actions.updateThemePreference(item.itemId, patch)
-    void request.catch(() => undefined)
+    void request.catch(() => {
+      optimisticPreference.current = null
+      setLocalLiked(previous.liked)
+      setLocalDisliked(previous.disliked)
+    })
   }
   const runAndClose = (action?: () => void) => { setOpen(false); action?.() }
   const openPicker = async () => {
@@ -75,8 +100,8 @@ export function TrackActionMenu({ item, liked = false, disliked = false, menuOnl
   return <>
     <div className={menuOnly ? 'track-actions track-actions--menu-only' : 'track-actions'} ref={rootRef}>
       {!menuOnly && <>
-        <button type="button" className="player-icon-button player-icon-button--quiet" aria-label={disliked ? 'Remove dislike' : 'Dislike'} aria-pressed={disliked} disabled={actions.pendingAction === 'preference'} onClick={() => updatePreference('disliked', !disliked)}><ThumbsDown size={18} fill={disliked ? 'currentColor' : 'none'} /></button>
-        <button type="button" className="player-icon-button player-icon-button--quiet" aria-label={liked ? 'Remove like' : 'Like'} aria-pressed={liked} disabled={actions.pendingAction === 'preference'} onClick={() => updatePreference('liked', !liked)}><ThumbsUp size={18} fill={liked ? 'currentColor' : 'none'} /></button>
+        <button type="button" className="player-icon-button player-icon-button--quiet" aria-label={localDisliked ? 'Remove dislike' : 'Dislike'} aria-pressed={localDisliked} disabled={actions.pendingAction === 'preference'} onClick={() => updatePreference('disliked', !localDisliked)}><ThumbsDown size={18} fill={localDisliked ? 'currentColor' : 'none'} /></button>
+        <button type="button" className="player-icon-button player-icon-button--quiet" aria-label={localLiked ? 'Remove like' : 'Like'} aria-pressed={localLiked} disabled={actions.pendingAction === 'preference'} onClick={() => updatePreference('liked', !localLiked)}><ThumbsUp size={18} fill={localLiked ? 'currentColor' : 'none'} /></button>
       </>}
       <button ref={triggerRef} type="button" className="player-icon-button player-icon-button--quiet" aria-label={`More actions for ${item.title}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}><MoreHorizontal size={20} /></button>
       {open && <div ref={menuRef} className="track-actions__menu" role="menu" aria-label={`${item.title} actions`}>
@@ -89,7 +114,7 @@ export function TrackActionMenu({ item, liked = false, disliked = false, menuOnl
         {onGoToAnime && <button type="button" role="menuitem" onClick={() => runAndClose(onGoToAnime)}>{animeName ? `Go to ${animeName}` : 'Go to anime'}</button>}
         {onRelatedMusic && <button type="button" role="menuitem" onClick={() => runAndClose(onRelatedMusic)}>Related Music</button>}
         {item.itemType === 'THEME' && hasFullSize && onSetPreferredMode && <button type="button" role="menuitem" onClick={() => runAndClose(() => onSetPreferredMode(preferredMode === 'FULL_SIZE' ? 'TV_SIZE' : 'FULL_SIZE'))}>{preferredMode === 'FULL_SIZE' ? 'Prefer TV Size' : 'Prefer Full Size'}</button>}
-        {menuOnly && <><button type="button" role="menuitem" onClick={() => { updatePreference('liked', !liked); setOpen(false) }}>{liked ? 'Remove like' : 'Like'}</button><button type="button" role="menuitem" onClick={() => { updatePreference('disliked', !disliked); setOpen(false) }}>{disliked ? 'Remove dislike' : 'Dislike'}</button></>}
+        {menuOnly && <><button type="button" role="menuitem" onClick={() => { updatePreference('liked', !localLiked); setOpen(false) }}>{localLiked ? 'Remove like' : 'Like'}</button><button type="button" role="menuitem" onClick={() => { updatePreference('disliked', !localDisliked); setOpen(false) }}>{localDisliked ? 'Remove dislike' : 'Dislike'}</button></>}
         {onRemove && <button type="button" role="menuitem" className="track-actions__danger" onClick={() => runAndClose(onRemove)}>{removeLabel}</button>}
       </div>}
       {actions.actionError && <span className="sr-only" role="alert">{actions.actionError}</span>}

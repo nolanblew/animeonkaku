@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
-import { invalidateCategories, queryClient } from '../../lib/query'
-import type { PlaylistDto, PlaylistPlaybackMode } from '../../lib/library'
+import { invalidateCategories, LIBRARY_QUERY_KEY, queryClient } from '../../lib/query'
+import type { NormalizedLibrary, PlaylistDto, PlaylistPlaybackMode, SongPrefDto, ThemePrefDto } from '../../lib/library'
 import {
   addAnimeToLibrary,
   addItemsToPlaylist,
@@ -41,14 +41,16 @@ export function useLibraryActions(): LibraryActions {
   const [pendingAction, setPendingAction] = useState<LibraryActionKey | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
-  const run = useCallback(async <T,>(key: LibraryActionKey, operation: () => Promise<T>, invalidate: () => void) => {
+  const run = useCallback(async <T,>(key: LibraryActionKey, operation: () => Promise<T>, invalidate: () => void, optimistic?: () => (() => void) | void) => {
     setPendingAction(key)
     setActionError(null)
+    const rollback = optimistic?.()
     try {
       const result = await operation()
       invalidate()
       return result
     } catch {
+      rollback?.()
       setActionError('Could not complete that action.')
       throw new Error('Could not complete that action.')
     } finally {
@@ -58,8 +60,8 @@ export function useLibraryActions(): LibraryActions {
 
   const invalidateLibrary = useCallback(() => invalidateCategories(['library'], queryClient), [])
   const invalidatePlaylist = useCallback(() => invalidateCategories(['playlist'], queryClient), [])
-  const updatePreference = useCallback((themeId: number, patch: ThemePreferencePatch) => run('preference', () => updateThemePreference(themeId, patch), invalidateLibrary), [invalidateLibrary, run])
-  const updateSong = useCallback((songId: number, patch: SongPreferencePatch) => run('preference', () => updateSongPreference(songId, patch), invalidateLibrary), [invalidateLibrary, run])
+  const updatePreference = useCallback((themeId: number, patch: ThemePreferencePatch) => run('preference', () => updateThemePreference(themeId, patch), invalidateLibrary, () => optimisticallyUpdateThemePreference(themeId, patch)), [invalidateLibrary, run])
+  const updateSong = useCallback((songId: number, patch: SongPreferencePatch) => run('preference', () => updateSongPreference(songId, patch), invalidateLibrary, () => optimisticallyUpdateSongPreference(songId, patch)), [invalidateLibrary, run])
   const setPreferredMode = useCallback((themeId: number, mode: PlaylistPlaybackMode | null) => updatePreference(themeId, { preferredMode: mode }), [updatePreference])
   const addLibrary = useCallback((input: { kitsuId?: string; animeThemesId?: number }) => run('library', () => addAnimeToLibrary(input), invalidateLibrary), [invalidateLibrary, run])
   const removeLibrary = useCallback((kitsuId: string) => run('library', () => removeAnimeFromLibrary(kitsuId), invalidateLibrary), [invalidateLibrary, run])
@@ -70,4 +72,75 @@ export function useLibraryActions(): LibraryActions {
   const clearActionError = useCallback(() => setActionError(null), [])
 
   return { pendingAction, actionError, updateThemePreference: updatePreference, updateSongPreference: updateSong, setPreferredMode, addAnimeToLibrary: addLibrary, removeAnimeFromLibrary: removeLibrary, addThemesToPlaylist: addPlaylistThemes, createPlaylistWithThemes: createPlaylistThemes, addItemsToPlaylist: addPlaylistItems, createPlaylistWithItems: createPlaylistItems, clearActionError }
+}
+
+function optimisticallyUpdateThemePreference(themeId: number, patch: ThemePreferencePatch): (() => void) | undefined {
+  const previous = queryClient.getQueryData<NormalizedLibrary>(LIBRARY_QUERY_KEY)
+  if (!previous) return undefined
+  const key = String(themeId)
+  const current: ThemePrefDto = previous.prefsByThemeId[key] ?? {
+    themeId,
+    liked: false,
+    disliked: false,
+    dislikedTvSize: false,
+    dislikedFullSize: false,
+    preferredMode: null,
+    playCount: 0,
+    lastPlayedAt: null,
+    updatedAt: 0,
+    deleted: false,
+  }
+  const next = applyThemePreferencePatch(current, patch)
+  queryClient.setQueryData<NormalizedLibrary>(LIBRARY_QUERY_KEY, {
+    ...previous,
+    prefsByThemeId: { ...previous.prefsByThemeId, [key]: next },
+  })
+  return () => queryClient.setQueryData<NormalizedLibrary>(LIBRARY_QUERY_KEY, previous)
+}
+
+function optimisticallyUpdateSongPreference(songId: number, patch: SongPreferencePatch): (() => void) | undefined {
+  const previous = queryClient.getQueryData<NormalizedLibrary>(LIBRARY_QUERY_KEY)
+  if (!previous) return undefined
+  const key = String(songId)
+  const current: SongPrefDto = previous.songPrefsById[key] ?? {
+    songId,
+    liked: false,
+    disliked: false,
+    playCount: 0,
+    lastPlayedAt: null,
+    updatedAt: 0,
+    deleted: false,
+  }
+  const next: SongPrefDto = {
+    ...current,
+    ...patch,
+    liked: patch.liked ?? current.liked,
+    disliked: patch.disliked ?? current.disliked,
+  }
+  if (patch.liked === true) next.disliked = false
+  if (patch.disliked === true) next.liked = false
+  queryClient.setQueryData<NormalizedLibrary>(LIBRARY_QUERY_KEY, {
+    ...previous,
+    songPrefsById: { ...previous.songPrefsById, [key]: next },
+  })
+  return () => queryClient.setQueryData<NormalizedLibrary>(LIBRARY_QUERY_KEY, previous)
+}
+
+function applyThemePreferencePatch(current: ThemePrefDto, patch: ThemePreferencePatch): ThemePrefDto {
+  const next: ThemePrefDto = { ...current, ...patch }
+  if (patch.liked === true) {
+    next.disliked = false
+    next.dislikedTvSize = false
+    next.dislikedFullSize = false
+  }
+  if (patch.disliked === true) {
+    next.liked = false
+    next.dislikedTvSize = false
+    next.dislikedFullSize = false
+  }
+  if (patch.dislikedTvSize === true || patch.dislikedFullSize === true) {
+    next.liked = false
+    next.disliked = false
+  }
+  return next
 }

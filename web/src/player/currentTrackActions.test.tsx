@@ -43,6 +43,20 @@ describe('CurrentTrackActions preference subscription', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Remove like' })).toBeInTheDocument())
   })
 
+  it('updates the whole-theme preference while video playback is active', async () => {
+    playerState.player.currentItem = { ...playerState.player.currentItem, mode: 'VIDEO' }
+    let resolveRequest!: (value: unknown) => void
+    const pendingRequest = new Promise((resolve) => { resolveRequest = resolve })
+    const request = vi.spyOn(apiClient, 'request').mockReturnValue(pendingRequest as never)
+
+    render(<QueryClientProvider client={queryClient}><CurrentTrackActions /></QueryClientProvider>)
+    fireEvent.click(screen.getByRole('button', { name: 'Like' }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Remove like' })).toHaveAttribute('aria-pressed', 'true'))
+    expect(request).toHaveBeenCalledWith('/v1/prefs/themes/44', expect.objectContaining({ body: JSON.stringify({ liked: true }) }))
+    resolveRequest({ themeId: 44, liked: true, disliked: false })
+  })
+
   it('omits duplicate queue actions for the track that is already playing', () => {
     render(<QueryClientProvider client={queryClient}><CurrentTrackActions /></QueryClientProvider>)
 
