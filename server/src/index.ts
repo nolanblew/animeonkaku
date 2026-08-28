@@ -12,6 +12,7 @@ import { CachedProxyService } from "./api/proxyRoutes.js";
 import { UpstreamProxyService } from "./api/upstreamProxyService.js";
 import { AuthService } from "./auth/service.js";
 import { DrizzleAuthRepo } from "./auth/drizzleAuthRepo.js";
+import { DrizzleUserProfileRepo, UserProfileService } from "./auth/profile.js";
 import { StubKitsuAuthClient } from "./auth/stubKitsuAuthClient.js";
 import { loadConfig } from "./config.js";
 import { createDb } from "./db/client.js";
@@ -23,6 +24,8 @@ import { JobPriority, JobQueue, JobWorker, PgJobRepository } from "./jobs/index.
 import { RealKitsuAuthClient } from "./kitsu/kitsuAuthClient.js";
 import { KitsuClient } from "./kitsu/kitsuClient.js";
 import { createJsonStdoutLogger, RecentLogStore } from "./logging.js";
+import { DrizzleBrowserHomeService } from "./web/homeService.js";
+import { LiveLibraryHub } from "./web/liveRoutes.js";
 import {
   AnimeMusicFetcherClient,
   createAnimeMusicFetcherUpstreamHttp,
@@ -99,6 +102,12 @@ const fullSizeReimportHandlers = createFullSizeReimportHandlers({
 });
 const amfDeliveryRepo = new PgAmfDeliveryRepository(pool);
 const syncRepo = new DrizzleSyncRepository(db);
+const authRepo = new DrizzleAuthRepo(db);
+const profileService = new UserProfileService(new DrizzleUserProfileRepo(db), config.MEDIA_ROOT);
+// One process-wide hub fans out browser invalidation hints. It is registered
+// once under /api; its onClose hook owns stream/timer cleanup.
+const liveHub = new LiveLibraryHub();
+const browserHomeService = new DrizzleBrowserHomeService(db);
 
 // Each upstream host shares one politeness budget (bucket) and one breaker
 // across two lanes: "interactive" for request/response paths a client is
@@ -238,7 +247,9 @@ for (const batchId of await amfDeliveryRepo.listRecoverableBatchIds()) {
   await jobQueue.enqueue({ type: "IMPORT_AMF_MUSIC_BATCH", priority: JobPriority.NORMAL, payload: { batchId },
     dedupeKey: `IMPORT_AMF_MUSIC_BATCH:${batchId}`, maxAttempts: 8 });
 }
-const syncHandlers = createSyncJobHandlers(syncPipeline);
+const syncHandlers = createSyncJobHandlers(syncPipeline, {
+  onUserChanges: (userId, categories) => liveHub.publish(userId, categories),
+});
 const loudnessHandlers = createLoudnessHandlers({ repo: loudnessRepository, mediaRoot: config.MEDIA_ROOT });
 const jobHandlers = { ...fetchHandlers, ...syncHandlers, ...musicRequestHandlers,
   ...fullSizeReimportHandlers, ...amfDeliveryHandlers, ...musicOperatorHandlers,
@@ -292,9 +303,16 @@ const deviceActivitySync = new DeviceActivitySyncTrigger({ queue: jobQueue });
 
 const app = buildApp({
   authService: new AuthService(
-    new DrizzleAuthRepo(db),
+    authRepo,
     kitsuAuthClient,
   ),
+  webAuth: {
+    profile: profileService,
+    secureCookies: config.NODE_ENV === "production",
+    ...(config.WEB_PUBLIC_ORIGIN ? { publicOrigin: config.WEB_PUBLIC_ORIGIN } : {}),
+  },
+  webLive: { hub: liveHub, home: browserHomeService },
+  ...(config.WEB_DIST_PATH ? { web: { distPath: config.WEB_DIST_PATH } } : {}),
   health: {
     pingDb: async () => {
       await pool.query("SELECT 1");

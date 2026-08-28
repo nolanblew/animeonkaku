@@ -1,0 +1,36 @@
+.media-artwork {
+  display: grid;
+  width: 3.35rem;
+  height: 3.35rem;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: .55rem;
+  background: linear-gradient(145deg, rgba(255,94,118,.32), rgba(71,217,232,.22));
+  color: var(--text, #f4f5f8);
+}
+.media-artwork--double,
+.media-artwork--quad { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.media-artwork--quad { grid-template-rows: repeat(2, minmax(0, 1fr)); }
+.media-artwork img { width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: cover; }
+.media-artwork--double img { height: 100%; }
+.media-artwork__fallback { display: grid; width: 100%; height: 100%; place-items: center; }
+.media-artwork__fallback svg { width: 45%; height: 45%; }
+
+.media-item { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .5rem; border-radius: .6rem; }
+.media-item__main { display: grid; min-width: 0; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .72rem; border-radius: inherit; color: inherit; }
+.media-item__main--button { width: 100%; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.media-item__copy { display: grid; min-width: 0; gap: .14rem; }
+.media-item__copy strong,
+.media-item__copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-item__copy strong { color: var(--text, #f4f5f8); }
+.media-item__copy small { color: var(--muted, #a9afbf); }
+.media-item__actions { display: inline-flex; align-items: center; gap: .35rem; }
+
+.media-card { position: relative; min-width: 0; }
+.media-card__main { display: grid; min-width: 0; gap: .55rem; color: inherit; }
+.media-card__main--button { width: 100%; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.media-card__copy { display: grid; min-width: 0; gap: .18rem; }
+.media-card__copy strong,
+.media-card__copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-card__copy small { color: var(--muted, #a9afbf); }
+.media-card__actions { position: absolute; top: .45rem; right: .45rem; }

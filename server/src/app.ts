@@ -18,6 +18,20 @@ import type { LegacyLibraryImportService } from "./legacyLibraryImport.js";
 import { registerSyncRoutes, type SyncApiService } from "./api/syncRoutes.js";
 import { registerMusicRequestRoutes, type MusicRequestService } from "./music/requests/index.js";
 import { registerMusicOperatorRoutes, type MusicOperatorApiService } from "./music/operator/index.js";
+import { registerWebAuthRoutes, registerWebBodyParsers } from "./api/webAuthRoutes.js";
+import { parseCookieHeader, WEB_SESSION_COOKIE } from "./api/requireAuth.js";
+import type { UserProfileApi } from "./auth/profile.js";
+import {
+  isSpaNavigationRequest,
+  registerWebStaticHosting,
+  sendIndex,
+} from "./web/staticHosting.js";
+import {
+  registerLiveRoutes,
+  type BrowserHomeService,
+  type LiveChangePublisher,
+  type LiveLibraryHub,
+} from "./web/liveRoutes.js";
 
 export interface AppDeps {
   authService: AuthService;
@@ -33,6 +47,18 @@ export interface AppDeps {
   musicSearchSettings?: MusicSearchSettingsApi;
   adminDashboard?: AdminDashboardApi;
   adminPassword?: string;
+  webAuth?: {
+    profile: UserProfileApi;
+    secureCookies?: boolean;
+    publicOrigin?: string;
+  };
+  webLive?: {
+    hub: LiveLibraryHub;
+    home?: BrowserHomeService;
+  };
+  web?: {
+    distPath: string;
+  };
   onLogin?: (result: LoginResult) => Promise<void>;
   /**
    * Fires after every request that carried a valid session (post-response, so
@@ -43,10 +69,26 @@ export interface AppDeps {
 }
 
 export function buildApp(deps: AppDeps): FastifyInstance {
-  const app = Fastify({ logger: deps.logger ?? false });
+  const app = Fastify({ logger: deps.logger ?? false, bodyLimit: 3 * 1024 * 1024 });
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+  registerWebBodyParsers(app);
+
+  // Cookies are automatically attached by browsers, so every state-changing
+  // /api request carrying the web session must prove same-origin intent. A
+  // bearer-authenticated Android request is unaffected by this check.
+  app.addHook("onRequest", async (request, reply) => {
+    if (!request.url.startsWith("/api/") || !["POST", "PUT", "PATCH", "DELETE"].includes(request.method)) {
+      return;
+    }
+    if (request.headers.authorization?.startsWith("Bearer ")) return;
+    const cookie = parseCookieHeader(request.headers.cookie ?? "").get(WEB_SESSION_COOKIE);
+    if (!cookie) return;
+    if (!isSameOriginRequest(request, deps.webAuth?.publicOrigin)) {
+      return reply.code(403).send(errorEnvelope("CSRF_ORIGIN_REQUIRED", "A same-origin request is required."));
+    }
+  });
 
   if (deps.onAuthenticatedRequest) {
     const onAuthenticatedRequest = deps.onAuthenticatedRequest;
@@ -63,7 +105,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof KitsuAuthError) {
-      return reply.code(401).send(errorEnvelope("KITSU_AUTH_FAILED", error.message));
+      request.log.warn({ errorName: error.name }, "Kitsu authentication failed");
+      return reply.code(401).send(errorEnvelope("KITSU_AUTH_FAILED", "Kitsu authentication failed."));
     }
     if (error instanceof ApiError) {
       return reply.code(error.statusCode).send(errorEnvelope(error.code, error.message));
@@ -82,7 +125,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     return reply.code(500).send(errorEnvelope("INTERNAL", "Internal server error."));
   });
 
-  app.setNotFoundHandler((_request, reply) => {
+  app.setNotFoundHandler((request, reply) => {
+    if (deps.web && isSpaNavigationRequest(request)) return sendIndex(reply);
     reply.code(404).send(errorEnvelope("NOT_FOUND", "Route not found."));
   });
 
@@ -91,25 +135,42 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     if (!deps.adminPassword) throw new Error("ADMIN_PASSWORD is required when the admin dashboard is enabled.");
     registerAdminRoutes(app, deps.musicSearchSettings, deps.adminPassword, deps.adminDashboard);
   }
-  registerApiRoutes(app, deps);
+  registerApiRoutes(app, deps, false);
   app.register(
     (api, _opts, done) => {
-      registerApiRoutes(api, deps);
+      registerApiRoutes(api, deps, true);
       done();
     },
     { prefix: "/api" },
   );
+  if (deps.web) registerWebStaticHosting(app, deps.web.distPath);
 
   return app;
 }
 
-function registerApiRoutes(app: FastifyInstance, deps: AppDeps): void {
+function registerApiRoutes(app: FastifyInstance, deps: AppDeps, webPrefix: boolean): void {
+  const publishLiveChange: LiveChangePublisher | undefined = deps.webLive
+    ? (userId, categories) => {
+        deps.webLive!.hub.publish(userId, categories);
+      }
+    : undefined;
+  if (webPrefix && deps.webAuth) {
+    registerWebAuthRoutes(app, deps.authService, {
+      profile: deps.webAuth.profile,
+      onLogin: deps.onLogin,
+      secureCookies: deps.webAuth.secureCookies,
+      publisher: publishLiveChange,
+    });
+  }
+  if (webPrefix && deps.webLive) {
+    registerLiveRoutes(app, deps.authService, deps.webLive);
+  }
   registerAuthRoutes(app, deps.authService, {
     onLogin: deps.onLogin,
     legacyLibraryImport: deps.legacyLibraryImport,
   });
   if (deps.clientApi) {
-    registerClientRoutes(app, deps.authService, deps.clientApi);
+    registerClientRoutes(app, deps.authService, deps.clientApi, { publisher: publishLiveChange });
   }
   if (deps.mediaApi) {
     registerMediaRoutes(app, deps.authService, deps.mediaApi);
@@ -127,4 +188,27 @@ function registerApiRoutes(app: FastifyInstance, deps: AppDeps): void {
     registerMusicRequestRoutes(app, deps.authService, deps.musicRequests);
   }
   if (deps.musicOperator) registerMusicOperatorRoutes(app, deps.authService, deps.musicOperator);
+}
+
+function isSameOriginRequest(
+  request: { headers: Record<string, string | string[] | undefined>; protocol: string },
+  publicOrigin?: string,
+): boolean {
+  const origin = firstHeader(request.headers.origin);
+  const referer = firstHeader(request.headers.referer);
+  const candidate = origin ?? referer;
+  if (!candidate) return false;
+  try {
+    const candidateUrl = new URL(candidate);
+    if (publicOrigin) return candidateUrl.origin === new URL(publicOrigin).origin;
+    const host = firstHeader(request.headers.host);
+    if (!host) return false;
+    return candidateUrl.origin === new URL(`${request.protocol}://${host}`).origin;
+  } catch {
+    return false;
+  }
+}
+
+function firstHeader(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }

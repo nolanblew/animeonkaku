@@ -1,0 +1,85 @@
+import { useQuery } from '@tanstack/react-query'
+import { ArrowLeft, CalendarDays, Disc3, MoreHorizontal, Play, Shuffle } from 'lucide-react'
+import { useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { apiClient } from '../../lib/api'
+import type { AnimeMusicDto, LibraryThemeDto, MusicReleaseDto, MusicTrackDto } from '../../lib/library'
+import { artistRouteSlug } from '../../lib/navigation'
+import { useLibraryQuery } from '../../lib/query'
+import { compareThemesByType, formatThemeType } from '../../lib/themePresentation'
+import { ThemeActionSheet, TrackActionMenu } from '../libraryactions'
+import { AnimeCard } from './AnimeCard'
+import { CatalogError, CatalogLoading } from './CatalogError'
+import { displayTitle, statusLabel } from './selectors'
+import type { AnimeDetailResponse } from './types'
+import { browserAssetUrl } from '../../lib/assets'
+import { preferredAnimeTitle, useAnimeTitlePreference } from '../../lib/animeTitlePreference'
+
+export interface AnimeDetailPageProps {
+  onPlayThemes?: (themes: LibraryThemeDto[], startIndex?: number, shuffle?: boolean, artworkUrl?: string | null) => void
+  onPlayNext?: (themes: LibraryThemeDto[], artworkUrl?: string | null) => void
+  onAddToQueue?: (themes: LibraryThemeDto[], artworkUrl?: string | null) => void
+  onPlaySong?: (song: MusicTrackDto, artworkUrl: string | null, animeId: string) => void
+  onPlayNextSong?: (song: MusicTrackDto, release: MusicReleaseDto, animeId: string) => void
+  onAddToQueueSong?: (song: MusicTrackDto, release: MusicReleaseDto, animeId: string) => void
+  onReplaceQueueSong?: (song: MusicTrackDto, release: MusicReleaseDto, animeId: string) => void
+}
+
+export function AnimeDetailPage({ onPlayThemes, onPlayNext, onAddToQueue, onPlaySong, onPlayNextSong, onAddToQueueSong, onReplaceQueueSong }: AnimeDetailPageProps = {}) {
+  const titlePreference = useAnimeTitlePreference()
+  const { animeId } = useParams()
+  const navigate = useNavigate()
+  const libraryQuery = useLibraryQuery()
+  const [actionThemes, setActionThemes] = useState<LibraryThemeDto[] | null>(null)
+  const detail = useQuery<AnimeDetailResponse>({ queryKey: ['anime', animeId], enabled: Boolean(animeId), queryFn: ({ signal }) => apiClient.get<AnimeDetailResponse>(`/v1/anime/${encodeURIComponent(animeId!)}`, { signal }), staleTime: 60_000 })
+  const music = useQuery<AnimeMusicDto>({ queryKey: ['anime-music', animeId], enabled: Boolean(animeId), queryFn: ({ signal }) => apiClient.get<AnimeMusicDto>(`/v1/anime/${encodeURIComponent(animeId!)}/music`, { signal }), staleTime: 60_000 })
+
+  if (!animeId || detail.isError) return <CatalogError title="Anime unavailable" error={detail.error} />
+  if (detail.isPending || !detail.data) return <CatalogLoading label="Loading anime details" />
+  const anime = detail.data.anime
+  const title = preferredAnimeTitle(anime, titlePreference) || displayTitle(anime)
+  const library = libraryQuery.library
+  const animeInLibrary = Boolean(library?.animeById[anime.kitsuId] && !library.animeById[anime.kitsuId]?.deleted)
+  const actionTheme = actionThemes?.[0]
+  const actionPreference = actionTheme ? library?.prefsByThemeId[String(actionTheme.id)] : undefined
+  const artworkUrl = browserAssetUrl(anime.posterUrl)
+  const sortedThemes = [...detail.data.themes].sort(compareThemesByType)
+  return (
+    <section className="page catalog-page catalog-detail" aria-labelledby="anime-title">
+      <Link className="catalog-back-link" to="/library"><ArrowLeft size={16} /> Back to library</Link>
+      <header className="catalog-detail__hero">{artworkUrl && <div className="catalog-detail__backdrop" data-testid="anime-hero-backdrop" style={{ backgroundImage: `url(${JSON.stringify(artworkUrl)})` }} aria-hidden="true" />}<div className="catalog-detail__poster">{artworkUrl ? <img src={artworkUrl} alt={`${title} poster`} /> : <span aria-hidden="true">AO</span>}</div><div className="catalog-detail__copy"><p className="eyebrow">Anime detail</p><h1 id="anime-title">{title}</h1>{anime.titleEn && anime.titleEn !== title && <p className="catalog-detail__alt-title">{anime.titleEn}</p>}<div className="catalog-detail__facts"><span>{statusLabel(anime.watchingStatus)}</span>{anime.subtype && <span>{anime.subtype}</span>}{anime.episodeCount && <span>{anime.episodeCount} episodes</span>}{anime.startDate && <span><CalendarDays size={14} /> {anime.startDate.slice(0, 4)}</span>}</div><div className="catalog-detail__genres">{anime.genres.slice(0, 5).map((genre) => <span key={genre}>{genre}</span>)}</div><div className="catalog-detail__actions"><button type="button" disabled={!onPlayThemes || sortedThemes.length === 0} onClick={() => onPlayThemes?.(sortedThemes, 0, false, anime.posterUrl)}><Play size={17} fill="currentColor" /> Play all</button><button type="button" disabled={!onPlayThemes || sortedThemes.length === 0} onClick={() => onPlayThemes?.(sortedThemes, 0, true, anime.posterUrl)}><Shuffle size={17} /> Shuffle</button><button type="button" disabled={detail.data.themes.length === 0} onClick={() => setActionThemes(detail.data.themes)}><MoreHorizontal size={17} /> More</button></div></div></header>
+      <section className="catalog-section" aria-labelledby="anime-themes-title"><div className="catalog-section__heading"><div><p className="eyebrow">Openings and endings</p><h2 id="anime-themes-title">Themes</h2></div><span className="catalog-section__count">{sortedThemes.length}</span></div>{sortedThemes.length === 0 ? <p className="catalog-empty">No themes are available for this anime yet.</p> : <div className="catalog-theme-list">{sortedThemes.map((theme, index) => <ThemeRow key={theme.id} theme={theme} onPlay={onPlayThemes ? () => onPlayThemes(sortedThemes, index, false, anime.posterUrl) : undefined} onMore={() => setActionThemes([theme])} />)}</div>}</section>
+      <section className="catalog-section" aria-labelledby="anime-music-title"><div className="catalog-section__heading"><div><p className="eyebrow">Music catalog</p><h2 id="anime-music-title">Music releases</h2></div><Link className="catalog-section__link" to={`/anime/${encodeURIComponent(anime.kitsuId)}/related-music`}>See all</Link></div>{music.isError ? <CatalogError title="Music catalog unavailable" message="Themes are still available above. Try again later for album and track details." error={music.error} onRetry={() => void music.refetch()} /> : music.isPending ? <CatalogLoading label="Loading music releases" /> : music.data?.releases.length ? <div className="catalog-release-list">{music.data.releases.map((release) => <article className="catalog-release-section" key={release.id}><header className="catalog-release-section__header">{release.artworkUrl ? <img src={browserAssetUrl(release.artworkUrl)} alt="" loading="lazy" /> : <span className="catalog-release-section__art" aria-hidden="true"><Disc3 size={26} /></span>}<div><p className="eyebrow">{release.relationshipType || 'Release'}</p><h3><Link to={`/release/${release.id}`}>{release.title}</Link></h3><p>{release.artistCredit || 'Various artists'}</p><small>{release.tracks.length} {release.tracks.length === 1 ? 'track' : 'tracks'}{release.year ? ` · ${release.year}` : release.releaseDate ? ` · ${release.releaseDate.slice(0, 10)}` : ''}</small></div></header><ol className="catalog-release-tracks">{release.tracks.map((track, index) => <AnimeMusicTrackRow key={`${track.id}-${index}`} track={track} release={release} anime={anime} trackIndex={index} artworkUrl={release.artworkUrl} onPlay={onPlaySong} onPlayNext={onPlayNextSong} onAddToQueue={onAddToQueueSong} onReplaceQueue={onReplaceQueueSong} onNavigate={navigate} />)}</ol></article>)}</div> : <p className="catalog-empty">No music releases are available for this anime yet.</p>}</section>
+      {actionTheme && <ThemeActionSheet themeId={actionTheme.id} selectedThemeIds={actionThemes?.map((theme) => theme.id)} title={actionThemes && actionThemes.length > 1 ? title : actionTheme.title} subtitle={actionThemes && actionThemes.length > 1 ? `${actionThemes.length} themes` : [actionTheme.themeType, actionTheme.artists.map((artist) => artist.name).join(', ')].filter(Boolean).join(' · ')} liked={actionPreference?.liked} disliked={actionPreference?.disliked} preferredMode={actionPreference?.preferredMode} hasFullSize={Boolean(actionTheme.mediaModes.fullSize)} inLibrary={Boolean(library?.themesById[String(actionTheme.id)] && !library.themesById[String(actionTheme.id)]?.deleted)} inAnimeLibrary={animeInLibrary} animeKitsuId={anime.kitsuId} animeThemesId={anime.animeThemesId ?? undefined} onPlay={onPlayThemes ? () => onPlayThemes(actionThemes ?? [actionTheme], 0, false, anime.posterUrl) : undefined} onPlayNext={onPlayNext ? () => onPlayNext(actionThemes ?? [actionTheme], anime.posterUrl) : undefined} onAddToQueue={onAddToQueue ? () => onAddToQueue(actionThemes ?? [actionTheme], anime.posterUrl) : undefined} onClose={() => setActionThemes(null)} />}
+    </section>
+  )
+}
+
+function ThemeRow({ theme, onPlay, onMore }: { theme: LibraryThemeDto; onPlay?: () => void; onMore: () => void }) {
+  return <article className="catalog-theme-row"><span className="catalog-theme-row__type">{formatThemeType(theme.themeType) ?? 'Theme'}</span><button type="button" className="catalog-theme-row__play" onClick={onPlay} disabled={!onPlay} aria-label={`Play ${theme.title}`}><Play size={18} fill="currentColor" /></button><div><h3>{theme.title}</h3><p>{theme.artists.map((artist) => artist.name).filter(Boolean).join(', ') || 'Unknown artist'}</p></div><button type="button" className="catalog-theme-row__more" onClick={onMore} aria-label={`More actions for ${theme.title}`}><MoreHorizontal size={18} /></button></article>
+}
+
+function AnimeMusicTrackRow({ track, release, anime, trackIndex, artworkUrl, onPlay, onPlayNext, onAddToQueue, onReplaceQueue, onNavigate }: {
+  track: MusicTrackDto
+  release: MusicReleaseDto
+  anime: AnimeDetailResponse['anime']
+  trackIndex: number
+  artworkUrl: string | null
+  onPlay?: (song: MusicTrackDto, artworkUrl: string | null, animeId: string) => void
+  onPlayNext?: (song: MusicTrackDto, release: MusicReleaseDto, animeId: string) => void
+  onAddToQueue?: (song: MusicTrackDto, release: MusicReleaseDto, animeId: string) => void
+  onReplaceQueue?: (song: MusicTrackDto, release: MusicReleaseDto, animeId: string) => void
+  onNavigate: (to: string) => void
+}) {
+  const title = track.title.trim() || 'Untitled track'
+  const artist = track.artistCredit.trim() || release.artistCredit.trim()
+  const artistSlug = artistRouteSlug(artist)
+  const playable = Boolean(track.audioUrl && track.title.trim())
+  const duration = formatDuration(track.durationSeconds)
+  return <li><div className="catalog-release-track-row"><span className="catalog-release-track-row__number" aria-label={`Track ${track.trackNumber ?? trackIndex + 1}`}>{track.trackNumber ?? trackIndex + 1}</span><button className="catalog-release-track-row__play" type="button" disabled={!onPlay} onClick={() => onPlay?.(track, artworkUrl, anime.kitsuId)} aria-label={`Play ${title}`}><Play size={15} fill="currentColor" /></button><div className="catalog-release-track-row__copy"><strong>{title}</strong><span>{artist || 'Various artists'}</span></div>{duration && <time>{duration}</time>}<TrackActionMenu menuOnly item={{ itemType: 'SONG', itemId: track.id, title }} onPlayNext={playable && onPlayNext ? () => onPlayNext(track, release, anime.kitsuId) : undefined} onAddToQueue={playable && onAddToQueue ? () => onAddToQueue(track, release, anime.kitsuId) : undefined} onReplaceQueue={playable && onReplaceQueue ? () => onReplaceQueue(track, release, anime.kitsuId) : undefined} onGoToArtist={artistSlug ? () => onNavigate(`/artist/${encodeURIComponent(artistSlug)}`) : undefined} artistName={artistSlug ? artist : undefined} onRelatedMusic={() => onNavigate(`/anime/${encodeURIComponent(anime.kitsuId)}/related-music`)} /></div></li>
+}
+
+function formatDuration(seconds: number | null): string | null {
+  if (!seconds || !Number.isFinite(seconds)) return null
+  return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
+}

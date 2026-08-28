@@ -16,6 +16,7 @@ function toUserRecord(row: UserRow): UserRecord {
   return {
     kitsuUserId: row.kitsuUserId,
     username: row.username,
+    kitsuAvatarUrl: row.kitsuAvatarUrl,
     kitsuAuthState: row.kitsuAuthState,
     lastSyncAt: row.lastSyncAt,
   };
@@ -48,6 +49,7 @@ export class DrizzleAuthRepo implements AuthRepo {
         .values({
           kitsuUserId: input.kitsuUserId,
           username: input.username,
+          kitsuAvatarUrl: input.kitsuAvatarUrl,
           kitsuAccessToken: input.kitsuAccessToken,
           kitsuRefreshToken: input.kitsuRefreshToken,
           kitsuTokenExpiresAt: input.kitsuTokenExpiresAt,
@@ -60,6 +62,7 @@ export class DrizzleAuthRepo implements AuthRepo {
       .update(users)
       .set({
         username: input.username,
+        kitsuAvatarUrl: input.kitsuAvatarUrl,
         kitsuAccessToken: input.kitsuAccessToken,
         kitsuRefreshToken: input.kitsuRefreshToken,
         kitsuTokenExpiresAt: input.kitsuTokenExpiresAt,

@@ -1,0 +1,379 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { apiClient } from '../../lib/api'
+import type { MusicTrackDto, NormalizedLibrary } from '../../lib/library'
+
+vi.mock('../../lib/query', () => ({
+  useLibraryQuery: vi.fn(),
+}))
+
+import { useLibraryQuery } from '../../lib/query'
+import { AnimeDetailPage, HomeCatalogPage, LibraryCatalogPage } from './index'
+
+const library: NormalizedLibrary = {
+  cursor: 10,
+  animeById: {
+    a: anime('a', 'Frieren: Beyond Journey’s End', 'TV'),
+    b: anime('b', 'Bocchi the Rock!', 'completed'),
+    c: anime('c', 'Cyberpunk: Edgerunners', 'current'),
+  },
+  themesById: {
+    '1': theme(1, 'a', 'Opening'),
+    '2': theme(2, 'a', 'Ending'),
+    '3': theme(3, 'c', 'Opening'),
+  },
+  prefsByThemeId: {},
+  songPrefsById: {},
+  playlistsById: {},
+  musicCatalogByAnimeId: {},
+}
+
+function anime(kitsuId: string, title: string, watchingStatus: string): NormalizedLibrary['animeById'][string] {
+  return {
+    kitsuId,
+    animeThemesId: kitsuId === 'a' ? 11 : null,
+    title,
+    titleEn: title,
+    titleRomaji: null,
+    titleJa: null,
+    posterUrl: `https://images.example/${kitsuId}.jpg`,
+    coverUrl: null,
+    watchingStatus,
+    subtype: 'TV',
+    startDate: null,
+    endDate: null,
+    episodeCount: 12,
+    ageRating: null,
+    averageRating: null,
+    userRating: null,
+    libraryUpdatedAt: 10,
+    slug: kitsuId,
+    genres: ['Drama'],
+    updatedAt: 10,
+    deleted: false,
+  }
+}
+
+function theme(id: number, kitsuAnimeId: string, title: string): NormalizedLibrary['themesById'][string] {
+  return {
+    id,
+    animeThemesAnimeId: kitsuAnimeId === 'a' ? 11 : 12,
+    kitsuAnimeIds: [kitsuAnimeId],
+    title,
+    themeType: 'OP',
+    artists: [{ name: 'Composer', asCharacter: null, alias: null }],
+    audioUrl: `/audio/${id}`,
+    videoUrl: null,
+    audioState: 'READY',
+    durationSeconds: 90,
+    fileSize: null,
+    mediaModes: { tvSize: { url: `/audio/${id}`, durationSeconds: 90, fileSize: null }, fullSize: null, video: null },
+    updatedAt: 10,
+    deleted: false,
+  }
+}
+
+function renderWithQuery(ui: React.ReactElement, initialEntries = ['/']) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={initialEntries}>{ui}</MemoryRouter></QueryClientProvider>)
+}
+
+beforeEach(() => {
+  vi.mocked(useLibraryQuery).mockReturnValue({
+    status: 'success',
+    isPending: false,
+    isError: false,
+    isSuccess: true,
+    error: null,
+    library,
+  } as never)
+  vi.spyOn(apiClient, 'get').mockReset()
+})
+
+describe('catalog pages', () => {
+  it('renders bounded home sections from the browser home projection', async () => {
+    const homeLibrary = {
+      ...library,
+      playlistsById: {
+        '7': { id: 7, name: 'Morning themes', entries: [1, 2], defaultMode: 'TV_SIZE', overrideUserPreference: false, items: [{ entryId: 1, itemType: 'THEME', itemId: 1, modeOverride: null }, { entryId: 2, itemType: 'THEME', itemId: 2, modeOverride: null }], isAuto: false, isDynamic: false, autoUpdate: false, updatedAt: 10, deleted: false, dynamicSpecJson: null, dynamicSortJson: null },
+      },
+    }
+    vi.mocked(useLibraryQuery).mockReturnValue({ status: 'success', isPending: false, isError: false, isSuccess: true, error: null, library: homeLibrary } as never)
+    vi.mocked(apiClient.get).mockResolvedValue({
+      serverTime: 10,
+      continueWatching: [{ kitsuId: 'a', title: 'Frieren: Beyond Journey’s End', posterUrl: '/frieren.jpg', updatedAt: 10 }],
+      recentlyAdded: [{ kitsuId: 'b', title: 'Bocchi the Rock!', posterUrl: '/bocchi.jpg', updatedAt: 9 }],
+      playlists: [{ id: 7, name: 'Morning themes', itemCount: 4, isAuto: false, updatedAt: 10 }],
+      nextCursor: null,
+    })
+
+    const onPlayTheme = vi.fn()
+    renderWithQuery(<HomeCatalogPage onPlayTheme={onPlayTheme} />)
+
+    expect(await screen.findByRole('heading', { name: 'Recommended' })).toBeInTheDocument()
+    const recommended = screen.getByRole('region', { name: 'Recommended' })
+    expect(within(recommended).getAllByText('Frieren: Beyond Journey’s End · OP', { selector: 'strong' }).length).toBeGreaterThan(0)
+    expect(within(recommended).getAllByText(/^Opening(?: ·|$)/, { selector: 'small' }).length).toBeGreaterThan(0)
+    expect(screen.queryByText('Continue watching')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Openings' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Endings' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Full size' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'TV size' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Welcome back')).not.toBeInTheDocument()
+    expect(screen.queryByText('Your listening space')).not.toBeInTheDocument()
+    await userEvent.click(within(screen.getByRole('region', { name: 'Recommended' })).getByRole('button', { name: 'Play Opening' }))
+    expect(onPlayTheme).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), expect.stringContaining('/a.jpg'))
+    await userEvent.click(within(recommended).getByRole('button', { name: 'More actions for Opening' }))
+    expect(screen.getByRole('menuitem', { name: 'Go to Composer' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Go to Frieren: Beyond Journey’s End' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Go to Composer' }))
+    expect(screen.getByRole('heading', { name: 'Currently Watching' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Frieren: Beyond Journey’s End' })).toHaveAttribute('href', '/anime/a')
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Frieren: Beyond Journey’s End' }))
+    expect(screen.getByRole('menu', { name: 'Frieren: Beyond Journey’s End actions' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Open anime' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Play all themes' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Remove from library' })).toBeInTheDocument()
+    expect(screen.getByText('Morning themes')).toBeInTheDocument()
+    expect(screen.getByTestId('playlist-artwork-7').querySelectorAll('img')).toHaveLength(2)
+    const headings = screen.getAllByRole('heading').map((heading) => heading.textContent)
+    expect(headings.indexOf('Recommended')).toBeLessThan(headings.indexOf('Top songs'))
+    expect(headings.indexOf('Top songs')).toBeLessThan(headings.indexOf('Your playlists'))
+    expect(headings.indexOf('Your playlists')).toBeLessThan(headings.indexOf('Currently Watching'))
+    expect(apiClient.get).toHaveBeenCalledWith('/v1/home?limit=24', expect.anything())
+  })
+
+  it('filters and sorts a large library while rendering only the current page', async () => {
+    const manyAnime = Object.fromEntries(Array.from({ length: 5_000 }, (_, index) => {
+      const id = `anime-${index}`
+      return [id, anime(id, `Show ${String(index).padStart(4, '0')}`, index % 2 === 0 ? 'current' : 'completed')]
+    }))
+    vi.mocked(useLibraryQuery).mockReturnValue({ library: { ...library, animeById: manyAnime }, status: 'success', isPending: false, isError: false, isSuccess: true, error: null } as never)
+    renderWithQuery(<LibraryCatalogPage />)
+
+    expect(screen.getAllByTestId('anime-card')).toHaveLength(24)
+    expect(screen.queryByRole('link', { name: /Show 4999/ })).not.toBeInTheDocument()
+
+    const search = screen.getByRole('searchbox', { name: 'Filter library' })
+    await userEvent.type(search, 'Show 4999')
+    expect(screen.getAllByTestId('anime-card')).toHaveLength(1)
+    expect(screen.getByRole('link', { name: 'Show 4999' })).toBeInTheDocument()
+
+    await userEvent.clear(search)
+    await userEvent.click(screen.getByRole('button', { name: 'Next anime page' }))
+    expect(screen.getAllByTestId('anime-card')).toHaveLength(24)
+    expect(screen.queryByRole('link', { name: 'Show 0000' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Show 0024' })).toBeInTheDocument()
+  })
+
+  it('shows an empty library state when no anime matches the filter', async () => {
+    renderWithQuery(<LibraryCatalogPage />)
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Filter library' }), 'does not exist')
+    expect(screen.getByRole('heading', { name: 'No anime found' })).toBeInTheDocument()
+    expect(screen.getByText(/Try a different search/)).toBeInTheDocument()
+  })
+
+  it('switches to bounded playable song and playlist library surfaces', async () => {
+    const onPlayTheme = vi.fn()
+    renderWithQuery(<LibraryCatalogPage onPlayTheme={onPlayTheme} />)
+    await userEvent.click(screen.getByRole('tab', { name: 'Songs' }))
+    expect(screen.getByRole('searchbox', { name: 'Filter songs' })).toBeInTheDocument()
+    await userEvent.click(screen.getAllByRole('button', { name: 'Play Opening' })[0]!)
+    expect(onPlayTheme).toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('tab', { name: 'Playlists' }))
+    expect(screen.getByText('No playlists match this view.')).toBeInTheDocument()
+  })
+
+  it('drills into artists, filters playlists, and exposes queue actions for songs', async () => {
+    const artistTheme = (id: number, name: string) => ({ ...theme(id, 'a', `Song ${id}`), artists: [{ name, asCharacter: null, alias: null }] })
+    const richLibrary = {
+      ...library,
+      themesById: { '10': artistTheme(10, 'Aimer'), '11': artistTheme(11, 'Aimer'), '12': artistTheme(12, 'LiSA') },
+      playlistsById: {
+        '7': { id: 7, name: 'Night drive', entries: [10], defaultMode: 'TV_SIZE', overrideUserPreference: false, items: [{ entryId: 1, itemType: 'THEME', itemId: 10, modeOverride: null }], isAuto: false, isDynamic: false, autoUpdate: false, updatedAt: 10, deleted: false, dynamicSpecJson: null, dynamicSortJson: null },
+      },
+    }
+    vi.mocked(useLibraryQuery).mockReturnValue({ library: richLibrary, status: 'success', isPending: false, isError: false, isSuccess: true, error: null } as never)
+    const onPlayTheme = vi.fn()
+    const onPlayNext = vi.fn()
+    const onAddToQueue = vi.fn()
+    renderWithQuery(<LibraryCatalogPage onPlayTheme={onPlayTheme} onPlayNext={onPlayNext} onAddToQueue={onAddToQueue} />)
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Artists' }))
+    await userEvent.click(screen.getByRole('button', { name: /Aimer.*2 themes/i }))
+    expect(screen.getByRole('heading', { name: 'Aimer' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /^Play Song/ })).toHaveLength(2)
+    await userEvent.click(screen.getByRole('button', { name: /all artists/i }))
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Filter artists' }), 'LiSA')
+    expect(screen.getByRole('button', { name: /LiSA.*1 theme/i })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Songs' }))
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Song 10' }))
+    expect(screen.getByRole('dialog', { name: 'Frieren: Beyond Journey’s End · OP actions' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Play next' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add to queue' }))
+    expect(onPlayNext).toHaveBeenCalled()
+    expect(onAddToQueue).toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'Close actions' }))
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Playlists' }))
+    expect(screen.getByRole('link', { name: /Night drive/ })).toHaveAttribute('href', '/playlist/7')
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Filter playlists' }), 'missing')
+    expect(screen.getByText('No playlists match this view.')).toBeInTheDocument()
+  })
+
+  it('renders generated playlist artwork and exposes playlist queue actions', async () => {
+    const playlistLibrary: NormalizedLibrary = {
+      ...library,
+      playlistsById: {
+        '7': { id: 7, name: 'Night drive', entries: [1, 2], defaultMode: 'TV_SIZE', overrideUserPreference: false, items: [{ entryId: 1, itemType: 'THEME', itemId: 1, modeOverride: null }, { entryId: 2, itemType: 'THEME', itemId: 2, modeOverride: null }], isAuto: false, isDynamic: false, autoUpdate: false, updatedAt: 10, deleted: false, dynamicSpecJson: null, dynamicSortJson: null },
+      },
+    }
+    vi.mocked(useLibraryQuery).mockReturnValue({ library: playlistLibrary, status: 'success', isPending: false, isError: false, isSuccess: true, error: null } as never)
+    const onPlayPlaylist = vi.fn()
+    const onPlayNextPlaylist = vi.fn()
+    const onAddToQueuePlaylist = vi.fn()
+
+    renderWithQuery(<LibraryCatalogPage onPlayPlaylist={onPlayPlaylist} onPlayNextPlaylist={onPlayNextPlaylist} onAddToQueuePlaylist={onAddToQueuePlaylist} />, ['/library?tab=playlists'])
+
+    expect(screen.getByTestId('playlist-artwork-7').querySelectorAll('img')).toHaveLength(2)
+    expect(screen.getByRole('link', { name: 'Night drive, 2 tracks' })).toHaveAttribute('href', '/playlist/7')
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Night drive' }))
+    const menu = screen.getByRole('menu', { name: 'Night drive actions' })
+    expect(within(menu).getByRole('menuitem', { name: 'Open playlist' })).toBeInTheDocument()
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Play playlist' }))
+    expect(onPlayPlaylist).toHaveBeenCalledWith(expect.objectContaining({ id: 7 }))
+
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Night drive' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Play next' }))
+    expect(onPlayNextPlaylist).toHaveBeenCalledWith(expect.objectContaining({ id: 7 }))
+
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Night drive' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }))
+    expect(onAddToQueuePlaylist).toHaveBeenCalledWith(expect.objectContaining({ id: 7 }))
+  })
+
+  it('renders sanitized library loading and error states', () => {
+    vi.mocked(useLibraryQuery).mockReturnValue({ status: 'pending', isPending: true, isError: false, isSuccess: false, error: null, library: null } as never)
+    renderWithQuery(<LibraryCatalogPage />)
+    expect(screen.getByRole('status')).toHaveTextContent('Loading your library')
+
+    vi.mocked(useLibraryQuery).mockReturnValue({ status: 'error', isPending: false, isError: true, isSuccess: false, error: new Error('token=secret-value'), library: null } as never)
+    renderWithQuery(<LibraryCatalogPage />)
+    expect(screen.getByRole('heading', { name: 'Library unavailable' })).toBeInTheDocument()
+    expect(screen.queryByText('secret-value')).not.toBeInTheDocument()
+  })
+
+  it('loads anime details and music through the existing detail contracts', async () => {
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ anime: anime('a', 'Frieren: Beyond Journey’s End', 'current'), themes: [theme(1, 'a', 'Opening')] })
+      .mockResolvedValueOnce({ anime: { kitsuId: 'a', title: 'Frieren', titleEn: 'Frieren', posterUrl: '/frieren.jpg' }, releases: [{ id: 3, title: 'Season One', titleEnglish: null, titleRomaji: null, titleJapanese: null, artistCredit: 'Various', artistNames: [], relationshipType: 'THEME', releaseDate: null, year: 2024, artworkUrl: null, tracks: [] }] })
+
+    renderWithQuery(<Routes><Route path="/anime/:animeId" element={<AnimeDetailPage />} /></Routes>, ['/anime/a'])
+
+    expect(await screen.findByRole('heading', { name: 'Frieren: Beyond Journey’s End' })).toBeInTheDocument()
+    expect(screen.getByTestId('anime-hero-backdrop')).toHaveStyle({ backgroundImage: 'url("https://images.example/a.jpg")' })
+    expect(screen.getByRole('heading', { name: 'Themes' })).toBeInTheDocument()
+    expect(screen.getByText('Season One')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Season One' })).toHaveAttribute('href', '/release/3')
+    expect(apiClient.get).toHaveBeenCalledWith('/v1/anime/a', expect.anything())
+    expect(apiClient.get).toHaveBeenCalledWith('/v1/anime/a/music', expect.anything())
+  })
+
+  it('plays themes and exposes the mobile library actions from anime detail', async () => {
+    const onPlayThemes = vi.fn()
+    const onPlayNext = vi.fn()
+    const opening = theme(1, 'a', 'Opening')
+    const ending = theme(2, 'a', 'Ending')
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ anime: anime('a', 'Frieren: Beyond Journey’s End', 'current'), themes: [opening, ending] })
+      .mockResolvedValueOnce({ anime: { kitsuId: 'a', title: 'Frieren', titleEn: 'Frieren', posterUrl: '/frieren.jpg' }, releases: [] })
+
+    renderWithQuery(<Routes><Route path="/anime/:animeId" element={<AnimeDetailPage onPlayThemes={onPlayThemes} onPlayNext={onPlayNext} />} /></Routes>, ['/anime/a'])
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Play Ending' }))
+    expect(onPlayThemes).toHaveBeenCalledWith([opening, ending], 1, false, 'https://images.example/a.jpg')
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Opening' }))
+    expect(screen.getByRole('dialog', { name: 'Opening actions' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Play next' }))
+    expect(onPlayNext).toHaveBeenCalledWith([opening], 'https://images.example/a.jpg')
+  })
+
+  it('leads anime-detail rows with naturally sorted theme types, then song and artist', async () => {
+    const ending = { ...theme(2, 'a', 'Ending song'), themeType: 'ED2', artists: [{ name: 'Ending Artist', asCharacter: null, alias: null }] }
+    const opening = { ...theme(1, 'a', 'Opening song'), themeType: 'OP1', artists: [{ name: 'Opening Artist', asCharacter: null, alias: null }] }
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ anime: anime('a', 'Frieren: Beyond Journey’s End', 'current'), themes: [ending, opening] })
+      .mockResolvedValueOnce({ anime: { kitsuId: 'a', title: 'Frieren', titleEn: 'Frieren', posterUrl: null }, releases: [] })
+
+    renderWithQuery(<Routes><Route path="/anime/:animeId" element={<AnimeDetailPage />} /></Routes>, ['/anime/a'])
+
+    await screen.findByRole('heading', { name: 'Themes' })
+    const rows = document.querySelectorAll('.catalog-theme-row')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toHaveTextContent('OP 1Opening songOpening Artist')
+    expect(rows[1]).toHaveTextContent('ED 2Ending songEnding Artist')
+  })
+
+  it('exposes shared actions for anime detail release tracks with anime context', async () => {
+    const fullSong: MusicTrackDto = {
+      id: 90,
+      title: 'Full song',
+      titleEnglish: null,
+      titleRomaji: null,
+      titleJapanese: null,
+      artistCredit: 'Neon Harbor',
+      artistNames: [],
+      durationSeconds: 204,
+      audioUrl: '/v1/media/songs/90/audio',
+      fileSize: 1_024,
+      discNumber: 1,
+      trackNumber: 1,
+      displayOrder: 1,
+    }
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ anime: anime('a', 'Frieren: Beyond Journey’s End', 'current'), themes: [] })
+      .mockResolvedValueOnce({ anime: { kitsuId: 'a', title: 'Frieren', titleEn: 'Frieren', posterUrl: null }, releases: [{ id: 3, title: 'Season One', titleEnglish: null, titleRomaji: null, titleJapanese: null, artistCredit: 'Neon Harbor', artistNames: [], relationshipType: 'THEME', releaseDate: null, year: 2024, artworkUrl: null, tracks: [fullSong] }] })
+
+    const onPlayNextSong = vi.fn()
+    const onAddToQueueSong = vi.fn()
+    const onReplaceQueueSong = vi.fn()
+    renderWithQuery(<Routes><Route path="/anime/:animeId" element={<AnimeDetailPage onPlaySong={vi.fn()} onPlayNextSong={onPlayNextSong} onAddToQueueSong={onAddToQueueSong} onReplaceQueueSong={onReplaceQueueSong} />} /></Routes>, ['/anime/a'])
+
+    await screen.findByRole('heading', { name: 'Frieren: Beyond Journey’s End' })
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Full song' }))
+
+    expect(screen.getByRole('menuitem', { name: 'Play next' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Add to queue' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Replace queue' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Save to playlist' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Go to Neon Harbor' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Go to Frieren: Beyond Journey’s End' })).not.toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Related Music' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Play next' }))
+    expect(onPlayNextSong).toHaveBeenCalledWith(expect.objectContaining({ id: 90 }), expect.objectContaining({ id: 3 }), 'a')
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Full song' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }))
+    expect(onAddToQueueSong).toHaveBeenCalledWith(expect.objectContaining({ id: 90 }), expect.objectContaining({ id: 3 }), 'a')
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Full song' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Replace queue' }))
+    expect(onReplaceQueueSong).toHaveBeenCalledWith(expect.objectContaining({ id: 90 }), expect.objectContaining({ id: 3 }), 'a')
+  })
+
+  it('keeps detail themes and releases useful when either detail request is empty', async () => {
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ anime: anime('b', 'Bocchi the Rock!', 'completed'), themes: [] })
+      .mockRejectedValueOnce(new Error('authorization=private'))
+
+    renderWithQuery(<Routes><Route path="/anime/:animeId" element={<AnimeDetailPage />} /></Routes>, ['/anime/b'])
+
+    expect(await screen.findByRole('heading', { name: 'Bocchi the Rock!' })).toBeInTheDocument()
+    expect(screen.getByText('No themes are available for this anime yet.')).toBeInTheDocument()
+    expect(screen.getByText('Music catalog unavailable')).toBeInTheDocument()
+    expect(screen.queryByText('private')).not.toBeInTheDocument()
+  })
+})

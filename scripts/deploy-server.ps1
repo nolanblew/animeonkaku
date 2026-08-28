@@ -48,7 +48,10 @@ function ConvertTo-RemoteShellScript([string]$Script) {
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $serverDir = Join-Path $repoRoot "server"
+$webDir = Join-Path $repoRoot "web"
 $remoteDockerDir = "$RemoteDockerRoot/$AppName"
+$remoteServerDir = "$remoteDockerDir/server"
+$remoteWebDir = "$remoteDockerDir/web"
 $remoteDataDir = "$RemoteDataRoot/$AppName"
 $remoteDataDirForCompose = if ($remoteDataDir.StartsWith("/")) { Quote-Sh $remoteDataDir } else { "`$HOME/$(Quote-Sh $remoteDataDir)" }
 $remoteArchive = "/tmp/$AppName-deploy.tgz"
@@ -69,7 +72,10 @@ case $(Quote-Sh $remoteDockerDir) in
   $(Quote-Sh $RemoteDockerRoot.TrimEnd("/"))/*) ;;
   *) echo "Refusing to deploy outside $(Quote-Sh $RemoteDockerRoot): $(Quote-Sh $remoteDockerDir)" >&2; exit 2 ;;
 esac
-mkdir -p $(Quote-Sh $remoteDockerDir) $(Quote-Sh "$remoteDataDir/media") $(Quote-Sh "$remoteDataDir/postgres")
+mkdir -p $(Quote-Sh $remoteServerDir) $(Quote-Sh $remoteWebDir) $(Quote-Sh "$remoteDataDir/media") $(Quote-Sh "$remoteDataDir/postgres")
+if [ -f $(Quote-Sh "$remoteDockerDir/.env") ] && [ ! -f $(Quote-Sh "$remoteServerDir/.env") ]; then
+  cp $(Quote-Sh "$remoteDockerDir/.env") $(Quote-Sh "$remoteServerDir/.env")
+fi
 "@
 
 if ($DryRun) {
@@ -95,28 +101,26 @@ if ($rsync) {
     if ($DryRun) {
         $rsyncArgs += @("--dry-run", "--itemize-changes")
     }
-    $rsyncArgs += @("$serverDir/", "${SshTarget}:$remoteDockerDir/")
-    Invoke-Logged $rsync.Source $rsyncArgs
+    Invoke-Logged $rsync.Source ($rsyncArgs + @("$serverDir/", "${SshTarget}:$remoteServerDir/"))
+    Invoke-Logged $rsync.Source ($rsyncArgs + @("$webDir/", "${SshTarget}:$remoteWebDir/"))
 } else {
     $tarCommand = Resolve-RequiredCommand "tar" @("$env:WINDIR\System32\tar.exe")
     $archivePath = Join-Path ([System.IO.Path]::GetTempPath()) "$AppName-deploy.tgz"
     if (Test-Path -LiteralPath $archivePath) {
         Remove-Item -LiteralPath $archivePath -Force
     }
-    $tarInputs = @(
-        "Dockerfile",
-        "docker-compose.yml",
-        "docker-compose.lan.yml",
-        "package.json",
-        "package-lock.json",
-        "tsconfig.json",
-        "drizzle",
-        "src",
-        ".dockerignore",
-        ".env.example",
-        "README.md"
+    $tarInputs = @("server", "web", ".dockerignore")
+    $tarExcludes = @(
+        "--exclude=server/node_modules",
+        "--exclude=server/dist",
+        "--exclude=server/test",
+        "--exclude=server/.env",
+        "--exclude=server/.env.*",
+        "--exclude=web/node_modules",
+        "--exclude=web/dist",
+        "--exclude=web/coverage"
     )
-    Invoke-Logged $tarCommand (@("-czf", $archivePath, "-C", $serverDir) + $tarInputs)
+    Invoke-Logged $tarCommand (@("-czf", $archivePath) + $tarExcludes + @("-C", $repoRoot) + $tarInputs)
     if ($DryRun) {
         Write-Host "Dry run: would upload $archivePath to ${SshTarget}:$remoteArchive and extract into $remoteDockerDir"
     } else {
@@ -124,7 +128,7 @@ if ($rsync) {
         $extractCommand = @"
 set -eu
 cd $(Quote-Sh $remoteDockerDir)
-rm -rf src drizzle dist
+rm -rf server/src server/drizzle server/dist web
 tar -xzf $(Quote-Sh $remoteArchive)
 rm -f $(Quote-Sh $remoteArchive)
 "@
@@ -135,9 +139,9 @@ rm -f $(Quote-Sh $remoteArchive)
 
 if ($EnvFile) {
     if ($DryRun) {
-        Write-Host "Dry run: would copy $EnvFile to ${SshTarget}:$remoteDockerDir/.env"
+        Write-Host "Dry run: would copy $EnvFile to ${SshTarget}:$remoteServerDir/.env"
     } else {
-        Invoke-Logged $scpCommand @($EnvFile, "${SshTarget}:$remoteDockerDir/.env")
+        Invoke-Logged $scpCommand @($EnvFile, "${SshTarget}:$remoteServerDir/.env")
     }
 }
 
@@ -146,11 +150,11 @@ $buildFlag = if ($SkipBuild) { "" } else { "--build" }
 $healthTimeout = [Math]::Max(0, $HealthTimeoutSeconds)
 $remoteDeploy = @"
 set -eu
-cd $(Quote-Sh $remoteDockerDir)
+cd $(Quote-Sh $remoteServerDir)
 export ONGAKU_DATA_ROOT=$remoteDataDirForCompose
 export ONGAKU_SERVER_HOST_PORT=$(Quote-Sh ([string]$HostPort))
 if [ ! -f .env ] && [ "$allowDefaultEnvValue" != "1" ]; then
-  echo "Missing $remoteDockerDir/.env. Pass -EnvFile <path> once, or use -AllowDefaultEnv intentionally." >&2
+  echo "Missing $remoteServerDir/.env. Pass -EnvFile <path> once, or use -AllowDefaultEnv intentionally." >&2
   exit 3
 fi
 if docker compose version >/dev/null 2>&1; then

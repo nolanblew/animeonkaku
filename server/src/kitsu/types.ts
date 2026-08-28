@@ -7,6 +7,7 @@ export interface KitsuTokens {
 export interface KitsuSelfUser {
   id: string;
   name: string;
+  avatarUrl: string | null;
 }
 
 /** Library/catalog entry as consumed by the sync pipeline (port of the Android `KitsuAnimeEntry`). */

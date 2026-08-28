@@ -67,6 +67,14 @@ With `KITSU_AUTH_MODE=stub` (compose default), any non-empty credentials log in 
 
 Errors use the envelope `{ "error": { "code": "...", "message": "..." } }`. Full API spec: [`../.planning/04-api-spec.md`](../.planning/04-api-spec.md).
 
+The browser-only API is namespaced under `/api`: `GET /api/v1/home` provides
+the bounded home projection and `GET /api/v1/library/live` provides
+cookie-authenticated SSE invalidation hints. Events carry only canonical
+`library`, `playlist`, and `profile` categories; the browser follows them with
+`/api/v1/changes`. Background sync jobs do not fabricate completion events when
+they have no reliable completion callback, so the browser's bounded fallback
+polling remains the safety net for those updates.
+
 ## Operational notes
 
 ### Anime Music Fetcher operator and mounts

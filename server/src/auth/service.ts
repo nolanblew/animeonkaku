@@ -33,6 +33,7 @@ export interface LoginInput {
 export interface LoginResult {
   token: string;
   user: { kitsuUserId: string; username: string };
+  kitsuAvatarUrl: string | null;
   isNewUser: boolean;
   /** Which first-sync the server will run (and the client should present). */
   syncMode: LoginSyncMode;
@@ -53,6 +54,7 @@ export interface DeviceInfo {
 
 export interface MeResult {
   user: { kitsuUserId: string; username: string };
+  kitsuAvatarUrl: string | null;
   kitsuAuthState: string;
   lastSyncAt: number | null;
   devices: DeviceInfo[];
@@ -75,6 +77,7 @@ export class AuthService {
     const { user, created } = await this.repo.upsertUser({
       kitsuUserId: kitsuAuth.kitsuUserId,
       username: kitsuAuth.username,
+      kitsuAvatarUrl: kitsuAuth.avatarUrl ?? null,
       kitsuAccessToken: kitsuAuth.accessToken,
       kitsuRefreshToken: kitsuAuth.refreshToken,
       kitsuTokenExpiresAt: kitsuAuth.expiresAt,
@@ -91,6 +94,7 @@ export class AuthService {
     return {
       token,
       user: { kitsuUserId: user.kitsuUserId, username: user.username },
+      kitsuAvatarUrl: user.kitsuAvatarUrl,
       isNewUser: created,
       syncMode: this.resolveSyncMode(created, user.lastSyncAt),
     };
@@ -125,6 +129,7 @@ export class AuthService {
     const sessions = await this.repo.listSessions(ctx.user.kitsuUserId);
     return {
       user: { kitsuUserId: ctx.user.kitsuUserId, username: ctx.user.username },
+      kitsuAvatarUrl: ctx.user.kitsuAvatarUrl,
       kitsuAuthState: ctx.user.kitsuAuthState,
       lastSyncAt: ctx.user.lastSyncAt?.getTime() ?? null,
       devices: sessions.map((s) => ({

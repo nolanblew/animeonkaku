@@ -107,6 +107,43 @@ describe("S4 sync job handlers", () => {
     await expect(handlers.KITSU_FULL_SYNC?.({}, job("KITSU_FULL_SYNC"))).rejects.toThrow(/userId/);
     await expect(handlers.MAP_THEMES?.({ kitsuIds: [] }, job("MAP_THEMES"))).rejects.toThrow(/kitsuIds/);
   });
+
+  it("publishes user-facing changes only after successful sync work completes", async () => {
+    const published: Array<[string, string[]]> = [];
+    const handlers = createSyncJobHandlers({
+      runKitsuSync: async () => {},
+      runMapThemes: async () => {},
+      runBackfillScan: async () => {},
+      runAutoPlaylistRefresh: async () => {},
+    }, {
+      onUserChanges: (userId, categories) => published.push([userId, [...categories]]),
+    });
+
+    await handlers.KITSU_FULL_SYNC?.({ userId: "u1" }, job("KITSU_FULL_SYNC"));
+    await handlers.MAP_THEMES?.({ kitsuIds: ["1"], userId: "u1" }, job("MAP_THEMES"));
+    await handlers.MAP_THEMES?.({ kitsuIds: ["2"] }, job("MAP_THEMES"));
+    await handlers.AUTO_PLAYLIST_REFRESH?.({ userId: "u1" }, job("AUTO_PLAYLIST_REFRESH"));
+    await handlers.BACKFILL_SCAN?.({ userId: "u1" }, job("BACKFILL_SCAN"));
+
+    expect(published).toEqual([
+      ["u1", ["library"]],
+      ["u1", ["library"]],
+      ["u1", ["playlist"]],
+    ]);
+
+    const failedPublications: Array<[string, string[]]> = [];
+    const failingHandlers = createSyncJobHandlers({
+      runKitsuSync: async () => { throw new Error("upstream failed"); },
+      runMapThemes: async () => {},
+      runBackfillScan: async () => {},
+      runAutoPlaylistRefresh: async () => {},
+    }, {
+      onUserChanges: (userId, categories) => failedPublications.push([userId, [...categories]]),
+    });
+
+    await expect(failingHandlers.KITSU_DELTA_SYNC?.({ userId: "u2" }, job("KITSU_DELTA_SYNC"))).rejects.toThrow("upstream failed");
+    expect(failedPublications).toEqual([]);
+  });
 });
 
 describe("SyncScheduler", () => {
