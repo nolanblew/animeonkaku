@@ -117,6 +117,10 @@ describe('accessible full-player queue surface', () => {
     expect(within(queue).queryByText('History 1')).not.toBeInTheDocument()
     expect(within(queue).getByText('Current theme')).toBeInTheDocument()
     expect(within(queue).getByLabelText('Scrollable playback queue')).toHaveAttribute('tabindex', '0')
+
+    fireEvent.scroll(within(queue).getByLabelText('Scrollable playback queue'), { target: { scrollTop: 0 } })
+    expect(within(queue).getByText('History 1')).toBeInTheDocument()
+    expect(queue.querySelectorAll('li.player-queue__row--history')).toHaveLength(7)
   })
 
   it('uses stable queue-entry identity for replay, reorder, play-next, and removal', () => {
