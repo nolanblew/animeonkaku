@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -117,6 +117,31 @@ describe('release detail page', () => {
     await userEvent.click(screen.getByRole('button', { name: 'More actions for First Transmission' }))
     await userEvent.click(screen.getByRole('menuitem', { name: 'Replace queue' }))
     expect(onReplaceQueueTrack).toHaveBeenCalledWith(expect.objectContaining({ id: 10 }), expect.objectContaining({ id: 42 }))
+  })
+
+  it('groups whole-release queue and playlist actions under More', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue(release())
+    const onPlayNextAll = vi.fn()
+    const onAddToQueueAll = vi.fn()
+    const onReplaceQueueAll = vi.fn()
+    renderPage('/release/42', { onPlayNextAll, onAddToQueueAll, onReplaceQueueAll })
+
+    await screen.findByRole('heading', { name: 'Signal in the Static' })
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Signal in the Static' }))
+    const menu = screen.getByRole('menu', { name: 'Signal in the Static actions' })
+    expect(within(menu).getByRole('menuitem', { name: 'Play next' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Add to queue' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Replace queue' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Add to playlist' })).toBeInTheDocument()
+
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Play next' }))
+    expect(onPlayNextAll).toHaveBeenCalledWith(expect.objectContaining({ id: 42 }))
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Signal in the Static' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }))
+    expect(onAddToQueueAll).toHaveBeenCalledWith(expect.objectContaining({ id: 42 }))
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Signal in the Static' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Replace queue' }))
+    expect(onReplaceQueueAll).toHaveBeenCalledWith(expect.objectContaining({ id: 42 }))
   })
 
   it('renders an explicit empty state for a release without ready tracks', async () => {
