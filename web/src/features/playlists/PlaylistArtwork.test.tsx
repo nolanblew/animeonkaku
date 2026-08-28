@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { PlaylistArtwork } from './PlaylistArtwork'
+import playlistCss from './playlists.css?raw'
 
 describe('PlaylistArtwork', () => {
   it.each([
@@ -18,5 +19,9 @@ describe('PlaylistArtwork', () => {
     render(<PlaylistArtwork playlistId={10} name="Empty mix" artworkUrls={[]} />)
     expect(screen.getByTestId('playlist-artwork-10')).toHaveAttribute('data-layout', 'empty')
     expect(screen.getByLabelText('Empty mix has no artwork yet')).toBeInTheDocument()
+  })
+
+  it('overrides the shared compact thumbnail height so catalog collages stay square', () => {
+    expect(playlistCss).toMatch(/\.playlist-artwork\s*\{[^}]*width:\s*100%[^}]*height:\s*auto[^}]*aspect-ratio:\s*1/)
   })
 })
