@@ -8,10 +8,12 @@ export function AnimeGrid({
   anime,
   library,
   pageSize = DEFAULT_CATALOG_PAGE_SIZE,
+  onPlayAnime,
 }: {
   anime: readonly LibraryAnimeDto[]
   library?: NormalizedLibrary | null
   pageSize?: number
+  onPlayAnime?: (anime: LibraryAnimeDto) => void
 }) {
   const boundedPageSize = Math.max(1, pageSize)
   const pageCount = Math.max(1, Math.ceil(anime.length / boundedPageSize))
@@ -34,7 +36,7 @@ export function AnimeGrid({
   return (
     <>
       <div className="catalog-anime-grid">
-        {visible.map((item) => <AnimeCard key={item.kitsuId} anime={item} themeCount={themeCounts.get(item.kitsuId)} />)}
+        {visible.map((item) => <AnimeCard key={item.kitsuId} anime={item} themeCount={themeCounts.get(item.kitsuId)} onPlayAnime={onPlayAnime} />)}
       </div>
       {pageCount > 1 && <nav className="catalog-pagination" aria-label="Anime pages">
         <button className="button button--secondary" type="button" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>Previous page</button>

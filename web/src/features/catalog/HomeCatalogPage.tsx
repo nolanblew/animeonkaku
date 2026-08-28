@@ -6,6 +6,7 @@ import { useRovingMenu } from '../../components/focusScope'
 import { MediaListItem } from '../../components/MediaPresentation'
 import { apiClient } from '../../lib/api'
 import { browserAssetUrl } from '../../lib/assets'
+import { artistRouteSlug } from '../../lib/navigation'
 import { readShowOstsOnHome, subscribeToHomePreference } from '../../lib/homePreference'
 import type { LibraryThemeDto, NormalizedLibrary } from '../../lib/library'
 import { useLibraryQuery } from '../../lib/query'
@@ -36,6 +37,7 @@ const filters: Array<{ value: HomeFilter; label: string }> = [
 ]
 
 export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQueue, onPlayPlaylist, onPlayNextPlaylist, onAddToQueuePlaylist }: HomeCatalogPageProps) {
+  const navigate = useNavigate()
   const home = useQuery<BrowserHomeResponse>({
     queryKey: ['home'],
     queryFn: ({ signal }) => apiClient.get<BrowserHomeResponse>('/v1/home?limit=24', { signal }),
@@ -78,6 +80,7 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
           ? <p className="catalog-empty">No tracks match this filter yet.</p>
           : <div className="home-quick-picks__grid">{quickPicks.map(({ theme, animeTitle, artworkUrl }) => {
             const presentation = themePresentation({ animeTitle, themeType: theme.themeType, songTitle: theme.title, artist: theme.artists.map((artist) => artist.name).join(', ') })
+            const destination = themeDestinations(theme, library)
             return <MediaListItem element="article" className="home-quick-pick" key={theme.id}
               artwork={<button type="button" className="home-quick-pick__play" onClick={() => onPlayTheme?.(theme, artworkUrl)} disabled={!onPlayTheme || !isPlayable(theme)} aria-label={`Play ${theme.title}`}>
                 {artworkUrl ? <img src={artworkUrl} alt="" /> : <span aria-hidden="true">AO</span>}<span className="home-quick-pick__play-icon"><Play size={18} fill="currentColor" /></span>
@@ -93,6 +96,10 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
                 hasFullSize={Boolean(theme.mediaModes.fullSize)}
                 onPlayNext={onPlayNext ? () => onPlayNext(theme, artworkUrl) : undefined}
                 onAddToQueue={onAddToQueue ? () => onAddToQueue(theme, artworkUrl) : undefined}
+                onGoToArtist={destination.artistSlug ? () => navigate(`/artist/${encodeURIComponent(destination.artistSlug!)}`) : undefined}
+                artistName={destination.artistName}
+                onGoToAnime={destination.animeId ? () => navigate(`/anime/${encodeURIComponent(destination.animeId!)}`) : undefined}
+                animeName={destination.animeName}
               />}
             />
           })}</div>}
@@ -104,6 +111,7 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
           const artworkUrl = song.artworkUrl
           const theme = song.theme
           const presentation = themePresentation({ animeTitle: song.animeTitle, themeType: theme?.themeType, songTitle: song.title, artist: song.artistName })
+          const destination = theme ? themeDestinations(theme, library) : null
           return <MediaListItem element="article" className="home-top-song" key={song.id}
             artwork={<button type="button" className="home-top-song__play" aria-label={`Play ${song.title}`} disabled={!onPlayTheme || !theme || !isPlayable(theme)} onClick={() => theme && onPlayTheme?.(theme, artworkUrl)}>
               {artworkUrl ? <img src={artworkUrl} alt="" loading="lazy" /> : <span aria-hidden="true">AO</span>}<Play size={16} fill="currentColor" />
@@ -119,6 +127,10 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
               hasFullSize={Boolean(theme.mediaModes.fullSize)}
               onPlayNext={onPlayNext ? () => onPlayNext(theme, artworkUrl) : undefined}
               onAddToQueue={onAddToQueue ? () => onAddToQueue(theme, artworkUrl) : undefined}
+              onGoToArtist={destination?.artistSlug ? () => navigate(`/artist/${encodeURIComponent(destination.artistSlug!)}`) : undefined}
+              artistName={destination?.artistName}
+              onGoToAnime={destination?.animeId ? () => navigate(`/anime/${encodeURIComponent(destination.animeId!)}`) : undefined}
+              animeName={destination?.animeName}
             />}
           />
         })}</div>}
@@ -149,6 +161,13 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
       </section>
     </>
   )
+}
+
+function themeDestinations(theme: LibraryThemeDto, library: NormalizedLibrary | null | undefined) {
+  const artistName = theme.artists.find((artist) => artist.name.trim())?.name.trim() || null
+  const artistSlug = artistRouteSlug(artistName)
+  const anime = theme.kitsuAnimeIds.map((id) => library?.animeById[id]).find((entry) => entry && !entry.deleted)
+  return { artistName, artistSlug, animeId: anime?.kitsuId ?? null, animeName: anime?.titleEn || anime?.title || null }
 }
 
 function HomeAnimeCard({ anime, libraryAnime, themes, playlistId, onPlayAll }: {

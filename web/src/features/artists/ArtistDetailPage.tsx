@@ -5,7 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { apiClient } from '../../lib/api'
 import { browserAssetUrl } from '../../lib/assets'
 import { CatalogError, CatalogLoading } from '../catalog/CatalogError'
-import { TrackActionMenu } from '../libraryactions'
+import { CollectionActionMenu, TrackActionMenu, type PlaylistItemInput } from '../libraryactions'
 import { formatThemeType, themePresentation } from '../../lib/themePresentation'
 import { preferredAnimeTitle, useAnimeTitlePreference } from '../../lib/animeTitlePreference'
 import type { ArtistAnimeLink, ArtistDetailResponse, ArtistFullSongDto, ArtistThemeDto } from './types'
@@ -17,9 +17,12 @@ export interface ArtistDetailPageProps {
   onPlayNextItem?: (artist: ArtistDetailResponse, startIndex: number) => void
   onAddToQueueItem?: (artist: ArtistDetailResponse, startIndex: number) => void
   onReplaceQueueItem?: (artist: ArtistDetailResponse, startIndex: number) => void
+  onPlayNextAll?: (artist: ArtistDetailResponse) => void
+  onAddToQueueAll?: (artist: ArtistDetailResponse) => void
+  onReplaceQueueAll?: (artist: ArtistDetailResponse) => void
 }
 
-export function ArtistDetailPage({ onPlayAll, onPlayItem, onPlayNextItem, onAddToQueueItem, onReplaceQueueItem }: ArtistDetailPageProps = {}) {
+export function ArtistDetailPage({ onPlayAll, onPlayItem, onPlayNextItem, onAddToQueueItem, onReplaceQueueItem, onPlayNextAll, onAddToQueueAll, onReplaceQueueAll }: ArtistDetailPageProps = {}) {
   const { artistSlug } = useParams()
   const query = useQuery<ArtistDetailResponse>({
     queryKey: ['artist', artistSlug],
@@ -39,6 +42,7 @@ export function ArtistDetailPage({ onPlayAll, onPlayItem, onPlayNextItem, onAddT
   const artworkUrl = browserAssetUrl(artist.artworkUrl)
   const totalSongs = themes.length + fullSongs.length
   const playableSongs = themes.filter((theme) => Boolean(theme.audioUrl) && theme.audioState !== 'FAILED' && theme.audioState !== 'MISSING').length + fullSongs.filter((song) => song.audioAvailable !== false && Boolean(song.audioUrl)).length
+  const collectionItems = collectionPlaylistItems(themes, fullSongs)
 
   return (
     <section className="page artist-page" aria-labelledby="artist-title">
@@ -55,6 +59,7 @@ export function ArtistDetailPage({ onPlayAll, onPlayItem, onPlayNextItem, onAddT
           <div className="artist-page__actions">
             <button className="button button--primary" type="button" disabled={!onPlayAll || playableSongs === 0} onClick={() => onPlayAll?.(query.data, false)}><Play size={17} fill="currentColor" /> Play all</button>
             <button className="button button--secondary" type="button" disabled={!onPlayAll || playableSongs === 0} onClick={() => onPlayAll?.(query.data, true)}><Shuffle size={17} /> Shuffle</button>
+            <CollectionActionMenu name={name} items={collectionItems} onPlayNext={onPlayNextAll ? () => onPlayNextAll(query.data) : undefined} onAddToQueue={onAddToQueueAll ? () => onAddToQueueAll(query.data) : undefined} onReplaceQueue={onReplaceQueueAll ? () => onReplaceQueueAll(query.data) : undefined} />
           </div>
         </div>
       </header>
@@ -118,6 +123,16 @@ function animeCount(themes: ArtistThemeDto[], songs: ArtistFullSongDto[]): numbe
   const ids = new Set<string>()
   for (const item of [...themes, ...songs]) for (const anime of item.anime ?? []) if (anime.kitsuId) ids.add(anime.kitsuId)
   return ids.size
+}
+
+function collectionPlaylistItems(themes: readonly ArtistThemeDto[], songs: readonly ArtistFullSongDto[]): PlaylistItemInput[] {
+  const seen = new Set<string>()
+  return [...themes.map((theme) => ({ itemType: 'THEME' as const, itemId: theme.id, modeOverride: null })), ...songs.map((song) => ({ itemType: 'SONG' as const, itemId: song.id, modeOverride: null }))].filter((item) => {
+    const key = `${item.itemType}:${item.itemId}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 function formatDuration(seconds: number | null): string {

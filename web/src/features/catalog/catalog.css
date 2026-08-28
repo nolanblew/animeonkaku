@@ -67,14 +67,15 @@
 .catalog-section__link, .catalog-back-link { display: inline-flex; align-items: center; gap: .35rem; color: var(--cyan); font-size: .82rem; font-weight: 700; }
 .catalog-home-grid, .catalog-anime-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 1rem; }
 .catalog-home-grid { grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); }
-.catalog-anime-card { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: .85rem; background: rgba(19, 23, 31, .74); transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease; }
+.catalog-anime-card { container-type: inline-size; position: relative; min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: .85rem; background: rgba(19, 23, 31, .74); transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease; }
 .catalog-anime-card:hover { transform: translateY(-3px); border-color: rgba(71, 217, 232, .42); box-shadow: 0 14px 35px rgba(0,0,0,.2); }
 .catalog-anime-card__link { display: block; height: 100%; }
 .catalog-anime-card__image { position: relative; display: grid; aspect-ratio: 2 / 3; place-items: center; overflow: hidden; background: linear-gradient(145deg, #e87995, #6457ad 52%, #1c5267); color: rgba(255,255,255,.78); font-size: 1.5rem; font-weight: 800; }
 .catalog-anime-card__image img { width: 100%; height: 100%; object-fit: cover; transition: transform .35s ease; }
 .catalog-anime-card:hover .catalog-anime-card__image img { transform: scale(1.04); }
-.catalog-anime-card__overlay { position: absolute; right: .55rem; bottom: .55rem; left: .55rem; display: flex; align-items: center; justify-content: center; gap: .35rem; padding: .48rem; border: 1px solid rgba(255,255,255,.2); border-radius: .45rem; background: rgba(9,11,16,.75); color: white; font-size: .72rem; font-weight: 800; opacity: 0; transform: translateY(5px); transition: opacity .2s, transform .2s; }
-.catalog-anime-card:hover .catalog-anime-card__overlay, .catalog-anime-card:focus-within .catalog-anime-card__overlay { opacity: 1; transform: translateY(0); }
+.catalog-anime-card__play { position: absolute; top: 40%; top: 75cqi; right: .55rem; left: .55rem; display: flex; align-items: center; justify-content: center; gap: .35rem; padding: .48rem; border: 1px solid rgba(255,255,255,.2); border-radius: .45rem; background: rgba(9,11,16,.82); color: white; font-size: .72rem; font-weight: 800; opacity: 0; pointer-events: none; transform: translateY(calc(-50% + 5px)); transition: opacity .2s, transform .2s; }
+.catalog-anime-card:hover .catalog-anime-card__play, .catalog-anime-card:focus-within .catalog-anime-card__play { opacity: 1; pointer-events: auto; transform: translateY(-50%); }
+.catalog-anime-card__play:disabled { cursor: not-allowed; }
 .catalog-anime-card__body { display: grid; gap: .4rem; padding: .75rem .8rem .85rem; }
 .catalog-anime-card h3 { overflow: hidden; margin: 0; font-size: .9rem; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
 .catalog-anime-card p { overflow: hidden; margin: 0; color: var(--muted); font-size: .73rem; text-overflow: ellipsis; white-space: nowrap; }
@@ -148,28 +149,31 @@
 .catalog-theme-row h3, .catalog-theme-row p { overflow: hidden; margin: 0; text-overflow: ellipsis; white-space: nowrap; }
 .catalog-theme-row h3 { font-size: .88rem; }
 .catalog-theme-row p { margin-top: .22rem; color: var(--muted); font-size: .76rem; }
-.catalog-theme-row__state { color: var(--cyan); font-size: .72rem; text-transform: capitalize; }
 .catalog-theme-row__image { width: 2.7rem; height: 2.7rem; flex: 0 0 auto; border-radius: .45rem; object-fit: cover; }
 .catalog-theme-row__play { display: inline-grid; width: 2.25rem; height: 2.25rem; flex: 0 0 auto; place-items: center; border: 0; border-radius: 50%; background: var(--coral); color: white; cursor: pointer; }
 .catalog-theme-row__play:disabled { cursor: not-allowed; opacity: .45; }
 .catalog-theme-row__more { display: inline-grid; width: 2.25rem; height: 2.25rem; flex: 0 0 auto; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
 .catalog-theme-row__more:hover { background: rgba(255,255,255,.08); color: var(--text); }
-.catalog-release-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: .8rem; }
-.catalog-release-card { display: flex; min-width: 0; align-items: flex-start; gap: .8rem; padding: .8rem; border: 1px solid var(--line); border-radius: .65rem; background: rgba(19,23,31,.65); }
-.catalog-release-card img, .catalog-release-card__art { width: 3.7rem; height: 3.7rem; flex: 0 0 auto; border-radius: .45rem; object-fit: cover; }
-.catalog-release-card__art { display: inline-grid; place-items: center; background: linear-gradient(145deg, #e87995, #6457ad); }
-.catalog-release-card > div { min-width: 0; }
-.catalog-release-card h3, .catalog-release-card p, .catalog-release-card small { overflow: hidden; margin: 0; text-overflow: ellipsis; white-space: nowrap; }
-.catalog-release-card h3 { font-size: .86rem; }
-.catalog-release-card p { margin-top: .24rem; color: var(--muted); font-size: .73rem; }
-.catalog-release-card small { display: block; margin-top: .28rem; color: var(--subtle); font-size: .68rem; }
-.catalog-release-tracks { display: grid; gap: .15rem; margin: .65rem 0 0; padding: 0; list-style: none; }
-.catalog-release-tracks button { display: grid; width: 100%; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .4rem; padding: .38rem .2rem; border: 0; border-radius: .35rem; background: transparent; color: var(--muted); text-align: left; cursor: pointer; }
-.catalog-release-tracks button:hover { background: rgba(255,255,255,.06); color: var(--text); }
-.catalog-release-tracks button:disabled { cursor: not-allowed; opacity: .45; }
-.catalog-release-tracks span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.catalog-release-tracks time { color: var(--subtle); font-size: .67rem; }
-.catalog-release-track-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .35rem; }
+.catalog-release-list { display: grid; gap: 1rem; }
+.catalog-release-section { display: grid; min-width: 0; gap: .8rem; padding: 1rem; border: 1px solid var(--line); border-radius: .75rem; background: rgba(19,23,31,.65); }
+.catalog-release-section__header { display: grid; min-width: 0; grid-template-columns: 3.7rem minmax(0, 1fr); align-items: start; gap: .8rem; }
+.catalog-release-section__header img, .catalog-release-section__art { width: 3.7rem; height: 3.7rem; flex: 0 0 auto; border-radius: .45rem; object-fit: cover; }
+.catalog-release-section__art { display: inline-grid; place-items: center; background: linear-gradient(145deg, #e87995, #6457ad); }
+.catalog-release-section__header > div { min-width: 0; }
+.catalog-release-section__header h3, .catalog-release-section__header p, .catalog-release-section__header small { overflow: hidden; margin: 0; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-release-section__header h3 { font-size: 1rem; }
+.catalog-release-section__header p:not(.eyebrow) { margin-top: .24rem; color: var(--muted); font-size: .76rem; }
+.catalog-release-section__header small { display: block; margin-top: .28rem; color: var(--subtle); font-size: .7rem; }
+.catalog-release-tracks { display: grid; gap: .4rem; margin: 0; padding: 0; list-style: none; }
+.catalog-release-track-row { display: grid; min-width: 0; grid-template-columns: 2rem 2.25rem minmax(0, 1fr) auto auto; align-items: center; gap: .7rem; padding: .55rem .65rem; border: 1px solid var(--line); border-radius: .55rem; background: rgba(9,11,16,.36); }
+.catalog-release-track-row__number { color: var(--subtle); font-size: .75rem; text-align: center; }
+.catalog-release-track-row__play { display: inline-grid; width: 2.25rem; height: 2.25rem; flex: 0 0 auto; place-items: center; border: 0; border-radius: 50%; background: var(--coral); color: white; cursor: pointer; }
+.catalog-release-track-row__play:disabled { cursor: not-allowed; opacity: .45; }
+.catalog-release-track-row__copy { display: grid; min-width: 0; gap: .15rem; }
+.catalog-release-track-row__copy strong, .catalog-release-track-row__copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-release-track-row__copy strong { font-size: .86rem; }
+.catalog-release-track-row__copy span { color: var(--muted); font-size: .73rem; }
+.catalog-release-track-row time { color: var(--subtle); font-size: .67rem; }
 .catalog-release-track-row > .track-actions { justify-self: end; }
 .catalog-artist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: .65rem; }
 .catalog-artist-grid > button { display: flex; min-width: 0; align-items: center; gap: .7rem; padding: .8rem; border: 1px solid var(--line); border-radius: .65rem; background: rgba(19,23,31,.65); color: var(--text); text-align: left; cursor: pointer; }
@@ -206,4 +210,7 @@
   .catalog-anime-card__meta span:nth-child(2), .catalog-anime-card__meta svg { display: none; }
   .catalog-detail__hero { grid-template-columns: 1fr; }
   .catalog-detail__poster { width: min(56vw, 14rem); justify-self: center; }
+  .catalog-release-section { padding: .75rem; }
+  .catalog-release-track-row { grid-template-columns: 1.5rem 2.25rem minmax(0, 1fr) auto; gap: .45rem; padding-inline: .5rem; }
+  .catalog-release-track-row time { display: none; }
 }

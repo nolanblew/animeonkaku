@@ -85,6 +85,18 @@ describe('accessible full-player queue surface', () => {
     expect(within(queue).getByRole('button', { name: 'Replay History one' })).toBeInTheDocument()
     expect(within(queue).getByText('Current theme')).toBeInTheDocument()
     expect(within(queue).getByRole('button', { name: 'Play Upcoming five' })).toBeInTheDocument()
+    expect(within(queue).getByRole('button', { name: 'More actions for History two in queue' })).toBeInTheDocument()
+    expect(within(queue).getByRole('button', { name: 'More actions for Current theme in queue' })).toBeInTheDocument()
+
+    fireEvent.click(within(queue).getByRole('button', { name: 'More actions for Current theme in queue' }))
+    expect(screen.getByRole('menuitem', { name: 'Go to Band' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Play next' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Add another to queue' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Go to Band' }))
+
+    fireEvent.click(within(queue).getByRole('button', { name: 'More actions for History two in queue' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Close' }))
+    expect(screen.queryByRole('menu', { name: 'History two queue actions' })).not.toBeInTheDocument()
 
     expect(playerCss).toMatch(/player-queue__scroll[^}]*overflow-y:\s*auto/)
     expect(playerCss).not.toMatch(/player-queue li:nth-child/)
@@ -118,7 +130,7 @@ describe('accessible full-player queue surface', () => {
     expect(within(queue).getByText('Current theme')).toBeInTheDocument()
     expect(within(queue).getByLabelText('Scrollable playback queue')).toHaveAttribute('tabindex', '0')
 
-    fireEvent.scroll(within(queue).getByLabelText('Scrollable playback queue'), { target: { scrollTop: 0 } })
+    fireEvent.wheel(within(queue).getByLabelText('Scrollable playback queue'), { deltaY: -30 })
     expect(within(queue).getByText('History 1')).toBeInTheDocument()
     expect(queue.querySelectorAll('li.player-queue__row--history')).toHaveLength(7)
   })

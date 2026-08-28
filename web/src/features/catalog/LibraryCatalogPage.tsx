@@ -14,6 +14,7 @@ import { CatalogError, CatalogLoading } from './CatalogError'
 import { filterAndSortAnime, type LibrarySort } from './selectors'
 
 export interface LibraryCatalogPageProps {
+  onPlayAnime?: (anime: ReturnType<typeof selectActiveAnime>[number]) => void
   onPlayTheme?: (theme: LibraryThemeDto, artworkUrl?: string | null) => void
   onPlayNext?: (theme: LibraryThemeDto, artworkUrl?: string | null) => void
   onAddToQueue?: (theme: LibraryThemeDto, artworkUrl?: string | null) => void
@@ -25,7 +26,7 @@ export interface LibraryCatalogPageProps {
 type LibraryTab = 'anime' | 'songs' | 'artists' | 'playlists'
 const PAGE_SIZE = 48
 
-export function LibraryCatalogPage({ onPlayTheme, onPlayNext, onAddToQueue, onPlayPlaylist, onPlayNextPlaylist, onAddToQueuePlaylist }: LibraryCatalogPageProps = {}) {
+export function LibraryCatalogPage({ onPlayAnime, onPlayTheme, onPlayNext, onAddToQueue, onPlayPlaylist, onPlayNextPlaylist, onAddToQueuePlaylist }: LibraryCatalogPageProps = {}) {
   const animeTitlePreference = useAnimeTitlePreference()
   const query = useLibraryQuery()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -100,7 +101,7 @@ export function LibraryCatalogPage({ onPlayTheme, onPlayNext, onAddToQueue, onPl
       }} />
 
       {tab === 'anime'
-        ? <AnimeLibraryView anime={filteredAnime} library={query.library} search={search} status={status} sort={sort} statuses={statuses} onSearch={setSearch} onStatus={setStatus} onSort={setSort} />
+        ? <AnimeLibraryView anime={filteredAnime} library={query.library} search={search} status={status} sort={sort} statuses={statuses} onSearch={setSearch} onStatus={setStatus} onSort={setSort} onPlayAnime={onPlayAnime} />
         : <>
             <LibrarySearch tab={tab} value={search} onChange={setSearch} />
             {tab === 'songs' && <ThemeLibraryList themes={filteredThemes.slice(0, visibleCount)} library={query.library} onPlayTheme={onPlayTheme} onMore={setSelectedTheme} titlePreference={animeTitlePreference} />}
@@ -127,7 +128,7 @@ function libraryTabLabel(tab: LibraryTab): string {
   return tab === 'anime' ? 'Anime' : tab[0].toUpperCase() + tab.slice(1)
 }
 
-function AnimeLibraryView({ anime, library, search, status, sort, statuses, onSearch, onStatus, onSort }: {
+function AnimeLibraryView({ anime, library, search, status, sort, statuses, onSearch, onStatus, onSort, onPlayAnime }: {
   anime: ReturnType<typeof selectActiveAnime>
   library: NormalizedLibrary
   search: string
@@ -137,6 +138,7 @@ function AnimeLibraryView({ anime, library, search, status, sort, statuses, onSe
   onSearch: (value: string) => void
   onStatus: (value: string) => void
   onSort: (value: LibrarySort) => void
+  onPlayAnime?: LibraryCatalogPageProps['onPlayAnime']
 }) {
   return <>
     <div className="catalog-toolbar" role="toolbar" aria-label="Library filters">
@@ -144,7 +146,7 @@ function AnimeLibraryView({ anime, library, search, status, sort, statuses, onSe
       <label className="catalog-select"><SlidersHorizontal size={17} aria-hidden="true" /><span className="sr-only">Status</span><select aria-label="Filter by status" value={status} onChange={(event) => onStatus(event.target.value)}><option value="all">All statuses</option>{statuses.map((value) => <option value={value} key={value}>{value.replaceAll('_', ' ')}</option>)}</select></label>
       <label className="catalog-select"><ArrowDownUp size={17} aria-hidden="true" /><span className="sr-only">Sort</span><select aria-label="Sort library" value={sort} onChange={(event) => onSort(event.target.value as LibrarySort)}><option value="recent">Recently updated</option><option value="title-asc">Title A–Z</option><option value="title-desc">Title Z–A</option></select></label>
     </div>
-    {anime.length === 0 ? <section className="catalog-empty catalog-empty--large"><h2>No anime found</h2><p>Try a different search or clear the filters to see your synced collection.</p>{(search || status !== 'all') && <button className="button button--text" type="button" onClick={() => { onSearch(''); onStatus('all') }}>Clear filters</button>}</section> : <AnimeGrid key={`${search}\u0000${status}\u0000${sort}`} anime={anime} library={library} />}
+    {anime.length === 0 ? <section className="catalog-empty catalog-empty--large"><h2>No anime found</h2><p>Try a different search or clear the filters to see your synced collection.</p>{(search || status !== 'all') && <button className="button button--text" type="button" onClick={() => { onSearch(''); onStatus('all') }}>Clear filters</button>}</section> : <AnimeGrid key={`${search}\u0000${status}\u0000${sort}`} anime={anime} library={library} onPlayAnime={onPlayAnime} />}
   </>
 }
 

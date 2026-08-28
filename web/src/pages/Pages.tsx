@@ -11,7 +11,9 @@ import { SearchPage as AccountSearchPage, SettingsPage as AccountSettingsPage, t
 import { mapSongToQueueItem, mapThemeToQueueItem, NowPlayingView, runPlayerViewTransition, usePlayer, type PlayerContextValue, type PlayerQueueItem } from '../player'
 import type { LibraryAnimeDto, LibraryThemeDto, MusicReleaseDto, MusicTrackDto, NormalizedLibrary, PlaylistDto } from '../lib/library'
 import { browserAssetUrl } from '../lib/assets'
+import { artistRouteSlug } from '../lib/navigation'
 import { useLibraryQuery } from '../lib/query'
+import { compareThemesByType } from '../lib/themePresentation'
 
 export function HomePage() {
   const player = usePlayer()
@@ -30,7 +32,7 @@ export function HomePage() {
 export function LibraryPage() {
   const player = usePlayer()
   const library = useLibraryQuery().library
-  return <LibraryCatalogPage onPlayTheme={(theme, artworkUrl) => player.playTheme(theme, themeQueueOptions(theme, library, artworkUrl))} onPlayNext={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'next', artworkUrl, library)} onAddToQueue={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'append', artworkUrl, library)} onPlayPlaylist={library ? (playlist) => playPlaylist(player, library, playlist, false) : undefined} onPlayNextPlaylist={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'next') : undefined} onAddToQueuePlaylist={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'append') : undefined} />
+  return <LibraryCatalogPage onPlayAnime={library ? (anime) => playAnimeCollection(player, library, anime) : undefined} onPlayTheme={(theme, artworkUrl) => player.playTheme(theme, themeQueueOptions(theme, library, artworkUrl))} onPlayNext={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'next', artworkUrl, library)} onAddToQueue={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'append', artworkUrl, library)} onPlayPlaylist={library ? (playlist) => playPlaylist(player, library, playlist, false) : undefined} onPlayNextPlaylist={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'next') : undefined} onAddToQueuePlaylist={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'append') : undefined} />
 }
 
 export function SearchPage() {
@@ -51,7 +53,7 @@ export function AnimePage() {
 
 export function ArtistPage() {
   const player = usePlayer()
-  return <ArtistDetailPage onPlayAll={(artist, shuffle) => playArtistCollection(player, artist, shuffle)} onPlayItem={(artist, startIndex) => playArtistCollection(player, artist, false, startIndex)} onPlayNextItem={(artist, index) => enqueueArtistItem(player, artist, index, 'next')} onAddToQueueItem={(artist, index) => enqueueArtistItem(player, artist, index, 'append')} onReplaceQueueItem={(artist, index) => replaceArtistItem(player, artist, index)} />
+  return <ArtistDetailPage onPlayAll={(artist, shuffle) => playArtistCollection(player, artist, shuffle)} onPlayItem={(artist, startIndex) => playArtistCollection(player, artist, false, startIndex)} onPlayNextItem={(artist, index) => enqueueArtistItem(player, artist, index, 'next')} onAddToQueueItem={(artist, index) => enqueueArtistItem(player, artist, index, 'append')} onReplaceQueueItem={(artist, index) => replaceArtistItem(player, artist, index)} onPlayNextAll={(artist) => enqueueArtistCollection(player, artist, 'next')} onAddToQueueAll={(artist) => enqueueArtistCollection(player, artist, 'append')} onReplaceQueueAll={(artist) => replaceArtistCollection(player, artist)} />
 }
 
 export function RelatedMusicPage() {
@@ -60,7 +62,7 @@ export function RelatedMusicPage() {
 
 export function ReleasePage() {
   const player = usePlayer()
-  return <ReleaseDetailPage onPlayAll={(release, shuffle) => playReleaseCollection(player, release, shuffle)} onPlayTrack={(track, release, startIndex) => playReleaseTrack(player, track, release, startIndex)} onPlayNextTrack={(track, release) => enqueueSong(player, track, release.title, resolveBrowserAsset(release.artworkUrl), release.anime?.find((anime) => anime.kitsuId)?.kitsuId, 'next')} onAddToQueueTrack={(track, release) => enqueueSong(player, track, release.title, resolveBrowserAsset(release.artworkUrl), release.anime?.find((anime) => anime.kitsuId)?.kitsuId, 'append')} onReplaceQueueTrack={(track, release) => replaceSong(player, track, release.title, resolveBrowserAsset(release.artworkUrl), release.anime?.find((anime) => anime.kitsuId)?.kitsuId)} />
+  return <ReleaseDetailPage onPlayAll={(release, shuffle) => playReleaseCollection(player, release, shuffle)} onPlayTrack={(track, release, startIndex) => playReleaseTrack(player, track, release, startIndex)} onPlayNextTrack={(track, release) => enqueueSong(player, track, release.title, resolveBrowserAsset(release.artworkUrl), release.anime?.find((anime) => anime.kitsuId)?.kitsuId, 'next')} onAddToQueueTrack={(track, release) => enqueueSong(player, track, release.title, resolveBrowserAsset(release.artworkUrl), release.anime?.find((anime) => anime.kitsuId)?.kitsuId, 'append')} onReplaceQueueTrack={(track, release) => replaceSong(player, track, release.title, resolveBrowserAsset(release.artworkUrl), release.anime?.find((anime) => anime.kitsuId)?.kitsuId)} onPlayNextAll={(release) => enqueueReleaseCollection(player, release, 'next')} onAddToQueueAll={(release) => enqueueReleaseCollection(player, release, 'append')} onReplaceQueueAll={(release) => replaceReleaseCollection(player, release)} />
 }
 
 export function PlaylistPage() {
@@ -75,7 +77,7 @@ export function PlaylistPage() {
   if (query.isPending) return <PlaylistFeatureMessage>Loading playlist…</PlaylistFeatureMessage>
   if (query.isError) return <PlaylistFeatureMessage>Could not load this playlist. Try again in a moment.</PlaylistFeatureMessage>
   if (!query.playlist) return <RouteSkeleton eyebrow="Playlist" title="Playlist not found" description="This playlist may have been removed on another device." icon={ListMusic} />
-  return <PlaylistDetail playlist={query.playlist} library={library} onUpdate={mutations.update} onDelete={async (playlist) => { await mutations.remove(playlist); navigate('/playlists', { replace: true }) }} onBack={() => navigate('/playlists')} onPlay={library ? (playlist, shuffle) => playPlaylist(player, library, playlist, shuffle) : undefined} onPlayItem={library ? (playlist, index) => playPlaylist(player, library, playlist, false, index) : undefined} onPlayNextItem={library ? (playlist, index) => enqueuePlaylistItem(player, library, playlist, index, 'next') : undefined} onAddToQueueItem={library ? (playlist, index) => enqueuePlaylistItem(player, library, playlist, index, 'append') : undefined} onPlayNext={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'next') : undefined} onAddToQueue={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'append') : undefined} onReplaceQueue={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'replace') : undefined} onRefresh={(playlist) => mutations.refresh(playlist.id)} />
+  return <PlaylistDetail playlist={query.playlist} library={library} onUpdate={mutations.update} onDelete={async (playlist) => { await mutations.remove(playlist); navigate('/playlists', { replace: true }) }} onBack={() => navigate('/playlists')} onPlay={library ? (playlist, shuffle) => playPlaylist(player, library, playlist, shuffle) : undefined} onPlayItem={library ? (playlist, index) => playPlaylist(player, library, playlist, false, index) : undefined} onPlayNextItem={library ? (playlist, index) => enqueuePlaylistItem(player, library, playlist, index, 'next') : undefined} onAddToQueueItem={library ? (playlist, index) => enqueuePlaylistItem(player, library, playlist, index, 'append') : undefined} onPlayNext={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'next') : undefined} onAddToQueue={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'append') : undefined} onReplaceQueue={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'replace') : undefined} onRefresh={(playlist) => mutations.refresh(playlist.id)} onNavigateToArtist={(artistName) => { const slug = artistRouteSlug(artistName); if (slug) navigate(`/artist/${encodeURIComponent(slug)}`) }} onNavigateToAnime={(animeId) => navigate(`/anime/${encodeURIComponent(animeId)}`)} />
 }
 
 export function PlaylistsPage() {
@@ -139,11 +141,23 @@ function replaceSearchTrack(player: PlayerContextValue, result: MusicSearchTrack
 }
 
 function playReleaseCollection(player: PlayerContextValue, release: MusicReleaseDto, shuffle: boolean, startIndex = 0): void {
-  const artworkUrl = resolveBrowserAsset(release.artworkUrl)
-  const animeId = release.anime?.find((anime) => anime.kitsuId)?.kitsuId
-  const items = release.tracks.map((track) => mapSongToQueueItem(track, { artworkUrl, animeId }))
+  const items = releaseQueueItems(release)
   if (items.length === 0) return
   player.playItems(items, { contextLabel: release.title, startIndex, shuffle })
+}
+
+function enqueueReleaseCollection(player: PlayerContextValue, release: MusicReleaseDto, position: 'next' | 'append'): void {
+  enqueueQueueItems(player, releaseQueueItems(release), position, release.title)
+}
+
+function replaceReleaseCollection(player: PlayerContextValue, release: MusicReleaseDto): void {
+  replaceQueueItems(player, releaseQueueItems(release), release.title)
+}
+
+function releaseQueueItems(release: MusicReleaseDto): PlayerQueueItem[] {
+  const artworkUrl = resolveBrowserAsset(release.artworkUrl)
+  const animeId = release.anime?.find((anime) => anime.kitsuId)?.kitsuId
+  return release.tracks.map((track) => mapSongToQueueItem(track, { artworkUrl, animeId }))
 }
 
 function playReleaseTrack(player: PlayerContextValue, _track: MusicTrackDto, release: MusicReleaseDto, startIndex = 0): void {
@@ -188,6 +202,16 @@ function enqueueArtistItem(player: PlayerContextValue, artist: ArtistDetailRespo
   if (item) enqueueQueueItems(player, [item], position, artist.artist.name || 'Artist')
 }
 
+function enqueueArtistCollection(player: PlayerContextValue, artist: ArtistDetailResponse, position: 'next' | 'append'): void {
+  const items = artistQueueItems(artist).filter((item): item is PlayerQueueItem => item !== null)
+  enqueueQueueItems(player, items, position, artist.artist.name)
+}
+
+function replaceArtistCollection(player: PlayerContextValue, artist: ArtistDetailResponse): void {
+  const items = artistQueueItems(artist).filter((item): item is PlayerQueueItem => item !== null)
+  replaceQueueItems(player, items, artist.artist.name)
+}
+
 function replaceArtistItem(player: PlayerContextValue, artist: ArtistDetailResponse, index: number): void {
   const item = artistQueueItems(artist)[index]
   if (item) replaceQueueItems(player, [item], artist.artist.name || 'Artist')
@@ -210,6 +234,17 @@ function playThemeCollection(player: PlayerContextValue, themes: LibraryThemeDto
   const items = themes.map((theme) => mapThemeToQueueItem(theme, themeQueueOptions(theme, library, artworkUrl)))
   if (items.length === 0) return
   player.playItems(items, { contextLabel: themes.length === 1 ? themes[0]?.title : 'Anime themes', startIndex, shuffle })
+}
+
+function playAnimeCollection(player: PlayerContextValue, library: NormalizedLibrary, anime: LibraryAnimeDto): void {
+  const themes = Object.values(library.themesById)
+    .filter((theme) => !theme.deleted && theme.kitsuAnimeIds.includes(anime.kitsuId) && isPlayableTheme(theme))
+    .sort(compareThemesByType)
+  playThemeCollection(player, themes, 0, false, anime.posterUrl ?? anime.coverUrl, library)
+}
+
+function isPlayableTheme(theme: LibraryThemeDto): boolean {
+  return Boolean(theme.mediaModes.tvSize?.url || theme.mediaModes.fullSize?.url || theme.mediaModes.video?.url || theme.audioUrl)
 }
 
 function insertThemeCollection(player: PlayerContextValue, themes: LibraryThemeDto[], position: 'next' | 'append', artworkUrl?: string | null, library?: NormalizedLibrary | null): void {

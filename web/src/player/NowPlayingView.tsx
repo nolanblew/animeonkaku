@@ -8,6 +8,8 @@ import { windowQueueEntries } from './queueWindow'
 import { useAccessibleFocusScope } from '../components/focusScope'
 import { themePresentation } from '../lib/themePresentation'
 import { preferredAnimeTitle, useAnimeTitlePreference } from '../lib/animeTitlePreference'
+import { useInRouterContext, useNavigate } from 'react-router-dom'
+import { artistRouteSlug } from '../lib/navigation'
 
 export interface NowPlayingViewProps { className?: string; onCollapse?: () => void }
 
@@ -64,11 +66,13 @@ export function NowPlayingView({ className = '', onCollapse }: NowPlayingViewPro
 
 function PlaybackQueue({ onClose }: { onClose: () => void }) {
   const player = usePlayer()
+  const titlePreference = useAnimeTitlePreference()
   const [menuEntryId, setMenuEntryId] = useState<number | null>(null)
-  const [historyVisibleCount, setHistoryVisibleCount] = useState(40)
+  const [historyVisibleCount, setHistoryVisibleCount] = useState(3)
   const [upcomingVisibleCount, setUpcomingVisibleCount] = useState(40)
   const [draggingEntryId, setDraggingEntryId] = useState<number | null>(null)
   const [dropTargetId, setDropTargetId] = useState<number | null>(null)
+  const touchStartY = useRef<number | null>(null)
   const dragRef = useRef<{
     queueId: number
     pointerId: number
@@ -85,13 +89,13 @@ function PlaybackQueue({ onClose }: { onClose: () => void }) {
   const history = player.queueState.historyEntries ?? []
   const current = entries[currentIndex]
   const upcoming = entries.slice(currentIndex + 1)
-  const historyWindow = useMemo(() => windowQueueEntries(history, { anchor: 0, viewportSize: historyVisibleCount, overscan: 8 }), [history, historyVisibleCount])
+  const historyWindow = useMemo(() => windowQueueEntries(history, { anchor: history.length - 1, viewportSize: historyVisibleCount, overscan: 0 }), [history, historyVisibleCount])
   const upcomingWindow = useMemo(() => windowQueueEntries(upcoming, { anchor: 0, viewportSize: upcomingVisibleCount, overscan: 8 }), [upcoming, upcomingVisibleCount])
-  const menuEntry = upcoming.find((entry) => entry.queueId === menuEntryId)
+  const menuEntry = [...history, ...(current ? [current] : []), ...upcoming].find((entry) => entry.queueId === menuEntryId)
   const menuRef = useAccessibleFocusScope<HTMLDivElement>({ active: menuEntry !== undefined, onEscape: () => setMenuEntryId(null) })
 
   useEffect(() => {
-    setHistoryVisibleCount(40)
+    setHistoryVisibleCount(3)
     setUpcomingVisibleCount(40)
   }, [entries, history])
 
@@ -193,12 +197,34 @@ function PlaybackQueue({ onClose }: { onClose: () => void }) {
         <div className="player-queue__heading-actions"><span>{entries.length} items</span><button type="button" className="player-icon-button player-icon-button--quiet" onClick={onClose} aria-label="Close queue"><X size={18} /></button></div>
       </div>
       <p id="queue-reorder-instructions" className="sr-only">Drag from the reorder handle. On touch, press briefly before dragging. With a keyboard, use the Up and Down Arrow keys.</p>
-      <div className="player-queue__scroll" tabIndex={0} aria-label="Scrollable playback queue">
-        {history.length > 0 && <QueueSection title="History" footer={historyWindow.endExclusive < history.length ? <QueueWindowControl label="history" shown={historyWindow.endExclusive} total={history.length} onClick={() => setHistoryVisibleCount((currentCount) => Math.min(currentCount + 40, history.length))} /> : undefined}>
-          {historyWindow.entries.map((entry, index) => { const historyIndex = historyWindow.start + index; return <QueueRow key={`history-${entry.queueId}`} entry={entry} tone="history" position={historyIndex + 1} primaryLabel={`Replay ${entry.item.title}`} onPrimary={() => player.queue.rewindTo(historyIndex)} /> })}
+      <div
+        className="player-queue__scroll"
+        tabIndex={0}
+        aria-label="Scrollable playback queue"
+        onScroll={(event) => {
+          if (event.currentTarget.scrollTop <= 8 && historyWindow.start > 0) {
+            setHistoryVisibleCount((currentCount) => Math.min(currentCount + 40, history.length))
+          }
+        }}
+        onWheel={(event) => {
+          if (event.deltaY < 0 && event.currentTarget.scrollTop <= 8 && historyWindow.start > 0) {
+            setHistoryVisibleCount((currentCount) => Math.min(currentCount + 40, history.length))
+          }
+        }}
+        onTouchStart={(event) => { touchStartY.current = event.touches[0]?.clientY ?? null }}
+        onTouchMove={(event) => {
+          const currentY = event.touches[0]?.clientY
+          if (currentY !== undefined && touchStartY.current !== null && currentY - touchStartY.current > 12 && event.currentTarget.scrollTop <= 8 && historyWindow.start > 0) {
+            touchStartY.current = null
+            setHistoryVisibleCount((currentCount) => Math.min(currentCount + 40, history.length))
+          }
+        }}
+      >
+        {history.length > 0 && <QueueSection title="History" footer={historyWindow.start > 0 ? <QueueWindowControl label="older history" shown={historyWindow.entries.length} total={history.length} onClick={() => setHistoryVisibleCount((currentCount) => Math.min(currentCount + 40, history.length))} /> : undefined}>
+          {historyWindow.entries.map((entry, index) => { const historyIndex = historyWindow.start + index; return <QueueRow key={`history-${entry.queueId}`} entry={entry} tone="history" position={historyIndex + 1} titlePreference={titlePreference} primaryLabel={`Replay ${entry.item.title}`} onPrimary={() => player.queue.rewindTo(historyIndex)} onMore={() => setMenuEntryId((open) => open === entry.queueId ? null : entry.queueId)} menuOpen={menuEntryId === entry.queueId} menu={menuEntryId === entry.queueId ? <div ref={menuRef} className="player-queue__row-menu" role="menu" aria-label={`${entry.item.title} queue actions`}><strong>{entry.item.title}</strong><QueueDestinationActions item={entry.item} onClose={() => setMenuEntryId(null)} /><button type="button" role="menuitem" onClick={() => setMenuEntryId(null)}>Close</button></div> : undefined} /> })}
         </QueueSection>}
         {current && <QueueSection title="Now playing">
-          <QueueRow entry={current} tone="current" position={currentIndex + 1} />
+          <QueueRow entry={current} tone="current" position={currentIndex + 1} titlePreference={titlePreference} onMore={() => setMenuEntryId((open) => open === current.queueId ? null : current.queueId)} menuOpen={menuEntryId === current.queueId} menu={menuEntryId === current.queueId ? <div ref={menuRef} className="player-queue__row-menu" role="menu" aria-label={`${current.item.title} queue actions`}><strong>{current.item.title}</strong><QueueDestinationActions item={current.item} onClose={() => setMenuEntryId(null)} /><button type="button" role="menuitem" onClick={() => setMenuEntryId(null)}>Close</button></div> : undefined} />
         </QueueSection>}
         <QueueSection title="Up next" footer={upcomingWindow.endExclusive < upcoming.length ? <QueueWindowControl label="queue" shown={upcomingWindow.endExclusive} total={upcoming.length} onClick={() => setUpcomingVisibleCount((currentCount) => Math.min(currentCount + 40, upcoming.length))} /> : undefined}>
           {upcoming.length === 0
@@ -213,6 +239,7 @@ function PlaybackQueue({ onClose }: { onClose: () => void }) {
                 entry={entry}
                 tone="upcoming"
                 position={absoluteIndex + 1}
+                titlePreference={titlePreference}
                 primaryLabel={`Play ${entry.item.title}`}
                 onPrimary={() => player.skipTo(absoluteIndex)}
                 onMore={() => setMenuEntryId((open) => open === entry.queueId ? null : entry.queueId)}
@@ -220,9 +247,10 @@ function PlaybackQueue({ onClose }: { onClose: () => void }) {
                 menu={menuEntryId === entry.queueId ? <div ref={menuRef} className="player-queue__row-menu" role="menu" aria-label={`${entry.item.title} queue actions`}>
                   <strong>{entry.item.title}</strong>
                   {!player.isQueueEntryEligible(entry.queueId) && <button type="button" role="menuitem" onClick={() => { player.queue.unskipEntry(entry.queueId); setMenuEntryId(null) }}>Play this disliked item</button>}
-                  <button type="button" role="menuitem" onClick={() => { player.queue.moveToPlayNext(entry.queueId); setMenuEntryId(null) }}>Play next</button>
-                  <button type="button" role="menuitem" onClick={() => { player.queue.addToQueue([entry.item]); setMenuEntryId(null) }}>Add another to queue</button>
-                  <button type="button" role="menuitem" className="player-queue__danger" onClick={() => { player.queue.removeEntry(entry.queueId); setMenuEntryId(null) }}><Trash2 size={15} /> Remove from queue</button>
+                   <button type="button" role="menuitem" onClick={() => { player.queue.moveToPlayNext(entry.queueId); setMenuEntryId(null) }}>Play next</button>
+                   <button type="button" role="menuitem" onClick={() => { player.queue.addToQueue([entry.item]); setMenuEntryId(null) }}>Add another to queue</button>
+                   <QueueDestinationActions item={entry.item} onClose={() => setMenuEntryId(null)} />
+                   <button type="button" role="menuitem" className="player-queue__danger" onClick={() => { player.queue.removeEntry(entry.queueId); setMenuEntryId(null) }}><Trash2 size={15} /> Remove from queue</button>
                   <button type="button" role="menuitem" onClick={() => setMenuEntryId(null)}>Close</button>
                 </div> : undefined}
                 onDragStart={(event) => beginDrag(entry, event)}
@@ -246,6 +274,33 @@ function QueueWindowControl({ label, shown, total, onClick }: { label: string; s
   return <div className="player-queue__window-controls"><span>Showing {shown} of {total} {label} items.</span><button type="button" className="player-icon-button player-icon-button--quiet" onClick={onClick}>Load more</button></div>
 }
 
+function QueueDestinationActions({ item, onClose }: { item: QueueEntry['item']; onClose: () => void }) {
+  const inRouter = useInRouterContext()
+  if (inRouter) return <QueueDestinationActionsWithRouter item={item} onClose={onClose} />
+  return <QueueDestinationActionsContent item={item} onClose={onClose} onNavigate={navigateWithoutRouter} />
+}
+
+function QueueDestinationActionsWithRouter({ item, onClose }: { item: QueueEntry['item']; onClose: () => void }) {
+  const navigate = useNavigate()
+  return <QueueDestinationActionsContent item={item} onClose={onClose} onNavigate={navigate} />
+}
+
+function QueueDestinationActionsContent({ item, onClose, onNavigate }: { item: QueueEntry['item']; onClose: () => void; onNavigate: (to: string) => void }) {
+  const artist = item.artist?.trim()
+  const artistSlug = artistRouteSlug(artist)
+  const animeId = item.animeId
+  const animeTitle = typeof item.animeTitle === 'string' && item.animeTitle.trim() ? item.animeTitle.trim() : undefined
+  return <>
+    {artistSlug && <button type="button" role="menuitem" onClick={() => { onClose(); onNavigate(`/artist/${encodeURIComponent(artistSlug)}`) }}>{`Go to ${artist}`}</button>}
+    {animeId !== undefined && animeId !== null && String(animeId).trim() && <button type="button" role="menuitem" onClick={() => { onClose(); onNavigate(`/anime/${encodeURIComponent(String(animeId))}`) }}>{`Go to ${animeTitle ?? 'anime'}`}</button>}
+  </>
+}
+
+function navigateWithoutRouter(to: string): void {
+  if (typeof window === 'undefined') return
+  window.history.pushState({}, '', to)
+}
+
 function QueueSection({ title, children, footer }: { title: string; children: ReactNode; footer?: ReactNode }) {
   return <div className="player-queue__section">
     <div className="player-queue__section-heading"><h3 id={`queue-${title.toLowerCase().replace(/\s+/g, '-')}`}>{title}</h3></div>
@@ -254,10 +309,11 @@ function QueueSection({ title, children, footer }: { title: string; children: Re
   </div>
 }
 
-function QueueRow({ entry, tone, position, primaryLabel, onPrimary, onMore, onDragStart, onDragKeyDown, menuOpen = false, menu, dragging = false, dropTarget = false }: {
+function QueueRow({ entry, tone, position, titlePreference, primaryLabel, onPrimary, onMore, onDragStart, onDragKeyDown, menuOpen = false, menu, dragging = false, dropTarget = false }: {
   entry: QueueEntry
   tone: 'history' | 'current' | 'upcoming'
   position: number
+  titlePreference?: 'ENGLISH' | 'ROMAJI' | 'JAPANESE'
   primaryLabel?: string
   onPrimary?: () => void
   onMore?: () => void
@@ -268,13 +324,13 @@ function QueueRow({ entry, tone, position, primaryLabel, onPrimary, onMore, onDr
   dragging?: boolean
   dropTarget?: boolean
 }) {
-  const presentation = playerItemPresentation(entry.item)
+  const presentation = playerItemPresentation(entry.item, titlePreference)
   const titleCopy = <><span className="player-queue__index">{position}</span><strong className="player-queue__title">{presentation.primary}</strong></>
   return <li className={`player-queue__row player-queue__row--${tone}${dragging ? ' player-queue__row--dragging' : ''}${dropTarget ? ' player-queue__row--drop-target' : ''}`} data-queue-id={tone === 'upcoming' ? entry.queueId : undefined}>
     {tone === 'upcoming' && <button type="button" className="player-queue__drag-handle" onPointerDown={onDragStart} onKeyDown={onDragKeyDown} aria-label={`Drag ${entry.item.title} to reorder`} aria-describedby="queue-reorder-instructions"><GripVertical size={16} /></button>}
     {onPrimary ? <button type="button" className="player-queue__primary" onClick={onPrimary} aria-label={primaryLabel}>{titleCopy}</button> : <div className="player-queue__primary" aria-current="true">{titleCopy}</div>}
     <div className="player-queue__meta"><small>{presentation.secondary}</small>
-      {tone === 'upcoming' && <div className="player-queue__row-actions">
+      {onMore && <div className="player-queue__row-actions">
         <button type="button" onClick={onMore} aria-label={`More actions for ${entry.item.title} in queue`} aria-haspopup="menu" aria-expanded={menuOpen}><Ellipsis size={17} /></button>
       </div>}
     </div>

@@ -41,6 +41,9 @@
 .library-actions__playlists strong { color: var(--text); font-size: .82rem; }
 .library-actions__playlists small { color: var(--subtle); font-size: .7rem; }
 .track-actions { position: relative; }
+.collection-actions { position: relative; }
+.collection-actions__trigger { display: inline-flex; align-items: center; gap: .4rem; }
+.collection-actions__menu { top: calc(100% + .4rem); bottom: auto; }
 .track-actions--menu-only { justify-content: flex-end; }
 .track-actions__menu { position: absolute; right: 0; bottom: calc(100% + .4rem); z-index: 65; display: grid; width: 12.5rem; overflow: hidden; border: 1px solid var(--line-strong); border-radius: .65rem; background: rgba(21,25,34,.99); box-shadow: 0 16px 42px rgba(0,0,0,.42); }
 .playlist-track-row .track-actions__menu { top: calc(100% + .2rem); bottom: auto; }

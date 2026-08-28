@@ -167,8 +167,9 @@ describe('anime detail feedback contracts', () => {
       expect(article).toHaveClass('catalog-release-section')
       expect(article).not.toHaveClass('catalog-release-card')
       expect(within(article).getByText('ALBUM')).toBeInTheDocument()
-      expect(within(article).getByText('TRUE')).toBeInTheDocument()
-      expect(within(article).getByText('2024')).toBeInTheDocument()
+      const header = within(article.querySelector('.catalog-release-section__header') as HTMLElement)
+      expect(header.getByText('TRUE')).toBeInTheDocument()
+      expect(header.getByText(/2024/, { selector: 'small' })).toBeInTheDocument()
     }
 
     const firstTrackRow = document.querySelector('.catalog-release-track-row')

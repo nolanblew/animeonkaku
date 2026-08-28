@@ -6,7 +6,7 @@ import { apiClient } from '../../lib/api'
 import { browserAssetUrl } from '../../lib/assets'
 import type { MusicReleaseDto, MusicTrackDto } from '../../lib/library'
 import { artistRouteSlug } from '../../lib/navigation'
-import { TrackActionMenu } from '../libraryactions'
+import { CollectionActionMenu, TrackActionMenu } from '../libraryactions'
 import { CatalogError, CatalogLoading } from '../catalog/CatalogError'
 import './releases.css'
 
@@ -16,9 +16,12 @@ export interface ReleaseDetailPageProps {
   onPlayNextTrack?: (track: MusicTrackDto, release: MusicReleaseDto) => void
   onAddToQueueTrack?: (track: MusicTrackDto, release: MusicReleaseDto) => void
   onReplaceQueueTrack?: (track: MusicTrackDto, release: MusicReleaseDto) => void
+  onPlayNextAll?: (release: MusicReleaseDto) => void
+  onAddToQueueAll?: (release: MusicReleaseDto) => void
+  onReplaceQueueAll?: (release: MusicReleaseDto) => void
 }
 
-export function ReleaseDetailPage({ onPlayAll, onPlayTrack, onPlayNextTrack, onAddToQueueTrack, onReplaceQueueTrack }: ReleaseDetailPageProps = {}) {
+export function ReleaseDetailPage({ onPlayAll, onPlayTrack, onPlayNextTrack, onAddToQueueTrack, onReplaceQueueTrack, onPlayNextAll, onAddToQueueAll, onReplaceQueueAll }: ReleaseDetailPageProps = {}) {
   const { releaseId } = useParams()
   const navigate = useNavigate()
   const parsedReleaseId = parseReleaseId(releaseId)
@@ -68,6 +71,7 @@ export function ReleaseDetailPage({ onPlayAll, onPlayTrack, onPlayNextTrack, onA
           <div className="release-page__actions">
             <button className="button button--primary" type="button" disabled={!onPlayAll || tracks.length === 0} onClick={() => onPlayAll?.(release, false)}><Play size={17} fill="currentColor" /> Play all tracks</button>
             <button className="button button--secondary" type="button" disabled={!onPlayAll || tracks.length === 0} onClick={() => onPlayAll?.(release, true)}><Shuffle size={17} /> Shuffle release</button>
+            <CollectionActionMenu name={title} items={tracks.map((track) => ({ itemType: 'SONG', itemId: track.id, modeOverride: null }))} onPlayNext={onPlayNextAll ? () => onPlayNextAll(release) : undefined} onAddToQueue={onAddToQueueAll ? () => onAddToQueueAll(release) : undefined} onReplaceQueue={onReplaceQueueAll ? () => onReplaceQueueAll(release) : undefined} />
           </div>
         </div>
       </header>
@@ -106,7 +110,7 @@ function ReleaseTrackRow({ track, release, index, onPlay, onPlayNext, onAddToQue
   const title = track.title.trim() || 'Untitled track'
   const trackArtist = track.artistCredit.trim() || release.artistCredit.trim()
   const artist = trackArtist || artistNames(track)
-  const artistSlug = artistRouteSlug(trackArtist)
+  const artistSlug = artistRouteSlug(artist)
   const anime = release.anime?.find((entry) => entry.kitsuId && (entry.title || entry.titleEn))
   const playable = Boolean(track.audioUrl && track.title.trim())
   return (

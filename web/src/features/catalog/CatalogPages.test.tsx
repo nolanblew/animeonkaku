@@ -64,7 +64,7 @@ function theme(id: number, kitsuAnimeId: string, title: string): NormalizedLibra
     kitsuAnimeIds: [kitsuAnimeId],
     title,
     themeType: 'OP',
-    artists: [],
+    artists: [{ name: 'Composer', asCharacter: null, alias: null }],
     audioUrl: `/audio/${id}`,
     videoUrl: null,
     audioState: 'READY',
@@ -116,7 +116,7 @@ describe('catalog pages', () => {
     expect(await screen.findByRole('heading', { name: 'Recommended' })).toBeInTheDocument()
     const recommended = screen.getByRole('region', { name: 'Recommended' })
     expect(within(recommended).getAllByText('Frieren: Beyond Journey’s End · OP', { selector: 'strong' }).length).toBeGreaterThan(0)
-    expect(within(recommended).getAllByText('Opening', { selector: 'small' }).length).toBeGreaterThan(0)
+    expect(within(recommended).getAllByText(/^Opening(?: ·|$)/, { selector: 'small' }).length).toBeGreaterThan(0)
     expect(screen.queryByText('Continue watching')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Openings' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Endings' })).toBeInTheDocument()
@@ -126,6 +126,10 @@ describe('catalog pages', () => {
     expect(screen.queryByText('Your listening space')).not.toBeInTheDocument()
     await userEvent.click(within(screen.getByRole('region', { name: 'Recommended' })).getByRole('button', { name: 'Play Opening' }))
     expect(onPlayTheme).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), expect.stringContaining('/a.jpg'))
+    await userEvent.click(within(recommended).getByRole('button', { name: 'More actions for Opening' }))
+    expect(screen.getByRole('menuitem', { name: 'Go to Composer' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Go to Frieren: Beyond Journey’s End' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Go to Composer' }))
     expect(screen.getByRole('heading', { name: 'Currently Watching' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Frieren: Beyond Journey’s End' })).toHaveAttribute('href', '/anime/a')
     await userEvent.click(screen.getByRole('button', { name: 'More actions for Frieren: Beyond Journey’s End' }))
@@ -347,7 +351,7 @@ describe('catalog pages', () => {
     expect(screen.getByRole('menuitem', { name: 'Replace queue' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Save to playlist' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Go to Neon Harbor' })).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: 'Go to Frieren: Beyond Journey’s End' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Go to Frieren: Beyond Journey’s End' })).not.toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Related Music' })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('menuitem', { name: 'Play next' }))
