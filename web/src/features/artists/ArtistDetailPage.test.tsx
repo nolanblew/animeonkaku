@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -91,13 +91,21 @@ const response: ArtistDetailResponse = {
   fullSongs,
 }
 
-function renderPage(onPlayAll = vi.fn(), onPlayItem = vi.fn(), onPlayNextItem = vi.fn(), onAddToQueueItem = vi.fn()) {
+function renderPage(
+  onPlayAll = vi.fn(),
+  onPlayItem = vi.fn(),
+  onPlayNextItem = vi.fn(),
+  onAddToQueueItem = vi.fn(),
+  onPlayNextAll = vi.fn(),
+  onAddToQueueAll = vi.fn(),
+  onReplaceQueueAll = vi.fn(),
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={['/artist/karuta']}>
         <Routes>
-          <Route path="/artist/:artistSlug" element={<ArtistDetailPage onPlayAll={onPlayAll} onPlayItem={onPlayItem} onPlayNextItem={onPlayNextItem} onAddToQueueItem={onAddToQueueItem} />} />
+          <Route path="/artist/:artistSlug" element={<ArtistDetailPage onPlayAll={onPlayAll} onPlayItem={onPlayItem} onPlayNextItem={onPlayNextItem} onAddToQueueItem={onAddToQueueItem} onPlayNextAll={onPlayNextAll} onAddToQueueAll={onAddToQueueAll} onReplaceQueueAll={onReplaceQueueAll} />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -143,6 +151,33 @@ describe('artist detail page', () => {
     expect(onPlayAll).toHaveBeenNthCalledWith(2, response, true)
     expect(onPlayItem).toHaveBeenNthCalledWith(1, response, 0)
     expect(onPlayItem).toHaveBeenNthCalledWith(2, response, 1)
+  })
+
+  it('keeps play and shuffle prominent while grouping artist collection actions under More', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue(response)
+    const onPlayNextAll = vi.fn()
+    const onAddToQueueAll = vi.fn()
+    const onReplaceQueueAll = vi.fn()
+    renderPage(vi.fn(), vi.fn(), vi.fn(), vi.fn(), onPlayNextAll, onAddToQueueAll, onReplaceQueueAll)
+
+    await screen.findByRole('heading', { name: 'Karuta' })
+    expect(screen.getByRole('button', { name: 'Play all' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Shuffle' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Karuta' }))
+    const menu = screen.getByRole('menu', { name: 'Karuta actions' })
+    expect(within(menu).getByRole('menuitem', { name: 'Play next' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Add to queue' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Replace queue' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Add to playlist' })).toBeInTheDocument()
+
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Play next' }))
+    expect(onPlayNextAll).toHaveBeenCalledWith(response)
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Karuta' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Add to queue' }))
+    expect(onAddToQueueAll).toHaveBeenCalledWith(response)
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Karuta' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Replace queue' }))
+    expect(onReplaceQueueAll).toHaveBeenCalledWith(response)
   })
 
   it('offers shared overflow actions for every artist theme and full-song row', async () => {
