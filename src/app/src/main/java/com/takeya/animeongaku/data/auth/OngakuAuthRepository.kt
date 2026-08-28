@@ -7,11 +7,12 @@ import com.takeya.animeongaku.data.remote.OngakuLegacyLibraryImport
  * users or libraries not synced within ~30 days; DELTA when the server's
  * copy is recent and only needs topping up.
  */
-enum class ServerSyncMode { FULL, DELTA }
+enum class ServerSyncMode { FULL, DELTA, NONE }
 
 data class ServerLoginResult(
     val session: ServerSession,
-    val syncMode: ServerSyncMode
+    val syncMode: ServerSyncMode,
+    val isNewUser: Boolean = true
 )
 
 interface OngakuAuthRepository {

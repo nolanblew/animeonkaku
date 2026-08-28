@@ -16,7 +16,7 @@ export interface AuthUser extends AuthProfile {
   kitsuAvatarUrl?: string | null
 }
 
-export type LoginSyncMode = 'FULL' | 'DELTA'
+export type LoginSyncMode = 'FULL' | 'DELTA' | 'NONE'
 export interface AuthLoginResponse {
   user: AuthUser
   isNewUser: boolean
@@ -134,7 +134,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoginSession(result)
     setHasLoggedOut(false)
     setReauthentication({ status: 'idle', returnTo: null })
-    setFirstSync({ status: 'syncing', mode: result.syncMode, syncMode: result.syncMode, isNewUser: result.isNewUser })
+    setFirstSync({
+      status: result.syncMode === 'NONE' ? 'ready' : 'syncing',
+      mode: result.syncMode,
+      syncMode: result.syncMode,
+      isNewUser: result.isNewUser,
+    })
     void queryClient.invalidateQueries({ queryKey: AUTH_QUERY_KEY })
     return result
   }, [queryClient])
@@ -180,7 +185,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const markInitialSyncReady = useCallback(() => {
     setFirstSync((current) => current.status === 'syncing' ? { ...current, status: 'ready' } : current)
-  }, [])
+    for (const queryKey of ACCOUNT_QUERY_PREFIXES) void queryClient.invalidateQueries({ queryKey })
+  }, [queryClient])
+
+  useEffect(() => {
+    if (firstSync.status !== 'syncing' || firstSync.isNewUser) return undefined
+    let cancelled = false
+    let retryTimer: number | undefined
+
+    const poll = async () => {
+      try {
+        const result = await apiClient.get<{ state: string }>('/v1/sync/status')
+        if (cancelled) return
+        if (result.state === 'QUEUED' || result.state === 'RUNNING') {
+          retryTimer = window.setTimeout(() => void poll(), 2_000)
+          return
+        }
+        markInitialSyncReady()
+      } catch {
+        if (!cancelled) retryTimer = window.setTimeout(() => void poll(), 5_000)
+      }
+    }
+
+    void poll()
+    return () => {
+      cancelled = true
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer)
+    }
+  }, [firstSync.isNewUser, firstSync.status, markInitialSyncReady])
 
   const refresh = useCallback(() => meQuery.refetch(), [meQuery])
   const me = hasLoggedOut ? null : meQuery.data ?? null

@@ -28,12 +28,14 @@ import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -142,6 +144,7 @@ fun AnimeOngakuApp(
     rootSessionViewModel: RootSessionViewModel = hiltViewModel()
 ) {
     val sessionState by rootSessionViewModel.sessionState.collectAsStateWithLifecycle()
+    val librarySyncMessage by rootSessionViewModel.librarySyncMessage.collectAsStateWithLifecycle()
 
     if (sessionState is SessionState.LoggedOut || sessionState is SessionState.InitialSync) {
         LoggedOutGate()
@@ -642,6 +645,32 @@ fun AnimeOngakuApp(
                 navController.navigate(artistDetailRoute(artistName))
             }
         )
+
+        if (sessionState is SessionState.Active && librarySyncMessage != null) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 10.dp),
+                color = Ink700,
+                contentColor = Mist100,
+                shadowElevation = 8.dp,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(999.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.width(16.dp),
+                        color = Rose500,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Syncing your library…")
+                }
+            }
+        }
 
         if (isReauthRequired) {
             ReconnectBanner(

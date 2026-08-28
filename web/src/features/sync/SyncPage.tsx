@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthProvider'
 import { apiClient } from '../../lib/api'
+import librarySyncIllustration from '../../assets/library-sync.webp'
 import './sync.css'
 
 const SYNC_POLL_INTERVAL_MS = 2_000
@@ -27,11 +28,12 @@ interface SyncQueuedResponse {
   jobId: number
 }
 
-type SyncMode = 'FULL' | 'DELTA'
+type SyncMode = 'FULL' | 'DELTA' | 'NONE'
 
 export function SyncPage() {
   const auth = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const [status, setStatus] = useState<SyncStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [pendingMode, setPendingMode] = useState<SyncMode | null>(null)
@@ -79,8 +81,15 @@ export function SyncPage() {
   useEffect(() => {
     if (!status || status.state !== 'DONE' || auth.firstSync.status !== 'syncing' || completionHandled.current) return
     completionHandled.current = true
+    const shouldOpenLibrary = auth.firstSync.isNewUser
     auth.markInitialSyncReady()
-  }, [auth, status])
+    if (shouldOpenLibrary) {
+      const returnTo = typeof location.state === 'object' && location.state !== null && 'from' in location.state && typeof location.state.from === 'string'
+        ? location.state.from
+        : '/'
+      navigate(returnTo, { replace: true })
+    }
+  }, [auth, location.state, navigate, status])
 
   const enqueue = async (full: boolean) => {
     const mode: SyncMode = full ? 'FULL' : 'DELTA'
@@ -100,37 +109,36 @@ export function SyncPage() {
   }
 
   const mode = modeRef.current ?? auth.firstSync.mode ?? null
-  const isFirstSync = auth.firstSync.status === 'syncing'
+  const isFirstSync = auth.firstSync.status === 'syncing' && auth.firstSync.isNewUser
   const isWorking = pendingMode !== null || (status !== null && isActive(status.state))
   const canShowControls = !isFirstSync || !isWorking
-  const title = status?.state === 'DONE' ? 'Sync complete' : isFirstSync ? 'Syncing your library' : 'Library sync'
+  const title = status?.state === 'DONE' ? 'Sync complete — your library is ready' : isFirstSync ? 'Syncing your library' : 'Library sync'
 
   return (
     <section className="sync-page" aria-labelledby="sync-page-title" aria-busy={loading || isWorking}>
-      <header className="sync-page__header">
-        <p className="sync-page__eyebrow">Kitsu connection</p>
-        <h1 id="sync-page-title">{title}</h1>
-        <p>{isFirstSync ? 'Keep this page open while Anime Ongaku imports and matches your library.' : 'Keep your Anime Ongaku library current across devices.'}</p>
-      </header>
+      <div className="sync-page__hero">
+        <img className="sync-page__art" src={librarySyncIllustration} alt="" aria-hidden="true" />
+        <div className="sync-page__hero-copy">
+          <header className="sync-page__header">
+            <p className="sync-page__eyebrow">Kitsu connection</p>
+            <h1 id="sync-page-title">{title}</h1>
+            <p>{isFirstSync ? 'We are bringing over your shows and matching their music. You can leave this tab open—we will take it from here.' : 'Keep your Anime Ongaku library current across devices.'}</p>
+          </header>
 
-      {loading && <p role="status">Checking sync status…</p>}
+          {loading && <p role="status">Checking sync status…</p>}
+          {status && <SyncStatusCard status={status} mode={mode} />}
+          {isFirstSync && isWorking && <p className="sync-page__hint" role="status">This usually only takes a moment. Your library will open automatically.</p>}
+        </div>
+      </div>
+
       {error && <p className="sync-page__feedback sync-page__feedback--error" role="alert">{error}</p>}
-
-      {status && (
-        <SyncStatusCard status={status} mode={mode} />
-      )}
 
       {status?.state === 'FAILED' && (
         <section className="sync-page__notice" aria-labelledby="sync-failure-title">
           <h2 id="sync-failure-title">Sync failed</h2>
           <p>Your existing library data remains available while you retry.</p>
           {status.upstreamBlocked && <p>Theme matching is currently blocked by the AnimeThemes upstream service.</p>}
-          {status.unmatched.length > 0 && (
-            <div>
-              <h3>Unmatched anime</h3>
-              <ul>{status.unmatched.map((name) => <li key={name}>{name}</li>)}</ul>
-            </div>
-          )}
+          {status.unmatched.length > 0 && <p>{status.unmatched.length} anime could not be matched yet.</p>}
           {canShowControls && <button type="button" onClick={() => void enqueue(mode === 'FULL')} disabled={pendingMode !== null}>Retry sync</button>}
         </section>
       )}
@@ -141,8 +149,6 @@ export function SyncPage() {
           <button type="button" onClick={() => setShowFullConfirmation(true)} disabled={pendingMode !== null || isWorking}>Re-sync all</button>
         </div>
       )}
-
-      {isFirstSync && isWorking && <p className="sync-page__hint" role="status">The rest of the app will unlock when this first sync is complete.</p>}
 
       <div className="sync-page__footer">
         <button type="button" onClick={() => void auth.logout().then(() => navigate('/login', { replace: true })).catch(() => navigate('/login', { replace: true }))}>Unlink Kitsu account</button>
@@ -167,8 +173,6 @@ export function SyncPage() {
 function SyncStatusCard({ status, mode }: { status: SyncStatus; mode: SyncMode | null }) {
   const modeLabel = mode === 'FULL' ? 'Full sync' : mode === 'DELTA' ? 'Delta sync' : 'Library sync'
   const phase = status.state === 'DONE' ? 'Sync complete' : status.state === 'FAILED' ? 'Sync failed' : phaseLabel(status.phase)
-  const page = numberValue(status.progress.page)
-  const totalPages = numberValue(status.progress.totalPages)
   const fetched = numberValue(status.progress.fetchedCount)
   const totalCount = numberValue(status.progress.totalCount)
   const processed = numberValue(status.progress.processed)
@@ -176,17 +180,46 @@ function SyncStatusCard({ status, mode }: { status: SyncStatus; mode: SyncMode |
   const mapped = numberValue(status.progress.mapped)
   const countCurrent = fetched ?? processed
   const countTotal = totalCount ?? total
+  const percentage = progressPercentage(status, countCurrent, countTotal)
 
   return (
     <section className="sync-page__status" aria-labelledby="sync-status-title">
       <h2 id="sync-status-title">{modeLabel}</h2>
-      <p>{phase}</p>
-      {page !== null && totalPages !== null && <p>Page {page} / {totalPages}</p>}
-      {countCurrent !== null && countTotal !== null && <p>{countCurrent} / {countTotal}</p>}
-      {mapped !== null && <p>{mapped} mapped themes</p>}
-      {status.state === 'QUEUED' && <p>Queued</p>}
+      <p className="sync-page__phase">{phase}</p>
+      <div
+        className="sync-page__progress"
+        role="progressbar"
+        aria-label="Library sync progress"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percentage}
+      >
+        <span style={{ width: `${percentage}%` }} />
+      </div>
+      <div className="sync-page__count-row">
+        <span>{countCurrent !== null && countTotal !== null ? `${countCurrent} of ${countTotal} titles` : progressCopy(status)}</span>
+        <strong>{percentage}%</strong>
+      </div>
+      {mapped !== null && <p className="sync-page__mapped">{mapped} themes matched</p>}
     </section>
   )
+}
+
+function progressPercentage(status: SyncStatus, current: number | null, total: number | null): number {
+  if (status.state === 'DONE') return 100
+  if (status.state === 'IDLE') return 0
+  if (current !== null && total !== null && total > 0) return Math.max(1, Math.min(99, Math.round((current / total) * 100)))
+  if (status.state === 'QUEUED') return 8
+  if (status.phase === 'MAPPING_THEMES') return 72
+  if (status.phase === 'REFRESHING_KITSU_TOKEN') return 18
+  return 32
+}
+
+function progressCopy(status: SyncStatus): string {
+  if (status.state === 'DONE') return 'All caught up'
+  if (status.state === 'QUEUED') return 'Getting things ready'
+  if (status.phase === 'MAPPING_THEMES') return 'Matching music to your shows'
+  return 'Reading your Kitsu library'
 }
 
 function isActive(state: SyncJobState): boolean {

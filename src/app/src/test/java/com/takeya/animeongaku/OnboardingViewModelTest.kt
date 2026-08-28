@@ -46,7 +46,8 @@ class OnboardingViewModelTest {
     private class FakeAuthRepo(
         private val result: ServerSession? = null,
         private val error: Exception? = null,
-        private val syncMode: ServerSyncMode = ServerSyncMode.FULL
+        private val syncMode: ServerSyncMode = ServerSyncMode.FULL,
+        private val isNewUser: Boolean = true
     ) : OngakuAuthRepository {
         var loginCalls = 0
         var cleared = false
@@ -65,7 +66,7 @@ class OnboardingViewModelTest {
             lastPassword = password
             legacyImport = legacyLibraryImport
             error?.let { throw it }
-            return ServerLoginResult(session = result!!, syncMode = syncMode)
+            return ServerLoginResult(session = result!!, syncMode = syncMode, isNewUser = isNewUser)
         }
         override fun currentSession(): ServerSession? = null
         override suspend fun logout() {
@@ -109,6 +110,7 @@ class OnboardingViewModelTest {
         private val error: Exception? = null
     ) : InitialLibrarySync {
         var calls = 0
+        var backgroundCalls = 0
         var lastMode: ServerSyncMode? = null
         val statuses = mutableListOf<String>()
 
@@ -124,6 +126,41 @@ class OnboardingViewModelTest {
             onProgress(FirstSyncProgress(FirstSyncStep.LoadDevice, "Library ready"))
             statuses += "Library ready"
         }
+
+        override fun startBackgroundSync(mode: ServerSyncMode) {
+            backgroundCalls++
+            lastMode = mode
+        }
+    }
+
+    @Test
+    fun `returning user with a local cache enters immediately while refresh continues`() = runTest(dispatcher) {
+        val session = ServerSession("tok", "uid", "nblew")
+        val tokenStore = ServerTokenStore(FakeSharedPreferences())
+        val sessionState = SessionStateManager(tokenStore)
+        val initialSync = FakeInitialLibrarySync()
+        val configuredSettings = settings(true).apply { serverPullCursor = 42L }
+        val vm = OnboardingViewModel(
+            FakeAuthRepo(
+                result = session,
+                syncMode = ServerSyncMode.DELTA,
+                isNewUser = false
+            ),
+            sessionState,
+            configuredSettings,
+            initialSync,
+            parser()
+        )
+
+        vm.onUsernameChange("nblew")
+        vm.onPasswordChange("pw")
+        vm.signIn()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(SessionState.Active(session), sessionState.state.value)
+        assertEquals(0, initialSync.calls)
+        assertEquals(1, initialSync.backgroundCalls)
+        assertEquals(ServerSyncMode.DELTA, initialSync.lastMode)
     }
 
     @Test

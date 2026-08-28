@@ -6,7 +6,14 @@ import com.takeya.animeongaku.data.remote.OngakuSyncRequest
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 interface LibraryPuller {
     suspend fun pullNow(forceFull: Boolean = false): LibraryPullResult
@@ -17,9 +24,22 @@ interface InitialLibrarySync {
         mode: ServerSyncMode = ServerSyncMode.FULL,
         onProgress: (FirstSyncProgress) -> Unit = {}
     )
+
+    /** Keeps a returning user's cached library usable while refresh work continues. */
+    fun startBackgroundSync(mode: ServerSyncMode) = Unit
 }
 
 class InitialLibrarySyncException(message: String) : Exception(message)
+
+@Singleton
+class LibrarySyncIndicator @Inject constructor() {
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message.asStateFlow()
+
+    internal fun update(message: String?) {
+        _message.value = message
+    }
+}
 
 /**
  * Drives the first sign-in sync. The server sync it waits on is metadata-only
@@ -33,8 +53,10 @@ class InitialLibrarySyncException(message: String) : Exception(message)
 @Singleton
 class ServerInitialLibrarySync @Inject constructor(
     private val api: OngakuApi,
-    private val libraryPuller: LibraryPuller
+    private val libraryPuller: LibraryPuller,
+    private val indicator: LibrarySyncIndicator = LibrarySyncIndicator()
 ) : InitialLibrarySync {
+    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     internal var pollIntervalMs: Long = SERVER_SYNC_POLL_INTERVAL_MS
     internal var stallTimeoutMs: Long = SERVER_SYNC_STALL_TIMEOUT_MS
@@ -44,9 +66,16 @@ class ServerInitialLibrarySync @Inject constructor(
         mode: ServerSyncMode,
         onProgress: (FirstSyncProgress) -> Unit
     ) {
+        if (mode == ServerSyncMode.NONE) {
+            onProgress(FirstSyncProgress(FirstSyncStep.LoadDevice, "Loading your library on this device..."))
+            libraryPuller.pullNow(forceFull = true)
+            onProgress(FirstSyncProgress(FirstSyncStep.LoadDevice, "Library ready"))
+            return
+        }
         val startMessage = when (mode) {
             ServerSyncMode.FULL -> "Starting your first library sync..."
             ServerSyncMode.DELTA -> "Checking for library updates..."
+            ServerSyncMode.NONE -> error("Handled above")
         }
         onProgress(FirstSyncProgress(FirstSyncStep.SyncLibrary, startMessage))
         api.startSync(OngakuSyncRequest(full = mode == ServerSyncMode.FULL))
@@ -104,6 +133,21 @@ class ServerInitialLibrarySync @Inject constructor(
                     onProgress(FirstSyncProgress(FirstSyncStep.LoadDevice, "Library ready"))
                     return
                 }
+            }
+        }
+    }
+
+    override fun startBackgroundSync(mode: ServerSyncMode) {
+        backgroundScope.launch {
+            indicator.update("Syncing your library…")
+            try {
+                runInitialSync(mode) { progress -> indicator.update(progress.message) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Cached data remains usable; foreground refreshes will retry later.
+            } finally {
+                indicator.update(null)
             }
         }
     }

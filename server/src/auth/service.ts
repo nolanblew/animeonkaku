@@ -14,15 +14,15 @@ export const SESSION_TTL_MS = 100 * 365 * 24 * 60 * 60 * 1000;
 export const SESSION_IDLE_REAUTH_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
- * A returning user whose server library was synced within this window gets a
- * DELTA first-sync at login (activity-triggered deltas keep them fresh); any
- * longer and we re-run a FULL library sync. Full sync only refreshes the
- * library (tombstoning removed entries) — playlists, likes/dislikes, and play
- * counts are never touched by it.
+ * A returning user who has been away this long gets a FULL refresh instead of
+ * the normal interval-based DELTA. Full sync only refreshes the library
+ * (tombstoning removed entries) — playlists, likes/dislikes, and play counts
+ * are never touched by it.
  */
 export const FULL_RESYNC_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
+export const DEFAULT_SYNC_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 
-export type LoginSyncMode = "FULL" | "DELTA";
+export type LoginSyncMode = "FULL" | "DELTA" | "NONE";
 
 export interface LoginInput {
   username: string;
@@ -62,13 +62,15 @@ export interface MeResult {
 
 export class AuthService {
   private readonly now: () => Date;
+  private readonly syncIntervalMs: number;
 
   constructor(
     private readonly repo: AuthRepo,
     private readonly kitsu: KitsuAuthClient,
-    options: { now?: () => Date } = {},
+    options: { now?: () => Date; syncIntervalMs?: number } = {},
   ) {
     this.now = options.now ?? (() => new Date());
+    this.syncIntervalMs = options.syncIntervalMs ?? DEFAULT_SYNC_INTERVAL_MS;
   }
 
   /** Kitsu password grant via the injected client, then local user + device session. */
@@ -101,14 +103,15 @@ export class AuthService {
   }
 
   /**
-   * New users and users whose library hasn't synced on this server within
-   * FULL_RESYNC_AFTER_MS need a FULL library sync; everyone else just gets a
-   * DELTA to pick up whatever changed since the server's last (auto) sync.
+   * New users need a FULL library sync. Returning users keep the server's
+   * cached library until the normal sync interval elapses, then receive a
+   * DELTA (or a periodic FULL refresh after a long absence).
    */
   private resolveSyncMode(created: boolean, lastSyncAt: Date | null): LoginSyncMode {
     if (created || !lastSyncAt) return "FULL";
     const age = this.now().getTime() - lastSyncAt.getTime();
-    return age >= FULL_RESYNC_AFTER_MS ? "FULL" : "DELTA";
+    if (age >= FULL_RESYNC_AFTER_MS) return "FULL";
+    return age >= this.syncIntervalMs ? "DELTA" : "NONE";
   }
 
   /** Resolves a bearer token to its user+session; null when unknown or expired. */

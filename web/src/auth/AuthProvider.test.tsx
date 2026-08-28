@@ -97,4 +97,28 @@ describe('AuthProvider', () => {
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'))
     expect(screen.getByTestId('sync')).toHaveTextContent('ready')
   })
+
+  it('keeps a stale returning user in the app while monitoring the background sync', async () => {
+    let finishSync!: (value: { state: string }) => void
+    const syncStatus = new Promise<{ state: string }>((resolve) => { finishSync = resolve })
+    vi.spyOn(apiClient, 'get').mockImplementation(async (path) => {
+      if (path === '/auth/me') throw Object.assign(new Error('unauthorized'), { status: 401 })
+      if (path === '/v1/sync/status') return syncStatus
+      throw new Error(`Unexpected GET ${path}`)
+    })
+    vi.spyOn(apiClient, 'post').mockResolvedValue({
+      user: { kitsuUserId: '1', username: 'fan', displayName: null, avatarUrl: null },
+      isNewUser: false,
+      syncMode: 'DELTA',
+    })
+    renderAuth()
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'))
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'login' }))
+
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'))
+    expect(screen.getByTestId('sync')).toHaveTextContent('syncing')
+    finishSync({ state: 'DONE' })
+    await waitFor(() => expect(screen.getByTestId('sync')).toHaveTextContent('ready'))
+  })
 })
