@@ -1,3 +1,4 @@
+import type { QueryClient } from '@tanstack/react-query'
 import { useCallback, useState } from 'react'
 import { invalidateCategories, LIBRARY_QUERY_KEY, queryClient } from '../../lib/query'
 import type { NormalizedLibrary, PlaylistDto, PlaylistPlaybackMode, SongPrefDto, ThemePrefDto } from '../../lib/library'
@@ -44,8 +45,9 @@ export function useLibraryActions(): LibraryActions {
   const run = useCallback(async <T,>(key: LibraryActionKey, operation: () => Promise<T>, invalidate: () => void, optimistic?: () => (() => void) | void) => {
     setPendingAction(key)
     setActionError(null)
-    const rollback = optimistic?.()
+    let rollback: (() => void) | void = undefined
     try {
+      rollback = optimistic?.()
       const result = await operation()
       invalidate()
       return result
@@ -60,8 +62,8 @@ export function useLibraryActions(): LibraryActions {
 
   const invalidateLibrary = useCallback(() => invalidateCategories(['library'], queryClient), [])
   const invalidatePlaylist = useCallback(() => invalidateCategories(['playlist'], queryClient), [])
-  const updatePreference = useCallback((themeId: number, patch: ThemePreferencePatch) => run('preference', () => updateThemePreference(themeId, patch), invalidateLibrary, () => optimisticallyUpdateThemePreference(themeId, patch)), [invalidateLibrary, run])
-  const updateSong = useCallback((songId: number, patch: SongPreferencePatch) => run('preference', () => updateSongPreference(songId, patch), invalidateLibrary, () => optimisticallyUpdateSongPreference(songId, patch)), [invalidateLibrary, run])
+  const updatePreference = useCallback((themeId: number, patch: ThemePreferencePatch) => run('preference', () => updateThemePreference(themeId, patch), invalidateLibrary, () => optimisticallyUpdateThemePreference(queryClient, themeId, patch)), [invalidateLibrary, run])
+  const updateSong = useCallback((songId: number, patch: SongPreferencePatch) => run('preference', () => updateSongPreference(songId, patch), invalidateLibrary, () => optimisticallyUpdateSongPreference(queryClient, songId, patch)), [invalidateLibrary, run])
   const setPreferredMode = useCallback((themeId: number, mode: PlaylistPlaybackMode | null) => updatePreference(themeId, { preferredMode: mode }), [updatePreference])
   const addLibrary = useCallback((input: { kitsuId?: string; animeThemesId?: number }) => run('library', () => addAnimeToLibrary(input), invalidateLibrary), [invalidateLibrary, run])
   const removeLibrary = useCallback((kitsuId: string) => run('library', () => removeAnimeFromLibrary(kitsuId), invalidateLibrary), [invalidateLibrary, run])
@@ -74,7 +76,7 @@ export function useLibraryActions(): LibraryActions {
   return { pendingAction, actionError, updateThemePreference: updatePreference, updateSongPreference: updateSong, setPreferredMode, addAnimeToLibrary: addLibrary, removeAnimeFromLibrary: removeLibrary, addThemesToPlaylist: addPlaylistThemes, createPlaylistWithThemes: createPlaylistThemes, addItemsToPlaylist: addPlaylistItems, createPlaylistWithItems: createPlaylistItems, clearActionError }
 }
 
-function optimisticallyUpdateThemePreference(themeId: number, patch: ThemePreferencePatch): (() => void) | undefined {
+function optimisticallyUpdateThemePreference(queryClient: QueryClient, themeId: number, patch: ThemePreferencePatch): (() => void) | undefined {
   const previous = queryClient.getQueryData<NormalizedLibrary>(LIBRARY_QUERY_KEY)
   if (!previous) return undefined
   const key = String(themeId)
@@ -95,10 +97,17 @@ function optimisticallyUpdateThemePreference(themeId: number, patch: ThemePrefer
     ...previous,
     prefsByThemeId: { ...previous.prefsByThemeId, [key]: next },
   })
-  return () => queryClient.setQueryData<NormalizedLibrary>(LIBRARY_QUERY_KEY, previous)
+  return () => queryClient.setQueryData<NormalizedLibrary>(LIBRARY_QUERY_KEY, (latest) => {
+    if (!latest) return latest
+    const latestPreference = latest.prefsByThemeId[key]
+    if (!latestPreference) return latest
+    const prefsByThemeId = { ...latest.prefsByThemeId }
+    prefsByThemeId[key] = rollbackThemePreference(latestPreference, current, next)
+    return { ...latest, prefsByThemeId }
+  })
 }
 
-function optimisticallyUpdateSongPreference(songId: number, patch: SongPreferencePatch): (() => void) | undefined {
+function optimisticallyUpdateSongPreference(queryClient: QueryClient, songId: number, patch: SongPreferencePatch): (() => void) | undefined {
   const previous = queryClient.getQueryData<NormalizedLibrary>(LIBRARY_QUERY_KEY)
   if (!previous) return undefined
   const key = String(songId)
@@ -123,7 +132,35 @@ function optimisticallyUpdateSongPreference(songId: number, patch: SongPreferenc
     ...previous,
     songPrefsById: { ...previous.songPrefsById, [key]: next },
   })
-  return () => queryClient.setQueryData<NormalizedLibrary>(LIBRARY_QUERY_KEY, previous)
+  return () => queryClient.setQueryData<NormalizedLibrary>(LIBRARY_QUERY_KEY, (latest) => {
+    if (!latest) return latest
+    const latestPreference = latest.songPrefsById[key]
+    if (!latestPreference) return latest
+    const songPrefsById = { ...latest.songPrefsById }
+    songPrefsById[key] = rollbackSongPreference(latestPreference, current, next)
+    return { ...latest, songPrefsById }
+  })
+}
+
+function rollbackThemePreference(latest: ThemePrefDto, previous: ThemePrefDto, optimistic: ThemePrefDto): ThemePrefDto {
+  if (latest.updatedAt !== optimistic.updatedAt) return latest
+  const rolledBack = { ...latest }
+  if (previous.liked !== optimistic.liked && latest.liked === optimistic.liked) rolledBack.liked = previous.liked
+  if (previous.disliked !== optimistic.disliked && latest.disliked === optimistic.disliked) rolledBack.disliked = previous.disliked
+  if (previous.dislikedTvSize !== optimistic.dislikedTvSize && latest.dislikedTvSize === optimistic.dislikedTvSize) rolledBack.dislikedTvSize = previous.dislikedTvSize
+  if (previous.dislikedFullSize !== optimistic.dislikedFullSize && latest.dislikedFullSize === optimistic.dislikedFullSize) rolledBack.dislikedFullSize = previous.dislikedFullSize
+  if (previous.preferredMode !== optimistic.preferredMode && latest.preferredMode === optimistic.preferredMode) rolledBack.preferredMode = previous.preferredMode
+  return rolledBack
+}
+
+function rollbackSongPreference(latest: SongPrefDto, previous: SongPrefDto, optimistic: SongPrefDto): SongPrefDto {
+  if (latest.updatedAt !== optimistic.updatedAt) return latest
+  const rolledBack = { ...latest }
+  const keys = ['liked', 'disliked'] as const
+  for (const key of keys) {
+    if (previous[key] !== optimistic[key] && latest[key] === optimistic[key]) rolledBack[key] = previous[key]
+  }
+  return rolledBack
 }
 
 function applyThemePreferencePatch(current: ThemePrefDto, patch: ThemePreferencePatch): ThemePrefDto {

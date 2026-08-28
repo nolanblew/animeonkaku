@@ -1,5 +1,5 @@
 import { ChevronDown, Ellipsis, GripVertical, ListMusic, Maximize, Pause, Play, Repeat, Shuffle, SkipBack, SkipForward, Trash2, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { usePlayer } from './PlayerProvider'
 import type { PlaybackMode } from '../media/modeSwitch'
 import { CurrentTrackActions } from './CurrentTrackActions'
@@ -192,7 +192,7 @@ function PlaybackQueue({ onClose }: { onClose: () => void }) {
         <div><p className="player-eyebrow">Queue</p><h2>{player.queueState.contextLabel || 'Listening session'}</h2></div>
         <div className="player-queue__heading-actions"><span>{entries.length} items</span><button type="button" className="player-icon-button player-icon-button--quiet" onClick={onClose} aria-label="Close queue"><X size={18} /></button></div>
       </div>
-      <p id="queue-reorder-instructions" className="sr-only">Drag from the reorder handle. On touch, press briefly before dragging.</p>
+      <p id="queue-reorder-instructions" className="sr-only">Drag from the reorder handle. On touch, press briefly before dragging. With a keyboard, use the Up and Down Arrow keys.</p>
       <div className="player-queue__scroll" tabIndex={0} aria-label="Scrollable playback queue">
         {history.length > 0 && <QueueSection title="History" footer={historyWindow.endExclusive < history.length ? <QueueWindowControl label="history" shown={historyWindow.endExclusive} total={history.length} onClick={() => setHistoryVisibleCount((currentCount) => Math.min(currentCount + 40, history.length))} /> : undefined}>
           {historyWindow.entries.map((entry, index) => { const historyIndex = historyWindow.start + index; return <QueueRow key={`history-${entry.queueId}`} entry={entry} tone="history" position={historyIndex + 1} primaryLabel={`Replay ${entry.item.title}`} onPrimary={() => player.queue.rewindTo(historyIndex)} /> })}
@@ -206,6 +206,8 @@ function PlaybackQueue({ onClose }: { onClose: () => void }) {
             : upcomingWindow.entries.map((entry, windowOffset) => {
               const offset = upcomingWindow.start + windowOffset
               const absoluteIndex = currentIndex + offset + 1
+              const previous = upcoming[offset - 1]
+              const next = upcoming[offset + 1]
               return <QueueRow
                 key={entry.queueId}
                 entry={entry}
@@ -224,6 +226,12 @@ function PlaybackQueue({ onClose }: { onClose: () => void }) {
                   <button type="button" role="menuitem" onClick={() => setMenuEntryId(null)}>Close</button>
                 </div> : undefined}
                 onDragStart={(event) => beginDrag(entry, event)}
+                onDragKeyDown={(event) => {
+                  const target = event.key === 'ArrowUp' ? previous : event.key === 'ArrowDown' ? next : undefined
+                  if (!target) return
+                  event.preventDefault()
+                  player.queue.moveEntry(entry.queueId, target.queueId)
+                }}
                 dragging={draggingEntryId === entry.queueId}
                 dropTarget={dropTargetId === entry.queueId && draggingEntryId !== entry.queueId}
               />
@@ -246,7 +254,7 @@ function QueueSection({ title, children, footer }: { title: string; children: Re
   </div>
 }
 
-function QueueRow({ entry, tone, position, primaryLabel, onPrimary, onMore, onDragStart, menuOpen = false, menu, dragging = false, dropTarget = false }: {
+function QueueRow({ entry, tone, position, primaryLabel, onPrimary, onMore, onDragStart, onDragKeyDown, menuOpen = false, menu, dragging = false, dropTarget = false }: {
   entry: QueueEntry
   tone: 'history' | 'current' | 'upcoming'
   position: number
@@ -254,6 +262,7 @@ function QueueRow({ entry, tone, position, primaryLabel, onPrimary, onMore, onDr
   onPrimary?: () => void
   onMore?: () => void
   onDragStart?: (event: ReactPointerEvent<HTMLButtonElement>) => void
+  onDragKeyDown?: (event: ReactKeyboardEvent<HTMLButtonElement>) => void
   menuOpen?: boolean
   menu?: ReactNode
   dragging?: boolean
@@ -262,7 +271,7 @@ function QueueRow({ entry, tone, position, primaryLabel, onPrimary, onMore, onDr
   const presentation = playerItemPresentation(entry.item)
   const titleCopy = <><span className="player-queue__index">{position}</span><strong className="player-queue__title">{presentation.primary}</strong></>
   return <li className={`player-queue__row player-queue__row--${tone}${dragging ? ' player-queue__row--dragging' : ''}${dropTarget ? ' player-queue__row--drop-target' : ''}`} data-queue-id={tone === 'upcoming' ? entry.queueId : undefined}>
-    {tone === 'upcoming' && <button type="button" className="player-queue__drag-handle" onPointerDown={onDragStart} aria-label={`Drag ${entry.item.title} to reorder`} aria-describedby="queue-reorder-instructions"><GripVertical size={16} /></button>}
+    {tone === 'upcoming' && <button type="button" className="player-queue__drag-handle" onPointerDown={onDragStart} onKeyDown={onDragKeyDown} aria-label={`Drag ${entry.item.title} to reorder`} aria-describedby="queue-reorder-instructions"><GripVertical size={16} /></button>}
     {onPrimary ? <button type="button" className="player-queue__primary" onClick={onPrimary} aria-label={primaryLabel}>{titleCopy}</button> : <div className="player-queue__primary" aria-current="true">{titleCopy}</div>}
     <div className="player-queue__meta"><small>{presentation.secondary}</small>
       {tone === 'upcoming' && <div className="player-queue__row-actions">

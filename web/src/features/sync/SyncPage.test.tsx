@@ -226,7 +226,7 @@ describe('SyncPage authenticated Kitsu sync lifecycle', () => {
 
     expect(await screen.findByRole('heading', { name: 'Library sync' })).toBeInTheDocument()
     await waitFor(() => expect(setInterval).toHaveBeenCalled())
-    pollCallback?.()
+    ;(pollCallback as (() => void) | null)?.()
     await waitFor(() => expect(reads).toBe(2))
     await act(async () => { rejectPoll(new Error('poll unavailable')) })
     expect(await screen.findByRole('alert')).toHaveTextContent(/could not refresh sync progress/i)

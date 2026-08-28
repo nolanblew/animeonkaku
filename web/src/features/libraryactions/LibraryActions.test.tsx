@@ -4,36 +4,36 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiClient } from '../../lib/api'
 import { createEmptyLibrary } from '../../lib/library'
-import { LIBRARY_QUERY_KEY } from '../../lib/query'
+import { LIBRARY_QUERY_KEY, queryClient } from '../../lib/query'
 
 import { ThemeActionSheet, TrackActionMenu, useLibraryActions } from './index'
 
-function renderWithQuery(ui: React.ReactElement) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+function renderWithQuery(ui: React.ReactElement, client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })) {
   return { ...render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>), client }
 }
 
 function ActionProbe() {
   const actions = useLibraryActions()
   return <div>
-    <button onClick={() => void actions.updateThemePreference(41, { liked: true })}>like</button>
-    <button onClick={() => void actions.updateSongPreference(91, { disliked: true })}>dislike song</button>
-    <button onClick={() => void actions.setPreferredMode(41, 'FULL_SIZE')}>full</button>
-    <button onClick={() => void actions.addAnimeToLibrary({ kitsuId: 'anime-1', animeThemesId: 9 })}>add</button>
-    <button onClick={() => void actions.removeAnimeFromLibrary('anime-1')}>remove</button>
+    <button onClick={() => void actions.updateThemePreference(41, { liked: true }).catch(() => undefined)}>like</button>
+    <button onClick={() => void actions.updateSongPreference(91, { disliked: true }).catch(() => undefined)}>dislike song</button>
+    <button onClick={() => void actions.setPreferredMode(41, 'FULL_SIZE').catch(() => undefined)}>full</button>
+    <button onClick={() => void actions.addAnimeToLibrary({ kitsuId: 'anime-1', animeThemesId: 9 }).catch(() => undefined)}>add</button>
+    <button onClick={() => void actions.removeAnimeFromLibrary('anime-1').catch(() => undefined)}>remove</button>
     <span data-testid="pending">{actions.pendingAction ?? 'none'}</span>
   </div>
 }
 
 beforeEach(() => {
   vi.restoreAllMocks()
+  queryClient.clear()
 })
 
 describe('library action API and hook', () => {
   it('rolls back only the failed preference and preserves concurrent library updates', async () => {
     let rejectRequest!: (reason: Error) => void
     vi.spyOn(apiClient, 'request').mockReturnValue(new Promise((_, reject) => { rejectRequest = reject }) as never)
-    const { client } = renderWithQuery(<ActionProbe />)
+    const { client } = renderWithQuery(<ActionProbe />, queryClient)
     client.setQueryData(LIBRARY_QUERY_KEY, {
       ...createEmptyLibrary(),
       prefsByThemeId: { '41': { themeId: 41, liked: false, disliked: false } },
@@ -50,6 +50,26 @@ describe('library action API and hook', () => {
 
     await waitFor(() => expect(client.getQueryData<ReturnType<typeof createEmptyLibrary>>(LIBRARY_QUERY_KEY)?.prefsByThemeId['41']?.liked).toBe(false))
     expect(client.getQueryData<ReturnType<typeof createEmptyLibrary>>(LIBRARY_QUERY_KEY)?.cursor).toBe(77)
+  })
+
+  it('does not overwrite a newer server preference when an older request fails', async () => {
+    let rejectRequest!: (reason: Error) => void
+    vi.spyOn(apiClient, 'request').mockReturnValue(new Promise((_, reject) => { rejectRequest = reject }) as never)
+    const { client } = renderWithQuery(<ActionProbe />, queryClient)
+    client.setQueryData(LIBRARY_QUERY_KEY, {
+      ...createEmptyLibrary(),
+      prefsByThemeId: { '41': { themeId: 41, liked: false, disliked: false, updatedAt: 1 } },
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: 'like' }))
+    client.setQueryData(LIBRARY_QUERY_KEY, (current: ReturnType<typeof createEmptyLibrary>) => ({
+      ...current,
+      prefsByThemeId: { ...current.prefsByThemeId, '41': { ...current.prefsByThemeId['41']!, liked: true, updatedAt: 2 } },
+    }))
+    rejectRequest(new Error('older preference request failed'))
+
+    await waitFor(() => expect(screen.getByTestId('pending')).toHaveTextContent('none'))
+    expect(client.getQueryData<ReturnType<typeof createEmptyLibrary>>(LIBRARY_QUERY_KEY)?.prefsByThemeId['41']).toMatchObject({ liked: true, updatedAt: 2 })
   })
 
   it('writes like and preferred mode through the existing theme preference contract', async () => {
