@@ -101,6 +101,32 @@ describe("KitsuClient.getLibraryEntries", () => {
     expect(entries[0]!.title).toBe("Lain EN");
     expect(entries[0]!.posterUrl).toBe("o.jpg");
   });
+
+  it("ignores current manga entries from Kitsu's unified media library", async () => {
+    const currentManga = {
+      ...libraryEntry("102592305"),
+      id: "102592305",
+      relationships: {
+        anime: { data: null },
+        media: { data: { type: "manga", id: "70721" } },
+      },
+    };
+    const page = JSON.stringify({
+      data: [libraryEntry("1"), currentManga],
+      included: [includedAnime("1", "Frieren")],
+      meta: { count: 2 },
+    });
+    const details = JSON.stringify({ data: [] });
+    const { client, requests } = makeClient([
+      { match: "library-entries", response: { status: 200, body: page } },
+      { match: "anime?filter%5Bid%5D=102592305", response: { status: 200, body: details } },
+    ]);
+
+    const entries = await client.getLibraryEntries("12345");
+
+    expect(entries.map((entry) => entry.id)).toEqual(["1"]);
+    expect(requests).toHaveLength(1);
+  });
 });
 
 describe("KitsuClient.getLibraryEntriesUpdatedSince", () => {
