@@ -33,6 +33,7 @@ interface SharedMediaProps extends MediaArtworkProps {
   title: ReactNode
   subtitle?: ReactNode
   href?: string
+  onSelect?: () => void
   onActivate?: () => void
   activateLabel?: string
   artwork?: ReactNode
@@ -42,11 +43,11 @@ interface SharedMediaProps extends MediaArtworkProps {
   element?: MediaRoot
 }
 
-export function MediaListItem({ title, subtitle, href, onActivate, activateLabel, artwork, actions, element = 'div', className = '', testId, ...artworkProps }: SharedMediaProps) {
+export function MediaListItem({ title, subtitle, href, onSelect, onActivate, activateLabel, artwork, actions, element = 'div', className = '', testId, ...artworkProps }: SharedMediaProps) {
   const Root = element
   const content = <>{artwork ?? <MediaArtwork {...artworkProps} />}<span className="media-item__copy"><strong>{title}</strong>{subtitle && <small>{subtitle}</small>}</span></>
   const main = href
-    ? <Link className="media-item__main" to={href} aria-label={activateLabel}>{content}</Link>
+    ? <Link className="media-item__main" to={href} aria-label={activateLabel} onClick={onSelect}>{content}</Link>
     : onActivate
       ? <button type="button" className="media-item__main media-item__main--button" onClick={onActivate} aria-label={activateLabel}>{content}</button>
       : <span className="media-item__main">{content}</span>
@@ -54,11 +55,11 @@ export function MediaListItem({ title, subtitle, href, onActivate, activateLabel
   return <Root className={`media-item ${className}`.trim()} data-testid={testId}>{main}{actions && <span className="media-item__actions">{actions}</span>}</Root>
 }
 
-export function MediaCard({ title, subtitle, href, onActivate, activateLabel, artwork, actions, element = 'article', className = '', testId, ...artworkProps }: SharedMediaProps) {
+export function MediaCard({ title, subtitle, href, onSelect, onActivate, activateLabel, artwork, actions, element = 'article', className = '', testId, ...artworkProps }: SharedMediaProps) {
   const Root = element
   const content = <>{artwork ?? <MediaArtwork {...artworkProps} />}<span className="media-card__copy"><strong>{title}</strong>{subtitle && <small>{subtitle}</small>}</span></>
   const main = href
-    ? <Link className="media-card__main" to={href} aria-label={activateLabel}>{content}</Link>
+    ? <Link className="media-card__main" to={href} aria-label={activateLabel} onClick={onSelect}>{content}</Link>
     : onActivate
       ? <button type="button" className="media-card__main media-card__main--button" onClick={onActivate} aria-label={activateLabel}>{content}</button>
       : <span className="media-card__main">{content}</span>

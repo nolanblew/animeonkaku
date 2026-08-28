@@ -12,16 +12,16 @@
 .home-filter-row button:hover { border-color: rgba(255,255,255,.3); color: white; }
 .home-filter-row button[aria-pressed="true"] { border-color: white; background: white; color: #111319; font-weight: 800; }
 .home-quick-picks__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem 1.4rem; }
-.home-quick-pick { display: grid; min-width: 0; grid-template-columns: 3.7rem minmax(0, 1fr) auto; align-items: center; gap: .8rem; padding: .45rem; border-radius: .55rem; transition: background .18s; }
+.home-quick-pick { grid-template-columns: minmax(0, 1fr) auto; padding: .45rem; transition: background .18s; }
+.home-quick-pick .media-item__main { grid-template-columns: 3.7rem minmax(0, 1fr); gap: .8rem; }
 .home-quick-pick:hover { background: rgba(255,255,255,.055); }
 .home-quick-pick__play { position: relative; width: 3.7rem; height: 3.7rem; overflow: hidden; padding: 0; border: 0; border-radius: .35rem; background: linear-gradient(145deg, #d86489, #554f9c); color: white; cursor: pointer; }
 .home-quick-pick__play img { width: 100%; height: 100%; object-fit: cover; }
 .home-quick-pick__play-icon { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.42); opacity: 0; transition: opacity .18s; }
 .home-quick-pick:hover .home-quick-pick__play-icon, .home-quick-pick__play:focus-visible .home-quick-pick__play-icon { opacity: 1; }
-.home-quick-pick__copy { display: grid; min-width: 0; gap: .23rem; }
-.home-quick-pick__copy strong, .home-quick-pick__copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.home-quick-pick__copy strong { font-size: .9rem; }
-.home-quick-pick__copy small { color: var(--muted); font-size: .74rem; }
+.home-quick-pick .media-item__copy { gap: .23rem; }
+.home-quick-pick .media-item__copy strong { font-size: .9rem; }
+.home-quick-pick .media-item__copy small { font-size: .74rem; }
 .home-quick-pick__more { display: inline-grid; width: 2.2rem; height: 2.2rem; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; opacity: 0; }
 .home-quick-pick:hover .home-quick-pick__more, .home-quick-pick:focus-within .home-quick-pick__more { opacity: 1; }
 .home-quick-pick .track-actions, .home-top-song .track-actions { opacity: 0; transition: opacity .18s; }
@@ -43,15 +43,15 @@
 .home-anime-actions__trigger:hover { color: white; }
 .home-anime-actions__menu { right: .4rem; bottom: 2.65rem; }
 .home-top-songs__list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .35rem 1.2rem; }
-.home-top-song { display: grid; min-width: 0; grid-template-columns: 2.8rem minmax(0, 1fr) auto; align-items: center; gap: .7rem; padding: .4rem; border-radius: .55rem; }
+.home-top-song { grid-template-columns: minmax(0, 1fr) auto; padding: .4rem; }
+.home-top-song .media-item__main { grid-template-columns: 2.8rem minmax(0, 1fr); gap: .7rem; }
 .home-top-song:hover { background: rgba(255,255,255,.055); }
 .home-top-song__play { position: relative; display: grid; width: 2.8rem; height: 2.8rem; place-items: center; overflow: hidden; padding: 0; border: 0; border-radius: .35rem; background: linear-gradient(145deg, #d86489, #554f9c); color: white; cursor: pointer; }
 .home-top-song__play img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .home-top-song__play svg { position: relative; z-index: 1; }
-.home-top-song__copy { display: grid; min-width: 0; gap: .2rem; }
-.home-top-song__copy strong, .home-top-song__copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.home-top-song__copy strong { font-size: .86rem; }
-.home-top-song__copy small { color: var(--muted); font-size: .72rem; }
+.home-top-song .media-item__copy { gap: .2rem; }
+.home-top-song .media-item__copy strong { font-size: .86rem; }
+.home-top-song .media-item__copy small { font-size: .72rem; }
 .catalog-page__header { display: flex; align-items: flex-end; justify-content: space-between; gap: 2rem; }
 .catalog-page__header > div:first-child { max-width: 48rem; }
 .catalog-page__header h1 { margin-bottom: .7rem; }

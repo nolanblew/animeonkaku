@@ -85,11 +85,10 @@
 .account-search-featured { display: grid; gap: .55rem; margin-top: 1rem; }
 .account-search-featured > h3 { margin: 0; color: var(--cyan, #70dce5); font-size: .75rem; letter-spacing: .09em; text-transform: uppercase; }
 .account-search-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: .65rem; }
-.account-search-card { display: grid; min-width: 0; grid-template-columns: 4.2rem minmax(0, 1fr); align-items: center; gap: .75rem; padding: .55rem; border: 1px solid rgba(255,255,255,.08); border-radius: .7rem; background: rgba(255,255,255,.035); transition: border-color .16s, transform .16s, background .16s; }
-a.account-search-card:hover { border-color: rgba(112,220,229,.35); background: rgba(255,255,255,.065); transform: translateY(-2px); }
-.account-search-card__art { display: grid; width: 4.2rem; height: 4.2rem; place-items: center; overflow: hidden; border-radius: .55rem; background: linear-gradient(145deg, rgba(255,94,118,.32), rgba(71,217,232,.22)); color: var(--text); }
-.account-search-card__art img { width: 100%; height: 100%; object-fit: cover; }
-.account-search-card > span:last-child { display: grid; min-width: 0; gap: .2rem; }
+.account-search-card { padding: .55rem; border: 1px solid rgba(255,255,255,.08); border-radius: .7rem; background: rgba(255,255,255,.035); transition: border-color .16s, transform .16s, background .16s; }
+.account-search-card:has(.media-card__main:hover) { border-color: rgba(112,220,229,.35); background: rgba(255,255,255,.065); transform: translateY(-2px); }
+.account-search-card .media-card__main { grid-template-columns: 4.2rem minmax(0, 1fr); align-items: center; gap: .75rem; }
+.account-search-card .media-artwork { width: 4.2rem; height: 4.2rem; }
 .account-search-card strong, .account-search-card small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-search-card small { color: var(--muted); }
 .account-search-results__groups--discovery { grid-template-columns: minmax(17rem, 1.5fr) minmax(13rem, .8fr); }

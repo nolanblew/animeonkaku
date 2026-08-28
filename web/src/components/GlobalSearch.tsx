@@ -1,11 +1,12 @@
 import { ArrowRight, Disc3, Library, ListMusic, Search, UserRound } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { preferredAnimeTitle, useAnimeTitlePreference } from '../lib/animeTitlePreference'
 import type { NormalizedLibrary } from '../lib/library'
 import { artistRouteSlug } from '../lib/navigation'
 import { themePresentation } from '../lib/themePresentation'
 import { findLibraryMatches, sanitizeSearchQuery } from '../features/accountsearch/search'
+import { MediaListItem } from './MediaPresentation'
 
 interface GlobalSearchProps {
   library: NormalizedLibrary | null | undefined
@@ -110,5 +111,5 @@ function SuggestionGroup({ label, children }: { label: string; children: React.R
 }
 
 function SuggestionLink({ to, imageUrl, title, detail, fallback, onSelect }: { to: string; imageUrl?: string | null; title: string; detail: string; fallback?: React.ReactNode; onSelect: () => void }) {
-  return <Link className="global-search-suggestion" to={to} onClick={onSelect}>{imageUrl ? <img src={imageUrl} alt="" /> : <span className="global-search-suggestion__fallback" aria-hidden="true">{fallback ?? title.slice(0, 1)}</span>}<span><strong>{title}</strong><small>{detail}</small></span></Link>
+  return <MediaListItem className="global-search-suggestion" href={to} onSelect={onSelect} activateLabel={title} imageUrl={imageUrl} fallback={fallback ?? title.slice(0, 1)} title={title} subtitle={detail} />
 }

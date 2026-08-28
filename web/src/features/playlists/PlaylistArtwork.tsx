@@ -1,4 +1,5 @@
 import { Music2 } from 'lucide-react'
+import { MediaArtwork } from '../../components/MediaPresentation'
 import { browserAssetUrl } from '../../lib/assets'
 import type { NormalizedLibrary, PlaylistDto } from '../../lib/library'
 
@@ -12,13 +13,13 @@ export interface PlaylistArtworkProps {
 export function PlaylistArtwork({ playlistId, name, artworkUrls, className = '' }: PlaylistArtworkProps) {
   const urls = artworkUrls.filter((value) => value.trim().length > 0).slice(0, 4)
   const layout = urls.length === 0 ? 'empty' : urls.length === 1 ? 'single' : urls.length === 2 ? 'double' : 'quad'
-  return (
-    <span className={`playlist-artwork playlist-artwork--${layout} ${className}`.trim()} data-layout={layout} data-testid={`playlist-artwork-${playlistId}`}>
-      {urls.length === 0
-        ? <span className="playlist-artwork__empty" aria-label={`${name} has no artwork yet`}><Music2 aria-hidden="true" /></span>
-        : urls.map((url, index) => <img key={`${url}:${index}`} src={url} alt="" loading="lazy" decoding="async" />)}
-    </span>
-  )
+  return <MediaArtwork
+    imageUrls={urls}
+    label={`${name} has no artwork yet`}
+    fallback={<Music2 aria-hidden="true" />}
+    className={`playlist-artwork playlist-artwork--${layout} ${className}`.trim()}
+    testId={`playlist-artwork-${playlistId}`}
+  />
 }
 
 export function playlistArtworkUrls(playlist: PlaylistDto | undefined, library: NormalizedLibrary | null | undefined): string[] {

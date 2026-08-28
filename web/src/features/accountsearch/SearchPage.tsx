@@ -9,7 +9,7 @@ import { themePresentation } from '../../lib/themePresentation'
 import { preferredAnimeTitle, useAnimeTitlePreference } from '../../lib/animeTitlePreference'
 import { TrackActionMenu } from '../libraryactions'
 import { playlistArtworkUrls } from '../playlists'
-import { MediaListItem } from '../../components/MediaPresentation'
+import { MediaCard, MediaListItem } from '../../components/MediaPresentation'
 import {
   findLibraryMatches,
   parseSearchResponse,
@@ -147,10 +147,16 @@ function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, o
       {query && onlineCount > 0 && (
         <section className="account-search-results account-search-results--discovery" aria-labelledby="animethemes-match-title">
           <div className="account-search-results__heading"><div><p className="account-search-results__eyebrow"><Globe2 size={13} aria-hidden="true" /> Search the web</p><h2 id="animethemes-match-title">Discover on AnimeThemes</h2></div><span>{onlineCount} results</span></div>
-          {serverResults.animeThemes.anime.length > 0 && <div className="account-search-featured"><h3>Anime</h3><div className="account-search-card-grid">{serverResults.animeThemes.anime.map((anime) => {
-            const content = <><span className="account-search-card__art">{anime.imageUrl ? <img src={anime.imageUrl} alt="" /> : <Disc3 size={24} aria-hidden="true" />}</span><span><strong>{anime.name}</strong><small>{anime.themeCount} {anime.themeCount === 1 ? 'song' : 'songs'}</small></span></>
-            return anime.kitsuId ? <Link className="account-search-card" aria-label={anime.name} key={anime.animeThemesId} to={`/anime/${encodeURIComponent(anime.kitsuId)}`}>{content}</Link> : <article className="account-search-card" key={anime.animeThemesId}>{content}</article>
-          })}</div></div>}
+          {serverResults.animeThemes.anime.length > 0 && <div className="account-search-featured"><h3>Anime</h3><div className="account-search-card-grid">{serverResults.animeThemes.anime.map((anime) => <MediaCard
+            key={anime.animeThemesId}
+            className="account-search-card"
+            href={anime.kitsuId ? `/anime/${encodeURIComponent(anime.kitsuId)}` : undefined}
+            activateLabel={anime.kitsuId ? anime.name : undefined}
+            imageUrl={anime.imageUrl}
+            fallback={<Disc3 size={24} aria-hidden="true" />}
+            title={anime.name}
+            subtitle={`${anime.themeCount} ${anime.themeCount === 1 ? 'song' : 'songs'}`}
+          />)}</div></div>}
           <div className="account-search-results__groups account-search-results__groups--discovery">
             {serverResults.animeThemes.themes.length > 0 && <div className="account-search-results__group"><h3>Songs</h3><ul>{serverResults.animeThemes.themes.map((theme) => <AnimeThemesThemeRow key={theme.id} theme={theme} onPlay={onPlayTheme} onNavigate={navigate} />)}</ul></div>}
             {serverResults.animeThemes.artists.length > 0 && <div className="account-search-results__group"><h3>Artists</h3><ul>{serverResults.animeThemes.artists.map((artist) => <li key={artist.id}><span className="account-search-result-copy"><Link to={`/artist/${encodeURIComponent(artist.slug)}`}>{artist.name}</Link><span>Artist on AnimeThemes</span></span></li>)}</ul></div>}

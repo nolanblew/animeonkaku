@@ -3,6 +3,7 @@ import { ArrowRight, MoreHorizontal, Play } from 'lucide-react'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useRovingMenu } from '../../components/focusScope'
+import { MediaListItem } from '../../components/MediaPresentation'
 import { apiClient } from '../../lib/api'
 import { browserAssetUrl } from '../../lib/assets'
 import { readShowOstsOnHome, subscribeToHomePreference } from '../../lib/homePreference'
@@ -75,13 +76,15 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
         <div className="catalog-section__heading"><div><p className="eyebrow">Picked for you</p><h2 id="quick-picks-title">Recommended</h2><p>Start with a theme from the anime in your library.</p></div><div className="catalog-section__actions"><button type="button" className="button button--text" onClick={() => onPlayAll?.(quickPicks.map(({ theme }) => theme), quickPicks[0]?.artworkUrl)} disabled={!onPlayAll || quickPicks.length === 0}>Play all</button><Link to="/library?tab=songs" className="catalog-section__link">See all <ArrowRight size={15} /></Link></div></div>
         {quickPicks.length === 0
           ? <p className="catalog-empty">No tracks match this filter yet.</p>
-          : <div className="home-quick-picks__grid">{quickPicks.map(({ theme, animeTitle, artworkUrl }) => (
-            <article className="home-quick-pick" key={theme.id}>
-              <button type="button" className="home-quick-pick__play" onClick={() => onPlayTheme?.(theme, artworkUrl)} disabled={!onPlayTheme || !isPlayable(theme)} aria-label={`Play ${theme.title}`}>
+          : <div className="home-quick-picks__grid">{quickPicks.map(({ theme, animeTitle, artworkUrl }) => {
+            const presentation = themePresentation({ animeTitle, themeType: theme.themeType, songTitle: theme.title, artist: theme.artists.map((artist) => artist.name).join(', ') })
+            return <MediaListItem element="article" className="home-quick-pick" key={theme.id}
+              artwork={<button type="button" className="home-quick-pick__play" onClick={() => onPlayTheme?.(theme, artworkUrl)} disabled={!onPlayTheme || !isPlayable(theme)} aria-label={`Play ${theme.title}`}>
                 {artworkUrl ? <img src={artworkUrl} alt="" /> : <span aria-hidden="true">AO</span>}<span className="home-quick-pick__play-icon"><Play size={18} fill="currentColor" /></span>
-              </button>
-              <ThemeCopy animeTitle={animeTitle} themeType={theme.themeType} songTitle={theme.title} artist={theme.artists.map((artist) => artist.name).join(', ')} className="home-quick-pick__copy" />
-              <TrackActionMenu
+              </button>}
+              title={presentation.primary}
+              subtitle={presentation.secondary}
+              actions={<TrackActionMenu
                 item={{ itemType: 'THEME', itemId: theme.id, title: theme.title }}
                 menuOnly
                 liked={library?.prefsByThemeId[String(theme.id)]?.liked}
@@ -90,9 +93,9 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
                 hasFullSize={Boolean(theme.mediaModes.fullSize)}
                 onPlayNext={onPlayNext ? () => onPlayNext(theme, artworkUrl) : undefined}
                 onAddToQueue={onAddToQueue ? () => onAddToQueue(theme, artworkUrl) : undefined}
-              />
-            </article>
-          ))}</div>}
+              />}
+            />
+          })}</div>}
       </section>
 
       <section className="catalog-section home-top-songs" aria-labelledby="top-songs-title">
@@ -100,12 +103,14 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
         {topSongs.length === 0 ? <p className="catalog-empty">No top songs are available yet.</p> : <div className="home-top-songs__list">{topSongs.map((song) => {
           const artworkUrl = song.artworkUrl
           const theme = song.theme
-          return <article className="home-top-song" key={song.id}>
-            <button type="button" className="home-top-song__play" aria-label={`Play ${song.title}`} disabled={!onPlayTheme || !theme || !isPlayable(theme)} onClick={() => theme && onPlayTheme?.(theme, artworkUrl)}>
+          const presentation = themePresentation({ animeTitle: song.animeTitle, themeType: theme?.themeType, songTitle: song.title, artist: song.artistName })
+          return <MediaListItem element="article" className="home-top-song" key={song.id}
+            artwork={<button type="button" className="home-top-song__play" aria-label={`Play ${song.title}`} disabled={!onPlayTheme || !theme || !isPlayable(theme)} onClick={() => theme && onPlayTheme?.(theme, artworkUrl)}>
               {artworkUrl ? <img src={artworkUrl} alt="" loading="lazy" /> : <span aria-hidden="true">AO</span>}<Play size={16} fill="currentColor" />
-            </button>
-            <ThemeCopy animeTitle={song.animeTitle} themeType={theme?.themeType} songTitle={song.title} artist={song.artistName} className="home-top-song__copy" />
-            {theme && <TrackActionMenu
+            </button>}
+            title={presentation.primary}
+            subtitle={presentation.secondary}
+            actions={theme && <TrackActionMenu
               item={{ itemType: 'THEME', itemId: theme.id, title: song.title }}
               menuOnly
               liked={library?.prefsByThemeId[String(theme.id)]?.liked}
@@ -115,7 +120,7 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
               onPlayNext={onPlayNext ? () => onPlayNext(theme, artworkUrl) : undefined}
               onAddToQueue={onAddToQueue ? () => onAddToQueue(theme, artworkUrl) : undefined}
             />}
-          </article>
+          />
         })}</div>}
       </section>
 
@@ -144,11 +149,6 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
       </section>
     </>
   )
-}
-
-function ThemeCopy({ animeTitle, themeType, songTitle, artist, className }: { animeTitle?: string | null; themeType?: string | null; songTitle: string; artist?: string | null; className: string }) {
-  const presentation = themePresentation({ animeTitle, themeType, songTitle, artist })
-  return <span className={className}><strong>{presentation.primary}</strong><small>{presentation.secondary}</small></span>
 }
 
 function HomeAnimeCard({ anime, libraryAnime, themes, playlistId, onPlayAll }: {
