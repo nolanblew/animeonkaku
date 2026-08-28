@@ -104,8 +104,9 @@ describe('SyncPage authenticated Kitsu sync lifecycle', () => {
 
     expect(await screen.findByRole('heading', { name: /first sync|syncing your library/i })).toBeInTheDocument()
     expect(screen.getByText(/full sync/i)).toBeInTheDocument()
-    expect(screen.getByText(/40\s*\/\s*100/)).toBeInTheDocument()
-    expect(screen.getByText(/page 2\s*(of|\/)\s*5/i)).toBeInTheDocument()
+    expect(screen.getByText(/40 of 100 titles/i)).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: /library sync progress/i })).toHaveAttribute('aria-valuenow', '40')
+    expect(screen.queryByText(/page 2\s*(of|\/)\s*5/i)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /sync now|sync library/i })).not.toBeInTheDocument()
     expect(auth.markInitialSyncReady).not.toHaveBeenCalled()
     expect(apiClient.get).toHaveBeenCalledWith('/v1/sync/status')

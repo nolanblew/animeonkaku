@@ -44,7 +44,9 @@ beforeEach(() => {
   repo = new FakeAuthRepo();
   legacyImporter = new FakeLegacyLibraryImportService();
   app = buildApp({
-    authService: new AuthService(repo, new StubKitsuAuthClient()),
+    authService: new AuthService(repo, new StubKitsuAuthClient(), {
+      syncIntervalMs: 7 * 24 * 60 * 60 * 1000,
+    }),
     health: { pingDb: async () => {}, mediaRoot },
     legacyLibraryImport: legacyImporter,
   });
@@ -86,9 +88,19 @@ describe("POST /v1/auth/login", () => {
     expect(res.json().syncMode).toBe("FULL");
   });
 
-  it("recommends a DELTA sync for returning users synced within 1 month", async () => {
+  it("skips Kitsu sync for returning users whose library is still fresh", async () => {
     await login("nolan", "Pixel 9");
-    repo.users.get("stub-nolan")!.lastSyncAt = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    repo.users.get("stub-nolan")!.lastSyncAt = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000);
+
+    const res = await login("nolan", "Tablet");
+
+    expect(res.json().isNewUser).toBe(false);
+    expect(res.json().syncMode).toBe("NONE");
+  });
+
+  it("recommends a DELTA sync once the usual sync interval has elapsed", async () => {
+    await login("nolan", "Pixel 9");
+    repo.users.get("stub-nolan")!.lastSyncAt = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
 
     const res = await login("nolan", "Tablet");
 

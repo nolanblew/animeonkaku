@@ -81,4 +81,20 @@ describe('AuthProvider', () => {
     expect(queryClient.getQueryData(['playlist', 7])).toBeUndefined()
     expect(queryClient.getQueryData(['home'])).toBeUndefined()
   })
+
+  it('enters a returning user immediately without a sync when the server library is fresh', async () => {
+    vi.spyOn(apiClient, 'get').mockRejectedValue(Object.assign(new Error('unauthorized'), { status: 401 }))
+    vi.spyOn(apiClient, 'post').mockResolvedValue({
+      user: { kitsuUserId: '1', username: 'fan', displayName: null, avatarUrl: null },
+      isNewUser: false,
+      syncMode: 'NONE',
+    })
+    renderAuth()
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'))
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'login' }))
+
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'))
+    expect(screen.getByTestId('sync')).toHaveTextContent('ready')
+  })
 })
