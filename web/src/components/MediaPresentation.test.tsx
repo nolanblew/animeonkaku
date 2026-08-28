@@ -6,11 +6,11 @@ import { MediaArtwork, MediaCard, MediaListItem } from './MediaPresentation'
 describe('shared media presentation', () => {
   it('renders one image, a playlist mosaic, and an accessible empty fallback', () => {
     const { rerender } = render(<MediaArtwork imageUrl="/poster.jpg" label="Anime poster" />)
-    expect(screen.getByRole('img')).toHaveAttribute('src', '/poster.jpg')
+    expect(screen.getByTestId('media-artwork').querySelector('img')).toHaveAttribute('src', '/api/poster.jpg')
     expect(screen.getByTestId('media-artwork')).toHaveAttribute('data-layout', 'single')
 
     rerender(<MediaArtwork imageUrls={['/one.jpg', '/two.jpg', '/three.jpg', '/four.jpg']} label="Playlist artwork" />)
-    expect(screen.getAllByRole('img')).toHaveLength(4)
+    expect(screen.getByTestId('media-artwork').querySelectorAll('img')).toHaveLength(4)
     expect(screen.getByTestId('media-artwork')).toHaveAttribute('data-layout', 'quad')
 
     rerender(<MediaArtwork label="Empty playlist artwork" />)

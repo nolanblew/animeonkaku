@@ -1,4 +1,4 @@
-import { Disc3, Globe2, Play, Search, Sparkles } from 'lucide-react'
+import { Disc3, Globe2, ListMusic, Play, Search, Sparkles, UserRound } from 'lucide-react'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { apiClient } from '../../lib/api'
@@ -8,6 +8,8 @@ import { useLibraryQuery } from '../../lib/query'
 import { themePresentation } from '../../lib/themePresentation'
 import { preferredAnimeTitle, useAnimeTitlePreference } from '../../lib/animeTitlePreference'
 import { TrackActionMenu } from '../libraryactions'
+import { playlistArtworkUrls } from '../playlists'
+import { MediaListItem } from '../../components/MediaPresentation'
 import {
   findLibraryMatches,
   parseSearchResponse,
@@ -130,14 +132,14 @@ function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, o
         <section className="account-search-results account-search-results--library" aria-labelledby="library-match-title">
           <div className="account-search-results__heading"><div><p className="account-search-results__eyebrow">Already yours</p><h2 id="library-match-title">In your library</h2></div><span>{localCount} matches</span></div>
           <div className="account-search-results__groups">
-            <LocalGroup title="Anime" items={localMatches.anime.map((item) => ({ id: item.kitsuId, title: preferredAnimeTitle(item, titlePreference) || item.kitsuId, detail: item.watchingStatus ?? 'In your library', href: `/anime/${encodeURIComponent(item.kitsuId)}` }))} />
+            <LocalGroup title="Anime" items={localMatches.anime.map((item) => ({ id: item.kitsuId, title: preferredAnimeTitle(item, titlePreference) || item.kitsuId, detail: item.watchingStatus ?? 'In your library', href: `/anime/${encodeURIComponent(item.kitsuId)}`, imageUrl: item.posterUrl || item.coverUrl, testId: `search-anime-${item.kitsuId}` }))} />
             <LocalGroup title="Songs" items={localMatches.themes.map((item) => {
               const anime = item.kitsuAnimeIds.map((id) => library?.animeById[id]).find((entry) => entry && !entry.deleted)
               const presentation = themePresentation({ animeTitle: preferredAnimeTitle(anime, titlePreference), themeType: item.themeType, songTitle: item.title, artist: item.artists.map((artist) => artist.name).join(', ') })
-              return { id: String(item.id), title: presentation.primary, detail: presentation.secondary, action: onPlayTheme ? { label: `Play ${item.title}`, onClick: () => onPlayTheme(item) } : undefined }
+              return { id: String(item.id), title: presentation.primary, detail: presentation.secondary, imageUrl: anime?.posterUrl || anime?.coverUrl, testId: `search-theme-${item.id}`, action: onPlayTheme ? { label: `Play ${item.title}`, onClick: () => onPlayTheme(item) } : undefined }
             })} />
-            <LocalGroup title="Artists" items={localMatches.artists.map((item) => ({ id: item.name, title: item.name, detail: `${item.themeCount} ${item.themeCount === 1 ? 'song' : 'songs'} in your library`, href: `/artist/${encodeURIComponent(artistRouteSlug(item.name) ?? item.name)}` }))} />
-            <LocalGroup title="Playlists" items={localMatches.playlists.map((item) => ({ id: String(item.id), title: item.name, detail: `${item.items.length || item.entries.length} tracks`, href: `/playlist/${encodeURIComponent(String(item.id))}` }))} />
+            <LocalGroup title="Artists" items={localMatches.artists.map((item) => ({ id: item.name, title: item.name, detail: `${item.themeCount} ${item.themeCount === 1 ? 'song' : 'songs'} in your library`, href: `/artist/${encodeURIComponent(artistRouteSlug(item.name) ?? item.name)}`, fallback: <UserRound size={19} /> }))} />
+            <LocalGroup title="Playlists" items={localMatches.playlists.map((item) => ({ id: String(item.id), title: item.name, detail: `${item.items.length || item.entries.length} tracks`, href: `/playlist/${encodeURIComponent(String(item.id))}`, imageUrls: playlistArtworkUrls(item, library), fallback: <ListMusic size={19} />, testId: `search-playlist-${item.id}` }))} />
           </div>
         </section>
       )}
@@ -203,9 +205,9 @@ function validId(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
 }
 
-function LocalGroup({ title, items }: { title: string; items: Array<{ id: string; title: string; detail: string; href?: string; action?: { label: string; onClick: () => void } }> }) {
+function LocalGroup({ title, items }: { title: string; items: Array<{ id: string; title: string; detail: string; href?: string; imageUrl?: string | null; imageUrls?: readonly string[]; fallback?: React.ReactNode; testId?: string; action?: { label: string; onClick: () => void } }> }) {
   if (items.length === 0) return null
-  return <div className="account-search-results__group"><h3>{title}</h3><ul>{items.map((item) => <li key={item.id}><span className="account-search-result-copy">{item.href ? <Link to={item.href}>{item.title}</Link> : <strong>{item.title}</strong>}<span>{item.detail}</span></span>{item.action && <button type="button" aria-label={item.action.label} onClick={item.action.onClick}>Play</button>}</li>)}</ul></div>
+  return <div className="account-search-results__group"><h3>{title}</h3><ul>{items.map((item) => <MediaListItem key={item.id} element="li" className="account-search-library-item" testId={item.testId} href={item.href} activateLabel={item.href ? item.title : undefined} title={item.title} subtitle={item.detail} imageUrl={item.imageUrl} imageUrls={item.imageUrls} fallback={item.fallback} actions={item.action && <button type="button" aria-label={item.action.label} onClick={item.action.onClick}>Play</button>} />)}</ul></div>
 }
 
 export { findLibraryMatches, MAX_LIBRARY_RESULTS } from './search'

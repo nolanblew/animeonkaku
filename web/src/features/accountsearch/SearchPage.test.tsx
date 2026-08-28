@@ -8,7 +8,7 @@ import { SearchPage, findLibraryMatches, MAX_LIBRARY_RESULTS } from './SearchPag
 import { parseSearchResponse } from './search'
 
 vi.mock('../../lib/api', () => ({
-  apiClient: { get: vi.fn() },
+  apiClient: { get: vi.fn(), url: (value: string) => value.startsWith('/v1/') ? `/api${value}` : value },
 }))
 
 vi.mock('../../lib/query', () => ({
@@ -48,7 +48,7 @@ function libraryWithRecords(): NormalizedLibrary {
     playlistsById: {
       '3': {
         id: 3, name: 'Naruto Favorites', entries: [2], defaultMode: 'TV_SIZE', overrideUserPreference: false,
-        items: [{ itemType: 'THEME', itemId: 2 }], isAuto: false, isDynamic: false, autoUpdate: false, updatedAt: 1, deleted: false,
+        items: [{ entryId: 2, itemType: 'THEME', itemId: 2, modeOverride: null }], isAuto: false, isDynamic: false, autoUpdate: false, updatedAt: 1, deleted: false,
         dynamicSpecJson: null, dynamicSortJson: null,
       },
     },

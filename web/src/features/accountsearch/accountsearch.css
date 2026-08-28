@@ -74,6 +74,11 @@
 .account-search-results__group li strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-search-results__group li span { overflow: hidden; color: var(--muted, #a2a7b5); font-size: .8rem; text-overflow: ellipsis; white-space: nowrap; }
 .account-search-results__group li button { border: 1px solid var(--line-strong, #3a3c48); border-radius: .45rem; padding: .35rem .55rem; background: transparent; color: var(--cyan, #70dce5); font: inherit; font-size: .78rem; font-weight: 700; cursor: pointer; }
+.account-search-library-item { padding: .48rem; }
+.account-search-library-item .media-artwork { width: 3.1rem; height: 3.1rem; }
+.account-search-library-item .media-item__main { padding: .08rem; }
+.account-search-library-item .media-item__main:hover strong { color: var(--cyan, #70dce5); }
+.account-search-library-item .media-item__copy small { font-size: .76rem; }
 .account-search-result-actions { display: inline-flex; align-items: center; gap: .35rem; }
 .account-search-results--library { background: linear-gradient(145deg, rgba(71,217,232,.055), rgba(20,23,31,.62) 45%); }
 .account-search-results--discovery { background: radial-gradient(circle at 92% 0, rgba(255,94,118,.11), transparent 32%), linear-gradient(145deg, rgba(110,76,164,.1), rgba(20,23,31,.68) 50%); }
