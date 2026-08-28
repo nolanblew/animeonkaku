@@ -68,6 +68,17 @@ describe('QueueStore', () => {
     expect(store.state.historyEntries).toEqual([])
   })
 
+  it('randomizes the first item when starting a shuffled context from the beginning', () => {
+    const store = new QueueStore({ random: () => 0 })
+
+    store.play([song(1), song(2), song(3), song(4)], { shuffle: true })
+
+    expect(store.state.isShuffled).toBe(true)
+    expect(store.state.currentIndex).toBe(0)
+    expect(itemIds(store)).toEqual([2, 3, 4, 1])
+    expect(store.currentEntry?.item.id).toBe(2)
+  })
+
   it('Play Next bootstraps an empty queue in input order', () => {
     const store = new QueueStore()
 

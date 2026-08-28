@@ -140,6 +140,18 @@ describe('player views', () => {
     expect(screen.getByText('3 items')).toBeInTheDocument()
     expect(screen.getByText('A very long queue title that should remain readable across the row')).toBeInTheDocument()
 
+    expect(screen.queryAllByRole('button', { name: /Move .* (up|down)/i })).toHaveLength(0)
+    const endingRow = screen.getByText('Ending').closest('[data-queue-id]') as HTMLElement
+    const dragHandle = endingRow.querySelector('.player-queue__drag-handle')
+    const primary = endingRow.querySelector('.player-queue__primary')
+    expect(dragHandle).not.toBeNull()
+    expect(primary).not.toBeNull()
+    expect(dragHandle!.compareDocumentPosition(primary!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for Ending in queue' }))
+    expect(endingRow.querySelector('[role="menu"]')).not.toBeNull()
+    expect(queue.querySelector(':scope > .player-queue__menu')).toBeNull()
+
     fireEvent.click(screen.getByRole('button', { name: 'Close queue' }))
     expect(screen.queryByRole('complementary', { name: 'Playback queue' })).not.toBeInTheDocument()
   })
