@@ -2,6 +2,7 @@ package com.takeya.animeongaku
 
 import com.takeya.animeongaku.ui.library.LibraryGridKind
 import com.takeya.animeongaku.ui.library.libraryGridColumns
+import com.takeya.animeongaku.ui.library.libraryGridBottomClearanceDp
 import com.takeya.animeongaku.ui.library.libraryPosterAspectRatio
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -26,5 +27,10 @@ class LibraryGridPolicyTest {
     @Test
     fun `anime artwork uses a portrait poster ratio`() {
         assertEquals(2f / 3f, libraryPosterAspectRatio(), 0.001f)
+    }
+
+    @Test
+    fun `library grids clear the overlaid mini player`() {
+        assertEquals(90, libraryGridBottomClearanceDp())
     }
 }
