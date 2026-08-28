@@ -1,14 +1,50 @@
 import type { LibraryAnimeDto, LibraryThemeDto, NormalizedLibrary, PlaylistDto } from '../../lib/library'
 
 export const SEARCH_DEBOUNCE_MS = 300
-export const MAX_LIBRARY_RESULTS = { anime: 8, themes: 8, playlists: 6 } as const
+export const MAX_LIBRARY_RESULTS = { anime: 8, themes: 8, artists: 8, playlists: 6 } as const
 export const MAX_LIBRARY_SCAN = 5_000
 export const MAX_SERVER_RESULTS = 25
 
 export interface LibraryMatches {
   anime: LibraryAnimeDto[]
   themes: LibraryThemeDto[]
+  artists: Array<{ name: string; themeCount: number }>
   playlists: PlaylistDto[]
+}
+
+export interface AnimeThemesSearchAnime {
+  animeThemesId: number
+  kitsuId: string | null
+  name: string
+  imageUrl: string | null
+  themeCount: number
+}
+
+export interface AnimeThemesSearchTheme {
+  id: number
+  animeThemesAnimeId: number
+  kitsuId: string | null
+  animeName: string
+  imageUrl: string | null
+  title: string
+  themeType: string | null
+  artist: string | null
+}
+
+export interface AnimeThemesSearchArtist {
+  id: number | string
+  name: string
+  slug: string
+  imageUrl: string | null
+}
+
+export interface SearchResponse {
+  animeThemes: {
+    anime: AnimeThemesSearchAnime[]
+    themes: AnimeThemesSearchTheme[]
+    artists: AnimeThemesSearchArtist[]
+  }
+  music: MusicSearchResponse
 }
 
 export interface MusicSearchTrack {
@@ -53,12 +89,12 @@ export function sanitizeSearchQuery(value: string | null | undefined): string {
 
 export function findLibraryMatches(library: NormalizedLibrary | null, query: string): LibraryMatches {
   const normalizedQuery = sanitizeSearchQuery(query)
-  if (!library || !normalizedQuery) return { anime: [], themes: [], playlists: [] }
+  if (!library || !normalizedQuery) return { anime: [], themes: [], artists: [], playlists: [] }
 
   const anime = Object.values(library.animeById)
     .slice(0, MAX_LIBRARY_SCAN)
     .filter((item) => !item.deleted && includesQuery([
-      item.title, item.titleEn, item.titleRomaji, item.titleJa, item.slug, ...item.genres,
+      item.title, item.titleEn, item.titleRomaji, item.titleJa, item.slug, ...(Array.isArray(item.genres) ? item.genres : []),
     ], normalizedQuery))
     .slice(0, MAX_LIBRARY_RESULTS.anime)
 
@@ -74,7 +110,69 @@ export function findLibraryMatches(library: NormalizedLibrary | null, query: str
     .filter((item) => !item.deleted && includesQuery([item.name], normalizedQuery))
     .slice(0, MAX_LIBRARY_RESULTS.playlists)
 
-  return { anime, themes, playlists }
+  const artistCounts = new Map<string, { name: string; themeCount: number }>()
+  for (const theme of Object.values(library.themesById).slice(0, MAX_LIBRARY_SCAN)) {
+    if (theme.deleted) continue
+    for (const artist of theme.artists) {
+      const name = artist.name?.trim()
+      if (!name || !includesQuery([name, artist.alias, artist.asCharacter], normalizedQuery)) continue
+      const key = normalizeSearchText(name)
+      const existing = artistCounts.get(key)
+      artistCounts.set(key, { name: existing?.name ?? name, themeCount: (existing?.themeCount ?? 0) + 1 })
+    }
+  }
+  const artists = [...artistCounts.values()]
+    .sort((left, right) => right.themeCount - left.themeCount || left.name.localeCompare(right.name))
+    .slice(0, MAX_LIBRARY_RESULTS.artists)
+
+  return { anime, themes, artists, playlists }
+}
+
+export function parseSearchResponse(value: unknown): SearchResponse {
+  const root = isRecord(value) ? value : {}
+  const search = recordValue(recordValue(root.animeThemes)?.search)
+  const rawAnime = recordArray(search?.anime).slice(0, MAX_SERVER_RESULTS)
+  const anime: AnimeThemesSearchAnime[] = []
+  const themes: AnimeThemesSearchTheme[] = []
+
+  for (const candidate of rawAnime) {
+    const animeThemesId = positiveNumber(candidate.id)
+    const name = stringValue(candidate.name)
+    if (!animeThemesId || !name) continue
+    const kitsuId = kitsuResourceId(candidate.resources)
+    const imageUrl = bestImageUrl(candidate.images)
+    const rawThemes = recordArray(candidate.animethemes)
+    anime.push({ animeThemesId, kitsuId, name, imageUrl, themeCount: rawThemes.length })
+    for (const rawTheme of rawThemes) {
+      if (themes.length >= MAX_SERVER_RESULTS) break
+      const id = positiveNumber(rawTheme.id)
+      const song = recordValue(rawTheme.song)
+      const title = stringValue(song?.title)
+      if (!id || !title) continue
+      const baseType = stringValue(rawTheme.type)
+      const sequence = positiveNumber(rawTheme.sequence)
+      const artistNames = recordArray(song?.artists).map((artist) => stringValue(artist.name)).filter((artist): artist is string => Boolean(artist))
+      themes.push({
+        id,
+        animeThemesAnimeId: animeThemesId,
+        kitsuId,
+        animeName: name,
+        imageUrl,
+        title,
+        themeType: baseType ? `${baseType}${sequence && sequence > 1 ? sequence : ''}` : null,
+        artist: artistNames.join(', ') || null,
+      })
+    }
+  }
+
+  const artists = recordArray(search?.artists).slice(0, MAX_SERVER_RESULTS).flatMap((candidate) => {
+    const id = positiveNumber(candidate.id) ?? stringValue(candidate.id)
+    const name = stringValue(candidate.name)
+    const slug = stringValue(candidate.slug)
+    return id && name && slug ? [{ id, name, slug, imageUrl: bestImageUrl(candidate.images) }] : []
+  })
+
+  return { animeThemes: { anime, themes, artists }, music: parseMusicSearchResponse(root) }
 }
 
 export function parseMusicSearchResponse(value: unknown): MusicSearchResponse {
@@ -92,4 +190,38 @@ function includesQuery(values: Array<string | null | undefined>, query: string):
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) && !Array.isArray(value) ? value : null
+}
+
+function recordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(recordValue(item))) : []
+}
+
+function stringValue(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  return null
+}
+
+function positiveNumber(value: unknown): number | null {
+  const number = typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : Number.NaN
+  return Number.isSafeInteger(number) && number > 0 ? number : null
+}
+
+function kitsuResourceId(value: unknown): string | null {
+  const resource = recordArray(value).find((item) => stringValue(item.site)?.toLowerCase() === 'kitsu')
+  return stringValue(resource?.external_id ?? resource?.externalId)
+}
+
+function bestImageUrl(value: unknown): string | null {
+  const images = recordArray(value)
+  const preferred = images.find((image) => stringValue(image.facet)?.toLowerCase().includes('large')) ?? images[0]
+  const link = stringValue(preferred?.link)
+  if (link) return link
+  const path = stringValue(preferred?.path)
+  if (!path) return null
+  return /^https?:\/\//i.test(path) ? path : `https://i.animethemes.moe/${path.replace(/^\/+/, '')}`
 }

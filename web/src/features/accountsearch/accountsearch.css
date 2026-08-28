@@ -60,8 +60,10 @@
 .account-settings-card__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 .account-search-results__heading h2,
 .account-settings-card__heading h2 { margin: 0; font-size: 1.05rem; letter-spacing: -.02em; }
+.account-search-results__heading > div { display: grid; gap: .2rem; }
+.account-search-results__eyebrow { display: inline-flex; align-items: center; gap: .35rem; margin: 0; color: var(--cyan, #70dce5); font-size: .67rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
 .account-search-results__heading > span { color: var(--subtle, #808593); font-size: .78rem; }
-.account-search-results__groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }
+.account-search-results__groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin-top: 1rem; }
 .account-search-results__group { min-width: 0; }
 .account-search-results__group h3 { margin: 0 0 .5rem; color: var(--cyan, #70dce5); font-size: .75rem; letter-spacing: .09em; text-transform: uppercase; }
 .account-search-results__group ul { display: grid; gap: .35rem; margin: 0; padding: 0; list-style: none; }
@@ -73,6 +75,19 @@
 .account-search-results__group li span { overflow: hidden; color: var(--muted, #a2a7b5); font-size: .8rem; text-overflow: ellipsis; white-space: nowrap; }
 .account-search-results__group li button { border: 1px solid var(--line-strong, #3a3c48); border-radius: .45rem; padding: .35rem .55rem; background: transparent; color: var(--cyan, #70dce5); font: inherit; font-size: .78rem; font-weight: 700; cursor: pointer; }
 .account-search-result-actions { display: inline-flex; align-items: center; gap: .35rem; }
+.account-search-results--library { background: linear-gradient(145deg, rgba(71,217,232,.055), rgba(20,23,31,.62) 45%); }
+.account-search-results--discovery { background: radial-gradient(circle at 92% 0, rgba(255,94,118,.11), transparent 32%), linear-gradient(145deg, rgba(110,76,164,.1), rgba(20,23,31,.68) 50%); }
+.account-search-featured { display: grid; gap: .55rem; margin-top: 1rem; }
+.account-search-featured > h3 { margin: 0; color: var(--cyan, #70dce5); font-size: .75rem; letter-spacing: .09em; text-transform: uppercase; }
+.account-search-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: .65rem; }
+.account-search-card { display: grid; min-width: 0; grid-template-columns: 4.2rem minmax(0, 1fr); align-items: center; gap: .75rem; padding: .55rem; border: 1px solid rgba(255,255,255,.08); border-radius: .7rem; background: rgba(255,255,255,.035); transition: border-color .16s, transform .16s, background .16s; }
+a.account-search-card:hover { border-color: rgba(112,220,229,.35); background: rgba(255,255,255,.065); transform: translateY(-2px); }
+.account-search-card__art { display: grid; width: 4.2rem; height: 4.2rem; place-items: center; overflow: hidden; border-radius: .55rem; background: linear-gradient(145deg, rgba(255,94,118,.32), rgba(71,217,232,.22)); color: var(--text); }
+.account-search-card__art img { width: 100%; height: 100%; object-fit: cover; }
+.account-search-card > span:last-child { display: grid; min-width: 0; gap: .2rem; }
+.account-search-card strong, .account-search-card small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-search-card small { color: var(--muted); }
+.account-search-results__groups--discovery { grid-template-columns: minmax(17rem, 1.5fr) minmax(13rem, .8fr); }
 
 .account-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
 .account-settings-card--wide { grid-column: 1 / -1; }

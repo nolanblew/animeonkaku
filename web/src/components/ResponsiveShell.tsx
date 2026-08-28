@@ -14,6 +14,7 @@ import { Brand } from './BrandMark'
 import { useAuth } from '../auth/AuthProvider'
 import { MiniPlayerView, runPlayerViewTransition } from '../player'
 import { useLibraryQuery } from '../lib/query'
+import { GlobalSearch } from './GlobalSearch'
 
 const primaryNavigation = [
   { to: '/', label: 'Home', icon: House, end: true },
@@ -55,7 +56,6 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
   const [navigationOpen, setNavigationOpen] = useState(false)
   const [sidebarProfileOpen, setSidebarProfileOpen] = useState(false)
   const [topbarProfileOpen, setTopbarProfileOpen] = useState(false)
-  const [query, setQuery] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
   const location = useLocation()
@@ -81,12 +81,6 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
   }, [location.pathname, location.search])
 
   const closeNavigation = () => setNavigationOpen(false)
-  const submitSearch = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const value = query.trim()
-    navigate(value ? `/search?q=${encodeURIComponent(value)}` : '/search')
-    closeNavigation()
-  }
   const openExpandedPlayer = () => {
     const playerReturnTo = `${location.pathname}${location.search}${location.hash}`
     runPlayerViewTransition(() => navigate('/now-playing', { state: { playerReturnTo } }))
@@ -148,17 +142,7 @@ export function ResponsiveShell({ children }: { children?: ReactNode }) {
           <button className="mobile-menu-button icon-button" type="button" aria-label="Open navigation" aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}>
             <Menu size={22} />
           </button>
-          <form className="global-search" role="search" aria-label="Global search" onSubmit={submitSearch}>
-            <Search size={19} aria-hidden="true" />
-            <input
-              ref={searchInputRef}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search songs, anime, artists, and playlists"
-              aria-label="Search songs, anime, artists, and playlists"
-            />
-            <kbd>⌘ K</kbd>
-          </form>
+          <GlobalSearch library={library} inputRef={searchInputRef} />
           <div className="topbar__actions">
             <button className="topbar__avatar" type="button" aria-label="Open profile menu" aria-expanded={topbarProfileOpen} aria-haspopup="menu" onClick={() => setTopbarProfileOpen((open) => !open)}>
               {avatarUrl ? <img src={avatarUrl} alt="" /> : <UserRound size={19} />}

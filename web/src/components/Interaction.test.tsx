@@ -50,7 +50,7 @@ describe('interaction and safe error surfaces', () => {
     fireEvent.click(screen.getByRole('button', { name: /anime fan.*connected/i }))
     expect(screen.getByRole('menu')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('menuitem', { name: /account settings/i }))
-    fireEvent.change(screen.getByRole('textbox', { name: /search songs/i }), { target: { value: 'bleach' } })
+    fireEvent.change(screen.getByRole('combobox', { name: /search songs/i }), { target: { value: 'bleach' } })
     fireEvent.submit(screen.getByRole('search', { name: /global search/i }))
     expect(screen.getByRole('heading', { name: /home content/i })).toBeInTheDocument()
   })

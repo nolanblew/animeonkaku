@@ -1,4 +1,4 @@
-import { Search, Sparkles } from 'lucide-react'
+import { Disc3, Globe2, Play, Search, Sparkles } from 'lucide-react'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { apiClient } from '../../lib/api'
@@ -10,11 +10,11 @@ import { preferredAnimeTitle, useAnimeTitlePreference } from '../../lib/animeTit
 import { TrackActionMenu } from '../libraryactions'
 import {
   findLibraryMatches,
-  MAX_LIBRARY_RESULTS,
-  parseMusicSearchResponse,
+  parseSearchResponse,
   sanitizeSearchQuery,
   SEARCH_DEBOUNCE_MS,
-  type MusicSearchResponse,
+  type AnimeThemesSearchTheme,
+  type SearchResponse,
   type MusicSearchTrack,
 } from './search'
 import type { LibraryThemeDto } from '../../lib/library'
@@ -50,7 +50,7 @@ function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, o
   const library = suppliedLibrary ?? createEmptyLibrary()
   const localMatches = useMemo(() => findLibraryMatches(library, query), [library, query])
   const [inputValue, setInputValue] = useState(routeQuery)
-  const [serverResults, setServerResults] = useState<MusicSearchResponse>({ releases: [], tracks: [] })
+  const [serverResults, setServerResults] = useState<SearchResponse>({ animeThemes: { anime: [], themes: [], artists: [] }, music: { releases: [], tracks: [] } })
   const [serverResultQuery, setServerResultQuery] = useState<string | null>(null)
   const [requestState, setRequestState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [retryNonce, setRetryNonce] = useState(0)
@@ -61,7 +61,7 @@ function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, o
     let cancelled = false
     setRequestState('idle')
     if (!query) {
-      setServerResults({ releases: [], tracks: [] })
+      setServerResults({ animeThemes: { anime: [], themes: [], artists: [] }, music: { releases: [], tracks: [] } })
       setServerResultQuery(null)
       return undefined
     }
@@ -71,7 +71,7 @@ function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, o
       void apiClient.get<unknown>(`/v1/search?${new URLSearchParams({ q: query }).toString()}`)
         .then((response) => {
           if (cancelled) return
-          setServerResults(parseMusicSearchResponse(response))
+          setServerResults(parseSearchResponse(response))
           setServerResultQuery(query)
           setRequestState('success')
         })
@@ -87,7 +87,10 @@ function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, o
     }
   }, [debounceMs, query, retryNonce])
 
-  const hasResults = localMatches.anime.length > 0 || localMatches.themes.length > 0 || localMatches.playlists.length > 0 || serverResults.tracks.length > 0 || serverResults.releases.length > 0
+  const localCount = localMatches.anime.length + localMatches.themes.length + localMatches.artists.length + localMatches.playlists.length
+  const onlineCount = serverResults.animeThemes.anime.length + serverResults.animeThemes.themes.length + serverResults.animeThemes.artists.length
+  const musicCount = serverResults.music.tracks.length + serverResults.music.releases.length
+  const hasResults = localCount + onlineCount + musicCount > 0
 
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -101,7 +104,7 @@ function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, o
         <div>
           <p className="account-search-page__eyebrow">Find your next theme</p>
           <h1 id="account-search-title">Search</h1>
-          <p>Search the music catalog and the anime, themes, and playlists already in your library.</p>
+          <p>Find what you already love, then discover more anime music from AnimeThemes.</p>
         </div>
         <div className="account-search-page__icon" aria-hidden="true"><Sparkles size={25} /></div>
       </header>
@@ -123,27 +126,42 @@ function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, o
       {query && requestState === 'loading' && <p className="account-search-status" role="status">Searching for “{query}”…</p>}
       {query && requestState === 'error' && <p className="account-search-error" role="alert">We could not complete search right now. Try again. <button type="button" onClick={() => setRetryNonce((value) => value + 1)}>Retry search</button></p>}
 
-      {query && localMatches.anime.length + localMatches.themes.length + localMatches.playlists.length > 0 && (
-        <section className="account-search-results" aria-labelledby="library-match-title">
-          <div className="account-search-results__heading"><h2 id="library-match-title">Your library matches</h2><span>Up to {MAX_LIBRARY_RESULTS.anime + MAX_LIBRARY_RESULTS.themes + MAX_LIBRARY_RESULTS.playlists} shown</span></div>
+      {query && localCount > 0 && (
+        <section className="account-search-results account-search-results--library" aria-labelledby="library-match-title">
+          <div className="account-search-results__heading"><div><p className="account-search-results__eyebrow">Already yours</p><h2 id="library-match-title">In your library</h2></div><span>{localCount} matches</span></div>
           <div className="account-search-results__groups">
             <LocalGroup title="Anime" items={localMatches.anime.map((item) => ({ id: item.kitsuId, title: preferredAnimeTitle(item, titlePreference) || item.kitsuId, detail: item.watchingStatus ?? 'In your library', href: `/anime/${encodeURIComponent(item.kitsuId)}` }))} />
-            <LocalGroup title="Themes" items={localMatches.themes.map((item) => {
+            <LocalGroup title="Songs" items={localMatches.themes.map((item) => {
               const anime = item.kitsuAnimeIds.map((id) => library?.animeById[id]).find((entry) => entry && !entry.deleted)
               const presentation = themePresentation({ animeTitle: preferredAnimeTitle(anime, titlePreference), themeType: item.themeType, songTitle: item.title, artist: item.artists.map((artist) => artist.name).join(', ') })
               return { id: String(item.id), title: presentation.primary, detail: presentation.secondary, action: onPlayTheme ? { label: `Play ${item.title}`, onClick: () => onPlayTheme(item) } : undefined }
             })} />
+            <LocalGroup title="Artists" items={localMatches.artists.map((item) => ({ id: item.name, title: item.name, detail: `${item.themeCount} ${item.themeCount === 1 ? 'song' : 'songs'} in your library`, href: `/artist/${encodeURIComponent(artistRouteSlug(item.name) ?? item.name)}` }))} />
             <LocalGroup title="Playlists" items={localMatches.playlists.map((item) => ({ id: String(item.id), title: item.name, detail: `${item.items.length || item.entries.length} tracks`, href: `/playlist/${encodeURIComponent(String(item.id))}` }))} />
           </div>
         </section>
       )}
 
-      {query && (serverResults.tracks.length > 0 || serverResults.releases.length > 0) && (
+      {query && onlineCount > 0 && (
+        <section className="account-search-results account-search-results--discovery" aria-labelledby="animethemes-match-title">
+          <div className="account-search-results__heading"><div><p className="account-search-results__eyebrow"><Globe2 size={13} aria-hidden="true" /> Search the web</p><h2 id="animethemes-match-title">Discover on AnimeThemes</h2></div><span>{onlineCount} results</span></div>
+          {serverResults.animeThemes.anime.length > 0 && <div className="account-search-featured"><h3>Anime</h3><div className="account-search-card-grid">{serverResults.animeThemes.anime.map((anime) => {
+            const content = <><span className="account-search-card__art">{anime.imageUrl ? <img src={anime.imageUrl} alt="" /> : <Disc3 size={24} aria-hidden="true" />}</span><span><strong>{anime.name}</strong><small>{anime.themeCount} {anime.themeCount === 1 ? 'song' : 'songs'}</small></span></>
+            return anime.kitsuId ? <Link className="account-search-card" aria-label={anime.name} key={anime.animeThemesId} to={`/anime/${encodeURIComponent(anime.kitsuId)}`}>{content}</Link> : <article className="account-search-card" key={anime.animeThemesId}>{content}</article>
+          })}</div></div>}
+          <div className="account-search-results__groups account-search-results__groups--discovery">
+            {serverResults.animeThemes.themes.length > 0 && <div className="account-search-results__group"><h3>Songs</h3><ul>{serverResults.animeThemes.themes.map((theme) => <AnimeThemesThemeRow key={theme.id} theme={theme} onPlay={onPlayTheme} onNavigate={navigate} />)}</ul></div>}
+            {serverResults.animeThemes.artists.length > 0 && <div className="account-search-results__group"><h3>Artists</h3><ul>{serverResults.animeThemes.artists.map((artist) => <li key={artist.id}><span className="account-search-result-copy"><Link to={`/artist/${encodeURIComponent(artist.slug)}`}>{artist.name}</Link><span>Artist on AnimeThemes</span></span></li>)}</ul></div>}
+          </div>
+        </section>
+      )}
+
+      {query && musicCount > 0 && (
         <section className="account-search-results" aria-labelledby="music-match-title">
-          <div className="account-search-results__heading"><h2 id="music-match-title">Music catalog</h2><span>{requestState === 'success' && serverResultQuery === query ? 'Server results' : 'Previous results'}</span></div>
+          <div className="account-search-results__heading"><div><p className="account-search-results__eyebrow">Full-length music</p><h2 id="music-match-title">Tracks &amp; releases</h2></div><span>{requestState === 'success' && serverResultQuery === query ? 'From your server' : 'Previous results'}</span></div>
           <div className="account-search-results__groups">
-            {serverResults.tracks.length > 0 && <div className="account-search-results__group"><h3>Tracks</h3><ul>{serverResults.tracks.map((result, index) => <SearchTrackRow key={`track-${result.track?.id ?? index}`} result={result} onPlay={onPlayTrack} onPlayNext={onPlayNextTrack} onAddToQueue={onAddToQueueTrack} onReplaceQueue={onReplaceQueueTrack} onNavigate={navigate} />)}</ul></div>}
-            {serverResults.releases.length > 0 && <div className="account-search-results__group"><h3>Releases</h3><ul>{serverResults.releases.map((result, index) => <li key={`release-${result.release?.id ?? index}`}><span className="account-search-result-copy">{validId(result.release?.id) ? <Link to={`/release/${result.release!.id}`}>{result.release?.title ?? 'Untitled release'}</Link> : <strong>{result.release?.title ?? 'Untitled release'}</strong>}<span>{result.anime?.map((anime) => anime.title ?? anime.titleEn).filter(Boolean).join(', ') || result.release?.artistCredit || 'Music release'}</span></span></li>)}</ul></div>}
+            {serverResults.music.tracks.length > 0 && <div className="account-search-results__group"><h3>Tracks</h3><ul>{serverResults.music.tracks.map((result, index) => <SearchTrackRow key={`track-${result.track?.id ?? index}`} result={result} onPlay={onPlayTrack} onPlayNext={onPlayNextTrack} onAddToQueue={onAddToQueueTrack} onReplaceQueue={onReplaceQueueTrack} onNavigate={navigate} />)}</ul></div>}
+            {serverResults.music.releases.length > 0 && <div className="account-search-results__group"><h3>Releases</h3><ul>{serverResults.music.releases.map((result, index) => <li key={`release-${result.release?.id ?? index}`}><span className="account-search-result-copy">{validId(result.release?.id) ? <Link to={`/release/${result.release!.id}`}>{result.release?.title ?? 'Untitled release'}</Link> : <strong>{result.release?.title ?? 'Untitled release'}</strong>}<span>{result.anime?.map((anime) => anime.title ?? anime.titleEn).filter(Boolean).join(', ') || result.release?.artistCredit || 'Music release'}</span></span></li>)}</ul></div>}
           </div>
         </section>
       )}
@@ -151,6 +169,17 @@ function SearchPageContent({ suppliedLibrary, debounceMs = SEARCH_DEBOUNCE_MS, o
       {query && requestState === 'success' && !hasResults && <section className="account-search-empty" aria-live="polite"><h2>No matches found</h2><p>Try a different title, artist, or playlist name.</p></section>}
     </section>
   )
+}
+
+function AnimeThemesThemeRow({ theme, onPlay, onNavigate }: { theme: AnimeThemesSearchTheme; onPlay?: (theme: LibraryThemeDto) => void; onNavigate: (to: string) => void }) {
+  const playable = onlineThemeDto(theme)
+  const presentation = themePresentation({ animeTitle: theme.animeName, themeType: theme.themeType, songTitle: theme.title, artist: theme.artist })
+  return <li><span className="account-search-result-copy"><strong>{presentation.primary}</strong><span><b>{theme.title}</b>{theme.artist ? ` · ${theme.artist}` : ''}</span></span><div className="account-search-result-actions">{onPlay && <button type="button" aria-label={`Play ${theme.title}`} onClick={() => onPlay(playable)}><Play size={14} aria-hidden="true" /> Play</button>}<TrackActionMenu menuOnly item={{ itemType: 'THEME', itemId: theme.id, title: theme.title }} onReplaceQueue={onPlay ? () => onPlay(playable) : undefined} onGoToArtist={theme.artist ? () => onNavigate(`/artist/${encodeURIComponent(artistRouteSlug(String(theme.artist)) ?? String(theme.artist))}`) : undefined} artistName={theme.artist ?? undefined} onGoToAnime={theme.kitsuId ? () => onNavigate(`/anime/${encodeURIComponent(String(theme.kitsuId))}`) : undefined} animeName={theme.animeName} /></div></li>
+}
+
+function onlineThemeDto(theme: AnimeThemesSearchTheme): LibraryThemeDto {
+  const audioUrl = `/v1/media/audio/${theme.id}`
+  return { id: theme.id, animeThemesAnimeId: theme.animeThemesAnimeId, kitsuAnimeIds: theme.kitsuId ? [theme.kitsuId] : [], title: theme.title, themeType: theme.themeType, artists: theme.artist ? theme.artist.split(',').map((name) => ({ name: name.trim(), alias: null, asCharacter: null })) : [], audioUrl, videoUrl: null, audioState: 'PENDING', durationSeconds: null, fileSize: null, mediaModes: { tvSize: { url: audioUrl, durationSeconds: null, fileSize: null }, fullSize: null, video: null }, updatedAt: 0, deleted: false }
 }
 
 function SearchTrackRow({ result, onPlay, onPlayNext, onAddToQueue, onReplaceQueue, onNavigate }: {
