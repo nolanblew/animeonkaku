@@ -147,6 +147,8 @@ describe('player views', () => {
     expect(dragHandle).not.toBeNull()
     expect(primary).not.toBeNull()
     expect(dragHandle!.compareDocumentPosition(primary!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.keyDown(dragHandle!, { key: 'ArrowUp' })
+    expect(state.player.queue.moveEntry).toHaveBeenCalledWith(3, 2)
 
     fireEvent.click(screen.getByRole('button', { name: 'More actions for Ending in queue' }))
     expect(endingRow.querySelector('[role="menu"]')).not.toBeNull()
