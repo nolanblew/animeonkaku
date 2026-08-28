@@ -211,10 +211,11 @@ describe('SyncPage authenticated Kitsu sync lifecycle', () => {
   it('reports transient polling failures while keeping the active sync visible', async () => {
     mockedUseAuth.mockReturnValue(makeAuth())
     let reads = 0
+    let rejectPoll!: (reason: Error) => void
     vi.spyOn(apiClient, 'get').mockImplementation(async () => {
       reads += 1
       if (reads === 1) return makeStatus({ state: 'RUNNING', phase: 'MAPPING_THEMES' })
-      throw new Error('poll unavailable')
+      return new Promise((_, reject) => { rejectPoll = reject })
     })
     let pollCallback: (() => void) | null = null
     const setInterval = vi.spyOn(window, 'setInterval').mockImplementation((handler) => {
@@ -225,7 +226,9 @@ describe('SyncPage authenticated Kitsu sync lifecycle', () => {
 
     expect(await screen.findByRole('heading', { name: 'Library sync' })).toBeInTheDocument()
     await waitFor(() => expect(setInterval).toHaveBeenCalled())
-    await act(async () => { pollCallback?.(); await Promise.resolve() })
+    pollCallback?.()
+    await waitFor(() => expect(reads).toBe(2))
+    await act(async () => { rejectPoll(new Error('poll unavailable')) })
     expect(await screen.findByRole('alert')).toHaveTextContent(/could not refresh sync progress/i)
     expect(reads).toBe(2)
   })

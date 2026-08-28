@@ -58,7 +58,11 @@ describe('AuthProvider', () => {
     await user.click(screen.getByRole('button', { name: 'login' }))
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'))
     expect(screen.getByTestId('sync')).toHaveTextContent('syncing')
-    expect(post).toHaveBeenCalledWith('/auth/login', { username: 'fan', password: 'password', deviceName: 'Web browser' })
+    expect(post).toHaveBeenCalledWith('/auth/login', {
+      username: 'fan',
+      password: 'password',
+      deviceName: expect.stringMatching(/^Web(?: browser| · (?:Windows|macOS|Linux|iOS|Android))$/),
+    })
 
     await user.click(screen.getByRole('button', { name: 'profile' }))
     await waitFor(() => expect(patch).toHaveBeenCalledWith('/auth/profile', { displayName: 'Nolan' }))

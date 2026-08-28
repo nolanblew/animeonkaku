@@ -3,12 +3,14 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiClient } from '../../lib/api'
+import { createEmptyLibrary } from '../../lib/library'
+import { LIBRARY_QUERY_KEY } from '../../lib/query'
 
 import { ThemeActionSheet, TrackActionMenu, useLibraryActions } from './index'
 
 function renderWithQuery(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
+  return { ...render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>), client }
 }
 
 function ActionProbe() {
@@ -28,6 +30,28 @@ beforeEach(() => {
 })
 
 describe('library action API and hook', () => {
+  it('rolls back only the failed preference and preserves concurrent library updates', async () => {
+    let rejectRequest!: (reason: Error) => void
+    vi.spyOn(apiClient, 'request').mockReturnValue(new Promise((_, reject) => { rejectRequest = reject }) as never)
+    const { client } = renderWithQuery(<ActionProbe />)
+    client.setQueryData(LIBRARY_QUERY_KEY, {
+      ...createEmptyLibrary(),
+      prefsByThemeId: { '41': { themeId: 41, liked: false, disliked: false } },
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: 'like' }))
+    expect(client.getQueryData<ReturnType<typeof createEmptyLibrary>>(LIBRARY_QUERY_KEY)?.prefsByThemeId['41']?.liked).toBe(true)
+
+    client.setQueryData(LIBRARY_QUERY_KEY, (current: ReturnType<typeof createEmptyLibrary>) => ({
+      ...current,
+      cursor: 77,
+    }))
+    rejectRequest(new Error('preference unavailable'))
+
+    await waitFor(() => expect(client.getQueryData<ReturnType<typeof createEmptyLibrary>>(LIBRARY_QUERY_KEY)?.prefsByThemeId['41']?.liked).toBe(false))
+    expect(client.getQueryData<ReturnType<typeof createEmptyLibrary>>(LIBRARY_QUERY_KEY)?.cursor).toBe(77)
+  })
+
   it('writes like and preferred mode through the existing theme preference contract', async () => {
     const request = vi.spyOn(apiClient, 'request').mockResolvedValue({ themeId: 41, liked: true })
     renderWithQuery(<ActionProbe />)

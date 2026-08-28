@@ -18,7 +18,11 @@ describe('LoginPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /sign in/i }))
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/could not sign you in/i))
-    expect(apiClient.post).toHaveBeenCalledWith('/auth/login', { username: 'fan@example.test', password: 'not-a-real-password', deviceName: 'Web browser' })
+    expect(apiClient.post).toHaveBeenCalledWith('/auth/login', {
+      username: 'fan@example.test',
+      password: 'not-a-real-password',
+      deviceName: expect.stringMatching(/^Web(?: browser| · (?:Windows|macOS|Linux|iOS|Android))$/),
+    })
   })
 
   it('navigates home after a successful sign-in', async () => {
