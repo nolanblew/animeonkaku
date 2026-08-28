@@ -43,7 +43,7 @@ class PlaybackAvailabilityRefreshTest {
         val changes = mutableListOf<PlaybackAvailabilityChange>()
         val job = launch(UnconfinedTestDispatcher(testScheduler)) {
             playbackAvailabilityChanges(serverReachable, mediaInvalidations)
-                .take(3)
+                .take(4)
                 .collect(changes::add)
         }
 
@@ -57,6 +57,7 @@ class PlaybackAvailabilityRefreshTest {
         job.join()
         assertEquals(
             listOf(
+                PlaybackAvailabilityChange.ServerReachability(false),
                 PlaybackAvailabilityChange.ServerReachability(true),
                 PlaybackAvailabilityChange.ServerReachability(false),
                 PlaybackAvailabilityChange.MediaInvalidation
