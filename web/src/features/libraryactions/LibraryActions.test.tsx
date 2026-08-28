@@ -58,6 +58,22 @@ describe('library action API and hook', () => {
 })
 
 describe('TrackActionMenu', () => {
+  it('shows an optimistic whole-item preference toggle for full-size playback', async () => {
+    let resolveRequest!: (value: unknown) => void
+    const pendingRequest = new Promise((resolve) => { resolveRequest = resolve })
+    const request = vi.spyOn(apiClient, 'request').mockReturnValue(pendingRequest as never)
+
+    renderWithQuery(<TrackActionMenu item={{ itemType: 'THEME', itemId: 41, title: 'Opening theme', modeOverride: 'FULL_SIZE' }} liked={false} disliked={false} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Like' }))
+
+    expect(screen.getByRole('button', { name: 'Remove like' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Dislike' })).toHaveAttribute('aria-pressed', 'false')
+    expect(request).toHaveBeenCalledWith('/v1/prefs/themes/41', expect.objectContaining({ body: JSON.stringify({ liked: true }) }))
+
+    resolveRequest({ themeId: 41, liked: true, disliked: false })
+  })
+
   it('uses separate mobile-style like and dislike controls and exposes a working action menu', async () => {
     const onPlayNext = vi.fn()
     const onAddToQueue = vi.fn()
