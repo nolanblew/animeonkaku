@@ -25,7 +25,7 @@ function libraryWithRecords(): NormalizedLibrary {
     animeById: {
       a1: {
         kitsuId: 'a1', animeThemesId: null, title: 'Naruto', titleEn: 'Naruto', titleRomaji: null,
-        titleJa: null, posterUrl: null, coverUrl: null, watchingStatus: 'CURRENT', subtype: 'TV',
+        titleJa: null, posterUrl: '/v1/media/images/anime/a1/poster', coverUrl: null, watchingStatus: 'CURRENT', subtype: 'TV',
         startDate: null, endDate: null, episodeCount: 220, ageRating: null, averageRating: null,
         userRating: null, libraryUpdatedAt: null, slug: 'naruto', genres: ['Action'], updatedAt: 1, deleted: false,
       },
@@ -47,8 +47,8 @@ function libraryWithRecords(): NormalizedLibrary {
     },
     playlistsById: {
       '3': {
-        id: 3, name: 'Naruto Favorites', entries: [], defaultMode: 'TV_SIZE', overrideUserPreference: false,
-        items: [], isAuto: false, isDynamic: false, autoUpdate: false, updatedAt: 1, deleted: false,
+        id: 3, name: 'Naruto Favorites', entries: [2], defaultMode: 'TV_SIZE', overrideUserPreference: false,
+        items: [{ itemType: 'THEME', itemId: 2 }], isAuto: false, isDynamic: false, autoUpdate: false, updatedAt: 1, deleted: false,
         dynamicSpecJson: null, dynamicSortJson: null,
       },
     },
@@ -160,6 +160,9 @@ describe('SearchPage', () => {
 
     expect(screen.getByRole('link', { name: 'Blue Naruto' })).toHaveAttribute('href', '/anime/a1')
     expect(screen.getByRole('link', { name: 'Blue Favorites' })).toHaveAttribute('href', '/playlist/3')
+    expect(screen.getByTestId('search-anime-a1').querySelector('img')).toHaveAttribute('src', '/api/v1/media/images/anime/a1/poster')
+    expect(screen.getByTestId('search-theme-2').querySelector('img')).toHaveAttribute('src', '/api/v1/media/images/anime/a1/poster')
+    expect(screen.getByTestId('search-playlist-3').querySelector('[data-layout="single"] img')).toHaveAttribute('src', '/api/v1/media/images/anime/a1/poster')
     fireEvent.click(screen.getByRole('button', { name: 'Play Blue Bird' }))
     expect(onPlayTheme).toHaveBeenCalledWith(expect.objectContaining({ id: 2, title: 'Blue Bird' }))
   })
