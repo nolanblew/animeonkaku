@@ -31,6 +31,22 @@ class DebugBrandingPolicyTest {
         }
     }
 
+    @Test
+    fun mobileBuildsDefaultToPublicServerBaseWithoutApiSubdomain() {
+        val buildScript = projectFile("build.gradle.kts").readText()
+
+        assertTrue(
+            "Default and release mobile builds must use the public server base URL.",
+            buildScript.contains(
+                """val defaultOngakuServerBaseUrl = "https://ongaku.takeya.ninja/""""
+            )
+        )
+        assertTrue(
+            "The retired API hostname must not remain the mobile default.",
+            !buildScript.contains("ongaku-api.takeya.ninja")
+        )
+    }
+
     private fun projectFile(relativePath: String): File = listOf(
         File("app/$relativePath"),
         File(relativePath)
