@@ -19,13 +19,31 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlaybackAvailabilityRefreshTest {
     @Test
+    fun `current reachable state refreshes queue when collector starts late`() = runTest {
+        val serverReachable = MutableStateFlow(true)
+        val changes = mutableListOf<PlaybackAvailabilityChange>()
+        val job = launch(UnconfinedTestDispatcher(testScheduler)) {
+            playbackAvailabilityChanges(serverReachable, MutableSharedFlow())
+                .collect(changes::add)
+        }
+
+        runCurrent()
+
+        assertEquals(
+            listOf(PlaybackAvailabilityChange.ServerReachability(true)),
+            changes
+        )
+        job.cancel()
+    }
+
+    @Test
     fun `server loss recovery and download changes each refresh the active queue`() = runTest {
         val serverReachable = MutableStateFlow(false)
         val mediaInvalidations = MutableSharedFlow<Unit>()
         val changes = mutableListOf<PlaybackAvailabilityChange>()
         val job = launch(UnconfinedTestDispatcher(testScheduler)) {
             playbackAvailabilityChanges(serverReachable, mediaInvalidations)
-                .take(3)
+                .take(4)
                 .collect(changes::add)
         }
 
@@ -39,6 +57,7 @@ class PlaybackAvailabilityRefreshTest {
         job.join()
         assertEquals(
             listOf(
+                PlaybackAvailabilityChange.ServerReachability(false),
                 PlaybackAvailabilityChange.ServerReachability(true),
                 PlaybackAvailabilityChange.ServerReachability(false),
                 PlaybackAvailabilityChange.MediaInvalidation

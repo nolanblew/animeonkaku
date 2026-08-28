@@ -11,6 +11,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -267,9 +268,11 @@ fun LibraryScreen(
 
             when (currentTab) {
                 LibraryTab.Playlists -> {
-                    Box(modifier = Modifier.fillMaxSize()) {
+                    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                         LazyVerticalGrid(
-                            columns = GridCells.Adaptive(minSize = 220.dp),
+                            columns = GridCells.Fixed(
+                                libraryGridColumns(maxWidth.value.toInt(), LibraryGridKind.PLAYLISTS)
+                            ),
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -459,20 +462,27 @@ fun LibraryScreen(
                             }
                         }
                     } else {
-                        LazyVerticalGrid(
-                            columns = GridCells.Adaptive(minSize = 180.dp),
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(filteredAnimeItems) { animeItem ->
-                                GridCard(
-                                    title = animeItem.title,
-                                    subtitle = "${animeItem.trackCount} themes",
-                                    imageUrls = animeItem.coverUrls,
-                                    onClick = { onOpenAnime(animeItem.kitsuId) }
-                                )
+                        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(
+                                    libraryGridColumns(maxWidth.value.toInt(), LibraryGridKind.ANIME)
+                                ),
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(filteredAnimeItems) { animeItem ->
+                                    GridCard(
+                                        title = animeItem.title,
+                                        subtitle = "${animeItem.trackCount} themes",
+                                        imageUrls = animeItem.coverUrls,
+                                        onClick = { onOpenAnime(animeItem.kitsuId) }
+                                    )
+                                }
+                                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                                    Spacer(modifier = Modifier.height(libraryGridBottomClearanceDp().dp))
+                                }
                             }
                         }
                     }
@@ -727,7 +737,7 @@ private fun GridCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1f)
+                .aspectRatio(libraryPosterAspectRatio())
                 .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
                 .background(Ember400.copy(alpha = 0.1f))
         ) {

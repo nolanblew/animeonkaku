@@ -1160,7 +1160,7 @@ internal fun playbackAvailabilityChanges(
     serverReachable: Flow<Boolean>,
     mediaInvalidations: Flow<Unit>
 ): Flow<PlaybackAvailabilityChange> = merge(
-    serverReachable.distinctUntilChanged().drop(1).map {
+    serverReachable.distinctUntilChanged().map {
         PlaybackAvailabilityChange.ServerReachability(it)
     },
     mediaInvalidations.map { PlaybackAvailabilityChange.MediaInvalidation }
