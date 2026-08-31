@@ -28,13 +28,13 @@ describe('PlaylistArtwork', () => {
       'anime-1': { kitsuId: 'anime-1', title: 'One', titleEn: 'One', titleRomaji: null, titleJa: null, posterUrl: '/same.jpg', coverUrl: null, watchingStatus: null, subtype: 'TV', startDate: null, endDate: null, episodeCount: null, genres: [], updatedAt: 1, deleted: false },
       'anime-2': { kitsuId: 'anime-2', title: 'Two', titleEn: 'Two', titleRomaji: null, titleJa: null, posterUrl: '/same.jpg', coverUrl: null, watchingStatus: null, subtype: 'TV', startDate: null, endDate: null, episodeCount: null, genres: [], updatedAt: 1, deleted: false },
       'anime-3': { kitsuId: 'anime-3', title: 'Three', titleEn: 'Three', titleRomaji: null, titleJa: null, posterUrl: '/other.jpg', coverUrl: null, watchingStatus: null, subtype: 'TV', startDate: null, endDate: null, episodeCount: null, genres: [], updatedAt: 1, deleted: false },
-    } as NormalizedLibrary['animeById']
+    } as unknown as NormalizedLibrary['animeById']
     library.themesById = {
       '1': { id: 1, animeThemesAnimeId: 1, kitsuAnimeIds: ['anime-1'], title: 'Opening 1', themeType: 'OP', artists: [], audioUrl: '', videoUrl: null, audioState: 'READY', durationSeconds: null, fileSize: null, mediaModes: { tv: false, full: false }, updatedAt: 1, deleted: false },
       '2': { id: 2, animeThemesAnimeId: 1, kitsuAnimeIds: ['anime-1'], title: 'Ending 1', themeType: 'ED', artists: [], audioUrl: '', videoUrl: null, audioState: 'READY', durationSeconds: null, fileSize: null, mediaModes: { tv: false, full: false }, updatedAt: 1, deleted: false },
       '3': { id: 3, animeThemesAnimeId: 2, kitsuAnimeIds: ['anime-2'], title: 'Opening 2', themeType: 'OP', artists: [], audioUrl: '', videoUrl: null, audioState: 'READY', durationSeconds: null, fileSize: null, mediaModes: { tv: false, full: false }, updatedAt: 1, deleted: false },
       '4': { id: 4, animeThemesAnimeId: 3, kitsuAnimeIds: ['anime-3'], title: 'Opening 3', themeType: 'OP', artists: [], audioUrl: '', videoUrl: null, audioState: 'READY', durationSeconds: null, fileSize: null, mediaModes: { tv: false, full: false }, updatedAt: 1, deleted: false },
-    } as NormalizedLibrary['themesById']
+    } as unknown as NormalizedLibrary['themesById']
 
     const urls = playlistArtworkUrls({ id: 9, name: 'Mix', entries: [], defaultMode: 'TV_SIZE', overrideUserPreference: false, items: [
       { entryId: 1, itemType: 'THEME', itemId: 1, modeOverride: null },

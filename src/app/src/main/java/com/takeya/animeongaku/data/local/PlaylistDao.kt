@@ -129,45 +129,79 @@ interface PlaylistDao {
     suspend fun getManualPlaylists(): List<PlaylistEntity>
 
     @Query("""
-        SELECT a.coverUrl, a.thumbnailUrl
-        FROM playlist_entries pe
-        JOIN playlists p ON p.id = pe.playlistId
-        JOIN themes t ON pe.itemType = 'THEME' AND t.id = pe.itemId
-        JOIN anime a ON a.animeThemesId = t.animeId
-        WHERE pe.playlistId = :playlistId
-          AND p.deletedAt IS NULL
-          AND (NULLIF(a.coverUrl, '') IS NOT NULL OR NULLIF(a.thumbnailUrl, '') IS NOT NULL)
-        GROUP BY a.animeThemesId
-        ORDER BY MIN(pe.orderIndex)
+        WITH playlist_art AS (
+            SELECT pe.orderIndex, a.kitsuId AS animeKey, a.coverUrl, a.thumbnailUrl
+            FROM playlist_entries pe
+            JOIN playlists p ON p.id = pe.playlistId
+            JOIN themes t ON pe.itemType = 'THEME' AND t.id = pe.itemId
+            JOIN anime a ON a.animeThemesId = t.animeId
+            WHERE pe.playlistId = :playlistId AND p.deletedAt IS NULL
+            UNION ALL
+            SELECT pe.orderIndex, a.kitsuId AS animeKey, a.coverUrl, a.thumbnailUrl
+            FROM playlist_entries pe
+            JOIN playlists p ON p.id = pe.playlistId
+            JOIN release_tracks rt ON pe.itemType = 'SONG' AND rt.songId = pe.itemId
+            JOIN anime_music_releases amr ON amr.releaseId = rt.releaseId
+            JOIN anime a ON a.kitsuId = amr.kitsuAnimeId
+            WHERE pe.playlistId = :playlistId AND p.deletedAt IS NULL
+        )
+        SELECT coverUrl, thumbnailUrl
+        FROM playlist_art
+        WHERE NULLIF(coverUrl, '') IS NOT NULL OR NULLIF(thumbnailUrl, '') IS NOT NULL
+        GROUP BY animeKey
+        ORDER BY MIN(orderIndex)
         LIMIT 4
     """)
     suspend fun getPlaylistCoverUrls(playlistId: Long): List<PlaylistSlotUrls>
 
     @Query("""
-        SELECT a.coverUrl, a.thumbnailUrl
-        FROM playlist_entries pe
-        JOIN playlists p ON p.id = pe.playlistId
-        JOIN themes t ON pe.itemType = 'THEME' AND t.id = pe.itemId
-        JOIN anime a ON a.animeThemesId = t.animeId
-        WHERE pe.playlistId = :playlistId
-          AND p.deletedAt IS NULL
-          AND (NULLIF(a.coverUrl, '') IS NOT NULL OR NULLIF(a.thumbnailUrl, '') IS NOT NULL)
-        GROUP BY a.animeThemesId
-        ORDER BY MIN(pe.orderIndex)
+        WITH playlist_art AS (
+            SELECT pe.orderIndex, a.kitsuId AS animeKey, a.coverUrl, a.thumbnailUrl
+            FROM playlist_entries pe
+            JOIN playlists p ON p.id = pe.playlistId
+            JOIN themes t ON pe.itemType = 'THEME' AND t.id = pe.itemId
+            JOIN anime a ON a.animeThemesId = t.animeId
+            WHERE pe.playlistId = :playlistId AND p.deletedAt IS NULL
+            UNION ALL
+            SELECT pe.orderIndex, a.kitsuId AS animeKey, a.coverUrl, a.thumbnailUrl
+            FROM playlist_entries pe
+            JOIN playlists p ON p.id = pe.playlistId
+            JOIN release_tracks rt ON pe.itemType = 'SONG' AND rt.songId = pe.itemId
+            JOIN anime_music_releases amr ON amr.releaseId = rt.releaseId
+            JOIN anime a ON a.kitsuId = amr.kitsuAnimeId
+            WHERE pe.playlistId = :playlistId AND p.deletedAt IS NULL
+        )
+        SELECT coverUrl, thumbnailUrl
+        FROM playlist_art
+        WHERE NULLIF(coverUrl, '') IS NOT NULL OR NULLIF(thumbnailUrl, '') IS NOT NULL
+        GROUP BY animeKey
+        ORDER BY MIN(orderIndex)
         LIMIT 4
     """)
     fun observePlaylistCoverUrls(playlistId: Long): Flow<List<PlaylistSlotUrls>>
 
     @Query("""
-        SELECT pe.playlistId, a.coverUrl, a.thumbnailUrl
-        FROM playlist_entries pe
-        JOIN playlists p ON p.id = pe.playlistId
-        JOIN themes t ON pe.itemType = 'THEME' AND t.id = pe.itemId
-        JOIN anime a ON a.animeThemesId = t.animeId
-        WHERE (NULLIF(a.coverUrl, '') IS NOT NULL OR NULLIF(a.thumbnailUrl, '') IS NOT NULL)
-          AND p.deletedAt IS NULL
-        GROUP BY pe.playlistId, a.animeThemesId
-        ORDER BY pe.playlistId, MIN(pe.orderIndex)
+        WITH playlist_art AS (
+            SELECT pe.playlistId, pe.orderIndex, a.kitsuId AS animeKey, a.coverUrl, a.thumbnailUrl
+            FROM playlist_entries pe
+            JOIN playlists p ON p.id = pe.playlistId
+            JOIN themes t ON pe.itemType = 'THEME' AND t.id = pe.itemId
+            JOIN anime a ON a.animeThemesId = t.animeId
+            WHERE p.deletedAt IS NULL
+            UNION ALL
+            SELECT pe.playlistId, pe.orderIndex, a.kitsuId AS animeKey, a.coverUrl, a.thumbnailUrl
+            FROM playlist_entries pe
+            JOIN playlists p ON p.id = pe.playlistId
+            JOIN release_tracks rt ON pe.itemType = 'SONG' AND rt.songId = pe.itemId
+            JOIN anime_music_releases amr ON amr.releaseId = rt.releaseId
+            JOIN anime a ON a.kitsuId = amr.kitsuAnimeId
+            WHERE p.deletedAt IS NULL
+        )
+        SELECT playlistId, coverUrl, thumbnailUrl
+        FROM playlist_art
+        WHERE NULLIF(coverUrl, '') IS NOT NULL OR NULLIF(thumbnailUrl, '') IS NOT NULL
+        GROUP BY playlistId, animeKey
+        ORDER BY playlistId, MIN(orderIndex)
     """)
     fun observeAllPlaylistCoverUrls(): Flow<List<PlaylistCoverRow>>
 

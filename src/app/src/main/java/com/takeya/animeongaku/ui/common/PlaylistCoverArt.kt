@@ -41,7 +41,7 @@ fun PlaylistCoverArt(
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(cornerRadius)
-    val nonEmptyGroups = coverUrlGroups.filter { it.isNotEmpty() }
+    val nonEmptyGroups = uniquePlaylistCoverGroups(coverUrlGroups)
 
     Box(
         modifier = modifier
@@ -63,6 +63,15 @@ fun PlaylistCoverArt(
                 )
             }
         }
+    }
+}
+
+internal fun uniquePlaylistCoverGroups(groups: List<List<String>>): List<List<String>> {
+    val seen = mutableSetOf<String>()
+    return groups.mapNotNull { group ->
+        group.map(String::trim)
+            .filter { it.isNotEmpty() && seen.add(it) }
+            .takeIf { it.isNotEmpty() }
     }
 }
 
