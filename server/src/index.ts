@@ -299,12 +299,17 @@ const clientApi = new DrizzleClientApiService(
   config.MUSIC_CATALOG_ENABLED,
   config.LOUDNESS_PLAYBACK_GAIN_ENABLED,
 );
-const deviceActivitySync = new DeviceActivitySyncTrigger({ queue: jobQueue });
+const loginSyncIntervalMs = config.SYNC_INTERVAL_MINUTES * 60_000;
+const deviceActivitySync = new DeviceActivitySyncTrigger({
+  queue: jobQueue,
+  staleAfterMs: loginSyncIntervalMs,
+});
 
 const app = buildApp({
   authService: new AuthService(
     authRepo,
     kitsuAuthClient,
+    { syncIntervalMs: loginSyncIntervalMs },
   ),
   webAuth: {
     profile: profileService,
@@ -351,9 +356,10 @@ const app = buildApp({
     musicSearch: (userId, query) => clientApi.searchMusic(userId, query),
   }),
   onLogin: async (result) => {
-    // New users and long-dormant libraries get a FULL sync; recently synced
-    // users just get a HIGH-priority delta ("did they add something since the
-    // server's last auto-sync?"). Full sync never touches playlists/prefs.
+    // Fresh returning libraries use the cached server copy. New users and
+    // long-dormant libraries get a FULL sync; stale returning users get a
+    // HIGH-priority delta. Full sync never touches playlists/prefs.
+    if (result.syncMode === "NONE") return;
     const type = result.syncMode === "DELTA" ? "KITSU_DELTA_SYNC" : "KITSU_FULL_SYNC";
     await jobQueue.enqueue({
       type,

@@ -67,7 +67,7 @@ function RequireAuth() {
   if (auth.status !== 'authenticated') {
     return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}${location.hash}` }} />
   }
-  if (auth.firstSync.status === 'syncing' && location.pathname !== '/sync') {
+  if (auth.firstSync.status === 'syncing' && auth.firstSync.isNewUser && location.pathname !== '/sync') {
     return <Navigate to="/sync" replace state={{ from: `${location.pathname}${location.search}${location.hash}` }} />
   }
   return <Outlet />

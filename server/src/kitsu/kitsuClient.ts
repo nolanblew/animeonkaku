@@ -227,9 +227,14 @@ export class KitsuClient {
       totalCount = toNumber(document.meta?.count) ?? totalCount;
 
       const includedAnime = indexIncluded(document.included, "anime");
-      const pageEntries = asArray(document.data)
-        .filter((resource) => resource.type === "libraryEntries")
-        .map((resource) => parseLibraryEntry(resource, includedAnime.get(animeRelationshipId(resource) ?? "")));
+      const libraryResources = asArray(document.data)
+        .filter((resource) => resource.type === "libraryEntries");
+      const pageEntries = libraryResources
+        .flatMap((resource) => {
+          const animeId = animeRelationshipId(resource);
+          if (!animeId) return [];
+          return [parseLibraryEntry(resource, animeId, includedAnime.get(animeId))];
+        });
 
       const missingDetails = pageEntries
         .filter((entry) => entry.title === null || entry.posterUrl === null)
@@ -256,7 +261,7 @@ export class KitsuClient {
       await options.onPage?.(acceptedPageEntries);
 
       offset += this.pageLimit;
-      if (completePageEntries.length === 0 || (totalCount !== null && offset >= totalCount)) {
+      if (libraryResources.length === 0 || (totalCount !== null && offset >= totalCount)) {
         break;
       }
     }
@@ -291,11 +296,14 @@ function jsonApiHeaders(accessToken: string | undefined): Record<string, string>
   return headers;
 }
 
-function parseLibraryEntry(resource: JsonApiResource, anime: JsonApiResource | undefined): KitsuAnimeEntry {
-  const id = animeRelationshipId(resource) ?? idOf(resource) ?? "";
+function parseLibraryEntry(
+  resource: JsonApiResource,
+  animeId: string,
+  anime: JsonApiResource | undefined,
+): KitsuAnimeEntry {
   const ratingTwenty = scalarAttr(resource, "ratingTwenty");
   return {
-    id,
+    id: animeId,
     ...parseAnimeCatalog(anime),
     watchingStatus: stringAttr(resource, "status"),
     userRating: toNumber(ratingTwenty) !== null ? toNumber(ratingTwenty)! / 2 : null,

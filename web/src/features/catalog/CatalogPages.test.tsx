@@ -138,7 +138,7 @@ describe('catalog pages', () => {
     expect(screen.getByRole('menuitem', { name: 'Play all themes' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Remove from library' })).toBeInTheDocument()
     expect(screen.getByText('Morning themes')).toBeInTheDocument()
-    expect(screen.getByTestId('playlist-artwork-7').querySelectorAll('img')).toHaveLength(2)
+    expect(screen.getByTestId('playlist-artwork-7').querySelectorAll('img')).toHaveLength(1)
     const headings = screen.getAllByRole('heading').map((heading) => heading.textContent)
     expect(headings.indexOf('Recommended')).toBeLessThan(headings.indexOf('Top songs'))
     expect(headings.indexOf('Top songs')).toBeLessThan(headings.indexOf('Your playlists'))
@@ -239,7 +239,7 @@ describe('catalog pages', () => {
 
     renderWithQuery(<LibraryCatalogPage onPlayPlaylist={onPlayPlaylist} onPlayNextPlaylist={onPlayNextPlaylist} onAddToQueuePlaylist={onAddToQueuePlaylist} />, ['/library?tab=playlists'])
 
-    expect(screen.getByTestId('playlist-artwork-7').querySelectorAll('img')).toHaveLength(2)
+    expect(screen.getByTestId('playlist-artwork-7').querySelectorAll('img')).toHaveLength(1)
     expect(screen.getByRole('link', { name: 'Night drive, 2 tracks' })).toHaveAttribute('href', '/playlist/7')
     await userEvent.click(screen.getByRole('button', { name: 'More actions for Night drive' }))
     const menu = screen.getByRole('menu', { name: 'Night drive actions' })

@@ -34,7 +34,12 @@ class OngakuAuthRepositoryImpl @Inject constructor(
         return ServerLoginResult(
             session = session,
             // Older servers omit syncMode; a full first sync is always safe.
-            syncMode = if (response.syncMode == "DELTA") ServerSyncMode.DELTA else ServerSyncMode.FULL
+            syncMode = when (response.syncMode) {
+                "NONE" -> ServerSyncMode.NONE
+                "DELTA" -> ServerSyncMode.DELTA
+                else -> ServerSyncMode.FULL
+            },
+            isNewUser = response.isNewUser
         )
     }
 

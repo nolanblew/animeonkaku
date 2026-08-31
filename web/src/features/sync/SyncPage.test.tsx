@@ -71,6 +71,7 @@ function renderPage() {
     <MemoryRouter initialEntries={['/sync']}>
       <Routes>
         <Route path="/sync" element={<SyncPage />} />
+        <Route path="/" element={<p>Library home</p>} />
         <Route path="/login" element={<p>Login route</p>} />
       </Routes>
     </MemoryRouter>,
@@ -104,8 +105,9 @@ describe('SyncPage authenticated Kitsu sync lifecycle', () => {
 
     expect(await screen.findByRole('heading', { name: /first sync|syncing your library/i })).toBeInTheDocument()
     expect(screen.getByText(/full sync/i)).toBeInTheDocument()
-    expect(screen.getByText(/40\s*\/\s*100/)).toBeInTheDocument()
-    expect(screen.getByText(/page 2\s*(of|\/)\s*5/i)).toBeInTheDocument()
+    expect(screen.getByText(/40 of 100 titles/i)).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: /library sync progress/i })).toHaveAttribute('aria-valuenow', '40')
+    expect(screen.queryByText(/page 2\s*(of|\/)\s*5/i)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /sync now|sync library/i })).not.toBeInTheDocument()
     expect(auth.markInitialSyncReady).not.toHaveBeenCalled()
     expect(apiClient.get).toHaveBeenCalledWith('/v1/sync/status')
@@ -129,6 +131,18 @@ describe('SyncPage authenticated Kitsu sync lifecycle', () => {
     expect(screen.getByRole('heading', { name: /sync complete/i })).toBeInTheDocument()
     expect(screen.getByText(/10\s*(mapped|themes)/i)).toBeInTheDocument()
     await waitFor(() => expect(auth.markInitialSyncReady).toHaveBeenCalledTimes(1))
+  })
+
+  it('opens the library automatically when a first-time sync completes', async () => {
+    const auth = makeAuth({
+      firstSync: { status: 'syncing', mode: 'FULL', syncMode: 'FULL', isNewUser: true },
+    })
+    mockedUseAuth.mockReturnValue(auth)
+    mockStatus(makeStatus({ state: 'DONE', phase: 'DONE' }))
+    renderPage()
+
+    expect(await screen.findByText('Library home')).toBeInTheDocument()
+    expect(auth.markInitialSyncReady).toHaveBeenCalledTimes(1)
   })
 
   it('starts an ordinary Sync now as a Delta enqueue through the authenticated server route', async () => {
@@ -179,9 +193,9 @@ describe('SyncPage authenticated Kitsu sync lifecycle', () => {
     renderPage()
 
     expect(await screen.findByRole('heading', { name: /sync failed|could not complete/i })).toBeInTheDocument()
-    expect(screen.getByText(/60\s*\/\s*100/)).toBeInTheDocument()
-    expect(screen.getByText('One Piece')).toBeInTheDocument()
-    expect(screen.getByText('Bleach')).toBeInTheDocument()
+    expect(screen.getByText(/60 of 100 titles/i)).toBeInTheDocument()
+    expect(screen.getByText(/2 anime could not be matched yet/i)).toBeInTheDocument()
+    expect(screen.queryByText('One Piece')).not.toBeInTheDocument()
     expect(screen.getByText(/upstream|animethemes.*blocked|cloudflare/i)).toBeInTheDocument()
     expect(screen.getByText(/existing library data remains available|partial library/i)).toBeInTheDocument()
 

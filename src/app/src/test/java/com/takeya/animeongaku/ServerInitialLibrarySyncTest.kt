@@ -108,6 +108,18 @@ class ServerInitialLibrarySyncTest {
     }
 
     @Test
+    fun `none mode skips Kitsu sync and only hydrates the device cache`() = runTest {
+        val api = StatusScriptOngakuApi(listOf({ status("DONE", phase = "DONE") }))
+        val puller = FakeLibraryPuller()
+
+        sync(api, puller).runInitialSync(ServerSyncMode.NONE)
+
+        assertEquals(null, api.lastSyncRequest)
+        assertEquals(1, puller.pullCalls)
+        assertEquals(true, puller.lastForceFull)
+    }
+
+    @Test
     fun `failed server sync throws instead of leaving the app waiting`() = runTest {
         val api = StatusScriptOngakuApi(
             listOf(

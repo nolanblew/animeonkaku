@@ -150,7 +150,17 @@ class OnboardingViewModel @Inject constructor(
                     selectedLegacyImport?.payload
                 )
                 val session = login.session
-                val isDelta = login.syncMode == ServerSyncMode.DELTA
+                val isDelta = login.syncMode != ServerSyncMode.FULL
+                val hasLocalCache = serverSettingsStore.serverPullCursor > 0L
+                if (!login.isNewUser && hasLocalCache) {
+                    loggedIn = true
+                    sessionStateManager.onLogin(session)
+                    initialLibrarySync.startBackgroundSync(login.syncMode)
+                    _uiState.update {
+                        it.copy(isSubmitting = false, password = "", status = null, firstSync = null)
+                    }
+                    return@launch
+                }
                 sessionStateManager.onInitialSync(session)
                 loggedIn = true
                 initialLibrarySync.runInitialSync(login.syncMode) { progress ->

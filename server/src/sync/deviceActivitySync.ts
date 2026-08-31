@@ -11,21 +11,21 @@ export interface ActivityUser {
 
 export interface DeviceActivitySyncOptions {
   queue: JobQueue;
-  /** Enqueue a delta sync when the user's last sync is older than this. Default 3h. */
+  /** Enqueue a delta sync when the user's last sync is older than this. Default 7d. */
   staleAfterMs?: number;
   /** Per-user throttle so busy devices don't re-evaluate on every request. Default 15m. */
   checkCooldownMs?: number;
   now?: () => Date;
 }
 
-const DEFAULT_STALE_AFTER_MS = 3 * 60 * 60 * 1000;
+const DEFAULT_STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_CHECK_COOLDOWN_MS = 15 * 60 * 1000;
 
 /**
  * "The user might have just added something and opened the app" sync: any
  * authenticated API interaction from a device whose user hasn't synced in
- * ~3 hours enqueues a HIGH-priority delta sync (mirrors the old in-app
- * cold-start/warm-resume triggers, now server-owned). HIGH outranks the 24h
+ * the normal weekly window enqueues a HIGH-priority delta sync (mirrors the old in-app
+ * cold-start/warm-resume triggers, now server-owned). HIGH outranks periodic
  * scheduler's NORMAL jobs, and the shared dedupe key upgrades an already
  * queued periodic delta instead of duplicating it. Completed syncs feed the
  * usual follow-ups (theme mapping, audio backfill).

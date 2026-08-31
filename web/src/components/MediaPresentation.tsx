@@ -16,9 +16,14 @@ export interface MediaArtworkProps {
 }
 
 export function MediaArtwork({ imageUrl, imageUrls, label = 'Media artwork unavailable', fallback, className = '', testId = 'media-artwork' }: MediaArtworkProps) {
+  const seen = new Set<string>()
   const urls = [...(imageUrls ?? []), ...(imageUrl ? [imageUrl] : [])]
     .map((value) => browserAssetUrl(value))
-    .filter((value): value is string => Boolean(value))
+    .filter((value): value is string => {
+      if (!value || seen.has(value)) return false
+      seen.add(value)
+      return true
+    })
     .slice(0, 4)
   const layout = urls.length === 0 ? 'empty' : urls.length === 1 ? 'single' : urls.length === 2 ? 'double' : 'quad'
 
