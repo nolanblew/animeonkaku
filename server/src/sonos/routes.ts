@@ -52,6 +52,11 @@ interface SonosEntry {
   id: string;
   title: string;
   kind: "container" | "track";
+  collectionType?: "album" | "albumList" | "container" | "playlist" | "trackList";
+  readOnly?: boolean;
+  userContent?: boolean;
+  canPlay?: boolean;
+  canEnumerate?: boolean;
   album?: string;
   artist?: string;
   duration?: number | null;
@@ -75,6 +80,7 @@ export function registerSonosRoutes(
   const generateCode = options.generateCode ?? (() => randomBytes(15).toString("base64url"));
   const origin = new URL(options.publicOrigin).origin;
   const links = new Map<string, LinkState>();
+  const catalogVersion = String(Math.floor(now() / 1000));
 
   if (!app.hasContentTypeParser("text/xml")) {
     app.addContentTypeParser(["text/xml", "application/soap+xml"], { parseAs: "string" }, (_request, body, done) => done(null, body));
@@ -89,7 +95,13 @@ export function registerSonosRoutes(
       const action = parseSoap(xml, request.headers.soapaction);
       let result: string;
       if (action.method === "getLastUpdate") {
-        result = `<getLastUpdateResult><catalog>${Math.floor(now() / 1000)}</catalog><favorites>1</favorites><pollInterval>60</pollInterval></getLastUpdateResult>`;
+        let favoritesVersion = "1";
+        const token = extractAuthToken(xml);
+        if (token) {
+          const context = await auth.authenticate(token);
+          if (context) favoritesVersion = versionToken(await loadCatalog(client, context.user.kitsuUserId));
+        }
+        result = `<getLastUpdateResult><catalog>${catalogVersion}</catalog><favorites>${favoritesVersion}</favorites><pollInterval>60</pollInterval></getLastUpdateResult>`;
       } else if (action.method === "getAppLink") {
         const householdId = requiredTag(xml, "householdId");
         // Current Sonos requests do not provide linkDeviceId. The service
@@ -137,12 +149,15 @@ export function registerSonosRoutes(
           const catalog = await loadCatalog(client, userId);
           const id = requiredTag(xml, "id");
           const resolved = resolveTrack(catalog, id, origin);
-          if (!resolved) throw new SoapFault("Client.ItemNotFound", "The requested track is not available.");
           if (action.method === "getMediaMetadata") {
+            if (!resolved) throw new SoapFault("Client.ItemNotFound", "The requested track is not available.");
             result = `<getMediaMetadataResult>${entryXml(resolved.entry)}</getMediaMetadataResult>`;
           } else if (action.method === "getExtendedMetadata") {
-            result = `<getExtendedMetadataResult><mediaCollection><id>${escapeXml(resolved.animeId)}</id><itemType>album</itemType><title>${escapeXml(resolved.entry.album ?? "Anime Ongaku")}</title></mediaCollection></getExtendedMetadataResult>`;
+            const entry = resolved?.entry ?? resolveCollection(catalog, id, origin);
+            if (!entry) throw new SoapFault("Client.ItemNotFound", "The requested item is not available.");
+            result = `<getExtendedMetadataResult>${entryXml(entry)}</getExtendedMetadataResult>`;
           } else {
+            if (!resolved) throw new SoapFault("Client.ItemNotFound", "The requested track is not available.");
             result = `<getMediaURIResult>${escapeXml(resolved.uri)}</getMediaURIResult><httpHeaders><httpHeader><header>Authorization</header><value>Bearer ${escapeXml(token)}</value></httpHeader></httpHeaders>`;
           }
         } else {
@@ -257,15 +272,15 @@ async function loadCatalog(client: ClientApiService, userId: string): Promise<Ca
     client.getSongPrefs(userId), client.getMusicCatalog(userId),
   ]);
   return { anime: library.anime.filter((x) => !x.deleted).sort((a, b) => titleAnime(a).localeCompare(titleAnime(b)) || a.kitsuId.localeCompare(b.kitsuId)),
-    themes: library.themes.filter((x) => !x.deleted && x.audioState === "READY").sort((a, b) => a.id - b.id),
+    themes: library.themes.filter((x) => !x.deleted && x.audioState === "READY" && themeMode(x, "TV_SIZE") !== null).sort((a, b) => a.id - b.id),
     playlists: playlists.filter((x) => !x.deleted).sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id),
     themePrefs: themePrefs.filter((x) => !x.deleted), songPrefs: songPrefs.filter((x) => !x.deleted), music };
 }
 
 function browse(c: Catalog, id: string, origin: string): SonosEntry[] {
-  if (id === "root") return [container("anime", "Anime"), container("playlists", "Playlists"), container("liked", "Liked Songs")];
-  if (id === "anime") return c.anime.map((a) => ({ ...container(`anime:${a.kitsuId}`, titleAnime(a)), artwork: absolute(origin, a.posterUrl ?? a.coverUrl) }));
-  if (id === "playlists") return c.playlists.map((p) => container(`playlist:${p.id}`, p.name));
+  if (id === "root") return [container("anime", "Anime", "albumList"), container("playlists", "Playlists"), container("liked", "Liked Songs", "trackList")];
+  if (id === "anime") return c.anime.map((a) => ({ ...container(`anime:${a.kitsuId}`, titleAnime(a), "album", { canPlay: true, canEnumerate: true }), artwork: absolute(origin, a.posterUrl ?? a.coverUrl) }));
+  if (id === "playlists") return c.playlists.map((p) => container(`playlist:${p.id}`, p.name, "playlist", { readOnly: true, userContent: true, canPlay: true, canEnumerate: true }));
   if (id === "liked") {
     const themeIds = new Set(c.themePrefs.filter((p) => p.liked).map((p) => p.themeId));
     const songIds = new Set(c.songPrefs.filter((p) => p.liked).map((p) => p.songId));
@@ -285,9 +300,9 @@ function browse(c: Catalog, id: string, origin: string): SonosEntry[] {
 function search(c: Catalog, category: string, term: string, origin: string): SonosEntry[] {
   const q = term.trim().toLocaleLowerCase(); if (!q) return [];
   if (!["all", "albums", "playlists", "tracks"].includes(category)) throw new SoapFault("Client.BadRequest", "Unknown search category.");
-  const albums = c.anime.map((a) => ({ ...container(`anime:${a.kitsuId}`, titleAnime(a)), artwork: absolute(origin, a.posterUrl ?? a.coverUrl) }))
+  const albums = c.anime.map((a) => ({ ...container(`anime:${a.kitsuId}`, titleAnime(a), "album", { canPlay: true, canEnumerate: true }), artwork: absolute(origin, a.posterUrl ?? a.coverUrl) }))
     .filter((x) => x.title.toLocaleLowerCase().includes(q));
-  const playlists = c.playlists.map((p) => container(`playlist:${p.id}`, p.name)).filter((x) => x.title.toLocaleLowerCase().includes(q));
+  const playlists = c.playlists.map((p) => container(`playlist:${p.id}`, p.name, "playlist", { readOnly: true, userContent: true, canPlay: true, canEnumerate: true })).filter((x) => x.title.toLocaleLowerCase().includes(q));
   const tracks = [...c.themes.map((t) => themeEntry(c, t, origin)), ...songEntries(c, origin)]
     .filter((x) => `${x.title} ${x.album ?? ""} ${x.artist ?? ""}`.toLocaleLowerCase().includes(q));
   if (category === "albums") return albums; if (category === "playlists") return playlists; if (category === "tracks") return tracks;
@@ -297,57 +312,106 @@ function search(c: Catalog, category: string, term: string, origin: string): Son
 function resolveTrack(c: Catalog, id: string, origin: string): { entry: SonosEntry; uri: string; animeId: string } | null {
   if (id.startsWith("theme:")) {
     const theme = c.themes.find((t) => String(t.id) === id.slice(6)); if (!theme) return null;
-    const preferred = preferredThemeMode(c, theme.id, undefined);
-    const mode = preferred === "FULL_SIZE" && theme.mediaModes.fullSize ? "FULL_SIZE" : "TV_SIZE";
+    const mode = themeMode(theme, preferredThemeMode(c, theme.id, undefined));
+    if (!mode) return null;
     return { entry: themeEntry(c, theme, origin, mode), uri: absolute(origin, mode === "FULL_SIZE" ? theme.mediaModes.fullSize!.url : theme.mediaModes.tvSize.url)!, animeId: `anime:${theme.kitsuAnimeIds[0] ?? "unknown"}` };
   }
   if (id.startsWith("song:")) {
     const found = findSong(c, Number(id.slice(5))); if (!found) return null;
+    if (!sonosMimeType(found.track.mimeType)) return null;
     return { entry: songEntry(found.track, found.anime, found.releaseArtwork, origin), uri: absolute(origin, found.track.audioUrl)!, animeId: `anime:${found.anime.kitsuId}` };
   }
   return null;
 }
 
+function resolveCollection(c: Catalog, id: string, origin: string): SonosEntry | null {
+  if (id === "root") return container("root", "Anime Ongaku");
+  if (id === "anime") return container("anime", "Anime", "albumList");
+  if (id === "playlists") return container("playlists", "Playlists");
+  if (id === "liked") return container("liked", "Liked Songs", "trackList");
+  if (id.startsWith("anime:")) {
+    const anime = c.anime.find((item) => item.kitsuId === id.slice(6));
+    return anime ? { ...container(id, titleAnime(anime), "album", { canPlay: true, canEnumerate: true }), artwork: absolute(origin, anime.posterUrl ?? anime.coverUrl) } : null;
+  }
+  if (id.startsWith("playlist:")) {
+    const playlist = c.playlists.find((item) => String(item.id) === id.slice(9));
+    return playlist ? container(id, playlist.name, "playlist", { readOnly: true, userContent: true, canPlay: true, canEnumerate: true }) : null;
+  }
+  return null;
+}
+
 function playlistEntry(c: Catalog, playlist: PlaylistDto, item: PlaylistItemDto, origin: string): SonosEntry | null {
-  if (item.itemType === "SONG") { const found = findSong(c, item.itemId); return found ? songEntry(found.track, found.anime, found.releaseArtwork, origin) : null; }
+  if (item.itemType === "SONG") {
+    const found = findSong(c, item.itemId);
+    return found && sonosMimeType(found.track.mimeType) ? songEntry(found.track, found.anime, found.releaseArtwork, origin) : null;
+  }
   const theme = c.themes.find((t) => t.id === item.itemId); if (!theme) return null;
   let desired = item.modeOverride;
   if (!desired) desired = playlist.overrideUserPreference ? playlist.defaultMode : preferredThemeMode(c, theme.id, playlist.defaultMode);
-  if (desired === "FULL_SIZE" && !theme.mediaModes.fullSize) desired = "TV_SIZE";
-  return themeEntry(c, theme, origin, desired);
+  const mode = themeMode(theme, desired);
+  return mode ? themeEntry(c, theme, origin, mode) : null;
 }
 function preferredThemeMode(c: Catalog, themeId: number, fallback: "TV_SIZE" | "FULL_SIZE" | undefined): "TV_SIZE" | "FULL_SIZE" {
   return c.themePrefs.find((p) => p.themeId === themeId)?.preferredMode ?? fallback ?? "TV_SIZE";
 }
 function themeEntry(c: Catalog, theme: LibraryThemeDto, origin: string, desired?: "TV_SIZE" | "FULL_SIZE"): SonosEntry {
   const anime = c.anime.find((a) => theme.kitsuAnimeIds.includes(a.kitsuId));
-  const mode = desired ?? preferredThemeMode(c, theme.id, undefined);
+  const mode = themeMode(theme, desired ?? preferredThemeMode(c, theme.id, undefined)) ?? "TV_SIZE";
   const useFull = mode === "FULL_SIZE" && theme.mediaModes.fullSize;
   return { id: `theme:${theme.id}`, title: theme.title, kind: "track", album: anime ? titleAnime(anime) : "Anime Ongaku",
     artist: theme.artists.map((a) => a.name).join(", ") || "Anime Ongaku",
     duration: useFull ? theme.mediaModes.fullSize!.durationSeconds : theme.mediaModes.tvSize.durationSeconds,
-    mimeType: "audio/mpeg", artwork: absolute(origin, anime?.posterUrl ?? anime?.coverUrl) };
+    mimeType: sonosMimeType(useFull ? theme.mediaModes.fullSize!.mimeType : theme.mediaModes.tvSize.mimeType) ?? "application/ogg",
+    artwork: absolute(origin, anime?.posterUrl ?? anime?.coverUrl) };
 }
 function songEntries(c: Catalog, origin: string): SonosEntry[] {
-  return c.music.flatMap((m) => m.releases.flatMap((r) => r.tracks.map((t) => songEntry(t, m.anime, r.artworkUrl, origin))));
+  return c.music.flatMap((m) => m.releases.flatMap((r) => r.tracks.filter((t) => sonosMimeType(t.mimeType) !== null).map((t) => songEntry(t, m.anime, r.artworkUrl, origin))));
 }
 function songEntry(track: MusicTrackDto, anime: AnimeMusicDto["anime"], artwork: string | null, origin: string): SonosEntry {
   return { id: `song:${track.id}`, title: track.titleEnglish ?? track.title, kind: "track", album: anime.titleEn ?? anime.title ?? "Anime Ongaku",
-    artist: track.artistCredit || "Anime Ongaku", duration: track.durationSeconds, mimeType: "audio/mpeg", artwork: absolute(origin, artwork ?? anime.posterUrl) };
+    artist: track.artistCredit || "Anime Ongaku", duration: track.durationSeconds, mimeType: sonosMimeType(track.mimeType) ?? "audio/mpeg", artwork: absolute(origin, artwork ?? anime.posterUrl) };
 }
 function findSong(c: Catalog, id: number) {
   for (const m of c.music) for (const r of m.releases) { const track = r.tracks.find((t) => t.id === id); if (track) return { track, anime: m.anime, releaseArtwork: r.artworkUrl }; }
   return null;
 }
 function titleAnime(anime: LibraryAnimeDto): string { return anime.titleEn ?? anime.title ?? anime.titleRomaji ?? anime.titleJa ?? `Anime ${anime.kitsuId}`; }
-function container(id: string, title: string): SonosEntry { return { id, title, kind: "container" }; }
+function container(id: string, title: string, collectionType: SonosEntry["collectionType"] = "container", flags: Partial<SonosEntry> = {}): SonosEntry {
+  return { id, title, kind: "container", collectionType, ...flags };
+}
+
+function themeMode(theme: LibraryThemeDto, preferred: "TV_SIZE" | "FULL_SIZE"): "TV_SIZE" | "FULL_SIZE" | null {
+  const tv = sonosMimeType(theme.mediaModes.tvSize.mimeType);
+  const full = theme.mediaModes.fullSize && sonosMimeType(theme.mediaModes.fullSize.mimeType);
+  if (preferred === "FULL_SIZE" && full) return "FULL_SIZE";
+  if (preferred === "TV_SIZE" && tv) return "TV_SIZE";
+  if (full) return "FULL_SIZE";
+  if (tv) return "TV_SIZE";
+  return null;
+}
+
+function sonosMimeType(value: string | null | undefined): string | null {
+  const mime = value?.split(";", 1)[0]?.trim().toLowerCase();
+  if (!mime) return null;
+  if (mime === "audio/ogg" || mime === "application/ogg") return "application/ogg";
+  if (mime === "audio/mp3" || mime === "audio/mpeg3" || mime === "audio/mpeg") return "audio/mpeg";
+  if (["audio/flac", "audio/mp4", "audio/aac", "application/x-mpegurl", "application/vnd.apple.mpegurl", "audio/x-mpegurl", "audio/wma", "audio/x-ms-wma"].includes(mime)) return mime;
+  return null;
+}
+
+function versionToken(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value), "utf8").digest("hex").slice(0, 24);
+}
 
 function resultPage(method: "getMetadata" | "search", all: SonosEntry[], index: number, count: number): string {
   const page = all.slice(index, index + count);
   return `<${method}Result><index>${index}</index><count>${page.length}</count><total>${all.length}</total>${page.map(entryXml).join("")}</${method}Result>`;
 }
 function entryXml(entry: SonosEntry): string {
-  if (entry.kind === "container") return `<mediaCollection><id>${escapeXml(entry.id)}</id><itemType>container</itemType><title>${escapeXml(entry.title)}</title>${entry.artwork ? `<albumArtURI>${escapeXml(entry.artwork)}</albumArtURI>` : ""}</mediaCollection>`;
+  if (entry.kind === "container") {
+    const attrs = `${entry.readOnly === undefined ? "" : ` readOnly="${entry.readOnly}"`}${entry.userContent === undefined ? "" : ` userContent="${entry.userContent}"`}`;
+    return `<mediaCollection${attrs}><id>${escapeXml(entry.id)}</id><itemType>${escapeXml(entry.collectionType ?? "container")}</itemType><title>${escapeXml(entry.title)}</title>${entry.canPlay === undefined ? "" : `<canPlay>${entry.canPlay}</canPlay>`}${entry.canEnumerate === undefined ? "" : `<canEnumerate>${entry.canEnumerate}</canEnumerate>`}${entry.artwork ? `<albumArtURI>${escapeXml(entry.artwork)}</albumArtURI>` : ""}</mediaCollection>`;
+  }
   return `<mediaMetadata><id>${escapeXml(entry.id)}</id><itemType>track</itemType><title>${escapeXml(entry.title)}</title><mimeType>${escapeXml(entry.mimeType ?? "audio/mpeg")}</mimeType><trackMetadata><artist>${escapeXml(entry.artist ?? "Anime Ongaku")}</artist><album>${escapeXml(entry.album ?? "Anime Ongaku")}</album>${entry.artwork ? `<albumArtURI>${escapeXml(entry.artwork)}</albumArtURI>` : ""}<duration>${Math.max(0, Math.round(entry.duration ?? 0))}</duration></trackMetadata></mediaMetadata>`;
 }
 
