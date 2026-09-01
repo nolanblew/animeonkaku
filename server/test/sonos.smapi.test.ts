@@ -89,7 +89,7 @@ describe("Sonos sandbox SMAPI", () => {
     expect(r.statusCode).toBe(200); expect(r.headers["content-type"]).toContain("text/xml");
     expect(r.body).toContain("<getLastUpdateResponse"); expect(r.body).toContain("<catalog>1800000000</catalog>");
   });
-  it.each([["malformed", "<not-closed"], ["DTD", `<!DOCTYPE x [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>${env("getLastUpdate", "&xxe;")}`]])
+  it.each([["malformed", "<not-closed"], ["mismatched", env("getLastUpdate", "<x></y>")], ["DTD", `<!DOCTYPE x [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>${env("getLastUpdate", "&xxe;")}`]])
   ("SOAP-faults %s XML", async (_name, payload) => {
     const r = await app.inject({ method: "POST", url: "/sonos/smapi", headers: { "content-type": "text/xml",
       soapaction: `"${NS}#getLastUpdate"` }, payload });

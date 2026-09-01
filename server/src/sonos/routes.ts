@@ -202,6 +202,7 @@ function validLink(links: Map<string, LinkState>, code: string, now: number): Li
 
 function parseSoap(xml: string, actionHeader: string | string[] | undefined): { method: string } {
   if (!xml || /<!DOCTYPE|<!ENTITY/i.test(xml)) throw new SoapFault("Client.BadRequest", "DTD and entities are not allowed.");
+  if (!isWellFormedXml(xml)) throw new SoapFault("Client.BadRequest", "Malformed XML.");
   if (!/<(?:\w+:)?Envelope\b/i.test(xml) || !/<(?:\w+:)?Body\b/i.test(xml) || !/<\/(?:\w+:)?Envelope\s*>/i.test(xml)) {
     throw new SoapFault("Client.BadRequest", "Malformed SOAP envelope.");
   }
@@ -212,6 +213,24 @@ function parseSoap(xml: string, actionHeader: string | string[] | undefined): { 
   const action = raw?.replace(/^\s*["']|["']\s*$/g, "").split("#").pop();
   if (action && action !== method) throw new SoapFault("Client.BadRequest", "SOAPAction does not match the request body.");
   return { method };
+}
+
+/** Minimal non-expanding well-formedness check for the bounded SMAPI subset. */
+function isWellFormedXml(xml: string): boolean {
+  const stack: string[] = [];
+  const tokens = xml.match(/<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<\/?[A-Za-z_][^<>]*?>/g) ?? [];
+  const remainder = xml.replace(/<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<\/?[A-Za-z_][^<>]*?>/g, "");
+  if (/[<>]/.test(remainder)) return false;
+  for (const token of tokens) {
+    if (token.startsWith("<?") || token.startsWith("<!--")) continue;
+    const closing = /^<\/([A-Za-z_][\w:.-]*)\s*>$/.exec(token);
+    if (closing) { if (stack.pop() !== closing[1]) return false; continue; }
+    if (/\/>$/.test(token)) continue;
+    const opening = /^<([A-Za-z_][\w:.-]*)(?:\s[^<>]*)?>$/.exec(token);
+    if (!opening) return false;
+    stack.push(opening[1]!);
+  }
+  return stack.length === 0;
 }
 
 function tag(xml: string, name: string): string | undefined {
