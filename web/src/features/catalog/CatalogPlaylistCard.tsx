@@ -2,6 +2,7 @@ import { MoreHorizontal } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useRovingMenu } from '../../components/focusScope'
+import { ViewportMenu } from '../../components/ViewportMenu'
 import type { PlaylistDto } from '../../lib/library'
 import { PlaylistArtwork } from '../playlists'
 
@@ -30,7 +31,10 @@ export function CatalogPlaylistCard({ id, name, itemCount, isAuto, isDynamic, ar
 
   useEffect(() => {
     if (!open) return undefined
-    const close = (event: PointerEvent) => { if (!rootRef.current?.contains(event.target as Node)) setOpen(false) }
+    const close = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false)
+    }
     window.addEventListener('pointerdown', close)
     return () => window.removeEventListener('pointerdown', close)
   }, [open])
@@ -55,11 +59,11 @@ export function CatalogPlaylistCard({ id, name, itemCount, isAuto, isDynamic, ar
       aria-expanded={open}
       onClick={() => setOpen((value) => !value)}
     ><MoreHorizontal size={20} /></button>
-    {open && <div ref={menuRef} className="catalog-playlist-card__actions-menu track-actions__menu" role="menu" aria-label={`${name} actions`}>
+    <ViewportMenu open={open} triggerRef={triggerRef} menuRef={menuRef} className="catalog-playlist-card__actions-menu track-actions__menu" label={`${name} actions`}>
       <button type="button" role="menuitem" onClick={() => navigate(playlistPath)}>Open playlist</button>
       {onPlay && <button type="button" role="menuitem" disabled={!playlist || itemCount === 0} onClick={() => run(onPlay)}>Play playlist</button>}
       {onPlayNext && <button type="button" role="menuitem" disabled={!playlist || itemCount === 0} onClick={() => run(onPlayNext)}>Play next</button>}
       {onAddToQueue && <button type="button" role="menuitem" disabled={!playlist || itemCount === 0} onClick={() => run(onAddToQueue)}>Add to queue</button>}
-    </div>}
+    </ViewportMenu>
   </article>
 }

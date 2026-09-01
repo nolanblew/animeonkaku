@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ListMusic, MoreHorizontal, Plus, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 import type { PlaylistDto, PlaylistPlaybackMode } from '../../lib/library'
 import { useAccessibleFocusScope, useRovingMenu } from '../../components/focusScope'
+import { ViewportMenu } from '../../components/ViewportMenu'
 import { listManualPlaylists, type PlaylistItemInput } from './api'
 import { useLibraryActions } from './hooks'
 import './libraryactions.css'
@@ -21,6 +22,8 @@ export interface TrackActionMenuProps {
   onPlayNext?: () => void
   onAddToQueue?: () => void
   onReplaceQueue?: () => void
+  /** Called immediately after a new dislike is selected (for active-player skip). */
+  onDislike?: () => void
   onPlayVideo?: () => void
   onGoToArtist?: () => void
   onGoToAnime?: () => void
@@ -34,7 +37,7 @@ export interface TrackActionMenuProps {
   removeLabel?: string
 }
 
-export function TrackActionMenu({ item, liked = false, disliked = false, menuOnly = false, onPlayNext, onAddToQueue, onReplaceQueue, onPlayVideo, onGoToArtist, onGoToAnime, onRelatedMusic, onSetPreferredMode, hasFullSize = false, preferredMode = null, artistName, animeName, onRemove, removeLabel = 'Remove from playlist' }: TrackActionMenuProps) {
+export function TrackActionMenu({ item, liked = false, disliked = false, menuOnly = false, onPlayNext, onAddToQueue, onReplaceQueue, onDislike, onPlayVideo, onGoToArtist, onGoToAnime, onRelatedMusic, onSetPreferredMode, hasFullSize = false, preferredMode = null, artistName, animeName, onRemove, removeLabel = 'Remove from playlist' }: TrackActionMenuProps) {
   const actions = useLibraryActions()
   const [open, setOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -63,7 +66,10 @@ export function TrackActionMenu({ item, liked = false, disliked = false, menuOnl
 
   useEffect(() => {
     if (!open) return undefined
-    const close = (event: PointerEvent) => { if (!rootRef.current?.contains(event.target as Node)) setOpen(false) }
+    const close = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false)
+    }
     window.addEventListener('pointerdown', close)
     return () => window.removeEventListener('pointerdown', close)
   }, [open])
@@ -77,6 +83,7 @@ export function TrackActionMenu({ item, liked = false, disliked = false, menuOnl
     optimisticPreference.current = next
     setLocalLiked(next.liked)
     setLocalDisliked(next.disliked)
+    if (kind === 'disliked' && value) onDislike?.()
     const patch = { [kind]: value }
     const request = item.itemType === 'SONG' ? actions.updateSongPreference(item.itemId, patch) : actions.updateThemePreference(item.itemId, patch)
     void request.catch(() => {
@@ -104,7 +111,7 @@ export function TrackActionMenu({ item, liked = false, disliked = false, menuOnl
         <button type="button" className="player-icon-button player-icon-button--quiet" aria-label={localLiked ? 'Remove like' : 'Like'} aria-pressed={localLiked} disabled={actions.pendingAction === 'preference'} onClick={() => updatePreference('liked', !localLiked)}><ThumbsUp size={18} fill={localLiked ? 'currentColor' : 'none'} /></button>
       </>}
       <button ref={triggerRef} type="button" className="player-icon-button player-icon-button--quiet" aria-label={`More actions for ${item.title}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}><MoreHorizontal size={20} /></button>
-      {open && <div ref={menuRef} className="track-actions__menu" role="menu" aria-label={`${item.title} actions`}>
+      <ViewportMenu open={open} triggerRef={triggerRef} menuRef={menuRef} className="track-actions__menu" label={`${item.title} actions`}>
         {onPlayNext && <button type="button" role="menuitem" onClick={() => runAndClose(onPlayNext)}>Play next</button>}
         {onAddToQueue && <button type="button" role="menuitem" onClick={() => runAndClose(onAddToQueue)}>Add to queue</button>}
         {onReplaceQueue && <button type="button" role="menuitem" onClick={() => runAndClose(onReplaceQueue)}>Replace queue</button>}
@@ -116,7 +123,7 @@ export function TrackActionMenu({ item, liked = false, disliked = false, menuOnl
         {item.itemType === 'THEME' && hasFullSize && onSetPreferredMode && <button type="button" role="menuitem" onClick={() => runAndClose(() => onSetPreferredMode(preferredMode === 'FULL_SIZE' ? 'TV_SIZE' : 'FULL_SIZE'))}>{preferredMode === 'FULL_SIZE' ? 'Prefer TV Size' : 'Prefer Full Size'}</button>}
         {menuOnly && <><button type="button" role="menuitem" onClick={() => { updatePreference('liked', !localLiked); setOpen(false) }}>{localLiked ? 'Remove like' : 'Like'}</button><button type="button" role="menuitem" onClick={() => { updatePreference('disliked', !localDisliked); setOpen(false) }}>{localDisliked ? 'Remove dislike' : 'Dislike'}</button></>}
         {onRemove && <button type="button" role="menuitem" className="track-actions__danger" onClick={() => runAndClose(onRemove)}>{removeLabel}</button>}
-      </div>}
+      </ViewportMenu>
       {actions.actionError && <span className="sr-only" role="alert">{actions.actionError}</span>}
     </div>
     {pickerOpen && <div className="library-actions__picker-scrim"><section ref={pickerRef} className="library-actions library-actions--picker" role="dialog" aria-modal="true" aria-label="Save to playlist"><header className="library-actions__header"><div className="library-actions__art" aria-hidden="true"><ListMusic size={22} /></div><div><h2>Save to playlist</h2><p>{item.title}</p></div><button className="library-actions__close" type="button" aria-label="Close playlist picker" onClick={() => setPickerOpen(false)}><X size={20} /></button></header><div className="library-actions__new-playlist"><label htmlFor={`new-playlist-${item.itemType}-${item.itemId}`}>Create a new playlist</label><div><input id={`new-playlist-${item.itemType}-${item.itemId}`} aria-label="New playlist name" value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="Playlist name" /><button type="button" aria-label="Create playlist" onClick={() => void createPlaylist()} disabled={!newName.trim() || actions.pendingAction === 'playlist'}><Plus size={18} /></button></div></div><div className="library-actions__playlists">{loading && <p role="status">Loading playlists</p>}{pickerError && <p role="alert" className="library-actions__error">{pickerError}</p>}{!loading && !pickerError && playlists.length === 0 && <p>No manual playlists yet. Create one above.</p>}{playlists.map((playlist) => <button key={playlist.id} type="button" onClick={() => void choosePlaylist(playlist.id)} disabled={actions.pendingAction === 'playlist'}><ListMusic size={18} /><span><strong>{playlist.name}</strong><small>{playlist.items.length || playlist.entries.length} tracks</small></span></button>)}</div></section></div>}

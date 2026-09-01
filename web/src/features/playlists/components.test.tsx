@@ -105,6 +105,30 @@ describe('playlist components', () => {
     expect(screen.getByTestId('route')).toHaveTextContent('/playlist/2')
   })
 
+  it('wires playlist-card More actions to play, edit, and delete workflows', async () => {
+    const onPlay = vi.fn()
+    const onUpdate = vi.fn().mockResolvedValue(undefined)
+    const onDelete = vi.fn().mockResolvedValue(undefined)
+    renderWithQuery(<PlaylistManager playlists={[playlist()]} state="ready" onCreate={vi.fn()} onUpdate={onUpdate} onDelete={onDelete} onPlay={onPlay} />)
+
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Night drive' }))
+    const menu = screen.getByRole('menu', { name: 'Night drive actions' })
+    expect(menu.parentElement).toBe(document.body)
+    expect(menu).toHaveClass('viewport-menu')
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Play playlist' }))
+    expect(onPlay).toHaveBeenCalledWith(expect.objectContaining({ id: 2 }), false)
+
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Night drive' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Edit playlist' }))
+    expect(screen.getByRole('dialog', { name: 'Edit Night drive' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
+
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Night drive' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Delete playlist' }))
+    await userEvent.click(screen.getByRole('button', { name: /^delete$/i }))
+    await waitFor(() => expect(onDelete).toHaveBeenCalledWith(expect.objectContaining({ id: 2 })))
+  })
+
   it('renders playlist detail as a resolved music page without inline item editing', async () => {
     const onUpdate = vi.fn().mockResolvedValue(undefined)
     const onDelete = vi.fn().mockResolvedValue(undefined)

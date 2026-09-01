@@ -271,6 +271,7 @@ h2 { margin-bottom: .4rem; letter-spacing: -.025em; }
   .global-search kbd, .topbar__actions .hide-narrow { display: none; }
   .topbar__avatar { width: 2.1rem; height: 2.1rem; }
   .main-content { padding: 1.5rem 1rem 2rem; }
+  .main-content--player { height: calc(100dvh - 4.4rem); overflow: hidden; padding: .45rem .65rem .65rem; }
   .mini-player { grid-template-columns: minmax(0, 1fr) auto; min-height: 5.4rem; padding: .6rem .85rem; }
   .mini-player__progress { position: absolute; right: .85rem; bottom: .25rem; left: .85rem; grid-template-columns: 0 1fr 0; }
   .mini-player__progress span { display: none; }
@@ -296,6 +297,11 @@ h2 { margin-bottom: .4rem; letter-spacing: -.025em; }
 
 @media (max-width: 430px) {
   h1 { font-size: 2.25rem; }
+  .topbar { gap: .45rem; padding-inline: .65rem; }
+  .mobile-menu-button { width: 2.65rem; height: 2.65rem; flex: 0 0 auto; }
+  .global-search { padding-inline: .65rem; }
+  .topbar__actions { flex: 0 0 auto; }
+  .main-content--player { padding-inline: .45rem; }
   .hide-narrow { display: none; }
   .mini-player__meta { max-width: 10rem; }
   .mini-player__controls .hide-compact { display: none; }

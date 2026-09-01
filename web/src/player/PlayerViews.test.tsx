@@ -176,6 +176,52 @@ describe('player views', () => {
     expect(state.player.queue.moveEntry).toHaveBeenCalledWith(3, 2)
   })
 
+  it('previews the held row in its prospective position and Escape restores the original order', () => {
+    renderPlayer(<NowPlayingView />)
+    fireEvent.click(screen.getByRole('button', { name: 'Show queue' }))
+
+    const handle = screen.getByRole('button', { name: 'Drag A very long queue title that should remain readable across the row to reorder' })
+    const endingRow = screen.getByText('Ending').closest('[data-queue-id]') as HTMLElement
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: vi.fn(() => endingRow) })
+    const upcomingTitles = () => Array.from(document.querySelectorAll('.player-queue__row--upcoming .player-queue__title')).map((node) => node.textContent)
+
+    expect(upcomingTitles()).toEqual(['Ending', 'A very long queue title that should remain readable across the row'])
+    fireEvent.pointerDown(handle, { button: 0, pointerId: 7, pointerType: 'mouse', clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(handle, { pointerId: 7, pointerType: 'mouse', clientX: 10, clientY: 24 })
+    expect(upcomingTitles()).toEqual(['A very long queue title that should remain readable across the row', 'Ending'])
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(upcomingTitles()).toEqual(['Ending', 'A very long queue title that should remain readable across the row'])
+    fireEvent.pointerUp(handle, { pointerId: 7, pointerType: 'mouse', clientX: 10, clientY: 24 })
+    expect(state.player.queue.moveEntry).not.toHaveBeenCalled()
+  })
+
+  it('treats pointer cancellation as rollback instead of dropping the held row', () => {
+    renderPlayer(<NowPlayingView />)
+    fireEvent.click(screen.getByRole('button', { name: 'Show queue' }))
+    const handle = screen.getByRole('button', { name: 'Drag A very long queue title that should remain readable across the row to reorder' })
+    const endingRow = screen.getByText('Ending').closest('[data-queue-id]') as HTMLElement
+    Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: vi.fn(() => endingRow) })
+
+    fireEvent.pointerDown(handle, { button: 0, pointerId: 8, pointerType: 'mouse', clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(handle, { pointerId: 8, pointerType: 'mouse', clientX: 10, clientY: 24 })
+    fireEvent.pointerCancel(handle, { pointerId: 8, pointerType: 'mouse' })
+
+    expect(state.player.queue.moveEntry).not.toHaveBeenCalled()
+    expect(Array.from(document.querySelectorAll('.player-queue__row--upcoming .player-queue__title')).map((node) => node.textContent)).toEqual([
+      'Ending',
+      'A very long queue title that should remain readable across the row',
+    ])
+  })
+
+  it('switches the expanded player to a non-overlapping queue layout', () => {
+    const { container } = renderPlayer(<NowPlayingView />)
+    fireEvent.click(screen.getByRole('button', { name: 'Show queue' }))
+
+    expect(container.querySelector('.player-now-playing')).toHaveClass('player-now-playing--queue-open')
+    expect(screen.getByRole('complementary', { name: 'Playback queue' }).parentElement).toHaveClass('player-now-playing')
+  })
+
   it('treats an immediate vertical touch move as scrolling instead of reordering', () => {
     renderPlayer(<NowPlayingView />)
     fireEvent.click(screen.getByRole('button', { name: 'Show queue' }))

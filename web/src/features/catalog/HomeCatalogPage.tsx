@@ -3,6 +3,7 @@ import { ArrowRight, MoreHorizontal, Play } from 'lucide-react'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useRovingMenu } from '../../components/focusScope'
+import { ViewportMenu } from '../../components/ViewportMenu'
 import { MediaListItem } from '../../components/MediaPresentation'
 import { apiClient } from '../../lib/api'
 import { browserAssetUrl } from '../../lib/assets'
@@ -191,7 +192,10 @@ function HomeAnimeCard({ anime, libraryAnime, themes, playlistId, onPlayAll }: {
 
   useEffect(() => {
     if (!open) return undefined
-    const close = (event: PointerEvent) => { if (!rootRef.current?.contains(event.target as Node)) setOpen(false) }
+    const close = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false)
+    }
     window.addEventListener('pointerdown', close)
     return () => window.removeEventListener('pointerdown', close)
   }, [open])
@@ -210,12 +214,12 @@ function HomeAnimeCard({ anime, libraryAnime, themes, playlistId, onPlayAll }: {
       <small>Currently watching</small>
     </Link>
     <button ref={triggerRef} type="button" className="home-anime-actions__trigger" aria-label={`More actions for ${title}`} aria-haspopup="menu" aria-expanded={open} onClick={() => { setOpen((value) => !value); setConfirmingRemoval(false) }}><MoreHorizontal size={20} /></button>
-    {open && <div ref={menuRef} className="home-anime-actions__menu track-actions__menu" role="menu" aria-label={`${title} actions`}>
+    <ViewportMenu open={open} triggerRef={triggerRef} menuRef={menuRef} className="home-anime-actions__menu track-actions__menu" label={`${title} actions`}>
       <button type="button" role="menuitem" onClick={() => navigate(animePath)}>Open anime</button>
       <button type="button" role="menuitem" disabled={!onPlayAll || themes.length === 0} onClick={() => { setOpen(false); onPlayAll?.(themes, artworkUrl) }}>Play all themes</button>
       {playlistId && <button type="button" role="menuitem" onClick={() => navigate(`/playlist/${playlistId}`)}>Open Currently Watching playlist</button>}
       <button type="button" role="menuitem" className="track-actions__danger" onClick={remove}>{confirmingRemoval ? 'Confirm remove from library' : 'Remove from library'}</button>
-    </div>}
+    </ViewportMenu>
   </article>
 }
 
