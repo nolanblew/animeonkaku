@@ -78,7 +78,7 @@ polling remains the safety net for those updates.
 ### Sonos sandbox Music API
 
 Set `SONOS_SMAPI_ENABLED=true` together with the canonical HTTPS
-`WEB_PUBLIC_ORIGIN` to expose the sandbox adapter. Production Compose enables
+`SONOS_PUBLIC_ORIGIN` (or `WEB_PUBLIC_ORIGIN` as a fallback) to expose the sandbox adapter. Production Compose enables
 the endpoint by default; the Sonos developer service must remain in **Sandbox**
 and must not be submitted for production review yet.
 

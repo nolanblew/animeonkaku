@@ -299,6 +299,7 @@ const clientApi = new DrizzleClientApiService(
   config.MUSIC_CATALOG_ENABLED,
   config.LOUDNESS_PLAYBACK_GAIN_ENABLED,
 );
+const sonosPublicOrigin = config.SONOS_PUBLIC_ORIGIN ?? config.WEB_PUBLIC_ORIGIN;
 const loginSyncIntervalMs = config.SYNC_INTERVAL_MINUTES * 60_000;
 const deviceActivitySync = new DeviceActivitySyncTrigger({
   queue: jobQueue,
@@ -326,8 +327,8 @@ const app = buildApp({
   },
   jobs: jobQueue,
   clientApi,
-  ...(config.SONOS_SMAPI_ENABLED && config.WEB_PUBLIC_ORIGIN
-    ? { sonos: { publicOrigin: config.WEB_PUBLIC_ORIGIN } }
+  ...(config.SONOS_SMAPI_ENABLED && sonosPublicOrigin
+    ? { sonos: { publicOrigin: sonosPublicOrigin } }
     : {}),
   legacyLibraryImport: clientApi,
   musicRequests: musicRequestService,
