@@ -1,5 +1,5 @@
 import { ChevronDown, Ellipsis, GripVertical, ListMusic, Maximize, Pause, Play, Repeat, Shuffle, SkipBack, SkipForward, Trash2, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { usePlayer } from './PlayerProvider'
 import type { PlaybackMode } from '../media/modeSwitch'
 import { CurrentTrackActions } from './CurrentTrackActions'
@@ -12,6 +12,7 @@ import { useInRouterContext, useNavigate } from 'react-router-dom'
 import { artistRouteSlug } from '../lib/navigation'
 
 export interface NowPlayingViewProps { className?: string; onCollapse?: () => void }
+const EMPTY_QUEUE_ENTRIES: QueueEntry[] = []
 
 export function NowPlayingView({ className = '', onCollapse }: NowPlayingViewProps) {
   const player = usePlayer()
@@ -25,7 +26,7 @@ export function NowPlayingView({ className = '', onCollapse }: NowPlayingViewPro
 
   const modeLabel = player.mode === 'FULL_SIZE' ? 'Full size' : player.mode === 'VIDEO' ? 'Video' : 'TV size'
   return (
-    <section className={['player-now-playing', isVideo ? 'player-now-playing--video' : 'player-now-playing--song', className].filter(Boolean).join(' ')} aria-label="Now playing" data-testid="now-playing-view">
+    <section className={['player-now-playing', isVideo ? 'player-now-playing--video' : 'player-now-playing--song', queueOpen && 'player-now-playing--queue-open', className].filter(Boolean).join(' ')} aria-label="Now playing" data-testid="now-playing-view">
       {current?.artworkUrl && <div className="player-now-playing__backdrop" style={{ backgroundImage: `url(${JSON.stringify(current.artworkUrl)})` }} aria-hidden="true" />}
       <div className="player-expanded-toolbar">
         <button type="button" className="player-collapse-button" onClick={onCollapse} disabled={!onCollapse} aria-label="Collapse player"><ChevronDown size={23} /></button>
@@ -53,8 +54,8 @@ export function NowPlayingView({ className = '', onCollapse }: NowPlayingViewPro
           {!player.videoAvailable && <p className="player-muted">Video unavailable for this theme.</p>}
         </div>
 
-        {queueOpen && <PlaybackQueue onClose={() => setQueueOpen(false)} />}
       </div>
+      {queueOpen && <PlaybackQueue onClose={() => setQueueOpen(false)} />}
     </section>
   )
 
@@ -72,7 +73,10 @@ function PlaybackQueue({ onClose }: { onClose: () => void }) {
   const [upcomingVisibleCount, setUpcomingVisibleCount] = useState(40)
   const [draggingEntryId, setDraggingEntryId] = useState<number | null>(null)
   const [dropTargetId, setDropTargetId] = useState<number | null>(null)
+  const [dragPreview, setDragPreview] = useState<QueueEntry[] | null>(null)
   const touchStartY = useRef<number | null>(null)
+  const rowElementsRef = useRef(new Map<number, HTMLLIElement>())
+  const previousRectsRef = useRef(new Map<number, DOMRect>())
   const dragRef = useRef<{
     queueId: number
     pointerId: number
@@ -86,18 +90,39 @@ function PlaybackQueue({ onClose }: { onClose: () => void }) {
   const dragCleanupRef = useRef<(() => void) | null>(null)
   const entries = player.queueState.nowPlayingEntries
   const currentIndex = player.queueState.currentIndex
-  const history = player.queueState.historyEntries ?? []
+  const history = player.queueState.historyEntries ?? EMPTY_QUEUE_ENTRIES
   const current = entries[currentIndex]
   const upcoming = entries.slice(currentIndex + 1)
+  const displayedUpcoming = dragPreview ?? upcoming
   const historyWindow = useMemo(() => windowQueueEntries(history, { anchor: history.length - 1, viewportSize: historyVisibleCount, overscan: 0 }), [history, historyVisibleCount])
-  const upcomingWindow = useMemo(() => windowQueueEntries(upcoming, { anchor: 0, viewportSize: upcomingVisibleCount, overscan: 8 }), [upcoming, upcomingVisibleCount])
+  const upcomingWindow = useMemo(() => windowQueueEntries(displayedUpcoming, { anchor: 0, viewportSize: upcomingVisibleCount, overscan: 8 }), [displayedUpcoming, upcomingVisibleCount])
   const menuEntry = [...history, ...(current ? [current] : []), ...upcoming].find((entry) => entry.queueId === menuEntryId)
   const menuRef = useAccessibleFocusScope<HTMLDivElement>({ active: menuEntry !== undefined, onEscape: () => setMenuEntryId(null) })
 
   useEffect(() => {
     setHistoryVisibleCount(3)
     setUpcomingVisibleCount(40)
+    setDragPreview(null)
   }, [entries, history])
+
+  useLayoutEffect(() => {
+    if (draggingEntryId === null) return
+    for (const entry of displayedUpcoming) {
+      const row = rowElementsRef.current.get(entry.queueId)
+      const previous = previousRectsRef.current.get(entry.queueId)
+      if (!row || !previous) continue
+      const next = row.getBoundingClientRect()
+      const delta = previous.top - next.top
+      if (Math.abs(delta) < 1) continue
+      row.style.transition = 'none'
+      row.style.transform = `translateY(${delta}px)`
+      requestAnimationFrame(() => {
+        row.style.transition = ''
+        row.style.transform = ''
+      })
+    }
+    previousRectsRef.current.clear()
+  }, [displayedUpcoming, draggingEntryId])
 
   useEffect(() => {
     if (!menuEntry) return undefined
@@ -113,15 +138,16 @@ function PlaybackQueue({ onClose }: { onClose: () => void }) {
     dragCleanupRef.current?.()
   }, [])
 
-  const finishDrag = () => {
+  const finishDrag = (commit: boolean) => {
     const drag = dragRef.current
     if (drag?.holdTimer) clearTimeout(drag.holdTimer)
-    if (drag?.active && drag.targetId !== null && drag.targetId !== drag.queueId) {
+    if (commit && drag?.active && drag.targetId !== null && drag.targetId !== drag.queueId) {
       player.queue.moveEntry(drag.queueId, drag.targetId)
     }
     dragRef.current = null
     setDraggingEntryId(null)
     setDropTargetId(null)
+    setDragPreview(null)
   }
 
   const updateDropTarget = (clientX: number, clientY: number) => {
@@ -130,6 +156,14 @@ function PlaybackQueue({ onClose }: { onClose: () => void }) {
     const validTargetId = Number.isFinite(targetId) ? targetId : null
     if (dragRef.current) dragRef.current.targetId = validTargetId
     setDropTargetId(validTargetId)
+    const sourceId = dragRef.current?.queueId
+    if (sourceId !== undefined) {
+      for (const item of upcoming) {
+        const element = rowElementsRef.current.get(item.queueId)
+        if (element) previousRectsRef.current.set(item.queueId, element.getBoundingClientRect())
+      }
+      setDragPreview(validTargetId !== null && validTargetId !== sourceId ? reorderPreview(upcoming, sourceId, validTargetId) : null)
+    }
   }
 
   const beginDrag = (entry: QueueEntry, event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -174,20 +208,33 @@ function PlaybackQueue({ onClose }: { onClose: () => void }) {
     }
     const onPointerUp = (pointerEvent: PointerEvent) => {
       if (pointerEvent.pointerId !== drag.pointerId) return
-      finishDrag()
+      finishDrag(true)
+      cleanup()
+    }
+    const onPointerCancel = (pointerEvent: PointerEvent) => {
+      if (pointerEvent.pointerId !== drag.pointerId) return
+      finishDrag(false)
+      cleanup()
+    }
+    const onKeyDown = (keyEvent: KeyboardEvent) => {
+      if (keyEvent.key !== 'Escape' || dragRef.current !== drag) return
+      keyEvent.preventDefault()
+      finishDrag(false)
       cleanup()
     }
     const cleanup = () => {
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
-      window.removeEventListener('pointercancel', onPointerUp)
+      window.removeEventListener('pointercancel', onPointerCancel)
+      window.removeEventListener('keydown', onKeyDown)
       if (dragCleanupRef.current === cleanup) dragCleanupRef.current = null
     }
     dragCleanupRef.current?.()
     dragCleanupRef.current = cleanup
     window.addEventListener('pointermove', onPointerMove, { passive: false })
     window.addEventListener('pointerup', onPointerUp)
-    window.addEventListener('pointercancel', onPointerUp)
+    window.addEventListener('pointercancel', onPointerCancel)
+    window.addEventListener('keydown', onKeyDown)
   }
 
   return (
@@ -227,13 +274,13 @@ function PlaybackQueue({ onClose }: { onClose: () => void }) {
           <QueueRow entry={current} tone="current" position={currentIndex + 1} titlePreference={titlePreference} onMore={() => setMenuEntryId((open) => open === current.queueId ? null : current.queueId)} menuOpen={menuEntryId === current.queueId} menu={menuEntryId === current.queueId ? <div ref={menuRef} className="player-queue__row-menu" role="menu" aria-label={`${current.item.title} queue actions`}><strong>{current.item.title}</strong><QueueDestinationActions item={current.item} onClose={() => setMenuEntryId(null)} /><button type="button" role="menuitem" onClick={() => setMenuEntryId(null)}>Close</button></div> : undefined} />
         </QueueSection>}
         <QueueSection title="Up next" footer={upcomingWindow.endExclusive < upcoming.length ? <QueueWindowControl label="queue" shown={upcomingWindow.endExclusive} total={upcoming.length} onClick={() => setUpcomingVisibleCount((currentCount) => Math.min(currentCount + 40, upcoming.length))} /> : undefined}>
-          {upcoming.length === 0
+          {displayedUpcoming.length === 0
             ? <p className="player-muted">The queue is empty.</p>
             : upcomingWindow.entries.map((entry, windowOffset) => {
               const offset = upcomingWindow.start + windowOffset
               const absoluteIndex = currentIndex + offset + 1
-              const previous = upcoming[offset - 1]
-              const next = upcoming[offset + 1]
+              const previous = displayedUpcoming[offset - 1]
+              const next = displayedUpcoming[offset + 1]
               return <QueueRow
                 key={entry.queueId}
                 entry={entry}
@@ -262,6 +309,7 @@ function PlaybackQueue({ onClose }: { onClose: () => void }) {
                 }}
                 dragging={draggingEntryId === entry.queueId}
                 dropTarget={dropTargetId === entry.queueId && draggingEntryId !== entry.queueId}
+                rowRef={(node) => { if (node) rowElementsRef.current.set(entry.queueId, node); else rowElementsRef.current.delete(entry.queueId) }}
               />
             })}
         </QueueSection>
@@ -309,7 +357,7 @@ function QueueSection({ title, children, footer }: { title: string; children: Re
   </div>
 }
 
-function QueueRow({ entry, tone, position, titlePreference, primaryLabel, onPrimary, onMore, onDragStart, onDragKeyDown, menuOpen = false, menu, dragging = false, dropTarget = false }: {
+function QueueRow({ entry, tone, position, titlePreference, primaryLabel, onPrimary, onMore, onDragStart, onDragKeyDown, menuOpen = false, menu, dragging = false, dropTarget = false, rowRef }: {
   entry: QueueEntry
   tone: 'history' | 'current' | 'upcoming'
   position: number
@@ -323,19 +371,33 @@ function QueueRow({ entry, tone, position, titlePreference, primaryLabel, onPrim
   menu?: ReactNode
   dragging?: boolean
   dropTarget?: boolean
+  rowRef?: (node: HTMLLIElement | null) => void
 }) {
   const presentation = playerItemPresentation(entry.item, titlePreference)
-  const titleCopy = <><span className="player-queue__index">{position}</span><strong className="player-queue__title">{presentation.primary}</strong></>
-  return <li className={`player-queue__row player-queue__row--${tone}${dragging ? ' player-queue__row--dragging' : ''}${dropTarget ? ' player-queue__row--drop-target' : ''}`} data-queue-id={tone === 'upcoming' ? entry.queueId : undefined}>
+  const titleCopy = <strong className="player-queue__title">{presentation.primary}</strong>
+  return <li ref={rowRef} className={`player-queue__row player-queue__row--${tone}${dragging ? ' player-queue__row--dragging' : ''}${dropTarget ? ' player-queue__row--drop-target' : ''}`} data-queue-id={tone === 'upcoming' ? entry.queueId : undefined}>
     {tone === 'upcoming' && <button type="button" className="player-queue__drag-handle" onPointerDown={onDragStart} onKeyDown={onDragKeyDown} aria-label={`Drag ${entry.item.title} to reorder`} aria-describedby="queue-reorder-instructions"><GripVertical size={16} /></button>}
-    {onPrimary ? <button type="button" className="player-queue__primary" onClick={onPrimary} aria-label={primaryLabel}>{titleCopy}</button> : <div className="player-queue__primary" aria-current="true">{titleCopy}</div>}
-    <div className="player-queue__meta"><small>{presentation.secondary}</small>
-      {onMore && <div className="player-queue__row-actions">
-        <button type="button" onClick={onMore} aria-label={`More actions for ${entry.item.title} in queue`} aria-haspopup="menu" aria-expanded={menuOpen}><Ellipsis size={17} /></button>
-      </div>}
+    <span className="player-queue__index">{position}</span>
+    <div className="player-queue__content">
+      {onPrimary ? <button type="button" className="player-queue__primary" onClick={onPrimary} aria-label={primaryLabel}>{titleCopy}</button> : <div className="player-queue__primary" aria-current="true">{titleCopy}</div>}
+      <div className="player-queue__meta"><small>{presentation.secondary}</small>
+        {onMore && <div className="player-queue__row-actions">
+          <button type="button" onClick={onMore} aria-label={`More actions for ${entry.item.title} in queue`} aria-haspopup="menu" aria-expanded={menuOpen}><Ellipsis size={17} /></button>
+        </div>}
+      </div>
     </div>
     {menu}
   </li>
+}
+
+function reorderPreview(entries: QueueEntry[], sourceId: number, targetId: number): QueueEntry[] {
+  const sourceIndex = entries.findIndex((entry) => entry.queueId === sourceId)
+  const targetIndex = entries.findIndex((entry) => entry.queueId === targetId)
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return entries
+  const preview = [...entries]
+  const [source] = preview.splice(sourceIndex, 1)
+  preview.splice(targetIndex, 0, source)
+  return preview
 }
 
 function playerItemPresentation(item: QueueEntry['item'] | undefined, preference?: 'ENGLISH' | 'ROMAJI' | 'JAPANESE'): { primary: string; secondary: string } {

@@ -37,6 +37,7 @@ function CurrentTrackActionsContent({ onNavigate }: { onNavigate: (to: string) =
     item={{ itemType, itemId, title: current.title, modeOverride: itemType === 'THEME' && current.mode === 'FULL_SIZE' ? 'FULL_SIZE' : null }}
     liked={preference?.liked}
     disliked={preference?.disliked}
+    onDislike={() => { void player.next() }}
     onReplaceQueue={() => player.playItems([current], { contextLabel: 'Now playing', startIndex: 0, shuffle: false })}
     onPlayVideo={player.videoAvailable && Boolean(current.videoUrl) ? () => player.setMode('VIDEO') : undefined}
     onGoToArtist={artistSlug ? () => onNavigate(`/artist/${encodeURIComponent(artistSlug)}`) : undefined}

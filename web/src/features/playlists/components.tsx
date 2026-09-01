@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Check, ListPlus, Music2, Play, Shuffle, Sparkles } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, ListPlus, MoreHorizontal, Music2, Play, Shuffle, Sparkles } from 'lucide-react'
 import type { NormalizedLibrary, PlaylistDto, PlaylistPlaybackMode } from '../../lib/library'
 import { DynamicPlaylistBuilder } from './dynamicBuilder'
 import { buildPlaylistUpdate, createDefaultSimpleFilter, DEFAULT_ADVANCED_FILTER, DEFAULT_SORT_SPEC, deserializeDynamicSpec, deserializeSortSpec, formatJsonEditorValue, normalizePlaylistItems, parseJsonEditorValue, removePlaylistItem, reorderPlaylistItems, sanitizePlaylistName, toPlaylistItemInputs, validatePlaylistForm, type DynamicCreatedMode, type DynamicPlaylistMode, type FilterNodeJson, type PlaylistEditorValues, type PlaylistEntryModel, type PlaylistFormErrors, type PlaylistUpdateInput, type SimpleFilterState, type SortSpecJson } from './model'
@@ -9,7 +9,7 @@ import { useLibraryQuery } from '../../lib/query'
 import { PlaylistArtwork, playlistArtworkUrls } from './PlaylistArtwork'
 import { buildPlaylistSongIndex, resolvePlaylistDisplayItems } from './playlistDisplay'
 import { CollectionActionMenu, TrackActionMenu } from '../libraryactions'
-import { useAccessibleFocusScope } from '../../components/focusScope'
+import { useAccessibleFocusScope, useRovingMenu } from '../../components/focusScope'
 import { useAnimeTitlePreference } from '../../lib/animeTitlePreference'
 import './playlists.css'
 
@@ -21,13 +21,16 @@ export interface PlaylistListProps {
   error?: string
   onCreate: () => void
   onSelect?: (id: number) => void
+  onPlay?: (playlist: PlaylistDto) => void
+  onEdit?: (playlist: PlaylistDto) => void
+  onRequestDelete?: (playlist: PlaylistDto) => void
   maxVisible?: number
 }
 
 const MAX_PLAYLIST_PAGE_SIZE = 100
 const PLAYLIST_TRACK_PAGE_SIZE = 48
 
-export function PlaylistList({ playlists, state, error, onCreate, onSelect, maxVisible = 100 }: PlaylistListProps) {
+export function PlaylistList({ playlists, state, error, onCreate, onSelect, onPlay, onEdit, onRequestDelete, maxVisible = 100 }: PlaylistListProps) {
   const library = useLibraryQuery({ enabled: false }).library
   const [filter, setFilter] = useState('')
   const pageSize = normalizePlaylistPageSize(maxVisible)
@@ -64,17 +67,57 @@ export function PlaylistList({ playlists, state, error, onCreate, onSelect, maxV
       {state !== 'loading' && state !== 'error' && visible.length > 0 && (
         <>
           <div className="playlist-cards">
-            {visible.map((playlist) => <Link className="playlist-card" to={`/playlist/${playlist.id}`} key={playlist.id} onClick={() => onSelect?.(playlist.id)}>
-              <PlaylistArtwork playlistId={playlist.id} name={playlist.name} artworkUrls={playlistArtworkUrls(playlist, library)} />
-              <span className="playlist-card__copy"><strong>{playlist.name}</strong><small>{playlist.isDynamic ? 'Smart playlist' : `${playlist.items.length || playlist.entries.length} tracks`}</small></span>
-              <span className="playlist-card__arrow" aria-hidden="true">→</span>
-            </Link>)}
+            {visible.map((playlist) => <PlaylistListCard key={playlist.id} playlist={playlist} library={library} onSelect={onSelect} onPlay={onPlay} onEdit={onEdit} onRequestDelete={onRequestDelete} />)}
           </div>
           {filtered.length > visible.length && <div className="playlist-list__pagination"><p className="playlist-list__count">Showing {visible.length} of {filtered.length} playlists.</p><button type="button" className="playlist-button" onClick={() => setVisibleCount((current) => Math.min(current + pageSize, filtered.length))}>Load more playlists</button></div>}
         </>
       )}
     </section>
   )
+}
+
+function PlaylistListCard({ playlist, library, onSelect, onPlay, onEdit, onRequestDelete }: {
+  playlist: PlaylistDto
+  library: NormalizedLibrary | null | undefined
+  onSelect?: (id: number) => void
+  onPlay?: (playlist: PlaylistDto) => void
+  onEdit?: (playlist: PlaylistDto) => void
+  onRequestDelete?: (playlist: PlaylistDto) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRovingMenu<HTMLDivElement>({ open, onClose: () => setOpen(false), triggerRef })
+  const playlistPath = `/playlist/${playlist.id}`
+
+  useEffect(() => {
+    if (!open) return undefined
+    const close = (event: PointerEvent) => { if (!rootRef.current?.contains(event.target as Node)) setOpen(false) }
+    window.addEventListener('pointerdown', close)
+    return () => window.removeEventListener('pointerdown', close)
+  }, [open])
+
+  const run = (action?: (playlist: PlaylistDto) => void) => {
+    setOpen(false)
+    action?.(playlist)
+  }
+
+  return <article className={`playlist-card${open ? ' playlist-card--menu-open' : ''}`} ref={rootRef}>
+    <Link className="playlist-card__link" to={playlistPath} onClick={() => onSelect?.(playlist.id)}>
+      <PlaylistArtwork playlistId={playlist.id} name={playlist.name} artworkUrls={playlistArtworkUrls(playlist, library)} />
+      <span className="playlist-card__copy"><strong>{playlist.name}</strong><small>{playlist.isDynamic ? 'Smart playlist' : `${playlist.items.length || playlist.entries.length} tracks`}</small></span>
+      <span className="playlist-card__arrow" aria-hidden="true">→</span>
+    </Link>
+    {(onPlay || onEdit || onRequestDelete) && <>
+      <button ref={triggerRef} type="button" className="playlist-card__actions-trigger" aria-label={`More actions for ${playlist.name}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}><MoreHorizontal size={20} /></button>
+      {open && <div ref={menuRef} className="playlist-card__actions-menu" role="menu" aria-label={`${playlist.name} actions`}>
+        <Link role="menuitem" to={playlistPath} onClick={() => setOpen(false)}>Open playlist</Link>
+        {onPlay && <button type="button" role="menuitem" onClick={() => run(onPlay)}>Play playlist</button>}
+        {onEdit && <button type="button" role="menuitem" onClick={() => run(onEdit)}>Edit playlist</button>}
+        {onRequestDelete && <button type="button" role="menuitem" className="playlist-card__actions-danger" onClick={() => run(onRequestDelete)}>Delete playlist</button>}
+      </div>}
+    </>}
+  </article>
 }
 
 function normalizePlaylistPageSize(value: number): number {
@@ -392,24 +435,48 @@ function isSnapshotPlaylist(playlist: PlaylistDto): boolean {
   return playlist.isDynamic && !playlist.autoUpdate && deserializeDynamicSpec(playlist.dynamicSpecJson).mode === 'SNAPSHOT'
 }
 
-export interface PlaylistManagerProps extends Omit<PlaylistListProps, 'onCreate'> {
+export interface PlaylistManagerProps extends Omit<PlaylistListProps, 'onCreate' | 'onPlay'> {
   initialCreate?: boolean
   onCreate: (input: PlaylistCreateInput) => Promise<unknown> | unknown
   onUpdate: PlaylistDetailProps['onUpdate']
-  onDelete: PlaylistDetailProps['onDelete']
+  onDelete: (playlist: PlaylistDto) => Promise<unknown> | unknown
   onPlay?: PlaylistDetailProps['onPlay']
 }
 
-export function PlaylistManager({ playlists, state, error, onCreate, maxVisible, initialCreate = false }: PlaylistManagerProps) {
+export function PlaylistManager({ playlists, state, error, onCreate, onUpdate, onDelete, onPlay, maxVisible, initialCreate = false }: PlaylistManagerProps) {
   const [creating, setCreating] = useState(initialCreate)
+  const [editingPlaylist, setEditingPlaylist] = useState<PlaylistDto | null>(null)
+  const [deletingPlaylist, setDeletingPlaylist] = useState<PlaylistDto | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [dialogError, setDialogError] = useState<string | null>(null)
   const createInitialFocusRef = useRef<HTMLButtonElement>(null)
   const createDialogRef = useAccessibleFocusScope<HTMLDivElement>({ active: creating, onEscape: () => setCreating(false), initialFocusRef: createInitialFocusRef })
+  const editDialogRef = useAccessibleFocusScope<HTMLDivElement>({ active: editingPlaylist !== null, onEscape: () => setEditingPlaylist(null) })
+  const deleteDialogRef = useAccessibleFocusScope<HTMLDivElement>({ active: deletingPlaylist !== null, onEscape: () => setDeletingPlaylist(null) })
   useEffect(() => {
     if (initialCreate) setCreating(true)
   }, [initialCreate])
   const create = async (input: PlaylistCreateInput | (Partial<PlaylistUpdateInput> & { items?: PlaylistUpdateInput['items'] })) => { await onCreate(input as PlaylistCreateInput); setCreating(false) }
+  const edit = async (input: PlaylistCreateInput | (Partial<PlaylistUpdateInput> & { items?: PlaylistUpdateInput['items'] })) => {
+    if (!editingPlaylist) return
+    await onUpdate(editingPlaylist.id, input as Partial<PlaylistUpdateInput> & { items?: PlaylistUpdateInput['items'] })
+    setEditingPlaylist(null)
+  }
+  const confirmDelete = async () => {
+    if (!deletingPlaylist) return
+    setDeleting(true)
+    setDialogError(null)
+    try {
+      await onDelete(deletingPlaylist)
+      setDeletingPlaylist(null)
+    } catch (deleteError) {
+      setDialogError(deleteError instanceof Error ? deleteError.message : 'Could not delete playlist.')
+    } finally {
+      setDeleting(false)
+    }
+  }
 
-  return <div className="playlist-manager"><PlaylistList playlists={playlists} state={state} error={error} maxVisible={maxVisible} onCreate={() => setCreating(true)} />{creating && <div className="playlist-dialog-backdrop"><div ref={createDialogRef} className="playlist-dialog" role="dialog" aria-modal="true" aria-labelledby="playlist-create-dialog-title"><h2 id="playlist-create-dialog-title" className="sr-only">Create playlist</h2><PlaylistEditor initialFocusRef={createInitialFocusRef} onCancel={() => setCreating(false)} onSubmit={create} /></div></div>}</div>
+  return <div className="playlist-manager"><PlaylistList playlists={playlists} state={state} error={error} maxVisible={maxVisible} onCreate={() => setCreating(true)} onPlay={onPlay ? (playlist) => onPlay(playlist, false) : undefined} onEdit={(playlist) => { setDialogError(null); setEditingPlaylist(playlist) }} onRequestDelete={(playlist) => { setDialogError(null); setDeletingPlaylist(playlist) }} />{creating && <div className="playlist-dialog-backdrop"><div ref={createDialogRef} className="playlist-dialog" role="dialog" aria-modal="true" aria-labelledby="playlist-create-dialog-title"><h2 id="playlist-create-dialog-title" className="sr-only">Create playlist</h2><PlaylistEditor initialFocusRef={createInitialFocusRef} onCancel={() => setCreating(false)} onSubmit={create} /></div></div>}{editingPlaylist && <div className="playlist-dialog-backdrop"><div ref={editDialogRef} className="playlist-dialog" role="dialog" aria-modal="true" aria-label={`Edit ${editingPlaylist.name}`}><PlaylistEditor playlist={editingPlaylist} onCancel={() => setEditingPlaylist(null)} onSubmit={edit} /></div></div>}{deletingPlaylist && <div className="playlist-dialog-backdrop"><div ref={deleteDialogRef} className="playlist-dialog playlist-dialog--confirm" role="dialog" aria-modal="true" aria-label={`Delete ${deletingPlaylist.name}`}><h2>Delete playlist?</h2><p>This removes “{deletingPlaylist.name}” from your library. The tracks themselves will stay available.</p>{dialogError && <p className="playlist-field__error" role="alert">{dialogError}</p>}<div className="playlist-dialog__actions"><button type="button" className="playlist-button" onClick={() => setDeletingPlaylist(null)} disabled={deleting}>Keep playlist</button><button type="button" className="playlist-button playlist-button--danger" onClick={() => void confirmDelete()} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete'}</button></div></div></div>}</div>
 }
 
 function editorValuesFor(playlist: PlaylistDto): PlaylistEditorValues {

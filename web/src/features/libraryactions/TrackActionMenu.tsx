@@ -21,6 +21,8 @@ export interface TrackActionMenuProps {
   onPlayNext?: () => void
   onAddToQueue?: () => void
   onReplaceQueue?: () => void
+  /** Called immediately after a new dislike is selected (for active-player skip). */
+  onDislike?: () => void
   onPlayVideo?: () => void
   onGoToArtist?: () => void
   onGoToAnime?: () => void
@@ -34,7 +36,7 @@ export interface TrackActionMenuProps {
   removeLabel?: string
 }
 
-export function TrackActionMenu({ item, liked = false, disliked = false, menuOnly = false, onPlayNext, onAddToQueue, onReplaceQueue, onPlayVideo, onGoToArtist, onGoToAnime, onRelatedMusic, onSetPreferredMode, hasFullSize = false, preferredMode = null, artistName, animeName, onRemove, removeLabel = 'Remove from playlist' }: TrackActionMenuProps) {
+export function TrackActionMenu({ item, liked = false, disliked = false, menuOnly = false, onPlayNext, onAddToQueue, onReplaceQueue, onDislike, onPlayVideo, onGoToArtist, onGoToAnime, onRelatedMusic, onSetPreferredMode, hasFullSize = false, preferredMode = null, artistName, animeName, onRemove, removeLabel = 'Remove from playlist' }: TrackActionMenuProps) {
   const actions = useLibraryActions()
   const [open, setOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -77,6 +79,7 @@ export function TrackActionMenu({ item, liked = false, disliked = false, menuOnl
     optimisticPreference.current = next
     setLocalLiked(next.liked)
     setLocalDisliked(next.disliked)
+    if (kind === 'disliked' && value) onDislike?.()
     const patch = { [kind]: value }
     const request = item.itemType === 'SONG' ? actions.updateSongPreference(item.itemId, patch) : actions.updateThemePreference(item.itemId, patch)
     void request.catch(() => {

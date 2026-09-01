@@ -13,6 +13,7 @@ import { CurrentTrackActions } from './CurrentTrackActions'
 
 describe('CurrentTrackActions preference subscription', () => {
   beforeEach(() => {
+    vi.restoreAllMocks()
     playerState.player = {
       currentItem: { id: 44, itemType: 'THEME', themeId: 44, title: 'Opening Theme', artist: 'Neon Harbor', animeId: 'anime-44', videoUrl: '/video.mp4' },
       playItems: vi.fn(),

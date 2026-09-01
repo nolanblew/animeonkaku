@@ -86,7 +86,7 @@ export function PlaylistsPage() {
   const mutations = usePlaylistMutations()
   const player = usePlayer()
   const library = useLibraryQuery().library
-  return <section className="page" aria-labelledby="playlists-page-title"><h1 id="playlists-page-title" className="sr-only">Playlists</h1><PlaylistManager playlists={query.playlists} state={query.isPending ? 'loading' : query.isError ? 'error' : query.playlists.length === 0 ? 'empty' : 'ready'} error={query.isError ? 'Could not load playlists.' : undefined} initialCreate={searchParams.get('create') === '1'} onCreate={mutations.create} onUpdate={mutations.update} onDelete={mutations.remove} onPlay={library ? (playlist, shuffle) => playPlaylist(player, library, playlist, shuffle) : undefined} /></section>
+  return <section className="page" aria-labelledby="playlists-page-title"><h1 id="playlists-page-title" className="sr-only">Playlists</h1><PlaylistManager playlists={query.playlists} state={query.isPending ? 'loading' : query.isError ? 'error' : query.playlists.length === 0 ? 'empty' : 'ready'} error={query.isError ? 'Could not load playlists.' : undefined} initialCreate={searchParams.get('create') === '1'} onCreate={mutations.create} onUpdate={mutations.update} onDelete={(playlist) => mutations.remove(playlist.id)} onPlay={library ? (playlist, shuffle) => playPlaylist(player, library, playlist, shuffle) : undefined} /></section>
 }
 
 export function NowPlayingPage() {
