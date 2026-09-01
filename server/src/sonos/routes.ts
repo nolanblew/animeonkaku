@@ -223,7 +223,11 @@ function parseSoap(xml: string, actionHeader: string | string[] | undefined): { 
   }
   const body = /<(?:\w+:)?Body\b[^>]*>\s*<(?:(?:\w+):)?([A-Za-z][\w.-]*)\b/i.exec(xml);
   const method = body?.[1];
-  if (!method || !new RegExp(`<\\/(?:\\w+:)?${escapeRegex(method)}\\s*>`, "i").test(xml)) throw new SoapFault("Client.BadRequest", "Malformed SOAP body.");
+  const closesMethod = method && (
+    new RegExp(`<\\/(?:\\w+:)?${escapeRegex(method)}\\s*>`, "i").test(xml)
+    || new RegExp(`<(?:\\w+:)?${escapeRegex(method)}\\b[^>]*\\/\\s*>`, "i").test(xml)
+  );
+  if (!method || !closesMethod) throw new SoapFault("Client.BadRequest", "Malformed SOAP body.");
   const raw = Array.isArray(actionHeader) ? actionHeader[0] : actionHeader;
   const action = raw?.replace(/^\s*["']|["']\s*$/g, "").split("#").pop();
   if (action && action !== method) throw new SoapFault("Client.BadRequest", "SOAPAction does not match the request body.");
