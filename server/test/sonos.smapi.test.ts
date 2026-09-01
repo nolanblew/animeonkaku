@@ -1,0 +1,166 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { FastifyInstance } from "fastify";
+import { buildApp } from "../src/app.js";
+import { AuthService } from "../src/auth/service.js";
+import type { ClientApiService, LibraryResponse } from "../src/api/clientRoutes.js";
+import { StubKitsuAuthClient } from "../src/auth/stubKitsuAuthClient.js";
+import { FakeAuthRepo } from "./helpers/fakeAuthRepo.js";
+
+const NS = "http://www.sonos.com/Services/1.1";
+const env = (method: string, body = "", header = "") =>
+  `<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Header>${header}</s:Header><s:Body><${method} xmlns="${NS}">${body}</${method}></s:Body></s:Envelope>`;
+const creds = (token: string) => `<credentials xmlns="${NS}"><loginToken><token>${token}</token></loginToken></credentials>`;
+
+class SonosApi {
+  users: string[] = [];
+  async getLibrary(userId: string, _since: number | null): Promise<LibraryResponse> {
+    this.users.push(userId);
+    return { serverTime: 1_800_000_000_000, anime: [{
+      kitsuId: "42", animeThemesId: 7, title: "A & B <Final>", titleEn: "A & B <Final>", titleRomaji: null,
+      titleJa: null, posterUrl: "/v1/media/images/anime/42/poster", coverUrl: null, watchingStatus: "current",
+      subtype: "TV", startDate: null, endDate: null, episodeCount: 12, ageRating: null, averageRating: null,
+      userRating: null, libraryUpdatedAt: null, slug: "a-b", genres: [], updatedAt: 10, deleted: false,
+    }], themes: [{
+      id: 100, animeThemesAnimeId: 7, kitsuAnimeIds: ["42"], title: "Opening & <One>", themeType: "OP1",
+      artists: [{ name: "Artist & Friends", asCharacter: null, alias: null }], audioUrl: "/v1/media/audio/100",
+      videoUrl: null, audioState: "READY", durationSeconds: 90, fileSize: 10, mediaModes: {
+        tvSize: { url: "/v1/media/audio/100", durationSeconds: 90, fileSize: 10 },
+        fullSize: { songId: 200, url: "/v1/media/songs/200/audio", durationSeconds: 240, fileSize: 20, sourceReleaseId: 3 },
+        video: null,
+      }, updatedAt: 10, deleted: false,
+    }] };
+  }
+  async listPlaylists(userId: string) {
+    this.users.push(userId);
+    return [{ id: 9, name: "Favorites & More", entries: [100, 100], defaultMode: "TV_SIZE" as const,
+      overrideUserPreference: false, items: [
+        { entryId: 1, itemType: "THEME" as const, itemId: 100, modeOverride: "FULL_SIZE" as const },
+        { entryId: 2, itemType: "THEME" as const, itemId: 100, modeOverride: null },
+      ], isAuto: false, isDynamic: false, autoUpdate: false, updatedAt: 11, deleted: false,
+      dynamicSpecJson: null, dynamicSortJson: null }];
+  }
+  async getThemePrefs(userId: string) { this.users.push(userId); return [{ themeId: 100, liked: true, disliked: false,
+    dislikedTvSize: false, dislikedFullSize: false, preferredMode: "FULL_SIZE" as const, playCount: 0,
+    lastPlayedAt: null, updatedAt: 1, deleted: false }]; }
+  async getSongPrefs(userId: string) { this.users.push(userId); return []; }
+  async getMusicCatalog(userId: string) {
+    this.users.push(userId);
+    return [{ anime: { kitsuId: "42", title: "A & B <Final>", titleEn: "A & B <Final>", posterUrl: null }, releases: [{
+      id: 3, title: "Album", titleEnglish: null, titleRomaji: null, titleJapanese: null,
+      artistCredit: "Artist & Friends", artistNames: [], relationshipType: "THEME", releaseDate: null, year: null,
+      artworkUrl: null, tracks: [{ id: 200, title: "Full Opening", titleEnglish: null, titleRomaji: null,
+        titleJapanese: null, artistCredit: "Artist & Friends", artistNames: [], durationSeconds: 240,
+        audioUrl: "/v1/media/songs/200/audio", fileSize: 20, discNumber: 1, trackNumber: 1, displayOrder: 1 }],
+    }] }];
+  }
+}
+
+describe("Sonos sandbox SMAPI", () => {
+  let app: FastifyInstance; let auth: AuthService; let api: SonosApi; let now: number; let code: number;
+  const onLogin = vi.fn(async () => {});
+  beforeEach(() => {
+    now = 1_800_000_000_000; code = 1; api = new SonosApi();
+    auth = new AuthService(new FakeAuthRepo(), new StubKitsuAuthClient(), { now: () => new Date(now) });
+    app = buildApp({ authService: auth, health: { pingDb: async () => {}, mediaRoot: process.cwd() },
+      clientApi: api as unknown as ClientApiService, onLogin,
+      sonos: { publicOrigin: "https://ongaku.takeya.ninja", now: () => now,
+        generateCode: () => `LINK${String(code++).padStart(4, "0")}` } });
+  });
+  afterEach(async () => { await app.close(); vi.clearAllMocks(); });
+
+  const soap = (method: string, body = "", token?: string, action = method) => app.inject({ method: "POST",
+    url: "/sonos/smapi", headers: { "content-type": "text/xml; charset=utf-8", soapaction: `"${NS}#${action}"` },
+    payload: env(method, body, token ? creds(token) : "") });
+  async function link(hh = "HH-1", device = "DEV-1") {
+    const start = await soap("getAppLink", `<householdId>${hh}</householdId><linkDeviceId>${device}</linkDeviceId>`);
+    const linkCode = /linkCode=([^&<]+)/.exec(start.body)?.[1]; expect(linkCode).toBeTruthy();
+    const post = await app.inject({ method: "POST", url: "/sonos/link",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: `linkCode=${linkCode}&username=alice&password=secret` });
+    expect(post.statusCode).toBe(200);
+    const poll = await soap("getDeviceAuthToken", `<householdId>${hh}</householdId><linkDeviceId>${device}</linkDeviceId><linkCode>${linkCode}</linkCode>`);
+    const token = /<authToken>([^<]+)<\/authToken>/.exec(poll.body)?.[1]; expect(token).toBeTruthy();
+    return { linkCode: linkCode!, token: token! };
+  }
+
+  it("dispatches SOAPAction with XML responses and LastUpdate", async () => {
+    const r = await soap("getLastUpdate");
+    expect(r.statusCode).toBe(200); expect(r.headers["content-type"]).toContain("text/xml");
+    expect(r.body).toContain("<getLastUpdateResponse"); expect(r.body).toContain("<catalog>1800000000</catalog>");
+  });
+  it.each([["malformed", "<not-closed"], ["DTD", `<!DOCTYPE x [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>${env("getLastUpdate", "&xxe;")}`]])
+  ("SOAP-faults %s XML", async (_name, payload) => {
+    const r = await app.inject({ method: "POST", url: "/sonos/smapi", headers: { "content-type": "text/xml",
+      soapaction: `"${NS}#getLastUpdate"` }, payload });
+    expect(r.statusCode).toBe(500); expect(r.headers["content-type"]).toContain("text/xml");
+    expect(r.body).toContain("<s:Fault>"); expect(r.body).not.toContain("file:///etc/passwd");
+  });
+  it("SOAP-faults oversized XML", async () => {
+    const r = await app.inject({ method: "POST", url: "/sonos/smapi", headers: { "content-type": "text/xml",
+      soapaction: `"${NS}#getLastUpdate"` }, payload: env("getLastUpdate", `<x>${"a".repeat(270_000)}</x>`) });
+    expect(r.statusCode).toBe(413); expect(r.headers["content-type"]).toContain("text/xml"); expect(r.body).toContain("<s:Fault>");
+  });
+  it("renders the branded browser-link page", async () => {
+    const start = await soap("getAppLink", "<householdId>HH</householdId><linkDeviceId>D</linkDeviceId>");
+    const linkCode = /linkCode=([^&<]+)/.exec(start.body)?.[1];
+    const page = await app.inject({ method: "GET", url: `/sonos/link?linkCode=${linkCode}` });
+    expect(page.statusCode).toBe(200); expect(page.body).toContain("Anime Ongaku"); expect(page.body).toContain("Kitsu username");
+  });
+  it("links once, invokes sync, binds the device, and consumes the result", async () => {
+    const { linkCode } = await link(); expect(onLogin).toHaveBeenCalledOnce();
+    const wrong = await soap("getDeviceAuthToken", `<householdId>HH-1</householdId><linkDeviceId>OTHER</linkDeviceId><linkCode>${linkCode}</linkCode>`);
+    expect(wrong.statusCode).toBe(500);
+    const again = await soap("getDeviceAuthToken", `<householdId>HH-1</householdId><linkDeviceId>DEV-1</linkDeviceId><linkCode>${linkCode}</linkCode>`);
+    expect(again.statusCode).toBe(500); expect(again.body).toContain("Client.AuthTokenExpired");
+  });
+  it("retries while pending and expires codes after ten minutes", async () => {
+    const start = await soap("getAppLink", "<householdId>HH</householdId><linkDeviceId>D</linkDeviceId>");
+    const linkCode = /linkCode=([^&<]+)/.exec(start.body)?.[1];
+    const pending = await soap("getDeviceAuthToken", `<householdId>HH</householdId><linkDeviceId>D</linkDeviceId><linkCode>${linkCode}</linkCode>`);
+    expect(pending.body).toContain("Client.NOT_LINKED_RETRY"); now += 600_001;
+    expect((await app.inject({ method: "GET", url: `/sonos/link?linkCode=${linkCode}` })).statusCode).toBe(410);
+  });
+  it("caps failed logins", async () => {
+    const start = await soap("getAppLink", "<householdId>HH</householdId><linkDeviceId>D</linkDeviceId>");
+    const linkCode = /linkCode=([^&<]+)/.exec(start.body)?.[1];
+    for (let i = 0; i < 5; i++) await app.inject({ method: "POST", url: "/sonos/link",
+      headers: { "content-type": "application/x-www-form-urlencoded" }, payload: `linkCode=${linkCode}&username=alice&password=` });
+    expect((await app.inject({ method: "GET", url: `/sonos/link?linkCode=${linkCode}` })).statusCode).toBe(410);
+  });
+  it("browses root/anime/playlist/liked with escaping, duplicates, and pagination", async () => {
+    const { token } = await link();
+    const root = await soap("getMetadata", "<id>root</id><index>0</index><count>2</count>", token);
+    expect(root.body).toContain("<id>anime</id>"); expect(root.body).toContain("<id>playlists</id>");
+    expect(root.body).not.toContain("<id>liked</id>"); expect(root.body).toContain("<total>3</total>");
+    const anime = await soap("getMetadata", "<id>anime:42</id><index>0</index><count>10</count>", token);
+    expect(anime.body).toContain("<id>theme:100</id>"); expect(anime.body).toContain("Opening &amp; &lt;One&gt;");
+    const playlist = await soap("getMetadata", "<id>playlist:9</id><index>0</index><count>10</count>", token);
+    expect(playlist.body.match(/<id>theme:100<\/id>/g)).toHaveLength(2);
+    expect((await soap("getMetadata", "<id>liked</id><index>0</index><count>10</count>", token)).body).toContain("<id>theme:100</id>");
+  });
+  it.each(["all", "albums", "playlists", "tracks"])("searches user-scoped %s", async (category) => {
+    const { token } = await link();
+    expect((await soap("search", `<id>${category}</id><term>Opening</term><index>0</index><count>10</count>`, token)).statusCode).toBe(200);
+    expect(api.users.every((u) => u === "stub-alice")).toBe(true);
+  });
+  it("returns empty search results for blank terms", async () => {
+    const { token } = await link();
+    expect((await soap("search", "<id>all</id><term> </term><index>0</index><count>10</count>", token)).body).toContain("<total>0</total>");
+  });
+  it("returns schema metadata and authenticated media URI without URL token leakage", async () => {
+    const { token } = await link(); const meta = await soap("getMediaMetadata", "<id>theme:100</id>", token);
+    expect(meta.body).toContain("<mimeType>audio/mpeg</mimeType>"); expect(meta.body).toContain("<duration>240</duration>");
+    expect(meta.body).toContain("https://ongaku.takeya.ninja/v1/media/images/anime/42/poster");
+    const uri = await soap("getMediaURI", "<id>theme:100</id>", token);
+    expect(uri.body).toContain("https://ongaku.takeya.ninja/v1/media/songs/200/audio");
+    expect(uri.body).toContain(`<httpHeader>Authorization: Bearer ${token}</httpHeader>`); expect(uri.body).not.toContain(`?token=${token}`);
+  });
+  it("isolates users and faults missing auth/unsupported methods", async () => {
+    const { token } = await link(); const bob = await auth.login({ username: "bob", password: "secret", deviceName: "test" });
+    await soap("getMetadata", "<id>anime</id><index>0</index><count>10</count>", token);
+    await soap("getMetadata", "<id>anime</id><index>0</index><count>10</count>", bob.token);
+    expect(api.users).toContain("stub-alice"); expect(api.users).toContain("stub-bob");
+    expect((await soap("getMetadata", "<id>root</id>")).body).toContain("Client.AuthTokenExpired");
+    expect((await soap("deleteItem", "", undefined, "deleteItem")).body).toContain("Client.UnsupportedRequest");
+  });
+});
