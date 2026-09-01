@@ -13,6 +13,7 @@ const creds = (token: string) => `<credentials xmlns="${NS}"><loginToken><token>
 
 class SonosApi {
   users: string[] = [];
+  fullSize = true;
   async getLibrary(userId: string, _since: number | null): Promise<LibraryResponse> {
     this.users.push(userId);
     return { serverTime: 1_800_000_000_000, anime: [{
@@ -25,7 +26,7 @@ class SonosApi {
       artists: [{ name: "Artist & Friends", asCharacter: null, alias: null }], audioUrl: "/v1/media/audio/100",
       videoUrl: null, audioState: "READY", durationSeconds: 90, fileSize: 10, mediaModes: {
         tvSize: { url: "/v1/media/audio/100", durationSeconds: 90, fileSize: 10 },
-        fullSize: { songId: 200, url: "/v1/media/songs/200/audio", durationSeconds: 240, fileSize: 20, sourceReleaseId: 3 },
+        fullSize: this.fullSize ? { songId: 200, url: "/v1/media/songs/200/audio", durationSeconds: 240, fileSize: 20, sourceReleaseId: 3 } : null,
         video: null,
       }, updatedAt: 10, deleted: false,
     }] };
@@ -154,6 +155,13 @@ describe("Sonos sandbox SMAPI", () => {
     const uri = await soap("getMediaURI", "<id>theme:100</id>", token);
     expect(uri.body).toContain("https://ongaku.takeya.ninja/v1/media/songs/200/audio");
     expect(uri.body).toContain(`<httpHeader>Authorization: Bearer ${token}</httpHeader>`); expect(uri.body).not.toContain(`?token=${token}`);
+  });
+  it("falls back to TV-size when a preferred full song is unavailable", async () => {
+    api.fullSize = false; const { token } = await link();
+    const meta = await soap("getMediaMetadata", "<id>theme:100</id>", token);
+    expect(meta.body).toContain("<duration>90</duration>");
+    const uri = await soap("getMediaURI", "<id>theme:100</id>", token);
+    expect(uri.body).toContain("https://ongaku.takeya.ninja/v1/media/audio/100");
   });
   it("isolates users and faults missing auth/unsupported methods", async () => {
     const { token } = await link(); const bob = await auth.login({ username: "bob", password: "secret", deviceName: "test" });

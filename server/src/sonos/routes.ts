@@ -274,7 +274,8 @@ function search(c: Catalog, category: string, term: string, origin: string): Son
 function resolveTrack(c: Catalog, id: string, origin: string): { entry: SonosEntry; uri: string; animeId: string } | null {
   if (id.startsWith("theme:")) {
     const theme = c.themes.find((t) => String(t.id) === id.slice(6)); if (!theme) return null;
-    const mode = preferredThemeMode(c, theme.id, undefined);
+    const preferred = preferredThemeMode(c, theme.id, undefined);
+    const mode = preferred === "FULL_SIZE" && theme.mediaModes.fullSize ? "FULL_SIZE" : "TV_SIZE";
     return { entry: themeEntry(c, theme, origin, mode), uri: absolute(origin, mode === "FULL_SIZE" ? theme.mediaModes.fullSize!.url : theme.mediaModes.tvSize.url)!, animeId: `anime:${theme.kitsuAnimeIds[0] ?? "unknown"}` };
   }
   if (id.startsWith("song:")) {
@@ -296,7 +297,9 @@ function preferredThemeMode(c: Catalog, themeId: number, fallback: "TV_SIZE" | "
   return c.themePrefs.find((p) => p.themeId === themeId)?.preferredMode ?? fallback ?? "TV_SIZE";
 }
 function themeEntry(c: Catalog, theme: LibraryThemeDto, origin: string, desired?: "TV_SIZE" | "FULL_SIZE"): SonosEntry {
-  const anime = c.anime.find((a) => theme.kitsuAnimeIds.includes(a.kitsuId)); const useFull = desired === "FULL_SIZE" && theme.mediaModes.fullSize;
+  const anime = c.anime.find((a) => theme.kitsuAnimeIds.includes(a.kitsuId));
+  const mode = desired ?? preferredThemeMode(c, theme.id, undefined);
+  const useFull = mode === "FULL_SIZE" && theme.mediaModes.fullSize;
   return { id: `theme:${theme.id}`, title: theme.title, kind: "track", album: anime ? titleAnime(anime) : "Anime Ongaku",
     artist: theme.artists.map((a) => a.name).join(", ") || "Anime Ongaku",
     duration: useFull ? theme.mediaModes.fullSize!.durationSeconds : theme.mediaModes.tvSize.durationSeconds,
