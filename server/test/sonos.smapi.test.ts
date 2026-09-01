@@ -14,6 +14,7 @@ const creds = (token: string) => `<credentials xmlns="${NS}"><loginToken><token>
 class SonosApi {
   users: string[] = [];
   fullSize = true;
+  tvMimeType = "application/ogg";
   async getLibrary(userId: string, _since: number | null): Promise<LibraryResponse> {
     this.users.push(userId);
     return { serverTime: 1_800_000_000_000, anime: [{
@@ -25,8 +26,8 @@ class SonosApi {
       id: 100, animeThemesAnimeId: 7, kitsuAnimeIds: ["42"], title: "Opening & <One>", themeType: "OP1",
       artists: [{ name: "Artist & Friends", asCharacter: null, alias: null }], audioUrl: "/v1/media/audio/100",
       videoUrl: null, audioState: "READY", durationSeconds: 90, fileSize: 10, mediaModes: {
-        tvSize: { url: "/v1/media/audio/100", durationSeconds: 90, fileSize: 10 },
-        fullSize: this.fullSize ? { songId: 200, url: "/v1/media/songs/200/audio", durationSeconds: 240, fileSize: 20, sourceReleaseId: 3 } : null,
+        tvSize: { url: "/v1/media/audio/100", durationSeconds: 90, fileSize: 10, mimeType: this.tvMimeType },
+        fullSize: this.fullSize ? { songId: 200, url: "/v1/media/songs/200/audio", durationSeconds: 240, fileSize: 20, sourceReleaseId: 3, mimeType: "audio/flac" } : null,
         video: null,
       }, updatedAt: 10, deleted: false,
     }] };
@@ -51,7 +52,7 @@ class SonosApi {
       artistCredit: "Artist & Friends", artistNames: [], relationshipType: "THEME", releaseDate: null, year: null,
       artworkUrl: null, tracks: [{ id: 200, title: "Full Opening", titleEnglish: null, titleRomaji: null,
         titleJapanese: null, artistCredit: "Artist & Friends", artistNames: [], durationSeconds: 240,
-        audioUrl: "/v1/media/songs/200/audio", fileSize: 20, discNumber: 1, trackNumber: 1, displayOrder: 1 }],
+        audioUrl: "/v1/media/songs/200/audio", fileSize: 20, mimeType: "audio/flac", discNumber: 1, trackNumber: 1, displayOrder: 1 }],
     }] }];
   }
 }
@@ -149,6 +150,16 @@ describe("Sonos sandbox SMAPI", () => {
     expect(playlist.body.match(/<id>theme:100<\/id>/g)).toHaveLength(2);
     expect((await soap("getMetadata", "<id>liked</id><index>0</index><count>10</count>", token)).body).toContain("<id>theme:100</id>");
   });
+  it("advertises anime as albums and user playlists as read-only playlists", async () => {
+    const { token } = await link();
+    const root = await soap("getMetadata", "<id>root</id><index>0</index><count>10</count>", token);
+    expect(root.body).toMatch(/<id>anime<\/id><itemType>albumList<\/itemType>/);
+    expect(root.body).toMatch(/<id>liked<\/id><itemType>trackList<\/itemType>/);
+    const albums = await soap("getMetadata", "<id>anime</id><index>0</index><count>10</count>", token);
+    expect(albums.body).toMatch(/<id>anime:42<\/id><itemType>album<\/itemType>/);
+    const playlists = await soap("getMetadata", "<id>playlists</id><index>0</index><count>10</count>", token);
+    expect(playlists.body).toMatch(/<mediaCollection[^>]*readOnly="true"[^>]*>.*<id>playlist:9<\/id><itemType>playlist<\/itemType>/s);
+  });
   it.each(["all", "albums", "playlists", "tracks"])("searches user-scoped %s", async (category) => {
     const { token } = await link();
     expect((await soap("search", `<id>${category}</id><term>Opening</term><index>0</index><count>10</count>`, token)).statusCode).toBe(200);
@@ -160,7 +171,7 @@ describe("Sonos sandbox SMAPI", () => {
   });
   it("returns schema metadata and authenticated media URI without URL token leakage", async () => {
     const { token } = await link(); const meta = await soap("getMediaMetadata", "<id>theme:100</id>", token);
-    expect(meta.body).toContain("<mimeType>audio/mpeg</mimeType>"); expect(meta.body).toContain("<duration>240</duration>");
+    expect(meta.body).toContain("<mimeType>audio/flac</mimeType>"); expect(meta.body).toContain("<duration>240</duration>");
     expect(meta.body).toContain("https://ongaku.takeya.ninja/v1/media/images/anime/42/poster");
     const uri = await soap("getMediaURI", "<id>theme:100</id>", token);
     expect(uri.body).toContain("https://ongaku.takeya.ninja/v1/media/songs/200/audio");
@@ -169,9 +180,24 @@ describe("Sonos sandbox SMAPI", () => {
   it("falls back to TV-size when a preferred full song is unavailable", async () => {
     api.fullSize = false; const { token } = await link();
     const meta = await soap("getMediaMetadata", "<id>theme:100</id>", token);
-    expect(meta.body).toContain("<duration>90</duration>");
+    expect(meta.body).toContain("<mimeType>application/ogg</mimeType>"); expect(meta.body).toContain("<duration>90</duration>");
     const uri = await soap("getMediaURI", "<id>theme:100</id>", token);
     expect(uri.body).toContain("https://ongaku.takeya.ninja/v1/media/audio/100");
+  });
+  it("returns track-shaped extended metadata and album-shaped collection metadata", async () => {
+    const { token } = await link();
+    const track = await soap("getExtendedMetadata", "<id>theme:100</id>", token);
+    expect(track.body).toContain("<getExtendedMetadataResult><mediaMetadata>");
+    expect(track.body).not.toContain("<getExtendedMetadataResult><mediaCollection>");
+    const album = await soap("getExtendedMetadata", "<id>anime:42</id>", token);
+    expect(album.body).toMatch(/<getExtendedMetadataResult><mediaCollection[^>]*>.*<itemType>album<\/itemType>/s);
+  });
+  it("hides a theme when its only TV-size source is an unsupported video fallback", async () => {
+    api.fullSize = false; api.tvMimeType = "video/webm";
+    const { token } = await link();
+    const album = await soap("getMetadata", "<id>anime:42</id><index>0</index><count>10</count>", token);
+    expect(album.body).toContain("<total>0</total>");
+    expect((await soap("getMediaURI", "<id>theme:100</id>", token)).body).toContain("Client.ItemNotFound");
   });
   it("isolates users and faults missing auth/unsupported methods", async () => {
     const { token } = await link(); const bob = await auth.login({ username: "bob", password: "secret", deviceName: "test" });
