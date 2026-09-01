@@ -1,0 +1,351 @@
+import { randomBytes } from "node:crypto";
+import type { FastifyInstance, FastifyReply } from "fastify";
+import type { AuthService, LoginResult } from "../auth/service.js";
+import type {
+  AnimeMusicDto,
+  ClientApiService,
+  LibraryAnimeDto,
+  LibraryThemeDto,
+  MusicTrackDto,
+  PlaylistDto,
+  PlaylistItemDto,
+  SongPrefDto,
+  ThemePrefDto,
+} from "../api/clientRoutes.js";
+
+const SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/";
+const SMAPI_NS = "http://www.sonos.com/Services/1.1";
+export const SONOS_BODY_LIMIT = 256 * 1024;
+const LINK_TTL_MS = 10 * 60_000;
+const MAX_LINK_FAILURES = 5;
+
+export interface SonosRouteOptions {
+  publicOrigin: string;
+  now?: (() => number) | undefined;
+  generateCode?: (() => string) | undefined;
+  onLogin?: ((result: LoginResult) => Promise<void>) | undefined;
+}
+
+interface LinkState {
+  code: string;
+  householdId: string;
+  linkDeviceId: string;
+  expiresAt: number;
+  failures: number;
+  token?: string;
+  userId?: string;
+  username?: string;
+  consumed: boolean;
+  revoked: boolean;
+}
+
+interface Catalog {
+  anime: LibraryAnimeDto[];
+  themes: LibraryThemeDto[];
+  playlists: PlaylistDto[];
+  themePrefs: ThemePrefDto[];
+  songPrefs: SongPrefDto[];
+  music: AnimeMusicDto[];
+}
+
+interface SonosEntry {
+  id: string;
+  title: string;
+  kind: "container" | "track";
+  album?: string;
+  artist?: string;
+  duration?: number | null;
+  mimeType?: string;
+  artwork?: string | null;
+}
+
+class SoapFault extends Error {
+  constructor(public readonly code: string, message: string, public readonly status = 500) {
+    super(message);
+  }
+}
+
+export function registerSonosRoutes(
+  app: FastifyInstance,
+  auth: AuthService,
+  client: ClientApiService,
+  options: SonosRouteOptions,
+): void {
+  const now = options.now ?? Date.now;
+  const generateCode = options.generateCode ?? (() => randomBytes(15).toString("base64url"));
+  const origin = new URL(options.publicOrigin).origin;
+  const links = new Map<string, LinkState>();
+
+  if (!app.hasContentTypeParser("text/xml")) {
+    app.addContentTypeParser(["text/xml", "application/soap+xml"], { parseAs: "string" }, (_request, body, done) => done(null, body));
+  }
+  if (!app.hasContentTypeParser("application/x-www-form-urlencoded")) {
+    app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (_request, body, done) => done(null, body));
+  }
+
+  app.post("/sonos/smapi", { bodyLimit: SONOS_BODY_LIMIT }, async (request, reply) => {
+    try {
+      const xml = typeof request.body === "string" ? request.body : "";
+      const action = parseSoap(xml, request.headers.soapaction);
+      let result: string;
+      if (action.method === "getLastUpdate") {
+        result = `<getLastUpdateResult><catalog>${Math.floor(now() / 1000)}</catalog><favorites>1</favorites><pollInterval>60</pollInterval></getLastUpdateResult>`;
+      } else if (action.method === "getAppLink") {
+        const householdId = requiredTag(xml, "householdId");
+        const linkDeviceId = requiredTag(xml, "linkDeviceId");
+        let code = generateCode().replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32);
+        if (!code) code = randomBytes(12).toString("base64url");
+        if (links.has(code)) throw new SoapFault("Server.InternalError", "Unable to create a unique link code.");
+        links.set(code, { code, householdId, linkDeviceId, expiresAt: now() + LINK_TTL_MS,
+          failures: 0, consumed: false, revoked: false });
+        const regUrl = `${origin}/sonos/link?linkCode=${encodeURIComponent(code)}`;
+        result = `<getAppLinkResult><authorizeAccount><deviceLink><regUrl>${escapeXml(regUrl)}</regUrl><linkCode>${escapeXml(code)}</linkCode><showLinkCode>true</showLinkCode></deviceLink></authorizeAccount></getAppLinkResult>`;
+      } else if (action.method === "getDeviceAuthToken") {
+        const state = validLink(links, requiredTag(xml, "linkCode"), now());
+        if (state.householdId !== requiredTag(xml, "householdId") || state.linkDeviceId !== requiredTag(xml, "linkDeviceId")) {
+          throw new SoapFault("Client.AuthTokenExpired", "This link code belongs to a different Sonos device.");
+        }
+        if (!state.token || !state.userId || !state.username) {
+          throw new SoapFault("Client.NOT_LINKED_RETRY", "Account linking is not complete yet.");
+        }
+        if (state.consumed) throw new SoapFault("Client.AuthTokenExpired", "This link result has already been consumed.");
+        state.consumed = true;
+        result = `<getDeviceAuthTokenResult><authToken>${escapeXml(state.token)}</authToken><privateKey></privateKey><userInfo><nickname>${escapeXml(state.username)}</nickname><userIdHashCode>${escapeXml(state.userId)}</userIdHashCode></userInfo></getDeviceAuthTokenResult>`;
+      } else {
+        if (!["getMetadata", "getMediaMetadata", "getExtendedMetadata", "getMediaURI", "search"].includes(action.method)) {
+          throw new SoapFault("Client.UnsupportedRequest", `Unsupported SMAPI method: ${action.method}`);
+        }
+        const token = extractAuthToken(xml);
+        if (!token) throw new SoapFault("Client.AuthTokenExpired", "Authentication is required.");
+        const context = await auth.authenticate(token);
+        if (!context) throw new SoapFault("Client.AuthTokenExpired", "The device session is no longer valid.");
+        const userId = context.user.kitsuUserId;
+        if (action.method === "getMetadata") {
+          const catalog = await loadCatalog(client, userId);
+          const id = tag(xml, "id") ?? "root";
+          const entries = browse(catalog, id, origin);
+          result = resultPage("getMetadata", entries, pageIndex(xml), pageCount(xml));
+        } else if (action.method === "search") {
+          const catalog = await loadCatalog(client, userId);
+          const entries = search(catalog, tag(xml, "id") ?? "all", tag(xml, "term") ?? "", origin);
+          result = resultPage("search", entries, pageIndex(xml), pageCount(xml));
+        } else if (["getMediaMetadata", "getExtendedMetadata", "getMediaURI"].includes(action.method)) {
+          const catalog = await loadCatalog(client, userId);
+          const id = requiredTag(xml, "id");
+          const resolved = resolveTrack(catalog, id, origin);
+          if (!resolved) throw new SoapFault("Client.ItemNotFound", "The requested track is not available.");
+          if (action.method === "getMediaMetadata") {
+            result = `<getMediaMetadataResult>${entryXml(resolved.entry)}</getMediaMetadataResult>`;
+          } else if (action.method === "getExtendedMetadata") {
+            result = `<getExtendedMetadataResult><mediaCollection><id>${escapeXml(resolved.animeId)}</id><itemType>album</itemType><title>${escapeXml(resolved.entry.album ?? "Anime Ongaku")}</title></mediaCollection></getExtendedMetadataResult>`;
+          } else {
+            result = `<getMediaURIResult>${escapeXml(resolved.uri)}<httpHeaders><httpHeader>Authorization: Bearer ${escapeXml(token)}</httpHeader></httpHeaders></getMediaURIResult>`;
+          }
+        } else {
+          throw new SoapFault("Client.UnsupportedRequest", `Unsupported SMAPI method: ${action.method}`);
+        }
+      }
+      return sendSoap(reply, action.method, result);
+    } catch (error) {
+      const fault = error instanceof SoapFault ? error : new SoapFault("Client.BadRequest", "Malformed SOAP request.");
+      return sendFault(reply, fault.status, fault.code, fault.message);
+    }
+  });
+
+  app.get("/sonos/link", async (request, reply) => {
+    const code = queryCode(request.url);
+    let state: LinkState;
+    try { state = validLink(links, code, now()); }
+    catch { return reply.code(410).type("text/html; charset=utf-8").send(expiredPage()); }
+    return reply.type("text/html; charset=utf-8").send(linkPage(state.code));
+  });
+
+  app.post("/sonos/link", async (request, reply) => {
+    const input = parseLinkBody(request.body);
+    let state: LinkState;
+    try { state = validLink(links, input.linkCode, now()); }
+    catch { return reply.code(410).type("text/html; charset=utf-8").send(expiredPage()); }
+    if (state.token) return reply.code(409).type("text/html; charset=utf-8").send(messagePage("Already linked", "Return to the Sonos app to finish setup."));
+    try {
+      const result = await auth.login({ username: input.username, password: input.password, deviceName: "Sonos" });
+      try {
+        await options.onLogin?.(result);
+      } catch (error) {
+        const context = await auth.authenticate(result.token);
+        if (context) await auth.logout(context);
+        throw error;
+      }
+      state.token = result.token; state.userId = result.user.kitsuUserId; state.username = result.user.username;
+      if (wantsJson(request.headers.accept)) return reply.send({ linked: true });
+      return reply.type("text/html; charset=utf-8").send(messagePage("Connected", "Anime Ongaku is now linked. Return to the Sonos app."));
+    } catch {
+      state.failures += 1;
+      if (state.failures >= MAX_LINK_FAILURES) state.revoked = true;
+      const status = state.revoked ? 410 : 401;
+      if (wantsJson(request.headers.accept)) return reply.code(status).send({ linked: false, error: state.revoked ? "LINK_REVOKED" : "LOGIN_FAILED" });
+      return reply.code(status).type("text/html; charset=utf-8").send(messagePage("Could not connect", state.revoked
+        ? "This link code is no longer valid. Start again in the Sonos app."
+        : "Check your Kitsu username and password, then try again."));
+    }
+  });
+}
+
+function validLink(links: Map<string, LinkState>, code: string, now: number): LinkState {
+  const state = links.get(code);
+  if (!state || state.revoked || state.expiresAt <= now) throw new SoapFault("Client.AuthTokenExpired", "Link code expired.");
+  return state;
+}
+
+function parseSoap(xml: string, actionHeader: string | string[] | undefined): { method: string } {
+  if (!xml || /<!DOCTYPE|<!ENTITY/i.test(xml)) throw new SoapFault("Client.BadRequest", "DTD and entities are not allowed.");
+  if (!/<(?:\w+:)?Envelope\b/i.test(xml) || !/<(?:\w+:)?Body\b/i.test(xml) || !/<\/(?:\w+:)?Envelope\s*>/i.test(xml)) {
+    throw new SoapFault("Client.BadRequest", "Malformed SOAP envelope.");
+  }
+  const body = /<(?:\w+:)?Body\b[^>]*>\s*<(?:(?:\w+):)?([A-Za-z][\w.-]*)\b/i.exec(xml);
+  const method = body?.[1];
+  if (!method || !new RegExp(`<\\/(?:\\w+:)?${escapeRegex(method)}\\s*>`, "i").test(xml)) throw new SoapFault("Client.BadRequest", "Malformed SOAP body.");
+  const raw = Array.isArray(actionHeader) ? actionHeader[0] : actionHeader;
+  const action = raw?.replace(/^\s*["']|["']\s*$/g, "").split("#").pop();
+  if (action && action !== method) throw new SoapFault("Client.BadRequest", "SOAPAction does not match the request body.");
+  return { method };
+}
+
+function tag(xml: string, name: string): string | undefined {
+  const match = new RegExp(`<(?:\\w+:)?${escapeRegex(name)}\\b[^>]*>([\\s\\S]*?)<\\/(?:\\w+:)?${escapeRegex(name)}\\s*>`, "i").exec(xml);
+  return match?.[1] === undefined ? undefined : decodeXml(match[1].replace(/<[^>]+>/g, "").trim());
+}
+function requiredTag(xml: string, name: string): string {
+  const value = tag(xml, name); if (!value) throw new SoapFault("Client.BadRequest", `${name} is required.`); return value;
+}
+function extractAuthToken(xml: string): string | undefined {
+  const credentialsBlock = /<(?:\w+:)?credentials\b[^>]*>([\s\S]*?)<\/(?:\w+:)?credentials\s*>/i.exec(xml)?.[1];
+  if (!credentialsBlock) return undefined;
+  return tag(credentialsBlock, "token") ?? tag(credentialsBlock, "authToken");
+}
+function pageIndex(xml: string): number { return boundedInt(tag(xml, "index"), 0, 100_000, 0); }
+function pageCount(xml: string): number { return boundedInt(tag(xml, "count"), 1, 100, 100); }
+function boundedInt(value: string | undefined, min: number, max: number, fallback: number): number {
+  const n = Number(value); return Number.isInteger(n) && n >= min ? Math.min(n, max) : fallback;
+}
+
+async function loadCatalog(client: ClientApiService, userId: string): Promise<Catalog> {
+  const [library, playlists, themePrefs, songPrefs, music] = await Promise.all([
+    client.getLibrary(userId, null), client.listPlaylists(userId), client.getThemePrefs(userId),
+    client.getSongPrefs(userId), client.getMusicCatalog(userId),
+  ]);
+  return { anime: library.anime.filter((x) => !x.deleted).sort((a, b) => titleAnime(a).localeCompare(titleAnime(b)) || a.kitsuId.localeCompare(b.kitsuId)),
+    themes: library.themes.filter((x) => !x.deleted && x.audioState === "READY").sort((a, b) => a.id - b.id),
+    playlists: playlists.filter((x) => !x.deleted).sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id),
+    themePrefs: themePrefs.filter((x) => !x.deleted), songPrefs: songPrefs.filter((x) => !x.deleted), music };
+}
+
+function browse(c: Catalog, id: string, origin: string): SonosEntry[] {
+  if (id === "root") return [container("anime", "Anime"), container("playlists", "Playlists"), container("liked", "Liked Songs")];
+  if (id === "anime") return c.anime.map((a) => ({ ...container(`anime:${a.kitsuId}`, titleAnime(a)), artwork: absolute(origin, a.posterUrl ?? a.coverUrl) }));
+  if (id === "playlists") return c.playlists.map((p) => container(`playlist:${p.id}`, p.name));
+  if (id === "liked") {
+    const themeIds = new Set(c.themePrefs.filter((p) => p.liked).map((p) => p.themeId));
+    const songIds = new Set(c.songPrefs.filter((p) => p.liked).map((p) => p.songId));
+    return [...c.themes.filter((t) => themeIds.has(t.id)).map((t) => themeEntry(c, t, origin)), ...songEntries(c, origin).filter((s) => songIds.has(Number(s.id.slice(5))))];
+  }
+  if (id.startsWith("anime:")) {
+    const kitsuId = id.slice(6); return c.themes.filter((t) => t.kitsuAnimeIds.includes(kitsuId)).map((t) => themeEntry(c, t, origin));
+  }
+  if (id.startsWith("playlist:")) {
+    const playlist = c.playlists.find((p) => String(p.id) === id.slice(9));
+    if (!playlist) throw new SoapFault("Client.ItemNotFound", "Playlist not found.");
+    return playlist.items.map((item) => playlistEntry(c, playlist, item, origin)).filter((x): x is SonosEntry => Boolean(x));
+  }
+  throw new SoapFault("Client.ItemNotFound", "Container not found.");
+}
+
+function search(c: Catalog, category: string, term: string, origin: string): SonosEntry[] {
+  const q = term.trim().toLocaleLowerCase(); if (!q) return [];
+  if (!["all", "albums", "playlists", "tracks"].includes(category)) throw new SoapFault("Client.BadRequest", "Unknown search category.");
+  const albums = c.anime.map((a) => ({ ...container(`anime:${a.kitsuId}`, titleAnime(a)), artwork: absolute(origin, a.posterUrl ?? a.coverUrl) }))
+    .filter((x) => x.title.toLocaleLowerCase().includes(q));
+  const playlists = c.playlists.map((p) => container(`playlist:${p.id}`, p.name)).filter((x) => x.title.toLocaleLowerCase().includes(q));
+  const tracks = [...c.themes.map((t) => themeEntry(c, t, origin)), ...songEntries(c, origin)]
+    .filter((x) => `${x.title} ${x.album ?? ""} ${x.artist ?? ""}`.toLocaleLowerCase().includes(q));
+  if (category === "albums") return albums; if (category === "playlists") return playlists; if (category === "tracks") return tracks;
+  return [...albums, ...playlists, ...tracks];
+}
+
+function resolveTrack(c: Catalog, id: string, origin: string): { entry: SonosEntry; uri: string; animeId: string } | null {
+  if (id.startsWith("theme:")) {
+    const theme = c.themes.find((t) => String(t.id) === id.slice(6)); if (!theme) return null;
+    const mode = preferredThemeMode(c, theme.id, undefined);
+    return { entry: themeEntry(c, theme, origin, mode), uri: absolute(origin, mode === "FULL_SIZE" ? theme.mediaModes.fullSize!.url : theme.mediaModes.tvSize.url)!, animeId: `anime:${theme.kitsuAnimeIds[0] ?? "unknown"}` };
+  }
+  if (id.startsWith("song:")) {
+    const found = findSong(c, Number(id.slice(5))); if (!found) return null;
+    return { entry: songEntry(found.track, found.anime, found.releaseArtwork, origin), uri: absolute(origin, found.track.audioUrl)!, animeId: `anime:${found.anime.kitsuId}` };
+  }
+  return null;
+}
+
+function playlistEntry(c: Catalog, playlist: PlaylistDto, item: PlaylistItemDto, origin: string): SonosEntry | null {
+  if (item.itemType === "SONG") { const found = findSong(c, item.itemId); return found ? songEntry(found.track, found.anime, found.releaseArtwork, origin) : null; }
+  const theme = c.themes.find((t) => t.id === item.itemId); if (!theme) return null;
+  let desired = item.modeOverride;
+  if (!desired) desired = playlist.overrideUserPreference ? playlist.defaultMode : preferredThemeMode(c, theme.id, playlist.defaultMode);
+  if (desired === "FULL_SIZE" && !theme.mediaModes.fullSize) desired = "TV_SIZE";
+  return themeEntry(c, theme, origin, desired);
+}
+function preferredThemeMode(c: Catalog, themeId: number, fallback: "TV_SIZE" | "FULL_SIZE" | undefined): "TV_SIZE" | "FULL_SIZE" {
+  return c.themePrefs.find((p) => p.themeId === themeId)?.preferredMode ?? fallback ?? "TV_SIZE";
+}
+function themeEntry(c: Catalog, theme: LibraryThemeDto, origin: string, desired?: "TV_SIZE" | "FULL_SIZE"): SonosEntry {
+  const anime = c.anime.find((a) => theme.kitsuAnimeIds.includes(a.kitsuId)); const useFull = desired === "FULL_SIZE" && theme.mediaModes.fullSize;
+  return { id: `theme:${theme.id}`, title: theme.title, kind: "track", album: anime ? titleAnime(anime) : "Anime Ongaku",
+    artist: theme.artists.map((a) => a.name).join(", ") || "Anime Ongaku",
+    duration: useFull ? theme.mediaModes.fullSize!.durationSeconds : theme.mediaModes.tvSize.durationSeconds,
+    mimeType: "audio/mpeg", artwork: absolute(origin, anime?.posterUrl ?? anime?.coverUrl) };
+}
+function songEntries(c: Catalog, origin: string): SonosEntry[] {
+  return c.music.flatMap((m) => m.releases.flatMap((r) => r.tracks.map((t) => songEntry(t, m.anime, r.artworkUrl, origin))));
+}
+function songEntry(track: MusicTrackDto, anime: AnimeMusicDto["anime"], artwork: string | null, origin: string): SonosEntry {
+  return { id: `song:${track.id}`, title: track.titleEnglish ?? track.title, kind: "track", album: anime.titleEn ?? anime.title ?? "Anime Ongaku",
+    artist: track.artistCredit || "Anime Ongaku", duration: track.durationSeconds, mimeType: "audio/mpeg", artwork: absolute(origin, artwork ?? anime.posterUrl) };
+}
+function findSong(c: Catalog, id: number) {
+  for (const m of c.music) for (const r of m.releases) { const track = r.tracks.find((t) => t.id === id); if (track) return { track, anime: m.anime, releaseArtwork: r.artworkUrl }; }
+  return null;
+}
+function titleAnime(anime: LibraryAnimeDto): string { return anime.titleEn ?? anime.title ?? anime.titleRomaji ?? anime.titleJa ?? `Anime ${anime.kitsuId}`; }
+function container(id: string, title: string): SonosEntry { return { id, title, kind: "container" }; }
+
+function resultPage(method: "getMetadata" | "search", all: SonosEntry[], index: number, count: number): string {
+  const page = all.slice(index, index + count);
+  return `<${method}Result><index>${index}</index><count>${page.length}</count><total>${all.length}</total>${page.map(entryXml).join("")}</${method}Result>`;
+}
+function entryXml(entry: SonosEntry): string {
+  if (entry.kind === "container") return `<mediaCollection><id>${escapeXml(entry.id)}</id><itemType>albumList</itemType><title>${escapeXml(entry.title)}</title>${entry.artwork ? `<albumArtURI>${escapeXml(entry.artwork)}</albumArtURI>` : ""}</mediaCollection>`;
+  return `<mediaMetadata><id>${escapeXml(entry.id)}</id><itemType>track</itemType><title>${escapeXml(entry.title)}</title><mimeType>${escapeXml(entry.mimeType ?? "audio/mpeg")}</mimeType><trackMetadata><artist>${escapeXml(entry.artist ?? "Anime Ongaku")}</artist><album>${escapeXml(entry.album ?? "Anime Ongaku")}</album>${entry.artwork ? `<albumArtURI>${escapeXml(entry.artwork)}</albumArtURI>` : ""}<duration>${Math.max(0, Math.round(entry.duration ?? 0))}</duration></trackMetadata></mediaMetadata>`;
+}
+
+function sendSoap(reply: FastifyReply, method: string, result: string) {
+  return reply.type("text/xml; charset=utf-8").send(`<?xml version="1.0" encoding="UTF-8"?><s:Envelope xmlns:s="${SOAP_NS}"><s:Body><${method}Response xmlns="${SMAPI_NS}">${result}</${method}Response></s:Body></s:Envelope>`);
+}
+export function sendFault(reply: FastifyReply, status: number, code: string, message: string) {
+  return reply.code(status).type("text/xml; charset=utf-8").send(`<?xml version="1.0" encoding="UTF-8"?><s:Envelope xmlns:s="${SOAP_NS}"><s:Body><s:Fault><faultcode>${escapeXml(code)}</faultcode><faultstring>${escapeXml(message)}</faultstring></s:Fault></s:Body></s:Envelope>`);
+}
+function absolute(origin: string, value: string | null | undefined): string | null { return value ? new URL(value, origin).toString() : null; }
+function escapeXml(value: unknown): string { return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;"); }
+function decodeXml(value: string): string { return value.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&"); }
+function escapeRegex(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+function queryCode(url: string): string { try { return new URL(url, "http://local").searchParams.get("linkCode") ?? ""; } catch { return ""; } }
+function parseLinkBody(body: unknown): { linkCode: string; username: string; password: string } {
+  if (typeof body === "string") { const p = new URLSearchParams(body); return { linkCode: p.get("linkCode") ?? "", username: p.get("username") ?? "", password: p.get("password") ?? "" }; }
+  const p = body && typeof body === "object" ? body as Record<string, unknown> : {};
+  return { linkCode: String(p.linkCode ?? ""), username: String(p.username ?? ""), password: String(p.password ?? "") };
+}
+function wantsJson(accept: string | string[] | undefined): boolean { return (Array.isArray(accept) ? accept[0] : accept)?.includes("application/json") ?? false; }
+
+function pageShell(title: string, content: string): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeXml(title)} · Anime Ongaku</title><style>body{margin:0;background:#0b1020;color:#f8fafc;font:16px system-ui;display:grid;min-height:100vh;place-items:center}.card{width:min(420px,calc(100% - 40px));background:#151c31;border:1px solid #334155;border-radius:24px;padding:28px;box-shadow:0 24px 80px #0008}h1{margin:.2rem 0;color:#f472b6}p{color:#cbd5e1;line-height:1.55}label{display:block;margin:16px 0 6px}input{box-sizing:border-box;width:100%;padding:12px;border-radius:10px;border:1px solid #475569;background:#0f172a;color:white}button{margin-top:20px;width:100%;padding:13px;border:0;border-radius:10px;background:#ec4899;color:white;font-weight:700}</style></head><body><main class="card">${content}</main></body></html>`;
+}
+function linkPage(code: string): string { return pageShell("Connect Sonos", `<p>ANIME ONGAKU × SONOS</p><h1>Connect Anime Ongaku</h1><p>Sign in with your Kitsu account to play your personal anime library in Sonos.</p><form method="post" action="/sonos/link"><input type="hidden" name="linkCode" value="${escapeXml(code)}"><label for="username">Kitsu username</label><input id="username" name="username" autocomplete="username" required><label for="password">Kitsu password</label><input id="password" type="password" name="password" autocomplete="current-password" required><button type="submit">Connect to Sonos</button></form>`); }
+function expiredPage(): string { return messagePage("Link expired", "Start account linking again from the Sonos app."); }
+function messagePage(title: string, message: string): string { return pageShell(title, `<p>ANIME ONGAKU × SONOS</p><h1>${escapeXml(title)}</h1><p>${escapeXml(message)}</p>`); }

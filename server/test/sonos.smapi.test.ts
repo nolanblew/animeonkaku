@@ -60,7 +60,7 @@ describe("Sonos sandbox SMAPI", () => {
   const onLogin = vi.fn(async () => {});
   beforeEach(() => {
     now = 1_800_000_000_000; code = 1; api = new SonosApi();
-    auth = new AuthService(new FakeAuthRepo(), new StubKitsuAuthClient(), { now: () => new Date(now) });
+    auth = new AuthService(new FakeAuthRepo(), new StubKitsuAuthClient());
     app = buildApp({ authService: auth, health: { pingDb: async () => {}, mediaRoot: process.cwd() },
       clientApi: api as unknown as ClientApiService, onLogin,
       sonos: { publicOrigin: "https://ongaku.takeya.ninja", now: () => now,

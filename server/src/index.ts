@@ -326,6 +326,9 @@ const app = buildApp({
   },
   jobs: jobQueue,
   clientApi,
+  ...(config.SONOS_SMAPI_ENABLED && config.WEB_PUBLIC_ORIGIN
+    ? { sonos: { publicOrigin: config.WEB_PUBLIC_ORIGIN } }
+    : {}),
   legacyLibraryImport: clientApi,
   musicRequests: musicRequestService,
   musicOperator: musicOperatorService,
