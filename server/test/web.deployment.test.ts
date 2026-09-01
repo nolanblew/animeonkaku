@@ -21,6 +21,7 @@ describe("web production packaging", () => {
     expect(compose).toContain("dockerfile: server/Dockerfile");
     expect(compose).toContain("WEB_DIST_PATH: /app/web");
     expect(compose).toContain("WEB_PUBLIC_ORIGIN:");
+    expect(compose).toContain("SONOS_PUBLIC_ORIGIN:");
   });
 
   it("tests both server and web projects in pull requests", async () => {
