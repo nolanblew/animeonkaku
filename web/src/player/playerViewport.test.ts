@@ -14,4 +14,13 @@ describe('expanded player viewport contract', () => {
     expect(playerCss).toMatch(/@media \(max-width:\s*1180px\)[\s\S]*player-now-playing--queue-open[^}]*grid-template-rows:\s*auto minmax\(0,1fr\) minmax\(14rem,40vh\)/)
     expect(playerCss).toMatch(/@media \(max-width:\s*1180px\)[\s\S]*player-queue[^}]*grid-row:\s*3/)
   })
+
+  it('uses a scrollable single-column player composition on phone screens', () => {
+    expect(playerCss).toMatch(/@media \(max-width:\s*700px\)[\s\S]*player-now-playing[^}]*overflow-y:\s*auto/)
+    expect(playerCss).toMatch(/@media \(max-width:\s*700px\)[\s\S]*player-now-playing__body[^}]*grid-template-columns:\s*minmax\(0,1fr\)/)
+    expect(playerCss).toMatch(/@media \(max-width:\s*700px\)[\s\S]*player-now-playing__artwork-wrap[^}]*aspect-ratio:\s*1/)
+    expect(playerCss).toMatch(/@media \(max-width:\s*700px\)[\s\S]*player-now-playing__controls[^}]*flex-wrap:\s*nowrap/)
+    expect(playerCss).toMatch(/@media \(max-width:\s*700px\)[\s\S]*player-now-playing--queue-open[^}]*grid-template-rows:\s*auto max-content minmax\(24rem,70dvh\)/)
+    expect(shellCss).toMatch(/@media \(max-width:\s*430px\)[\s\S]*topbar[^}]*padding-inline:\s*\.65rem/)
+  })
 })

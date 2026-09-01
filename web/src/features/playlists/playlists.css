@@ -38,6 +38,7 @@
 .playlist-card:hover .playlist-card__actions-trigger, .playlist-card:focus-within .playlist-card__actions-trigger { opacity: 1; }
 .playlist-card__actions-trigger:hover { background: rgba(255,255,255,.1); color: var(--text); }
 .playlist-card__actions-menu { position: absolute; right: .25rem; bottom: 2.3rem; z-index: 65; display: grid; width: 12.5rem; overflow: hidden; border: 1px solid var(--line-strong); border-radius: .65rem; background: rgba(21,25,34,.99); box-shadow: 0 16px 42px rgba(0,0,0,.42); }
+.playlist-card__actions-menu.viewport-menu { position: fixed; right: auto; bottom: auto; z-index: 90; max-width: calc(100vw - 1.5rem); overflow-x: hidden; overflow-y: auto; }
 .playlist-card__actions-menu button, .playlist-card__actions-menu a { width: 100%; padding: .72rem .85rem; border: 0; border-bottom: 1px solid rgba(255,255,255,.07); background: transparent; color: var(--text); font-size: .78rem; text-align: left; cursor: pointer; }
 .playlist-card__actions-menu button:hover, .playlist-card__actions-menu button:focus-visible, .playlist-card__actions-menu a:hover, .playlist-card__actions-menu a:focus-visible { background: rgba(71,217,232,.09); outline: 0; }
 .playlist-card__actions-menu .playlist-card__actions-danger { color: #ff9aaa; }

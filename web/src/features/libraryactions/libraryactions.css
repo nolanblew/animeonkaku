@@ -46,6 +46,7 @@
 .collection-actions__menu { top: calc(100% + .4rem); bottom: auto; }
 .track-actions--menu-only { justify-content: flex-end; }
 .track-actions__menu { position: absolute; right: 0; bottom: calc(100% + .4rem); z-index: 65; display: grid; width: 12.5rem; overflow: hidden; border: 1px solid var(--line-strong); border-radius: .65rem; background: rgba(21,25,34,.99); box-shadow: 0 16px 42px rgba(0,0,0,.42); }
+.track-actions__menu.viewport-menu { position: fixed; right: auto; bottom: auto; z-index: 90; max-width: calc(100vw - 1.5rem); overflow-x: hidden; overflow-y: auto; }
 .playlist-track-row .track-actions__menu { top: calc(100% + .2rem); bottom: auto; }
 .track-actions__menu button { width: 100%; padding: .72rem .85rem; border: 0; border-bottom: 1px solid rgba(255,255,255,.07); background: transparent; color: var(--text); font-size: .78rem; text-align: left; cursor: pointer; }
 .track-actions__menu button:hover,.track-actions__menu button:focus-visible { background: rgba(71,217,232,.09); outline: 0; }

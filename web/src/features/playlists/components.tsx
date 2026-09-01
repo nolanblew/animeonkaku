@@ -10,6 +10,7 @@ import { PlaylistArtwork, playlistArtworkUrls } from './PlaylistArtwork'
 import { buildPlaylistSongIndex, resolvePlaylistDisplayItems } from './playlistDisplay'
 import { CollectionActionMenu, TrackActionMenu } from '../libraryactions'
 import { useAccessibleFocusScope, useRovingMenu } from '../../components/focusScope'
+import { ViewportMenu } from '../../components/ViewportMenu'
 import { useAnimeTitlePreference } from '../../lib/animeTitlePreference'
 import './playlists.css'
 
@@ -92,7 +93,10 @@ function PlaylistListCard({ playlist, library, onSelect, onPlay, onEdit, onReque
 
   useEffect(() => {
     if (!open) return undefined
-    const close = (event: PointerEvent) => { if (!rootRef.current?.contains(event.target as Node)) setOpen(false) }
+    const close = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false)
+    }
     window.addEventListener('pointerdown', close)
     return () => window.removeEventListener('pointerdown', close)
   }, [open])
@@ -110,12 +114,12 @@ function PlaylistListCard({ playlist, library, onSelect, onPlay, onEdit, onReque
     </Link>
     {(onPlay || onEdit || onRequestDelete) && <>
       <button ref={triggerRef} type="button" className="playlist-card__actions-trigger" aria-label={`More actions for ${playlist.name}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}><MoreHorizontal size={20} /></button>
-      {open && <div ref={menuRef} className="playlist-card__actions-menu" role="menu" aria-label={`${playlist.name} actions`}>
+      <ViewportMenu open={open} triggerRef={triggerRef} menuRef={menuRef} className="playlist-card__actions-menu" label={`${playlist.name} actions`}>
         <Link role="menuitem" to={playlistPath} onClick={() => setOpen(false)}>Open playlist</Link>
         {onPlay && <button type="button" role="menuitem" onClick={() => run(onPlay)}>Play playlist</button>}
         {onEdit && <button type="button" role="menuitem" onClick={() => run(onEdit)}>Edit playlist</button>}
         {onRequestDelete && <button type="button" role="menuitem" className="playlist-card__actions-danger" onClick={() => run(onRequestDelete)}>Delete playlist</button>}
-      </div>}
+      </ViewportMenu>
     </>}
   </article>
 }

@@ -112,6 +112,9 @@ describe('playlist components', () => {
     renderWithQuery(<PlaylistManager playlists={[playlist()]} state="ready" onCreate={vi.fn()} onUpdate={onUpdate} onDelete={onDelete} onPlay={onPlay} />)
 
     await userEvent.click(screen.getByRole('button', { name: 'More actions for Night drive' }))
+    const menu = screen.getByRole('menu', { name: 'Night drive actions' })
+    expect(menu.parentElement).toBe(document.body)
+    expect(menu).toHaveClass('viewport-menu')
     await userEvent.click(screen.getByRole('menuitem', { name: 'Play playlist' }))
     expect(onPlay).toHaveBeenCalledWith(expect.objectContaining({ id: 2 }), false)
 

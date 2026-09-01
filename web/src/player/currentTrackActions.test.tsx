@@ -93,6 +93,16 @@ describe('CurrentTrackActions preference subscription', () => {
     expect(screen.getByRole('menuitem', { name: 'Replace queue' })).toBeInTheDocument()
   })
 
+  it('renders the overflow menu at the viewport layer so player clipping cannot hide it', () => {
+    render(<QueryClientProvider client={queryClient}><CurrentTrackActions /></QueryClientProvider>)
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for Opening Theme' }))
+
+    const menu = screen.getByRole('menu', { name: 'Opening Theme actions' })
+    expect(menu.parentElement).toBe(document.body)
+    expect(menu).toHaveClass('viewport-menu')
+  })
+
   it('executes video, discovery, and preferred-mode callbacks through the router', async () => {
     const request = vi.spyOn(apiClient, 'request').mockImplementation(async () => ({}) as never)
     function LocationProbe() {
