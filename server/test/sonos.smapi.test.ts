@@ -91,6 +91,14 @@ describe("Sonos sandbox SMAPI", () => {
     expect(r.statusCode).toBe(200); expect(r.headers["content-type"]).toContain("text/xml");
     expect(r.body).toContain("<getLastUpdateResponse"); expect(r.body).toContain("<catalog>1800000000</catalog>");
   });
+  it("accepts an empty self-closing SMAPI method element", async () => {
+    const payload = `<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><getLastUpdate xmlns="${NS}"/></s:Body></s:Envelope>`;
+    const r = await app.inject({ method: "POST", url: "/sonos/smapi", headers: {
+      "content-type": "text/xml; charset=utf-8", soapaction: `"${NS}#getLastUpdate"`,
+    }, payload });
+    expect(r.statusCode).toBe(200);
+    expect(r.body).toContain("<getLastUpdateResponse");
+  });
   it("keeps update tokens stable until the authenticated user's catalog changes", async () => {
     const guest = await soap("getLastUpdate"); now += 60_000;
     expect((await soap("getLastUpdate")).body).toBe(guest.body);
