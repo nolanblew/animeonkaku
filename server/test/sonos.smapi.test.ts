@@ -15,6 +15,7 @@ class SonosApi {
   users: string[] = [];
   fullSize = true;
   tvMimeType = "application/ogg";
+  preferenceRevision = 1;
   async getLibrary(userId: string, _since: number | null): Promise<LibraryResponse> {
     this.users.push(userId);
     return { serverTime: 1_800_000_000_000, anime: [{
@@ -43,7 +44,7 @@ class SonosApi {
   }
   async getThemePrefs(userId: string) { this.users.push(userId); return [{ themeId: 100, liked: true, disliked: false,
     dislikedTvSize: false, dislikedFullSize: false, preferredMode: "FULL_SIZE" as const, playCount: 0,
-    lastPlayedAt: null, updatedAt: 1, deleted: false }]; }
+    lastPlayedAt: null, updatedAt: this.preferenceRevision, deleted: false }]; }
   async getSongPrefs(userId: string) { this.users.push(userId); return []; }
   async getMusicCatalog(userId: string) {
     this.users.push(userId);
@@ -89,6 +90,18 @@ describe("Sonos sandbox SMAPI", () => {
     const r = await soap("getLastUpdate");
     expect(r.statusCode).toBe(200); expect(r.headers["content-type"]).toContain("text/xml");
     expect(r.body).toContain("<getLastUpdateResponse"); expect(r.body).toContain("<catalog>1800000000</catalog>");
+  });
+  it("keeps update tokens stable until the authenticated user's catalog changes", async () => {
+    const guest = await soap("getLastUpdate"); now += 60_000;
+    expect((await soap("getLastUpdate")).body).toBe(guest.body);
+    const { token } = await link();
+    const before = await soap("getLastUpdate", "", token);
+    const catalog = /<catalog>([^<]+)<\/catalog>/.exec(before.body)?.[1];
+    const favorites = /<favorites>([^<]+)<\/favorites>/.exec(before.body)?.[1];
+    api.preferenceRevision += 1;
+    const after = await soap("getLastUpdate", "", token);
+    expect(/<catalog>([^<]+)<\/catalog>/.exec(after.body)?.[1]).toBe(catalog);
+    expect(/<favorites>([^<]+)<\/favorites>/.exec(after.body)?.[1]).not.toBe(favorites);
   });
   it.each([["malformed", "<not-closed"], ["mismatched", env("getLastUpdate", "<x></y>")], ["DTD", `<!DOCTYPE x [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>${env("getLastUpdate", "&xxe;")}`]])
   ("SOAP-faults %s XML", async (_name, payload) => {
