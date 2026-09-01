@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { AuthService, LoginResult } from "../auth/service.js";
 import type {
@@ -92,14 +92,17 @@ export function registerSonosRoutes(
         result = `<getLastUpdateResult><catalog>${Math.floor(now() / 1000)}</catalog><favorites>1</favorites><pollInterval>60</pollInterval></getLastUpdateResult>`;
       } else if (action.method === "getAppLink") {
         const householdId = requiredTag(xml, "householdId");
-        const linkDeviceId = requiredTag(xml, "linkDeviceId");
+        // Current Sonos requests do not provide linkDeviceId. The service
+        // returns this hidden anti-phishing value and Sonos echoes it while
+        // polling getDeviceAuthToken.
+        const linkDeviceId = tag(xml, "linkDeviceId") ?? randomBytes(18).toString("base64url");
         let code = generateCode().replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32);
         if (!code) code = randomBytes(12).toString("base64url");
         if (links.has(code)) throw new SoapFault("Server.InternalError", "Unable to create a unique link code.");
         links.set(code, { code, householdId, linkDeviceId, expiresAt: now() + LINK_TTL_MS,
           failures: 0, consumed: false, revoked: false });
         const regUrl = `${origin}/sonos/link?linkCode=${encodeURIComponent(code)}`;
-        result = `<getAppLinkResult><authorizeAccount><deviceLink><regUrl>${escapeXml(regUrl)}</regUrl><linkCode>${escapeXml(code)}</linkCode><showLinkCode>true</showLinkCode></deviceLink></authorizeAccount></getAppLinkResult>`;
+        result = `<getAppLinkResult><authorizeAccount><deviceLink><regUrl>${escapeXml(regUrl)}</regUrl><linkCode>${escapeXml(code)}</linkCode><showLinkCode>true</showLinkCode><linkDeviceId>${escapeXml(linkDeviceId)}</linkDeviceId></deviceLink></authorizeAccount></getAppLinkResult>`;
       } else if (action.method === "getDeviceAuthToken") {
         const state = validLink(links, requiredTag(xml, "linkCode"), now());
         if (state.householdId !== requiredTag(xml, "householdId") || state.linkDeviceId !== requiredTag(xml, "linkDeviceId")) {
@@ -110,7 +113,8 @@ export function registerSonosRoutes(
         }
         if (state.consumed) throw new SoapFault("Client.AuthTokenExpired", "This link result has already been consumed.");
         state.consumed = true;
-        result = `<getDeviceAuthTokenResult><authToken>${escapeXml(state.token)}</authToken><privateKey></privateKey><userInfo><nickname>${escapeXml(state.username)}</nickname><userIdHashCode>${escapeXml(state.userId)}</userIdHashCode></userInfo></getDeviceAuthTokenResult>`;
+        const userHash = createHash("sha256").update(state.userId, "utf8").digest("base64url");
+        result = `<getDeviceAuthTokenResult><authToken>${escapeXml(state.token)}</authToken><userInfo><nickname>${escapeXml(state.username.slice(0, 32))}</nickname><userIdHashCode>${escapeXml(userHash)}</userIdHashCode></userInfo></getDeviceAuthTokenResult>`;
       } else {
         if (!["getMetadata", "getMediaMetadata", "getExtendedMetadata", "getMediaURI", "search"].includes(action.method)) {
           throw new SoapFault("Client.UnsupportedRequest", `Unsupported SMAPI method: ${action.method}`);
@@ -139,7 +143,7 @@ export function registerSonosRoutes(
           } else if (action.method === "getExtendedMetadata") {
             result = `<getExtendedMetadataResult><mediaCollection><id>${escapeXml(resolved.animeId)}</id><itemType>album</itemType><title>${escapeXml(resolved.entry.album ?? "Anime Ongaku")}</title></mediaCollection></getExtendedMetadataResult>`;
           } else {
-            result = `<getMediaURIResult>${escapeXml(resolved.uri)}<httpHeaders><httpHeader>Authorization: Bearer ${escapeXml(token)}</httpHeader></httpHeaders></getMediaURIResult>`;
+            result = `<getMediaURIResult>${escapeXml(resolved.uri)}</getMediaURIResult><httpHeaders><httpHeader><header>Authorization</header><value>Bearer ${escapeXml(token)}</value></httpHeader></httpHeaders>`;
           }
         } else {
           throw new SoapFault("Client.UnsupportedRequest", `Unsupported SMAPI method: ${action.method}`);
@@ -324,7 +328,7 @@ function resultPage(method: "getMetadata" | "search", all: SonosEntry[], index: 
   return `<${method}Result><index>${index}</index><count>${page.length}</count><total>${all.length}</total>${page.map(entryXml).join("")}</${method}Result>`;
 }
 function entryXml(entry: SonosEntry): string {
-  if (entry.kind === "container") return `<mediaCollection><id>${escapeXml(entry.id)}</id><itemType>albumList</itemType><title>${escapeXml(entry.title)}</title>${entry.artwork ? `<albumArtURI>${escapeXml(entry.artwork)}</albumArtURI>` : ""}</mediaCollection>`;
+  if (entry.kind === "container") return `<mediaCollection><id>${escapeXml(entry.id)}</id><itemType>container</itemType><title>${escapeXml(entry.title)}</title>${entry.artwork ? `<albumArtURI>${escapeXml(entry.artwork)}</albumArtURI>` : ""}</mediaCollection>`;
   return `<mediaMetadata><id>${escapeXml(entry.id)}</id><itemType>track</itemType><title>${escapeXml(entry.title)}</title><mimeType>${escapeXml(entry.mimeType ?? "audio/mpeg")}</mimeType><trackMetadata><artist>${escapeXml(entry.artist ?? "Anime Ongaku")}</artist><album>${escapeXml(entry.album ?? "Anime Ongaku")}</album>${entry.artwork ? `<albumArtURI>${escapeXml(entry.artwork)}</albumArtURI>` : ""}<duration>${Math.max(0, Math.round(entry.duration ?? 0))}</duration></trackMetadata></mediaMetadata>`;
 }
 

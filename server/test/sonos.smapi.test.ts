@@ -107,6 +107,16 @@ describe("Sonos sandbox SMAPI", () => {
     const page = await app.inject({ method: "GET", url: `/sonos/link?linkCode=${linkCode}` });
     expect(page.statusCode).toBe(200); expect(page.body).toContain("Anime Ongaku"); expect(page.body).toContain("Kitsu username");
   });
+  it("generates and echoes a hidden linkDeviceId when Sonos does not provide one", async () => {
+    const start = await soap("getAppLink", "<householdId>HH</householdId>");
+    const linkCode = /<linkCode>([^<]+)<\/linkCode>/.exec(start.body)?.[1];
+    const linkDeviceId = /<linkDeviceId>([^<]+)<\/linkDeviceId>/.exec(start.body)?.[1];
+    expect(linkCode).toBeTruthy(); expect(linkDeviceId).toBeTruthy();
+    await app.inject({ method: "POST", url: "/sonos/link", headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: `linkCode=${linkCode}&username=alice&password=secret` });
+    const poll = await soap("getDeviceAuthToken", `<householdId>HH</householdId><linkDeviceId>${linkDeviceId}</linkDeviceId><linkCode>${linkCode}</linkCode>`);
+    expect(poll.statusCode).toBe(200); expect(poll.body).not.toContain("stub-alice</userIdHashCode>");
+  });
   it("links once, invokes sync, binds the device, and consumes the result", async () => {
     const { linkCode } = await link(); expect(onLogin).toHaveBeenCalledOnce();
     const wrong = await soap("getDeviceAuthToken", `<householdId>HH-1</householdId><linkDeviceId>OTHER</linkDeviceId><linkCode>${linkCode}</linkCode>`);
@@ -154,7 +164,7 @@ describe("Sonos sandbox SMAPI", () => {
     expect(meta.body).toContain("https://ongaku.takeya.ninja/v1/media/images/anime/42/poster");
     const uri = await soap("getMediaURI", "<id>theme:100</id>", token);
     expect(uri.body).toContain("https://ongaku.takeya.ninja/v1/media/songs/200/audio");
-    expect(uri.body).toContain(`<httpHeader>Authorization: Bearer ${token}</httpHeader>`); expect(uri.body).not.toContain(`?token=${token}`);
+    expect(uri.body).toContain(`<header>Authorization</header><value>Bearer ${token}</value>`); expect(uri.body).not.toContain(`?token=${token}`);
   });
   it("falls back to TV-size when a preferred full song is unavailable", async () => {
     api.fullSize = false; const { token } = await link();
