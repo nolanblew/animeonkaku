@@ -63,6 +63,8 @@ class SonosApi {
 describe("Sonos sandbox SMAPI", () => {
   let app: FastifyInstance; let auth: AuthService; let api: SonosApi; let now: number; let code: number;
   const onLogin = vi.fn(async () => {});
+  const artworkFetch = vi.fn(async () => new Response(await sharp({ create: { width: 8, height: 8, channels: 3,
+    background: { r: 212, g: 66, b: 91 } } }).png().toBuffer(), { headers: { "content-type": "image/png" } }));
   beforeEach(() => {
     now = 1_800_000_000_000; code = 1; api = new SonosApi();
     auth = new AuthService(new FakeAuthRepo(), new StubKitsuAuthClient());
@@ -70,8 +72,7 @@ describe("Sonos sandbox SMAPI", () => {
       clientApi: api as unknown as ClientApiService, onLogin,
       sonos: { publicOrigin: "https://ongaku.takeya.ninja", now: () => now,
         generateCode: () => `LINK${String(code++).padStart(4, "0")}`,
-        artworkFetch: async () => new Response(await sharp({ create: { width: 8, height: 8, channels: 3,
-          background: { r: 212, g: 66, b: 91 } } }).png().toBuffer(), { headers: { "content-type": "image/png" } }) } });
+        artworkFetch } });
   });
   afterEach(async () => { await app.close(); vi.clearAllMocks(); });
 
@@ -336,6 +337,21 @@ describe("Sonos sandbox SMAPI", () => {
     expect(uri.body).toContain("Client.ItemNotFound");
     expect(uri.body).not.toContain("/v1/media/sonos/themes/100.mp3");
   });
+  it("does not block playlist browsing while cover images are being generated", async () => {
+    artworkFetch.mockImplementationOnce(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      return new Response(await sharp({ create: { width: 8, height: 8, channels: 3,
+        background: { r: 212, g: 66, b: 91 } } }).png().toBuffer(), { headers: { "content-type": "image/png" } });
+    });
+    const { token } = await link();
+    const result = await Promise.race([
+      soap("getMetadata", "<id>playlists</id><index>0</index><count>10</count>", token),
+      new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 75)),
+    ]);
+    expect(result).not.toBe("timeout");
+    expect(artworkFetch).not.toHaveBeenCalled();
+  });
+
   it("returns mascot artwork for categories and a generated cover image for each playlist", async () => {
     const { token } = await link();
     const root = await soap("getMetadata", "<id>root</id><index>0</index><count>10</count>", token);
