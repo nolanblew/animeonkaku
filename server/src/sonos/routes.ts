@@ -101,7 +101,7 @@ export function registerSonosRoutes(
   }
   app.get("/sonos/icons/:asset", async (request, reply) => {
     const asset = (request.params as { asset?: unknown }).asset;
-    const match = typeof asset === "string" ? /^([a-z0-9-]+)_(?:v2_)?(?:(40|290)\.svg|legacy\.png)$/.exec(asset) : null;
+    const match = typeof asset === "string" ? /^([a-z0-9-]+)_(?:v\d+_)?(?:(40|290)\.svg|legacy\.png)$/.exec(asset) : null;
     if (!match) return reply.code(404).send();
     reply.header("cache-control", "public, max-age=31536000, immutable");
     if (match[2]) {
