@@ -139,6 +139,15 @@ describe("Sonos sandbox SMAPI", () => {
     const poll = await soap("getDeviceAuthToken", `<householdId>HH</householdId><linkDeviceId>${linkDeviceId}</linkDeviceId><linkCode>${linkCode}</linkCode>`);
     expect(poll.statusCode).toBe(200); expect(poll.body).not.toContain("stub-alice</userIdHashCode>");
   });
+  it("returns the complete browser-auth token contract in Sonos schema order", async () => {
+    const start = await soap("getAppLink", "<householdId>HH</householdId><linkDeviceId>D</linkDeviceId>");
+    const linkCode = /<linkCode>([^<]+)<\/linkCode>/.exec(start.body)?.[1];
+    await app.inject({ method: "POST", url: "/sonos/link", headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: `linkCode=${linkCode}&username=alice&password=secret` });
+    const poll = await soap("getDeviceAuthToken", `<householdId>HH</householdId><linkDeviceId>D</linkDeviceId><linkCode>${linkCode}</linkCode>`);
+    expect(poll.statusCode).toBe(200);
+    expect(poll.body).toMatch(/<getDeviceAuthTokenResult><authToken>[^<]+<\/authToken><privateKey>alwaysReauthenticate<\/privateKey><userInfo><userIdHashCode>[A-Za-z0-9_-]+<\/userIdHashCode><nickname>alice<\/nickname><\/userInfo><\/getDeviceAuthTokenResult>/);
+  });
   it("links once, invokes sync, binds the device, and consumes the result", async () => {
     const { linkCode } = await link(); expect(onLogin).toHaveBeenCalledOnce();
     const wrong = await soap("getDeviceAuthToken", `<householdId>HH-1</householdId><linkDeviceId>OTHER</linkDeviceId><linkCode>${linkCode}</linkCode>`);
@@ -227,5 +236,13 @@ describe("Sonos sandbox SMAPI", () => {
     expect(api.users).toContain("stub-alice"); expect(api.users).toContain("stub-bob");
     expect((await soap("getMetadata", "<id>root</id>")).body).toContain("Client.AuthTokenExpired");
     expect((await soap("deleteItem", "", undefined, "deleteItem")).body).toContain("Client.UnsupportedRequest");
+  });
+  it("accepts the bearer header required by the Sonos authorization-header capability", async () => {
+    const { token } = await link();
+    const response = await app.inject({ method: "POST", url: "/sonos/smapi", headers: {
+      "content-type": "text/xml; charset=utf-8", soapaction: `"${NS}#getMetadata"`, authorization: `Bearer ${token}`,
+    }, payload: env("getMetadata", "<id>root</id><index>0</index><count>10</count>") });
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain("<id>anime</id>");
   });
 });

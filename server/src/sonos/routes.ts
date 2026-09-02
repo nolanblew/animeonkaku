@@ -18,6 +18,10 @@ const SMAPI_NS = "http://www.sonos.com/Services/1.1";
 export const SONOS_BODY_LIMIT = 256 * 1024;
 const LINK_TTL_MS = 10 * 60_000;
 const MAX_LINK_FAILURES = 5;
+// Sonos requires a privateKey in the browser-link success response even when
+// the service does not implement refresh tokens. It is an opaque sentinel, not
+// a credential, and Sonos only passes it back during a future refresh flow.
+const NO_REFRESH_PRIVATE_KEY = "alwaysReauthenticate";
 
 export interface SonosRouteOptions {
   publicOrigin: string;
@@ -96,7 +100,7 @@ export function registerSonosRoutes(
       let result: string;
       if (action.method === "getLastUpdate") {
         let favoritesVersion = "1";
-        const token = extractAuthToken(xml);
+        const token = extractAuthToken(xml, request.headers.authorization);
         if (token) {
           const context = await auth.authenticate(token);
           if (context) favoritesVersion = versionToken(await loadCatalog(client, context.user.kitsuUserId));
@@ -126,12 +130,12 @@ export function registerSonosRoutes(
         if (state.consumed) throw new SoapFault("Client.AuthTokenExpired", "This link result has already been consumed.");
         state.consumed = true;
         const userHash = createHash("sha256").update(state.userId, "utf8").digest("base64url");
-        result = `<getDeviceAuthTokenResult><authToken>${escapeXml(state.token)}</authToken><userInfo><nickname>${escapeXml(state.username.slice(0, 32))}</nickname><userIdHashCode>${escapeXml(userHash)}</userIdHashCode></userInfo></getDeviceAuthTokenResult>`;
+        result = `<getDeviceAuthTokenResult><authToken>${escapeXml(state.token)}</authToken><privateKey>${NO_REFRESH_PRIVATE_KEY}</privateKey><userInfo><userIdHashCode>${escapeXml(userHash)}</userIdHashCode><nickname>${escapeXml(state.username.slice(0, 32))}</nickname></userInfo></getDeviceAuthTokenResult>`;
       } else {
         if (!["getMetadata", "getMediaMetadata", "getExtendedMetadata", "getMediaURI", "search"].includes(action.method)) {
           throw new SoapFault("Client.UnsupportedRequest", `Unsupported SMAPI method: ${action.method}`);
         }
-        const token = extractAuthToken(xml);
+        const token = extractAuthToken(xml, request.headers.authorization);
         if (!token) throw new SoapFault("Client.AuthTokenExpired", "Authentication is required.");
         const context = await auth.authenticate(token);
         if (!context) throw new SoapFault("Client.AuthTokenExpired", "The device session is no longer valid.");
@@ -259,7 +263,9 @@ function tag(xml: string, name: string): string | undefined {
 function requiredTag(xml: string, name: string): string {
   const value = tag(xml, name); if (!value) throw new SoapFault("Client.BadRequest", `${name} is required.`); return value;
 }
-function extractAuthToken(xml: string): string | undefined {
+function extractAuthToken(xml: string, authorization?: string): string | undefined {
+  const bearer = /^Bearer\s+(.+)$/i.exec(authorization?.trim() ?? "")?.[1]?.trim();
+  if (bearer) return bearer;
   const credentialsBlock = /<(?:\w+:)?credentials\b[^>]*>([\s\S]*?)<\/(?:\w+:)?credentials\s*>/i.exec(xml)?.[1];
   if (!credentialsBlock) return undefined;
   return tag(credentialsBlock, "token") ?? tag(credentialsBlock, "authToken");
