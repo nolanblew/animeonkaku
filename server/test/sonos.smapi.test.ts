@@ -69,7 +69,9 @@ describe("Sonos sandbox SMAPI", () => {
     app = buildApp({ authService: auth, health: { pingDb: async () => {}, mediaRoot: process.cwd() },
       clientApi: api as unknown as ClientApiService, onLogin,
       sonos: { publicOrigin: "https://ongaku.takeya.ninja", now: () => now,
-        generateCode: () => `LINK${String(code++).padStart(4, "0")}` } });
+        generateCode: () => `LINK${String(code++).padStart(4, "0")}`,
+        artworkFetch: async () => new Response(await sharp({ create: { width: 8, height: 8, channels: 3,
+          background: { r: 212, g: 66, b: 91 } } }).png().toBuffer(), { headers: { "content-type": "image/png" } }) } });
   });
   afterEach(async () => { await app.close(); vi.clearAllMocks(); });
 
@@ -342,7 +344,15 @@ describe("Sonos sandbox SMAPI", () => {
     expect(rootEntries.every((entry) => /<albumArtURI>https:\/\/ongaku\.takeya\.ninja\/sonos\/icons\/[A-Za-z0-9-]+_v5_legacy\.png<\/albumArtURI>/.test(entry))).toBe(true);
 
     const playlists = await soap("getMetadata", "<id>playlists</id><index>0</index><count>10</count>", token);
-    expect(playlists.body).toMatch(/<id>playlist:9<\/id>[\s\S]*?<albumArtURI>https:\/\/ongaku\.takeya\.ninja\/sonos\/icons\/[A-Za-z0-9-]+_v5_legacy\.png<\/albumArtURI>/);
+    const artworkUrl = /<id>playlist:9<\/id>[\s\S]*?<albumArtURI>(https:\/\/ongaku\.takeya\.ninja\/sonos\/playlist-art\/[a-f0-9]{64}\.png)<\/albumArtURI>/.exec(playlists.body)?.[1];
+    expect(artworkUrl).toBeTruthy();
+    const artwork = await app.inject({ method: "GET", url: new URL(artworkUrl!).pathname });
+    expect(artwork.statusCode).toBe(200);
+    expect(artwork.headers["content-type"]).toBe("image/png");
+    const rendered = await sharp(artwork.rawPayload).raw().toBuffer({ resolveWithObject: true });
+    expect(rendered.info.width).toBe(290);
+    expect(rendered.info.height).toBe(290);
+    expect([...rendered.data.subarray(0, 3)]).toEqual([212, 66, 91]);
 
     const search = await soap("getMetadata", "<id>search</id><index>0</index><count>10</count>", token);
     const searchEntries = [...search.body.matchAll(/<mediaCollection>([\s\S]*?)<\/mediaCollection>/g)].map((match) => match[1]);
