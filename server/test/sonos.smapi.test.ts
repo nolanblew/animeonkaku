@@ -274,4 +274,48 @@ describe("Sonos sandbox SMAPI", () => {
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain("<id>anime</id>");
   });
+  it("keeps duplicate playlist items mode-qualified and resolves metadata and URI consistently", async () => {
+    api.getThemePrefs = async () => [];
+    const { token } = await link();
+    const playlist = await soap("getMetadata", "<id>playlist:9</id><index>0</index><count>10</count>", token);
+    expect(playlist.body).toContain("<id>theme:100:FULL_SIZE:1</id>");
+    expect(playlist.body).toContain("<id>theme:100:TV_SIZE:2</id>");
+
+    const fullMetadata = await soap("getMediaMetadata", "<id>theme:100:FULL_SIZE:1</id>", token);
+    const tvMetadata = await soap("getMediaMetadata", "<id>theme:100:TV_SIZE:2</id>", token);
+    expect(fullMetadata.body).toContain("<mimeType>audio/mpeg</mimeType>");
+    expect(fullMetadata.body).toContain("<duration>240</duration>");
+    expect(tvMetadata.body).toContain("<mimeType>audio/mpeg</mimeType>");
+    expect(tvMetadata.body).toContain("<duration>90</duration>");
+
+    const fullUri = await soap("getMediaURI", "<id>theme:100:FULL_SIZE:1</id>", token);
+    const tvUri = await soap("getMediaURI", "<id>theme:100:TV_SIZE:2</id>", token);
+    expect(fullUri.body).toContain("https://ongaku.takeya.ninja/v1/media/sonos/songs/200.mp3");
+    expect(tvUri.body).toContain("https://ongaku.takeya.ninja/v1/media/sonos/themes/100.mp3");
+  });
+
+
+  it("returns SVG browse artwork for the root, playlist collection, and search categories", async () => {
+    const { token } = await link();
+    const root = await soap("getMetadata", "<id>root</id><index>0</index><count>10</count>", token);
+    const rootEntries = [...root.body.matchAll(/<mediaCollection[\s\S]*?<\/mediaCollection>/g)].map((match) => match[0]);
+    expect(rootEntries).toHaveLength(3);
+    expect(rootEntries.every((entry) => /<albumArtURI>https:\/\/ongaku\.takeya\.ninja\/sonos\/icons\/[A-Za-z0-9_-]+\.svg<\/albumArtURI>/.test(entry))).toBe(true);
+
+    const playlists = await soap("getMetadata", "<id>playlists</id><index>0</index><count>10</count>", token);
+    expect(playlists.body).toMatch(/<id>playlist:9<\/id>[\s\S]*?<albumArtURI>https:\/\/ongaku\.takeya\.ninja\/sonos\/icons\/[A-Za-z0-9_-]+\.svg<\/albumArtURI>/);
+
+    const search = await soap("getMetadata", "<id>search</id><index>0</index><count>10</count>", token);
+    const searchEntries = [...search.body.matchAll(/<mediaCollection>([\s\S]*?)<\/mediaCollection>/g)].map((match) => match[1]);
+    expect(searchEntries).toHaveLength(4);
+    expect(searchEntries.every((entry) => /<albumArtURI>https:\/\/ongaku\.takeya\.ninja\/sonos\/icons\/[A-Za-z0-9_-]+\.svg<\/albumArtURI>/.test(entry ?? ""))).toBe(true);
+  });
+
+  it.each(["root", "anime", "playlists", "liked", "search", "fallback"])("serves the public %s Sonos SVG browse icon", async (name) => {
+    const response = await app.inject({ method: "GET", url: `/sonos/icons/${name}.svg` });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("image/svg+xml");
+    expect(response.headers["cache-control"]).toMatch(/public/);
+    expect(response.body).toContain("<svg");
+  });
 });

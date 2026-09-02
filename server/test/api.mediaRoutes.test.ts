@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { copyFile, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -96,6 +96,65 @@ async function bearer(prefix = "") {
 }
 
 describe("media API routes", () => {
+  it.each(["GET", "HEAD"] as const)("requires bearer auth for Sonos theme MP3 %s", async (method) => {
+    const res = await app.inject({ method, url: "/v1/media/sonos/themes/100.mp3" });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("transcodes and caches READY theme audio for Sonos byte-range playback", async () => {
+    const contents = Buffer.from("0123456789abcdef");
+    writeFileSync(join(mediaRoot, "audio", "100.ogg"), contents);
+    repo.audio.set(100, { themeId: 100, originUrl: "https://a.animethemes.moe/Ready.ogg",
+      state: "READY", filePath: "audio/100.ogg", byteSize: contents.length, sha256: "source-sha" });
+    let transcodes = 0;
+    await app.close();
+    app = buildApp({
+      authService: new AuthService(new FakeAuthRepo(), new StubKitsuAuthClient()),
+      health: { pingDb: async () => {}, mediaRoot },
+      mediaApi: new MediaStreamingService({ repo, queue, mediaRoot, musicCatalogEnabled: true,
+        sonosTranscoder: { transcodeToMp3: async (sourcePath: string, outputPath: string) => {
+          transcodes += 1; await copyFile(sourcePath, outputPath);
+        } },
+      } as MediaStreamingServiceDeps & { sonosTranscoder: unknown }),
+    });
+    const token = await bearer();
+
+    for (let requestNumber = 0; requestNumber < 2; requestNumber += 1) {
+      const res = await app.inject({ method: "GET", url: "/v1/media/sonos/themes/100.mp3",
+        headers: { authorization: `Bearer ${token}`, range: "bytes=2-5" } });
+      expect(res.statusCode).toBe(206);
+      expect(res.headers["content-type"]).toBe("audio/mpeg");
+      expect(res.headers["content-range"]).toBe("bytes 2-5/16");
+      expect(res.body).toBe("2345");
+    }
+    expect(transcodes).toBe(1);
+  });
+
+  it("transcodes READY catalog songs to MP3 for Sonos", async () => {
+    const contents = Buffer.from("full-size-song");
+    const filePath = "audio/songs/77/original.flac";
+    await mkdir(join(mediaRoot, "audio", "songs", "77"), { recursive: true });
+    writeFileSync(join(mediaRoot, filePath), contents);
+    repo.songs.set(77, { songId: 77, state: "READY", filePath, byteSize: contents.length,
+      sha256: "song-sha", contentType: "audio/flac", sourceFileName: "Full Song.flac" });
+    await app.close();
+    app = buildApp({
+      authService: new AuthService(new FakeAuthRepo(), new StubKitsuAuthClient()),
+      health: { pingDb: async () => {}, mediaRoot },
+      mediaApi: new MediaStreamingService({ repo, queue, mediaRoot, musicCatalogEnabled: true,
+        sonosTranscoder: { transcodeToMp3: copyFile },
+      } as MediaStreamingServiceDeps & { sonosTranscoder: unknown }),
+    });
+    const token = await bearer();
+
+    const res = await app.inject({ method: "GET", url: "/v1/media/sonos/songs/77.mp3",
+      headers: { authorization: `Bearer ${token}` } });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("audio/mpeg");
+    expect(res.body).toBe(contents.toString());
+  });
+
   it.each(["GET", "HEAD"] as const)("requires bearer auth for catalog-song %s", async (method) => {
     const res = await app.inject({ method, url: "/v1/media/songs/77/audio" });
     expect(res.statusCode).toBe(401);
