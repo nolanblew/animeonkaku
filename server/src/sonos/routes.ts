@@ -12,7 +12,9 @@ import type {
   SongPrefDto,
   ThemePrefDto,
 } from "../api/clientRoutes.js";
-import { playlistIconName, sonosIconSvg, sonosIconUrl, sonosLegacyIconPng, type SonosIconName } from "./icons.js";
+import type { FetchLike } from "../http/types.js";
+import { sonosIconSvg, sonosIconUrl, sonosLegacyIconPng, type SonosIconName } from "./icons.js";
+import { PlaylistArtworkCache } from "./playlistArtwork.js";
 
 const SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/";
 const SMAPI_NS = "http://www.sonos.com/Services/1.1";
@@ -35,6 +37,7 @@ export interface SonosRouteOptions {
   now?: (() => number) | undefined;
   generateCode?: (() => string) | undefined;
   onLogin?: ((result: LoginResult) => Promise<void>) | undefined;
+  artworkFetch?: FetchLike | undefined;
 }
 
 interface LinkState {
@@ -91,6 +94,7 @@ export function registerSonosRoutes(
   const generateCode = options.generateCode ?? (() => randomBytes(15).toString("base64url"));
   const origin = new URL(options.publicOrigin).origin;
   const links = new Map<string, LinkState>();
+  const playlistArtworkCache = new PlaylistArtworkCache(options.artworkFetch);
   const catalogVersion = String(Math.floor(now() / 1000));
 
   if (!app.hasContentTypeParser("text/xml")) {
@@ -111,6 +115,15 @@ export function registerSonosRoutes(
     const png = sonosLegacyIconPng(match[1]!);
     if (!png) return reply.code(404).send();
     return reply.type("image/png").send(await png);
+  });
+  app.get("/sonos/playlist-art/:asset", async (request, reply) => {
+    const asset = (request.params as { asset?: unknown }).asset;
+    const match = typeof asset === "string" ? /^([a-f0-9]{64})\.png$/.exec(asset) : null;
+    const pending = match ? playlistArtworkCache.get(match[1]!) : undefined;
+    if (!pending) return reply.code(404).send();
+    const png = await pending;
+    if (!png) return reply.code(404).send();
+    return reply.header("cache-control", "public, max-age=31536000, immutable").type("image/png").send(png);
   });
 
 
@@ -164,11 +177,19 @@ export function registerSonosRoutes(
         if (action.method === "getMetadata") {
           const catalog = await loadCatalog(client, userId);
           const id = tag(xml, "id") ?? "root";
-          const entries = browse(catalog, id, origin);
+          const playlistArtwork = id === "playlists"
+            ? await playlistArtworkCache.prepare(catalog, catalog.playlists, origin)
+            : new Map<number, string>();
+          const entries = browse(catalog, id, origin, playlistArtwork);
           result = resultPage("getMetadata", entries, pageIndex(xml), pageCount(xml));
         } else if (action.method === "search") {
           const catalog = await loadCatalog(client, userId);
-          const entries = search(catalog, tag(xml, "id") ?? "all", tag(xml, "term") ?? "", origin);
+          const category = tag(xml, "id") ?? "all";
+          const term = tag(xml, "term") ?? "";
+          const playlistArtwork = term.trim() && ["all", "playlists"].includes(category)
+            ? await playlistArtworkCache.prepare(catalog, catalog.playlists, origin)
+            : new Map<number, string>();
+          const entries = search(catalog, category, term, origin, playlistArtwork);
           result = resultPage("search", entries, pageIndex(xml), pageCount(xml));
         } else if (["getMediaMetadata", "getExtendedMetadata", "getMediaURI"].includes(action.method)) {
           const catalog = await loadCatalog(client, userId);
@@ -178,7 +199,11 @@ export function registerSonosRoutes(
             if (!resolved) throw new SoapFault("Client.ItemNotFound", "The requested track is not available.");
             result = `<getMediaMetadataResult>${entryXml(resolved.entry)}</getMediaMetadataResult>`;
           } else if (action.method === "getExtendedMetadata") {
-            const entry = resolved?.entry ?? resolveCollection(catalog, id, origin);
+            const playlist = id.startsWith("playlist:")
+              ? catalog.playlists.filter((candidate) => String(candidate.id) === id.slice(9))
+              : [];
+            const playlistArtwork = await playlistArtworkCache.prepare(catalog, playlist, origin);
+            const entry = resolved?.entry ?? resolveCollection(catalog, id, origin, playlistArtwork);
             if (!entry) throw new SoapFault("Client.ItemNotFound", "The requested item is not available.");
             result = `<getExtendedMetadataResult>${entryXml(entry)}</getExtendedMetadataResult>`;
           } else {
@@ -316,7 +341,7 @@ async function loadCatalog(client: ClientApiService, userId: string): Promise<Ca
     themePrefs: themePrefs.filter((x) => !x.deleted), songPrefs: songPrefs.filter((x) => !x.deleted), music };
 }
 
-function browse(c: Catalog, id: string, origin: string): SonosEntry[] {
+function browse(c: Catalog, id: string, origin: string, playlistArtwork: ReadonlyMap<number, string>): SonosEntry[] {
   if (id === "search") return SONOS_SEARCH_CATEGORIES.map(({ id: categoryId, title }) => container(categoryId, title, "search", { canPlay: false, artwork: sonosIconUrl(origin, searchIcon(categoryId)) }));
   if (id === "root") return [
     container("anime", "Anime", "albumList", { artwork: sonosIconUrl(origin, "anime") }),
@@ -324,7 +349,7 @@ function browse(c: Catalog, id: string, origin: string): SonosEntry[] {
     container("liked", "Liked Songs", "trackList", { artwork: sonosIconUrl(origin, "liked") }),
   ];
   if (id === "anime") return c.anime.map((a) => ({ ...container(`anime:${a.kitsuId}`, titleAnime(a), "album", { canPlay: true, canEnumerate: true }), artwork: absolute(origin, a.posterUrl ?? a.coverUrl) }));
-  if (id === "playlists") return c.playlists.map((p) => container(`playlist:${p.id}`, p.name, "playlist", { readOnly: true, userContent: true, canPlay: true, canEnumerate: true, artwork: sonosIconUrl(origin, playlistIconName(p.id)) }));
+  if (id === "playlists") return c.playlists.map((p) => container(`playlist:${p.id}`, p.name, "playlist", { readOnly: true, userContent: true, canPlay: true, canEnumerate: true, artwork: playlistArtwork.get(p.id) ?? sonosIconUrl(origin, "playlists") }));
   if (id === "liked") {
     const themeIds = new Set(c.themePrefs.filter((p) => p.liked).map((p) => p.themeId));
     const songIds = new Set(c.songPrefs.filter((p) => p.liked).map((p) => p.songId));
@@ -341,12 +366,12 @@ function browse(c: Catalog, id: string, origin: string): SonosEntry[] {
   throw new SoapFault("Client.ItemNotFound", "Container not found.");
 }
 
-function search(c: Catalog, category: string, term: string, origin: string): SonosEntry[] {
+function search(c: Catalog, category: string, term: string, origin: string, playlistArtwork: ReadonlyMap<number, string>): SonosEntry[] {
   const q = term.trim().toLocaleLowerCase(); if (!q) return [];
   if (!["all", "albums", "playlists", "tracks"].includes(category)) throw new SoapFault("Client.BadRequest", "Unknown search category.");
   const albums = c.anime.map((a) => ({ ...container(`anime:${a.kitsuId}`, titleAnime(a), "album", { canPlay: true, canEnumerate: true }), artwork: absolute(origin, a.posterUrl ?? a.coverUrl) }))
     .filter((x) => x.title.toLocaleLowerCase().includes(q));
-  const playlists = c.playlists.map((p) => container(`playlist:${p.id}`, p.name, "playlist", { readOnly: true, userContent: true, canPlay: true, canEnumerate: true, artwork: sonosIconUrl(origin, playlistIconName(p.id)) })).filter((x) => x.title.toLocaleLowerCase().includes(q));
+  const playlists = c.playlists.map((p) => container(`playlist:${p.id}`, p.name, "playlist", { readOnly: true, userContent: true, canPlay: true, canEnumerate: true, artwork: playlistArtwork.get(p.id) ?? sonosIconUrl(origin, "playlists") })).filter((x) => x.title.toLocaleLowerCase().includes(q));
   const tracks = [...c.themes.map((t) => themeEntry(c, t, origin)), ...songEntries(c, origin)]
     .filter((x) => `${x.title} ${x.album ?? ""} ${x.artist ?? ""}`.toLocaleLowerCase().includes(q));
   if (category === "albums") return albums; if (category === "playlists") return playlists; if (category === "tracks") return tracks;
@@ -382,7 +407,7 @@ function resolveTrack(c: Catalog, id: string, origin: string): { entry: SonosEnt
   return null;
 }
 
-function resolveCollection(c: Catalog, id: string, origin: string): SonosEntry | null {
+function resolveCollection(c: Catalog, id: string, origin: string, playlistArtwork: ReadonlyMap<number, string>): SonosEntry | null {
   if (id === "root") return container("root", "Anime Ongaku", "container", { artwork: sonosIconUrl(origin, "root") });
   if (id === "anime") return container("anime", "Anime", "albumList", { artwork: sonosIconUrl(origin, "anime") });
   if (id === "playlists") return container("playlists", "Playlists", "container", { artwork: sonosIconUrl(origin, "playlists") });
@@ -393,7 +418,7 @@ function resolveCollection(c: Catalog, id: string, origin: string): SonosEntry |
   }
   if (id.startsWith("playlist:")) {
     const playlist = c.playlists.find((item) => String(item.id) === id.slice(9));
-    return playlist ? container(id, playlist.name, "playlist", { readOnly: true, userContent: true, canPlay: true, canEnumerate: true, artwork: sonosIconUrl(origin, playlistIconName(playlist.id)) }) : null;
+    return playlist ? container(id, playlist.name, "playlist", { readOnly: true, userContent: true, canPlay: true, canEnumerate: true, artwork: playlistArtwork.get(playlist.id) ?? sonosIconUrl(origin, "playlists") }) : null;
   }
   return null;
 }

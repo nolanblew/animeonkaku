@@ -336,7 +336,7 @@ describe("Sonos sandbox SMAPI", () => {
     expect(uri.body).toContain("Client.ItemNotFound");
     expect(uri.body).not.toContain("/v1/media/sonos/themes/100.mp3");
   });
-  it("returns SVG browse artwork for the root, playlist collection, and search categories", async () => {
+  it("returns mascot artwork for categories and a generated cover image for each playlist", async () => {
     const { token } = await link();
     const root = await soap("getMetadata", "<id>root</id><index>0</index><count>10</count>", token);
     const rootEntries = [...root.body.matchAll(/<mediaCollection[\s\S]*?<\/mediaCollection>/g)].map((match) => match[0]);
