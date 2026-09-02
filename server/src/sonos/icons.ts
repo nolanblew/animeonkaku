@@ -6,6 +6,7 @@ export const SONOS_ICON_NAMES = [
 ] as const;
 
 export type SonosIconName = (typeof SONOS_ICON_NAMES)[number];
+const SONOS_ICON_VERSION = "v2";
 
 const LINE = 'fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"';
 const FACE = `<path ${LINE} d="M43 52c4-17 11-25 21-25s18 8 22 25l-12-8-10 10-10-10-11 8Z"/><path ${LINE} d="M45 56v8c0 13 8 22 19 22s19-9 19-22v-8M55 62h1m16 0h1M58 73c4 3 8 3 12 0"/><path ${LINE} d="M38 106c3-15 13-23 26-23s23 8 26 23"/>`;
@@ -54,7 +55,7 @@ export function sonosLegacyIconPng(name: string): Promise<Buffer> | undefined {
 }
 
 export function sonosIconUrl(origin: string, name: SonosIconName): string {
-  return `${origin}/sonos/icons/${name}_legacy.png`;
+  return `${origin}/sonos/icons/${name}_${SONOS_ICON_VERSION}_legacy.png`;
 }
 
 export function playlistIconName(playlistId: number): SonosIconName {

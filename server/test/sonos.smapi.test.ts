@@ -339,20 +339,20 @@ describe("Sonos sandbox SMAPI", () => {
     const root = await soap("getMetadata", "<id>root</id><index>0</index><count>10</count>", token);
     const rootEntries = [...root.body.matchAll(/<mediaCollection[\s\S]*?<\/mediaCollection>/g)].map((match) => match[0]);
     expect(rootEntries).toHaveLength(3);
-    expect(rootEntries.every((entry) => /<albumArtURI>https:\/\/ongaku\.takeya\.ninja\/sonos\/icons\/[A-Za-z0-9_-]+_legacy\.png<\/albumArtURI>/.test(entry))).toBe(true);
+    expect(rootEntries.every((entry) => /<albumArtURI>https:\/\/ongaku\.takeya\.ninja\/sonos\/icons\/[A-Za-z0-9-]+_v2_legacy\.png<\/albumArtURI>/.test(entry))).toBe(true);
 
     const playlists = await soap("getMetadata", "<id>playlists</id><index>0</index><count>10</count>", token);
-    expect(playlists.body).toMatch(/<id>playlist:9<\/id>[\s\S]*?<albumArtURI>https:\/\/ongaku\.takeya\.ninja\/sonos\/icons\/[A-Za-z0-9_-]+_legacy\.png<\/albumArtURI>/);
+    expect(playlists.body).toMatch(/<id>playlist:9<\/id>[\s\S]*?<albumArtURI>https:\/\/ongaku\.takeya\.ninja\/sonos\/icons\/[A-Za-z0-9-]+_v2_legacy\.png<\/albumArtURI>/);
 
     const search = await soap("getMetadata", "<id>search</id><index>0</index><count>10</count>", token);
     const searchEntries = [...search.body.matchAll(/<mediaCollection>([\s\S]*?)<\/mediaCollection>/g)].map((match) => match[1]);
     expect(searchEntries).toHaveLength(4);
-    expect(searchEntries.every((entry) => /<albumArtURI>https:\/\/ongaku\.takeya\.ninja\/sonos\/icons\/[A-Za-z0-9_-]+_legacy\.png<\/albumArtURI>/.test(entry ?? ""))).toBe(true);
+    expect(searchEntries.every((entry) => /<albumArtURI>https:\/\/ongaku\.takeya\.ninja\/sonos\/icons\/[A-Za-z0-9-]+_v2_legacy\.png<\/albumArtURI>/.test(entry ?? ""))).toBe(true);
   });
 
   it.each(["root", "anime", "playlists", "liked", "search", "fallback"])("serves Sonos browse icon variants for %s", async (name) => {
     for (const suffix of ["40.svg", "290.svg", "legacy.png"]) {
-      const response = await app.inject({ method: "GET", url: `/sonos/icons/${name}_${suffix}` });
+      const response = await app.inject({ method: "GET", url: `/sonos/icons/${name}_v2_${suffix}` });
       expect(response.statusCode).toBe(200);
       expect(response.headers["cache-control"]).toMatch(/public/);
       if (suffix.endsWith(".svg")) {
@@ -367,7 +367,7 @@ describe("Sonos sandbox SMAPI", () => {
   });
 
   it("renders legacy Sonos PNGs as opaque black-and-white artwork", async () => {
-    const response = await app.inject({ method: "GET", url: "/sonos/icons/root_legacy.png" });
+    const response = await app.inject({ method: "GET", url: "/sonos/icons/root_v2_legacy.png" });
     expect(response.statusCode).toBe(200);
     const rendered = await sharp(response.rawPayload).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     expect(rendered.info.width).toBe(80);
