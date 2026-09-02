@@ -12,6 +12,7 @@ import type {
   SongPrefDto,
   ThemePrefDto,
 } from "../api/clientRoutes.js";
+import { playlistIconName, sonosIconSvg, sonosIconUrl, type SonosIconName } from "./icons.js";
 
 const SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/";
 const SMAPI_NS = "http://www.sonos.com/Services/1.1";
@@ -98,6 +99,15 @@ export function registerSonosRoutes(
   if (!app.hasContentTypeParser("application/x-www-form-urlencoded")) {
     app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (_request, body, done) => done(null, body));
   }
+  app.get("/sonos/icons/:name.svg", async (request, reply) => {
+    const name = (request.params as { name?: unknown }).name;
+    const svg = typeof name === "string" ? sonosIconSvg(name) : undefined;
+    if (!svg) return reply.code(404).send();
+    return reply.header("cache-control", "public, max-age=31536000, immutable")
+      .type("image/svg+xml; charset=utf-8")
+      .send(svg);
+  });
+
 
   app.post("/sonos/smapi", { bodyLimit: SONOS_BODY_LIMIT }, async (request, reply) => {
     try {
@@ -302,10 +312,14 @@ async function loadCatalog(client: ClientApiService, userId: string): Promise<Ca
 }
 
 function browse(c: Catalog, id: string, origin: string): SonosEntry[] {
-  if (id === "search") return SONOS_SEARCH_CATEGORIES.map(({ id: categoryId, title }) => container(categoryId, title, "search", { canPlay: false }));
-  if (id === "root") return [container("anime", "Anime", "albumList"), container("playlists", "Playlists"), container("liked", "Liked Songs", "trackList")];
+  if (id === "search") return SONOS_SEARCH_CATEGORIES.map(({ id: categoryId, title }) => container(categoryId, title, "search", { canPlay: false, artwork: sonosIconUrl(origin, searchIcon(categoryId)) }));
+  if (id === "root") return [
+    container("anime", "Anime", "albumList", { artwork: sonosIconUrl(origin, "anime") }),
+    container("playlists", "Playlists", "container", { artwork: sonosIconUrl(origin, "playlists") }),
+    container("liked", "Liked Songs", "trackList", { artwork: sonosIconUrl(origin, "liked") }),
+  ];
   if (id === "anime") return c.anime.map((a) => ({ ...container(`anime:${a.kitsuId}`, titleAnime(a), "album", { canPlay: true, canEnumerate: true }), artwork: absolute(origin, a.posterUrl ?? a.coverUrl) }));
-  if (id === "playlists") return c.playlists.map((p) => container(`playlist:${p.id}`, p.name, "playlist", { readOnly: true, userContent: true, canPlay: true, canEnumerate: true }));
+  if (id === "playlists") return c.playlists.map((p) => container(`playlist:${p.id}`, p.name, "playlist", { readOnly: true, userContent: true, canPlay: true, canEnumerate: true, artwork: sonosIconUrl(origin, playlistIconName(p.id)) }));
   if (id === "liked") {
     const themeIds = new Set(c.themePrefs.filter((p) => p.liked).map((p) => p.themeId));
     const songIds = new Set(c.songPrefs.filter((p) => p.liked).map((p) => p.songId));
@@ -327,7 +341,7 @@ function search(c: Catalog, category: string, term: string, origin: string): Son
   if (!["all", "albums", "playlists", "tracks"].includes(category)) throw new SoapFault("Client.BadRequest", "Unknown search category.");
   const albums = c.anime.map((a) => ({ ...container(`anime:${a.kitsuId}`, titleAnime(a), "album", { canPlay: true, canEnumerate: true }), artwork: absolute(origin, a.posterUrl ?? a.coverUrl) }))
     .filter((x) => x.title.toLocaleLowerCase().includes(q));
-  const playlists = c.playlists.map((p) => container(`playlist:${p.id}`, p.name, "playlist", { readOnly: true, userContent: true, canPlay: true, canEnumerate: true })).filter((x) => x.title.toLocaleLowerCase().includes(q));
+  const playlists = c.playlists.map((p) => container(`playlist:${p.id}`, p.name, "playlist", { readOnly: true, userContent: true, canPlay: true, canEnumerate: true, artwork: sonosIconUrl(origin, playlistIconName(p.id)) })).filter((x) => x.title.toLocaleLowerCase().includes(q));
   const tracks = [...c.themes.map((t) => themeEntry(c, t, origin)), ...songEntries(c, origin)]
     .filter((x) => `${x.title} ${x.album ?? ""} ${x.artist ?? ""}`.toLocaleLowerCase().includes(q));
   if (category === "albums") return albums; if (category === "playlists") return playlists; if (category === "tracks") return tracks;
@@ -335,32 +349,43 @@ function search(c: Catalog, category: string, term: string, origin: string): Son
 }
 
 function resolveTrack(c: Catalog, id: string, origin: string): { entry: SonosEntry; uri: string; animeId: string } | null {
-  if (id.startsWith("theme:")) {
+  const qualifiedTheme = /^theme:(\d+):(TV_SIZE|FULL_SIZE):(\d+)$/.exec(id);
+  if (qualifiedTheme) {
+    const theme = c.themes.find((t) => String(t.id) === qualifiedTheme[1]); if (!theme) return null;
+    const mode = themeMode(theme, qualifiedTheme[2] as "TV_SIZE" | "FULL_SIZE");
+    const uri = mode ? sonosMediaUri(origin, mode === "FULL_SIZE" ? theme.mediaModes.fullSize!.url : theme.mediaModes.tvSize.url) : null;
+    if (!mode || !uri) return null;
+    return { entry: themeEntry(c, theme, origin, mode, id), uri, animeId: `anime:${theme.kitsuAnimeIds[0] ?? "unknown"}` };
+  }
+  if (/^theme:\d+$/.test(id)) {
     const theme = c.themes.find((t) => String(t.id) === id.slice(6)); if (!theme) return null;
     const mode = themeMode(theme, preferredThemeMode(c, theme.id, undefined));
-    if (!mode) return null;
-    return { entry: themeEntry(c, theme, origin, mode), uri: absolute(origin, mode === "FULL_SIZE" ? theme.mediaModes.fullSize!.url : theme.mediaModes.tvSize.url)!, animeId: `anime:${theme.kitsuAnimeIds[0] ?? "unknown"}` };
+    const uri = mode ? sonosMediaUri(origin, mode === "FULL_SIZE" ? theme.mediaModes.fullSize!.url : theme.mediaModes.tvSize.url) : null;
+    if (!mode || !uri) return null;
+    return { entry: themeEntry(c, theme, origin, mode), uri, animeId: `anime:${theme.kitsuAnimeIds[0] ?? "unknown"}` };
   }
   if (id.startsWith("song:")) {
     const found = findSong(c, Number(id.slice(5))); if (!found) return null;
     if (!sonosMimeType(found.track.mimeType)) return null;
-    return { entry: songEntry(found.track, found.anime, found.releaseArtwork, origin), uri: absolute(origin, found.track.audioUrl)!, animeId: `anime:${found.anime.kitsuId}` };
+    const uri = sonosMediaUri(origin, found.track.audioUrl);
+    if (!uri) return null;
+    return { entry: songEntry(found.track, found.anime, found.releaseArtwork, origin), uri, animeId: `anime:${found.anime.kitsuId}` };
   }
   return null;
 }
 
 function resolveCollection(c: Catalog, id: string, origin: string): SonosEntry | null {
-  if (id === "root") return container("root", "Anime Ongaku");
-  if (id === "anime") return container("anime", "Anime", "albumList");
-  if (id === "playlists") return container("playlists", "Playlists");
-  if (id === "liked") return container("liked", "Liked Songs", "trackList");
+  if (id === "root") return container("root", "Anime Ongaku", "container", { artwork: sonosIconUrl(origin, "root") });
+  if (id === "anime") return container("anime", "Anime", "albumList", { artwork: sonosIconUrl(origin, "anime") });
+  if (id === "playlists") return container("playlists", "Playlists", "container", { artwork: sonosIconUrl(origin, "playlists") });
+  if (id === "liked") return container("liked", "Liked Songs", "trackList", { artwork: sonosIconUrl(origin, "liked") });
   if (id.startsWith("anime:")) {
     const anime = c.anime.find((item) => item.kitsuId === id.slice(6));
     return anime ? { ...container(id, titleAnime(anime), "album", { canPlay: true, canEnumerate: true }), artwork: absolute(origin, anime.posterUrl ?? anime.coverUrl) } : null;
   }
   if (id.startsWith("playlist:")) {
     const playlist = c.playlists.find((item) => String(item.id) === id.slice(9));
-    return playlist ? container(id, playlist.name, "playlist", { readOnly: true, userContent: true, canPlay: true, canEnumerate: true }) : null;
+    return playlist ? container(id, playlist.name, "playlist", { readOnly: true, userContent: true, canPlay: true, canEnumerate: true, artwork: sonosIconUrl(origin, playlistIconName(playlist.id)) }) : null;
   }
   return null;
 }
@@ -374,27 +399,27 @@ function playlistEntry(c: Catalog, playlist: PlaylistDto, item: PlaylistItemDto,
   let desired = item.modeOverride;
   if (!desired) desired = playlist.overrideUserPreference ? playlist.defaultMode : preferredThemeMode(c, theme.id, playlist.defaultMode);
   const mode = themeMode(theme, desired);
-  return mode ? themeEntry(c, theme, origin, mode) : null;
+  return mode ? themeEntry(c, theme, origin, mode, `theme:${theme.id}:${mode}:${item.entryId}`) : null;
 }
 function preferredThemeMode(c: Catalog, themeId: number, fallback: "TV_SIZE" | "FULL_SIZE" | undefined): "TV_SIZE" | "FULL_SIZE" {
   return c.themePrefs.find((p) => p.themeId === themeId)?.preferredMode ?? fallback ?? "TV_SIZE";
 }
-function themeEntry(c: Catalog, theme: LibraryThemeDto, origin: string, desired?: "TV_SIZE" | "FULL_SIZE"): SonosEntry {
+function themeEntry(c: Catalog, theme: LibraryThemeDto, origin: string, desired?: "TV_SIZE" | "FULL_SIZE", id?: string): SonosEntry {
   const anime = c.anime.find((a) => theme.kitsuAnimeIds.includes(a.kitsuId));
   const mode = themeMode(theme, desired ?? preferredThemeMode(c, theme.id, undefined)) ?? "TV_SIZE";
   const useFull = mode === "FULL_SIZE" && theme.mediaModes.fullSize;
-  return { id: `theme:${theme.id}`, title: theme.title, kind: "track", album: anime ? titleAnime(anime) : "Anime Ongaku",
+  return { id: id ?? `theme:${theme.id}`, title: theme.title, kind: "track", album: anime ? titleAnime(anime) : "Anime Ongaku",
     artist: theme.artists.map((a) => a.name).join(", ") || "Anime Ongaku",
     duration: useFull ? theme.mediaModes.fullSize!.durationSeconds : theme.mediaModes.tvSize.durationSeconds,
-    mimeType: sonosMimeType(useFull ? theme.mediaModes.fullSize!.mimeType : theme.mediaModes.tvSize.mimeType) ?? "application/ogg",
-    artwork: absolute(origin, anime?.posterUrl ?? anime?.coverUrl) };
+    mimeType: "audio/mpeg",
+    artwork: absolute(origin, anime?.posterUrl ?? anime?.coverUrl) ?? sonosIconUrl(origin, "fallback") };
 }
 function songEntries(c: Catalog, origin: string): SonosEntry[] {
   return c.music.flatMap((m) => m.releases.flatMap((r) => r.tracks.filter((t) => sonosMimeType(t.mimeType) !== null).map((t) => songEntry(t, m.anime, r.artworkUrl, origin))));
 }
 function songEntry(track: MusicTrackDto, anime: AnimeMusicDto["anime"], artwork: string | null, origin: string): SonosEntry {
   return { id: `song:${track.id}`, title: track.titleEnglish ?? track.title, kind: "track", album: anime.titleEn ?? anime.title ?? "Anime Ongaku",
-    artist: track.artistCredit || "Anime Ongaku", duration: track.durationSeconds, mimeType: sonosMimeType(track.mimeType) ?? "audio/mpeg", artwork: absolute(origin, artwork ?? anime.posterUrl) };
+    artist: track.artistCredit || "Anime Ongaku", duration: track.durationSeconds, mimeType: "audio/mpeg", artwork: absolute(origin, artwork ?? anime.posterUrl) ?? sonosIconUrl(origin, "fallback") };
 }
 function findSong(c: Catalog, id: number) {
   for (const m of c.music) for (const r of m.releases) { const track = r.tracks.find((t) => t.id === id); if (track) return { track, anime: m.anime, releaseArtwork: r.artworkUrl }; }
@@ -404,6 +429,13 @@ function titleAnime(anime: LibraryAnimeDto): string { return anime.titleEn ?? an
 function container(id: string, title: string, collectionType: SonosEntry["collectionType"] = "container", flags: Partial<SonosEntry> = {}): SonosEntry {
   return { id, title, kind: "container", collectionType, ...flags };
 }
+function searchIcon(category: string): SonosIconName {
+  if (category === "albums") return "anime";
+  if (category === "playlists") return "playlists";
+  if (category === "tracks") return "fallback";
+  return "search";
+}
+
 
 function themeMode(theme: LibraryThemeDto, preferred: "TV_SIZE" | "FULL_SIZE"): "TV_SIZE" | "FULL_SIZE" | null {
   const tv = sonosMimeType(theme.mediaModes.tvSize.mimeType);
@@ -453,6 +485,17 @@ export function sendFault(reply: FastifyReply, status: number, code: string, mes
 }
 function absolute(origin: string, value: string | null | undefined): string | null { return value ? new URL(value, origin).toString() : null; }
 function escapeXml(value: unknown): string { return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;"); }
+function sonosMediaUri(origin: string, value: string | null | undefined): string | null {
+  if (!value) return null;
+  let url: URL;
+  try { url = new URL(value, origin); } catch { return null; }
+  if (url.origin !== origin) return null;
+  const theme = /^\/v1\/media\/audio\/([1-9]\d*)$/.exec(url.pathname);
+  if (theme) return `${origin}/v1/media/sonos/themes/${theme[1]}.mp3`;
+  const song = /^\/v1\/media\/songs\/([1-9]\d*)\/audio$/.exec(url.pathname);
+  if (song) return `${origin}/v1/media/sonos/songs/${song[1]}.mp3`;
+  return null;
+}
 function decodeXml(value: string): string { return value.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&"); }
 function escapeRegex(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 function queryCode(url: string): string { try { return new URL(url, "http://local").searchParams.get("linkCode") ?? ""; } catch { return ""; } }

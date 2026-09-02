@@ -190,7 +190,7 @@ describe("Sonos sandbox SMAPI", () => {
     const anime = await soap("getMetadata", "<id>anime:42</id><index>0</index><count>10</count>", token);
     expect(anime.body).toContain("<id>theme:100</id>"); expect(anime.body).toContain("Opening &amp; &lt;One&gt;");
     const playlist = await soap("getMetadata", "<id>playlist:9</id><index>0</index><count>10</count>", token);
-    expect(playlist.body.match(/<id>theme:100<\/id>/g)).toHaveLength(2);
+    expect(playlist.body.match(/<id>theme:100:(?:TV_SIZE|FULL_SIZE):\d+<\/id>/g)).toHaveLength(2);
     expect((await soap("getMetadata", "<id>liked</id><index>0</index><count>10</count>", token)).body).toContain("<id>theme:100</id>");
   });
   it("advertises anime as albums and user playlists as read-only playlists", async () => {
@@ -230,18 +230,18 @@ describe("Sonos sandbox SMAPI", () => {
   });
   it("returns schema metadata and authenticated media URI without URL token leakage", async () => {
     const { token } = await link(); const meta = await soap("getMediaMetadata", "<id>theme:100</id>", token);
-    expect(meta.body).toContain("<mimeType>audio/flac</mimeType>"); expect(meta.body).toContain("<duration>240</duration>");
+    expect(meta.body).toContain("<mimeType>audio/mpeg</mimeType>"); expect(meta.body).toContain("<duration>240</duration>");
     expect(meta.body).toContain("https://ongaku.takeya.ninja/v1/media/images/anime/42/poster");
     const uri = await soap("getMediaURI", "<id>theme:100</id>", token);
-    expect(uri.body).toContain("https://ongaku.takeya.ninja/v1/media/songs/200/audio");
+    expect(uri.body).toContain("https://ongaku.takeya.ninja/v1/media/sonos/songs/200.mp3");
     expect(uri.body).toContain(`<header>Authorization</header><value>Bearer ${token}</value>`); expect(uri.body).not.toContain(`?token=${token}`);
   });
   it("falls back to TV-size when a preferred full song is unavailable", async () => {
     api.fullSize = false; const { token } = await link();
     const meta = await soap("getMediaMetadata", "<id>theme:100</id>", token);
-    expect(meta.body).toContain("<mimeType>application/ogg</mimeType>"); expect(meta.body).toContain("<duration>90</duration>");
+    expect(meta.body).toContain("<mimeType>audio/mpeg</mimeType>"); expect(meta.body).toContain("<duration>90</duration>");
     const uri = await soap("getMediaURI", "<id>theme:100</id>", token);
-    expect(uri.body).toContain("https://ongaku.takeya.ninja/v1/media/audio/100");
+    expect(uri.body).toContain("https://ongaku.takeya.ninja/v1/media/sonos/themes/100.mp3");
   });
   it("returns track-shaped extended metadata and album-shaped collection metadata", async () => {
     const { token } = await link();
