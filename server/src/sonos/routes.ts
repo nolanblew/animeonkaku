@@ -120,7 +120,7 @@ export function registerSonosRoutes(
         const regUrl = `${origin}/sonos/link?linkCode=${encodeURIComponent(code)}`;
         result = `<getAppLinkResult><authorizeAccount><deviceLink><regUrl>${escapeXml(regUrl)}</regUrl><linkCode>${escapeXml(code)}</linkCode><showLinkCode>true</showLinkCode><linkDeviceId>${escapeXml(linkDeviceId)}</linkDeviceId></deviceLink></authorizeAccount></getAppLinkResult>`;
       } else if (action.method === "getDeviceAuthToken") {
-        const state = validLink(links, requiredTag(xml, "linkCode"), now());
+        const state = validDeviceLink(links, requiredTag(xml, "linkCode"), now());
         if (state.householdId !== requiredTag(xml, "householdId") || state.linkDeviceId !== requiredTag(xml, "linkDeviceId")) {
           throw new SoapFault("Client.AuthTokenExpired", "This link code belongs to a different Sonos device.");
         }
@@ -216,6 +216,14 @@ export function registerSonosRoutes(
 function validLink(links: Map<string, LinkState>, code: string, now: number): LinkState {
   const state = links.get(code);
   if (!state || state.revoked || state.expiresAt <= now) throw new SoapFault("Client.AuthTokenExpired", "Link code expired.");
+  return state;
+}
+
+function validDeviceLink(links: Map<string, LinkState>, code: string, now: number): LinkState {
+  const state = links.get(code);
+  if (!state || state.revoked || state.expiresAt <= now) {
+    throw new SoapFault("Client.NOT_LINKED_FAILURE", "Account linking failed.");
+  }
   return state;
 }
 
@@ -429,7 +437,12 @@ function sendSoap(reply: FastifyReply, method: string, result: string) {
   return reply.type("text/xml; charset=utf-8").send(`<?xml version="1.0" encoding="UTF-8"?><s:Envelope xmlns:s="${SOAP_NS}"><s:Body><${method}Response xmlns="${SMAPI_NS}">${result}</${method}Response></s:Body></s:Envelope>`);
 }
 export function sendFault(reply: FastifyReply, status: number, code: string, message: string) {
-  return reply.code(status).type("text/xml; charset=utf-8").send(`<?xml version="1.0" encoding="UTF-8"?><s:Envelope xmlns:s="${SOAP_NS}"><s:Body><s:Fault><faultcode>${escapeXml(code)}</faultcode><faultstring>${escapeXml(message)}</faultstring></s:Fault></s:Body></s:Envelope>`);
+  const authDetail = code === "Client.NOT_LINKED_RETRY"
+    ? `<detail><ns:ExceptionInfo>Retry token request.</ns:ExceptionInfo><ns:SonosError>5</ns:SonosError></detail>`
+    : code === "Client.NOT_LINKED_FAILURE"
+      ? `<detail><ns:ExceptionInfo>Stop token request.</ns:ExceptionInfo><ns:SonosError>6</ns:SonosError></detail>`
+      : "";
+  return reply.code(status).type("text/xml; charset=utf-8").send(`<?xml version="1.0" encoding="UTF-8"?><s:Envelope xmlns:s="${SOAP_NS}" xmlns:ns="${SMAPI_NS}"><s:Body><s:Fault><faultcode>${escapeXml(code)}</faultcode><faultstring>${escapeXml(message)}</faultstring>${authDetail}</s:Fault></s:Body></s:Envelope>`);
 }
 function absolute(origin: string, value: string | null | undefined): string | null { return value ? new URL(value, origin).toString() : null; }
 function escapeXml(value: unknown): string { return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;"); }

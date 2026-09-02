@@ -159,8 +159,21 @@ describe("Sonos sandbox SMAPI", () => {
     const start = await soap("getAppLink", "<householdId>HH</householdId><linkDeviceId>D</linkDeviceId>");
     const linkCode = /linkCode=([^&<]+)/.exec(start.body)?.[1];
     const pending = await soap("getDeviceAuthToken", `<householdId>HH</householdId><linkDeviceId>D</linkDeviceId><linkCode>${linkCode}</linkCode>`);
-    expect(pending.body).toContain("Client.NOT_LINKED_RETRY"); now += 600_001;
+    expect(pending.body).toContain("Client.NOT_LINKED_RETRY");
+    expect(pending.body).toContain('<ns:ExceptionInfo>Retry token request.</ns:ExceptionInfo>');
+    expect(pending.body).toContain('<ns:SonosError>5</ns:SonosError>');
+    now += 600_001;
+    const failed = await soap("getDeviceAuthToken", `<householdId>HH</householdId><linkDeviceId>D</linkDeviceId><linkCode>${linkCode}</linkCode>`);
+    expect(failed.body).toContain("Client.NOT_LINKED_FAILURE");
+    expect(failed.body).toContain('<ns:ExceptionInfo>Stop token request.</ns:ExceptionInfo>');
+    expect(failed.body).toContain('<ns:SonosError>6</ns:SonosError>');
     expect((await app.inject({ method: "GET", url: `/sonos/link?linkCode=${linkCode}` })).statusCode).toBe(410);
+  });
+  it("does not add Sonos auth detail to generic SOAP faults", async () => {
+    const response = await soap("getMetadata", "<id>root</id>");
+    expect(response.body).toContain("Client.AuthTokenExpired");
+    expect(response.body).not.toContain("<detail>");
+    expect(response.body).not.toContain("SonosError");
   });
   it("caps failed logins", async () => {
     const start = await soap("getAppLink", "<householdId>HH</householdId><linkDeviceId>D</linkDeviceId>");
