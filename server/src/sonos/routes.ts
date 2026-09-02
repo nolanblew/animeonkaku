@@ -357,7 +357,7 @@ function resolveTrack(c: Catalog, id: string, origin: string): { entry: SonosEnt
   const qualifiedTheme = /^theme:(\d+):(TV_SIZE|FULL_SIZE):(\d+)$/.exec(id);
   if (qualifiedTheme) {
     const theme = c.themes.find((t) => String(t.id) === qualifiedTheme[1]); if (!theme) return null;
-    const mode = themeMode(theme, qualifiedTheme[2] as "TV_SIZE" | "FULL_SIZE");
+    const mode = exactThemeMode(theme, qualifiedTheme[2] as "TV_SIZE" | "FULL_SIZE");
     const uri = mode ? sonosMediaUri(origin, mode === "FULL_SIZE" ? theme.mediaModes.fullSize!.url : theme.mediaModes.tvSize.url) : null;
     if (!mode || !uri) return null;
     return { entry: themeEntry(c, theme, origin, mode, id), uri, animeId: `anime:${theme.kitsuAnimeIds[0] ?? "unknown"}` };
@@ -369,12 +369,15 @@ function resolveTrack(c: Catalog, id: string, origin: string): { entry: SonosEnt
     if (!mode || !uri) return null;
     return { entry: themeEntry(c, theme, origin, mode), uri, animeId: `anime:${theme.kitsuAnimeIds[0] ?? "unknown"}` };
   }
-  if (id.startsWith("song:")) {
-    const found = findSong(c, Number(id.slice(5))); if (!found) return null;
+  const qualifiedSong = /^song:(\d+):(\d+)$/.exec(id);
+  const legacySong = /^song:(\d+)$/.exec(id);
+  const songId = qualifiedSong?.[1] ?? legacySong?.[1];
+  if (songId !== undefined) {
+    const found = findSong(c, Number(songId)); if (!found) return null;
     if (!sonosMimeType(found.track.mimeType)) return null;
     const uri = sonosMediaUri(origin, found.track.audioUrl);
     if (!uri) return null;
-    return { entry: songEntry(found.track, found.anime, found.releaseArtwork, origin), uri, animeId: `anime:${found.anime.kitsuId}` };
+    return { entry: songEntry(found.track, found.anime, found.releaseArtwork, origin, qualifiedSong ? id : undefined), uri, animeId: `anime:${found.anime.kitsuId}` };
   }
   return null;
 }
@@ -398,7 +401,7 @@ function resolveCollection(c: Catalog, id: string, origin: string): SonosEntry |
 function playlistEntry(c: Catalog, playlist: PlaylistDto, item: PlaylistItemDto, origin: string): SonosEntry | null {
   if (item.itemType === "SONG") {
     const found = findSong(c, item.itemId);
-    return found && sonosMimeType(found.track.mimeType) ? songEntry(found.track, found.anime, found.releaseArtwork, origin) : null;
+    return found && sonosMimeType(found.track.mimeType) ? songEntry(found.track, found.anime, found.releaseArtwork, origin, `song:${item.itemId}:${item.entryId}`) : null;
   }
   const theme = c.themes.find((t) => t.id === item.itemId); if (!theme) return null;
   let desired = item.modeOverride;
@@ -422,8 +425,8 @@ function themeEntry(c: Catalog, theme: LibraryThemeDto, origin: string, desired?
 function songEntries(c: Catalog, origin: string): SonosEntry[] {
   return c.music.flatMap((m) => m.releases.flatMap((r) => r.tracks.filter((t) => sonosMimeType(t.mimeType) !== null).map((t) => songEntry(t, m.anime, r.artworkUrl, origin))));
 }
-function songEntry(track: MusicTrackDto, anime: AnimeMusicDto["anime"], artwork: string | null, origin: string): SonosEntry {
-  return { id: `song:${track.id}`, title: track.titleEnglish ?? track.title, kind: "track", album: anime.titleEn ?? anime.title ?? "Anime Ongaku",
+function songEntry(track: MusicTrackDto, anime: AnimeMusicDto["anime"], artwork: string | null, origin: string, id = `song:${track.id}`): SonosEntry {
+  return { id, title: track.titleEnglish ?? track.title, kind: "track", album: anime.titleEn ?? anime.title ?? "Anime Ongaku",
     artist: track.artistCredit || "Anime Ongaku", duration: track.durationSeconds, mimeType: "audio/mpeg", artwork: absolute(origin, artwork ?? anime.posterUrl) ?? sonosIconUrl(origin, "fallback") };
 }
 function findSong(c: Catalog, id: number) {
@@ -441,6 +444,13 @@ function searchIcon(category: string): SonosIconName {
   return "search";
 }
 
+
+function exactThemeMode(theme: LibraryThemeDto, requested: "TV_SIZE" | "FULL_SIZE"): "TV_SIZE" | "FULL_SIZE" | null {
+  if (requested === "FULL_SIZE") {
+    return theme.mediaModes.fullSize && sonosMimeType(theme.mediaModes.fullSize.mimeType) ? "FULL_SIZE" : null;
+  }
+  return sonosMimeType(theme.mediaModes.tvSize.mimeType) ? "TV_SIZE" : null;
+}
 
 function themeMode(theme: LibraryThemeDto, preferred: "TV_SIZE" | "FULL_SIZE"): "TV_SIZE" | "FULL_SIZE" | null {
   const tv = sonosMimeType(theme.mediaModes.tvSize.mimeType);

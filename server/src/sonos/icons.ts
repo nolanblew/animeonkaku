@@ -39,7 +39,12 @@ export function sonosLegacyIconPng(name: string): Promise<Buffer> | undefined {
   if (!svg) return undefined;
   let pending = legacyPngs.get(iconName);
   if (!pending) {
-    pending = sharp(Buffer.from(svg.replaceAll("#fff", "#111827"), "utf8"))
+    // Legacy Sonos clients render a transparent PNG against an unpredictable
+    // surface. Keep the SVG variants transparent and white, but give the PNG
+    // an opaque black canvas so the white anime line art remains visible on
+    // dark speaker and controller UIs.
+    const source = svg.replace(/(<svg\b[^>]*>)/, "$1<rect width=\"128\" height=\"128\" fill=\"#000\"/>");
+    pending = sharp(Buffer.from(source, "utf8"))
       .resize(80, 80, { fit: "contain" })
       .png()
       .toBuffer();

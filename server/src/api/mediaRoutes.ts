@@ -11,8 +11,8 @@ import type { FetchLike } from "../http/types.js";
 import { JobPriority, type JobQueue } from "../jobs/index.js";
 import type { AppLogger } from "../logging.js";
 import { safeExternalUrl } from "../logging.js";
-import { resolveManagedMediaPath } from "../media/mediaPathSafety.js";
-import { FfmpegSonosTranscoder, type SonosTranscoder } from "../media/sonosTranscoder.js";
+import { MediaPathEscapeError, resolveManagedMediaPath } from "../media/mediaPathSafety.js";
+import { FfmpegSonosTranscoder, type SonosTranscoder, withSonosTranscodeLimit } from "../media/sonosTranscoder.js";
 import type { MediaState } from "../media/types.js";
 import type { AudioState } from "./clientRoutes.js";
 import { ApiError } from "./errors.js";
@@ -240,41 +240,68 @@ export class MediaStreamingService {
     method: "GET" | "HEAD"; rangeHeader: string | undefined; reply: FastifyReply;
   }): Promise<FastifyReply> {
     const fingerprint = createHash("sha256").update(`${input.sourceSha ?? ""}:${input.source.absolutePath}:${input.source.size}`, "utf8").digest("hex").slice(0, 24);
-    const outputPath = join(this.mediaRoot, "sonos", input.kind, String(input.id), `${fingerprint}.mp3`);
-    const ready = await this.prepareSonosMp3(input.source.absolutePath, outputPath);
+    const outputRelativePath = join("sonos", input.kind, String(input.id), `${fingerprint}.mp3`);
+    const ready = await this.prepareSonosMp3(input.source.absolutePath, outputRelativePath);
     return this.sendReadyFile({ absolutePath: ready.absolutePath, method: input.method, rangeHeader: input.rangeHeader,
       reply: input.reply, totalSize: ready.size, etag: fingerprint, contentType: "audio/mpeg" });
   }
 
-  private async prepareSonosMp3(sourcePath: string, outputPath: string): Promise<ReadyMediaFile> {
+  private async prepareSonosMp3(
+    sourcePath: string,
+    outputRelativePath: string,
+  ): Promise<ReadyMediaFile> {
+    const outputPath = await this.resolveSonosPath(outputRelativePath, true);
     const existing = await stat(outputPath).catch(() => null);
     if (existing?.isFile() && existing.size > 0) return { absolutePath: outputPath, size: existing.size };
     const pending = this.sonosTranscodes.get(outputPath);
     if (pending) return pending;
-    const transcode = this.buildSonosMp3(sourcePath, outputPath);
+    const transcode = this.buildSonosMp3(sourcePath, outputRelativePath);
     this.sonosTranscodes.set(outputPath, transcode);
     try { return await transcode; }
     finally { if (this.sonosTranscodes.get(outputPath) === transcode) this.sonosTranscodes.delete(outputPath); }
   }
 
-  private async buildSonosMp3(sourcePath: string, outputPath: string): Promise<ReadyMediaFile> {
-    await mkdir(dirname(outputPath), { recursive: true });
+  private async buildSonosMp3(
+    sourcePath: string,
+    outputRelativePath: string,
+  ): Promise<ReadyMediaFile> {
+    const outputPath = await this.resolveSonosPath(outputRelativePath, true);
     const existing = await stat(outputPath).catch(() => null);
     if (existing?.isFile() && existing.size > 0) return { absolutePath: outputPath, size: existing.size };
-    const temporaryPath = `${outputPath}.${randomUUID()}.tmp.mp3`;
+    const temporaryRelativePath = `${outputRelativePath}.${randomUUID()}.tmp.mp3`;
+    let temporaryPath: string | null = null;
     try {
-      await this.sonosTranscoder.transcodeToMp3(sourcePath, temporaryPath);
+      temporaryPath = await this.resolveSonosPath(temporaryRelativePath, true);
+      await withSonosTranscodeLimit(() => this.sonosTranscoder.transcodeToMp3(sourcePath, temporaryPath!));
       const temporary = await stat(temporaryPath);
       if (!temporary.isFile() || temporary.size <= 0) throw new Error("FFmpeg produced an empty MP3.");
       await rename(temporaryPath, outputPath);
       return { absolutePath: outputPath, size: temporary.size };
     } catch (error) {
-      await rm(temporaryPath, { force: true }).catch(() => undefined);
+      if (temporaryPath) await rm(temporaryPath, { force: true }).catch(() => undefined);
+      if (error instanceof ApiError) throw error;
       this.deps.logger?.warn?.({ errorName: error instanceof Error ? error.name : "Error" }, "Sonos audio transcoding failed");
       throw new ApiError(503, "SONOS_AUDIO_UNAVAILABLE", "Sonos-compatible audio could not be prepared.");
     }
   }
 
+  private async resolveSonosPath(relativePath: string, createParent: boolean): Promise<string> {
+    try {
+      let absolutePath = await resolveManagedMediaPath(this.mediaRoot, relativePath);
+      if (createParent) {
+        await mkdir(dirname(absolutePath), { recursive: true });
+        // Recheck after parent creation so a pre-existing junction cannot be
+        // hidden by a missing ancestor during the first check.
+        absolutePath = await resolveManagedMediaPath(this.mediaRoot, relativePath);
+      }
+      return absolutePath;
+    } catch (error) {
+      if (error instanceof MediaPathEscapeError) {
+        throw new ApiError(500, "INTERNAL", "Invalid media path.");
+      }
+      throw error;
+    }
+  }
   async requestAudio(themeId: number): Promise<{ themeId: number; audioState: AudioState; jobId: number }> {
     const audio = await this.deps.repo.findAudio(themeId);
     if (!audio) throw new ApiError(404, "NOT_FOUND", "Theme not found.");

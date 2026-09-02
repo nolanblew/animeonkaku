@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import sharp from "sharp";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.js";
 import { AuthService } from "../src/auth/service.js";
-import type { ClientApiService, LibraryResponse } from "../src/api/clientRoutes.js";
+import type { ClientApiService, LibraryResponse, PlaylistItemDto } from "../src/api/clientRoutes.js";
 import { StubKitsuAuthClient } from "../src/auth/stubKitsuAuthClient.js";
 import { FakeAuthRepo } from "./helpers/fakeAuthRepo.js";
 
@@ -16,6 +17,10 @@ class SonosApi {
   fullSize = true;
   tvMimeType = "application/ogg";
   preferenceRevision = 1;
+  playlistItems: PlaylistItemDto[] = [
+    { entryId: 1, itemType: "THEME", itemId: 100, modeOverride: "FULL_SIZE" },
+    { entryId: 2, itemType: "THEME", itemId: 100, modeOverride: null },
+  ];
   async getLibrary(userId: string, _since: number | null): Promise<LibraryResponse> {
     this.users.push(userId);
     return { serverTime: 1_800_000_000_000, anime: [{
@@ -36,10 +41,7 @@ class SonosApi {
   async listPlaylists(userId: string) {
     this.users.push(userId);
     return [{ id: 9, name: "Favorites & More", entries: [100, 100], defaultMode: "TV_SIZE" as const,
-      overrideUserPreference: false, items: [
-        { entryId: 1, itemType: "THEME" as const, itemId: 100, modeOverride: "FULL_SIZE" as const },
-        { entryId: 2, itemType: "THEME" as const, itemId: 100, modeOverride: null },
-      ], isAuto: false, isDynamic: false, autoUpdate: false, updatedAt: 11, deleted: false,
+      overrideUserPreference: false, items: this.playlistItems, isAuto: false, isDynamic: false, autoUpdate: false, updatedAt: 11, deleted: false,
       dynamicSpecJson: null, dynamicSortJson: null }];
   }
   async getThemePrefs(userId: string) { this.users.push(userId); return [{ themeId: 100, liked: true, disliked: false,
@@ -295,6 +297,43 @@ describe("Sonos sandbox SMAPI", () => {
   });
 
 
+  it("gives duplicate SONG playlist entries unique entry-qualified IDs while resolving legacy IDs", async () => {
+    api.playlistItems = [
+      { entryId: 7, itemType: "SONG", itemId: 200, modeOverride: null },
+      { entryId: 8, itemType: "SONG", itemId: 200, modeOverride: null },
+    ];
+    const { token } = await link();
+    const playlist = await soap("getMetadata", "<id>playlist:9</id><index>0</index><count>10</count>", token);
+    expect([...playlist.body.matchAll(/<id>(song:[^<]+)<\/id>/g)].map((match) => match[1])).toEqual(["song:200:7", "song:200:8"]);
+
+    for (const entryId of [7, 8]) {
+      const metadata = await soap("getMediaMetadata", `<id>song:200:${entryId}</id>`, token);
+      expect(metadata.statusCode).toBe(200);
+      expect(metadata.body).toContain("<title>Full Opening</title>");
+      expect(metadata.body).toContain(`<id>song:200:${entryId}</id>`);
+      const uri = await soap("getMediaURI", `<id>song:200:${entryId}</id>`, token);
+      expect(uri.statusCode).toBe(200);
+      expect(uri.body).toContain("https://ongaku.takeya.ninja/v1/media/sonos/songs/200.mp3");
+    }
+
+    const legacy = await soap("getMediaURI", "<id>song:200</id>", token);
+    expect(legacy.statusCode).toBe(200);
+    expect(legacy.body).toContain("https://ongaku.takeya.ninja/v1/media/sonos/songs/200.mp3");
+  });
+
+  it("does not fall back from an unavailable qualified Full Size theme", async () => {
+    api.fullSize = false;
+    const { token } = await link();
+    const metadata = await soap("getMediaMetadata", "<id>theme:100:FULL_SIZE:1</id>", token);
+    expect(metadata.statusCode).toBe(500);
+    expect(metadata.body).toContain("Client.ItemNotFound");
+    expect(metadata.body).not.toContain("<duration>90</duration>");
+
+    const uri = await soap("getMediaURI", "<id>theme:100:FULL_SIZE:1</id>", token);
+    expect(uri.statusCode).toBe(500);
+    expect(uri.body).toContain("Client.ItemNotFound");
+    expect(uri.body).not.toContain("/v1/media/sonos/themes/100.mp3");
+  });
   it("returns SVG browse artwork for the root, playlist collection, and search categories", async () => {
     const { token } = await link();
     const root = await soap("getMetadata", "<id>root</id><index>0</index><count>10</count>", token);
@@ -325,5 +364,30 @@ describe("Sonos sandbox SMAPI", () => {
         expect(response.rawPayload.byteLength).toBeGreaterThan(100);
       }
     }
+  });
+
+  it("renders legacy Sonos PNGs as opaque black-and-white artwork", async () => {
+    const response = await app.inject({ method: "GET", url: "/sonos/icons/root_legacy.png" });
+    expect(response.statusCode).toBe(200);
+    const rendered = await sharp(response.rawPayload).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    expect(rendered.info.width).toBe(80);
+    expect(rendered.info.height).toBe(80);
+    expect(rendered.info.channels).toBe(4);
+
+    const pixels = rendered.data;
+    const alphaValues = new Set<number>();
+    let hasWhite = false;
+    let hasBlack = false;
+    for (let i = 0; i < pixels.length; i += 4) {
+      const red = pixels[i]!;
+      const green = pixels[i + 1]!;
+      const blue = pixels[i + 2]!;
+      alphaValues.add(pixels[i + 3]!);
+      if (red > 240 && green > 240 && blue > 240) hasWhite = true;
+      if (red < 8 && green < 8 && blue < 8) hasBlack = true;
+    }
+    expect(alphaValues).toEqual(new Set([255]));
+    expect(hasWhite).toBe(true);
+    expect(hasBlack).toBe(true);
   });
 });

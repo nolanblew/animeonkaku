@@ -135,4 +135,20 @@ describe("LibrarySyncPipeline backfill/playlists/maintenance", () => {
     expect(existsSync(join(tempRoot, "audio", "ready.ogg"))).toBe(true);
     expect(existsSync(join(tempRoot, "audio", "orphan.ogg"))).toBe(false);
   });
+  it("preserves Sonos derivative cache files and active temporary outputs", async () => {
+    const repo = new FakeMaintenanceRepo();
+    tempRoot = mkdtempSync(join(tmpdir(), "ongaku-media-"));
+    await mkdir(join(tempRoot, "sonos", "themes", "100"), { recursive: true });
+    writeFileSync(join(tempRoot, "sonos", "themes", "100", "cached.mp3"), "cached");
+    writeFileSync(join(tempRoot, "sonos", "themes", "100", "active.tmp.mp3"), "active");
+
+    const queue = new JobQueue(new FakeJobRepository());
+    const pipeline = new LibrarySyncPipeline({ repo: repo as never, kitsu: {} as never, animeThemes: {}, queue });
+
+    const removed = await pipeline.scanOrphanFiles(tempRoot);
+
+    expect(removed).toEqual([]);
+    expect(existsSync(join(tempRoot, "sonos", "themes", "100", "cached.mp3"))).toBe(true);
+    expect(existsSync(join(tempRoot, "sonos", "themes", "100", "active.tmp.mp3"))).toBe(true);
+  });
 });

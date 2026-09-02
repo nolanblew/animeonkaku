@@ -2,7 +2,15 @@ import { spawn } from "node:child_process";
 
 /** The narrow transcoding seam keeps the media route easy to test. */
 export interface SonosTranscoder {
-  transcodeToMp3(sourcePath: string, outputPath: string): Promise<void>;
+  transcodeToMp3(sourcePath: string, outputPath: string, signal?: AbortSignal): Promise<void>;
+}
+
+export const SONOS_TRANSCODE_CONCURRENCY = 2;
+export const DEFAULT_SONOS_TRANSCODE_TIMEOUT_MS = 2 * 60 * 1000;
+
+interface SonosTranscoderOptions {
+  executable?: string;
+  timeoutMs?: number;
 }
 
 /**
@@ -13,9 +21,23 @@ export interface SonosTranscoder {
  * `-maxrate` make the LAME encode CBR while keeping the bitrate at 320 kbps.
  */
 export class FfmpegSonosTranscoder implements SonosTranscoder {
-  constructor(private readonly executable = "ffmpeg") {}
+  private readonly executable: string;
+  private readonly timeoutMs: number;
 
-  async transcodeToMp3(sourcePath: string, outputPath: string): Promise<void> {
+  constructor(options: string | SonosTranscoderOptions = {}) {
+    if (typeof options === "string") {
+      this.executable = options;
+      this.timeoutMs = DEFAULT_SONOS_TRANSCODE_TIMEOUT_MS;
+    } else {
+      this.executable = options.executable ?? "ffmpeg";
+      this.timeoutMs = options.timeoutMs ?? DEFAULT_SONOS_TRANSCODE_TIMEOUT_MS;
+    }
+    if (!Number.isFinite(this.timeoutMs) || this.timeoutMs <= 0) {
+      throw new Error("Sonos transcode timeout must be a positive finite number.");
+    }
+  }
+
+  async transcodeToMp3(sourcePath: string, outputPath: string, signal?: AbortSignal): Promise<void> {
     const args = [
       "-nostdin",
       "-hide_banner",
@@ -42,29 +64,143 @@ export class FfmpegSonosTranscoder implements SonosTranscoder {
       outputPath,
     ];
 
-    await runProcess(this.executable, args);
+    await runProcess(this.executable, args, signal, this.timeoutMs);
   }
 }
 
-function runProcess(command: string, args: string[]): Promise<void> {
+/**
+ * All Sonos derivative requests share this gate, including requests handled by
+ * separate MediaStreamingService instances in the same server process.
+ */
+export async function withSonosTranscodeLimit<T>(
+  task: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  const release = await sonosTranscodeLimiter.acquire(signal);
+  try {
+    return await task();
+  } finally {
+    release();
+  }
+}
+
+type SemaphoreWaiter = {
+  signal?: AbortSignal;
+  resolve: (release: () => void) => void;
+  reject: (error: Error) => void;
+  removeAbortListener: () => void;
+};
+class AsyncSemaphore {
+  private available: number;
+  private readonly waiters: SemaphoreWaiter[] = [];
+
+  constructor(private readonly limit: number) {
+    this.available = limit;
+  }
+
+  acquire(signal?: AbortSignal): Promise<() => void> {
+    if (signal?.aborted) return Promise.reject(abortedError());
+    if (this.available > 0) {
+      this.available -= 1;
+      return Promise.resolve(() => this.release());
+    }
+    return new Promise((resolve, reject) => {
+      const waiter: SemaphoreWaiter = {
+        ...(signal ? { signal } : {}),
+        resolve: resolve as (release: () => void) => void,
+        reject: reject as (error: Error) => void,
+        removeAbortListener: () => {},
+      };
+      const onAbort = () => {
+        const index = this.waiters.indexOf(waiter);
+        if (index >= 0) this.waiters.splice(index, 1);
+        reject(abortedError());
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      waiter.removeAbortListener = () => signal?.removeEventListener("abort", onAbort);
+      this.waiters.push(waiter);
+    });
+  }
+
+  private release(): void {
+    this.available += 1;
+    this.pump();
+  }
+
+  private pump(): void {
+    while (this.available > 0 && this.waiters.length > 0) {
+      const waiter = this.waiters.shift()!;
+      waiter.removeAbortListener();
+      if (waiter.signal?.aborted) {
+        waiter.reject(abortedError());
+        continue;
+      }
+      this.available -= 1;
+      waiter.resolve(() => this.release());
+    }
+  }
+}
+
+const sonosTranscodeLimiter = new AsyncSemaphore(SONOS_TRANSCODE_CONCURRENCY);
+
+function runProcess(
+  command: string,
+  args: string[],
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(abortedError());
+      return;
+    }
+
     const child = spawn(command, args, {
       shell: false,
       windowsHide: true,
       stdio: ["ignore", "ignore", "pipe"],
     });
     let stderr = "";
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      if (error) reject(error);
+      else resolve();
+    };
+    const onAbort = () => {
+      child.kill("SIGKILL");
+      finish(abortedError());
+    };
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      const error = new Error(`FFmpeg transcoding timed out after ${timeoutMs} ms.`);
+      error.name = "SonosTranscodeTimeoutError";
+      finish(error);
+    }, timeoutMs);
+    timer.unref?.();
+
     child.stderr?.setEncoding("utf8");
     child.stderr?.on("data", (chunk: string) => {
       stderr = `${stderr}${chunk}`.slice(-2_000);
     });
-    child.once("error", reject);
-    child.once("close", (code, signal) => {
+    child.once("error", (error) => finish(error instanceof Error ? error : new Error(String(error))));
+    child.once("close", (code, closeSignal) => {
+      if (settled) return;
       if (code === 0) {
-        resolve();
+        finish();
         return;
       }
-      reject(new Error(`FFmpeg transcoding failed (${code ?? `signal ${signal ?? "unknown"}`}): ${stderr}`));
+      finish(new Error(`FFmpeg transcoding failed (${code ?? `signal ${closeSignal ?? "unknown"}`}): ${stderr}`));
     });
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
+}
+
+function abortedError(): Error {
+  const error = new Error("Sonos FFmpeg transcoding aborted.");
+  error.name = "AbortError";
+  return error;
 }
