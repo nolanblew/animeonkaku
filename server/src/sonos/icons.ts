@@ -6,10 +6,10 @@ export const SONOS_ICON_NAMES = [
 ] as const;
 
 export type SonosIconName = (typeof SONOS_ICON_NAMES)[number];
-const SONOS_ICON_VERSION = "v3";
+const SONOS_ICON_VERSION = "v4";
 
-const STROKE = 'fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round"';
-const FILL = 'fill="#fff"';
+const STROKE = 'fill="none" stroke="#6C63FF" stroke-linecap="round" stroke-linejoin="round"';
+const FILL = 'fill="#6C63FF"';
 
 // A compact, original chibi mascot derived from the generated Sonos concept
 // sheet. The strong outer silhouette and deliberately sparse facial detail stay
@@ -28,9 +28,9 @@ function icon(extra: string, mascot = MASCOT): string {
 const SONOS_ICON_SVGS: Record<SonosIconName, string> = {
   root: icon(`<path ${STROKE} d="M10 39c-5 7-7 15-7 24m115-24c5 7 7 15 7 24M14 104l9-9m91 9-9-9"/>`),
   anime: icon(`<path ${FILL} d="m103 12 4 11 11 4-11 4-4 11-4-11-11-4 11-4 4-11Zm-82 13 2 6 6 2-6 2-2 6-2-6-6-2 6-2 2-6Z"/>`),
-  playlists: icon(`<g transform="translate(78 76)"><rect ${FILL} x="8" y="-16" width="35" height="29" rx="5"/><rect ${STROKE} x="0" y="-8" width="35" height="29" rx="5"/><path fill="none" stroke="#000" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" d="M9 2h17M9 10h12"/></g>`),
+  playlists: icon(`<g transform="translate(78 76)"><rect ${FILL} x="8" y="-16" width="35" height="29" rx="5"/><rect ${STROKE} x="0" y="-8" width="35" height="29" rx="5"/></g>`),
   liked: icon(`<path ${FILL} d="M101 102 82 85c-13-12 5-30 19-14 14-16 32 2 19 14l-19 17Z"/>`),
-  search: icon(`<g transform="translate(98 91)"><circle ${FILL} cx="0" cy="0" r="19"/><circle fill="#000" cx="0" cy="0" r="11"/><path ${STROKE} stroke-width="8" d="m14 14 14 14"/></g>`),
+  search: icon(`<g transform="translate(98 91)"><circle ${STROKE} stroke-width="8" cx="0" cy="0" r="15"/><path ${STROKE} stroke-width="8" d="m11 11 17 17"/></g>`),
   fallback: icon(`<path ${STROKE} stroke-width="7" d="M96 64V31l23-5v30M96 64c-11-3-19 1-19 9s10 10 19 3m23-20c-11-3-19 1-19 9s10 10 19 3"/>`),
   "playlist-0": icon(`<g transform="translate(79 78)"><rect ${FILL} x="7" y="-15" width="34" height="28" rx="5"/><rect ${STROKE} x="0" y="-7" width="34" height="28" rx="5"/></g>`),
   "playlist-1": icon(`<path ${FILL} d="M101 103 82 86c-13-12 5-30 19-14 14-16 32 2 19 14l-19 17Z"/>`),
@@ -50,7 +50,9 @@ export function sonosLegacyIconPng(name: string): Promise<Buffer> | undefined {
   if (!svg) return undefined;
   let pending = legacyPngs.get(iconName);
   if (!pending) {
-    const source = svg.replace(/(<svg\b[^>]*>)/, "$1<rect width=\"128\" height=\"128\" fill=\"#000\"/>");
+    const source = svg
+      .replaceAll("#6C63FF", "#fff")
+      .replace(/(<svg\b[^>]*>)/, "$1<rect width=\"128\" height=\"128\" fill=\"#000\"/>");
     pending = sharp(Buffer.from(source, "utf8"))
       .resize(80, 80, { fit: "contain" })
       .png()
