@@ -12,7 +12,7 @@ import type {
   SongPrefDto,
   ThemePrefDto,
 } from "../api/clientRoutes.js";
-import { playlistIconName, sonosIconSvg, sonosIconUrl, type SonosIconName } from "./icons.js";
+import { playlistIconName, sonosIconSvg, sonosIconUrl, sonosLegacyIconPng, type SonosIconName } from "./icons.js";
 
 const SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/";
 const SMAPI_NS = "http://www.sonos.com/Services/1.1";
@@ -99,13 +99,18 @@ export function registerSonosRoutes(
   if (!app.hasContentTypeParser("application/x-www-form-urlencoded")) {
     app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (_request, body, done) => done(null, body));
   }
-  app.get("/sonos/icons/:name.svg", async (request, reply) => {
-    const name = (request.params as { name?: unknown }).name;
-    const svg = typeof name === "string" ? sonosIconSvg(name) : undefined;
-    if (!svg) return reply.code(404).send();
-    return reply.header("cache-control", "public, max-age=31536000, immutable")
-      .type("image/svg+xml; charset=utf-8")
-      .send(svg);
+  app.get("/sonos/icons/:asset", async (request, reply) => {
+    const asset = (request.params as { asset?: unknown }).asset;
+    const match = typeof asset === "string" ? /^([a-z0-9-]+)_(?:(40|290)\.svg|legacy\.png)$/.exec(asset) : null;
+    if (!match) return reply.code(404).send();
+    reply.header("cache-control", "public, max-age=31536000, immutable");
+    if (match[2]) {
+      const svg = sonosIconSvg(match[1]!);
+      return svg ? reply.type("image/svg+xml; charset=utf-8").send(svg) : reply.code(404).send();
+    }
+    const png = sonosLegacyIconPng(match[1]!);
+    if (!png) return reply.code(404).send();
+    return reply.type("image/png").send(await png);
   });
 
 
