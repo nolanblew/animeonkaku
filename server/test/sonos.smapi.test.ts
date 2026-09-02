@@ -203,6 +203,22 @@ describe("Sonos sandbox SMAPI", () => {
     const playlists = await soap("getMetadata", "<id>playlists</id><index>0</index><count>10</count>", token);
     expect(playlists.body).toMatch(/<mediaCollection[^>]*readOnly="true"[^>]*>.*<id>playlist:9<\/id><itemType>playlist<\/itemType>/s);
   });
+  it("returns configured classic-search categories from the search metadata container", async () => {
+    const { token } = await link();
+    const firstPage = await soap("getMetadata", "<id>search</id><index>0</index><count>2</count>", token);
+    expect(firstPage.statusCode).toBe(200);
+    expect(firstPage.body).toContain("<total>4</total>");
+    const firstEntries = [...firstPage.body.matchAll(/<mediaCollection>([\s\S]*?)<\/mediaCollection>/g)].map((match) => match[1]);
+    expect(firstEntries.map((entry) => /<id>([^<]+)<\/id>/.exec(entry)?.[1])).toEqual(["all", "albums"]);
+    expect(firstEntries.map((entry) => /<title>([^<]+)<\/title>/.exec(entry)?.[1])).toEqual(["All", "Albums"]);
+    expect(firstEntries.every((entry) => entry?.includes("<itemType>search</itemType>") && entry.includes("<canPlay>false</canPlay>"))).toBe(true);
+
+    const secondPage = await soap("getMetadata", "<id>search</id><index>2</index><count>2</count>", token);
+    const secondEntries = [...secondPage.body.matchAll(/<mediaCollection>([\s\S]*?)<\/mediaCollection>/g)].map((match) => match[1]);
+    expect(secondEntries.map((entry) => /<id>([^<]+)<\/id>/.exec(entry)?.[1])).toEqual(["playlists", "tracks"]);
+    expect(secondEntries.map((entry) => /<title>([^<]+)<\/title>/.exec(entry)?.[1])).toEqual(["Playlists", "Tracks"]);
+    expect(secondEntries.every((entry) => entry?.includes("<itemType>search</itemType>") && entry.includes("<canPlay>false</canPlay>"))).toBe(true);
+  });
   it.each(["all", "albums", "playlists", "tracks"])("searches user-scoped %s", async (category) => {
     const { token } = await link();
     expect((await soap("search", `<id>${category}</id><term>Opening</term><index>0</index><count>10</count>`, token)).statusCode).toBe(200);
