@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Anime Ongaku · Sonos SVG review</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #111116;
+      color: #f7f7fb;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; background: #111116; }
+    button, input { font: inherit; }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px clamp(18px, 4vw, 48px);
+      border-bottom: 1px solid #ffffff1f;
+      background: #111116e8;
+      backdrop-filter: blur(16px);
+    }
+    h1 { margin: 0; font-size: clamp(19px, 2.4vw, 28px); letter-spacing: -.02em; }
+    .subtitle { margin: 4px 0 0; color: #a9a9b8; font-size: 13px; }
+    .toolbar, .controls { display: flex; align-items: center; gap: 8px; }
+    .toolbar { flex-wrap: wrap; }
+    button, .source-link {
+      min-height: 36px;
+      border: 1px solid #ffffff24;
+      border-radius: 10px;
+      padding: 7px 11px;
+      background: #22222b;
+      color: inherit;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    button:hover, .source-link:hover { border-color: #6c63ff; background: #2a2937; }
+    button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid #8f88ff; outline-offset: 2px; }
+    main {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
+      gap: 20px;
+      padding: clamp(20px, 4vw, 48px);
+      max-width: 1500px;
+      margin: auto;
+    }
+    .card { overflow: hidden; border: 1px solid #ffffff1f; border-radius: 18px; background: #191920; box-shadow: 0 18px 50px #0004; }
+    .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; }
+    h2 { margin: 0; font-size: 17px; text-transform: capitalize; }
+    .viewport {
+      --scale: 1;
+      position: relative;
+      height: 340px;
+      overflow: auto;
+      display: grid;
+      place-items: center;
+      overscroll-behavior: contain;
+      background-color: #e4e5e9;
+      background-image: linear-gradient(45deg, #d5d6db 25%, transparent 25%), linear-gradient(-45deg, #d5d6db 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #d5d6db 75%), linear-gradient(-45deg, transparent 75%, #d5d6db 75%);
+      background-size: 24px 24px;
+      background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+    }
+    .viewport.light { background: #f0f1f3; }
+    .viewport.dark { background: #26272d; }
+    .stage { width: max(100%, calc(290px * var(--scale))); height: max(100%, calc(290px * var(--scale))); display: grid; place-items: center; }
+    .icon { width: 290px; height: 290px; transform: scale(var(--scale)); transform-origin: center; image-rendering: auto; user-select: none; }
+    .card-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 16px 16px; }
+    .controls button { min-width: 36px; padding-inline: 8px; font-weight: 700; }
+    .zoom-value { min-width: 54px; color: #c8c6ff; font-variant-numeric: tabular-nums; text-align: center; }
+    input[type="range"] { width: min(150px, 28vw); accent-color: #6c63ff; }
+    .hint { color: #9999a8; font-size: 12px; }
+    @media (max-width: 500px) {
+      header { position: static; }
+      .viewport { height: 300px; }
+      .card-foot { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Sonos SVG review</h1>
+      <p class="subtitle">Smooth supersampled vector paths traced from the generated chibi reference · production remains unchanged</p>
+    </div>
+    <div class="toolbar" aria-label="Gallery controls">
+      <button type="button" data-zoom-all="out" title="Zoom every icon out">− All</button>
+      <button type="button" data-zoom-all="reset">Reset all</button>
+      <button type="button" data-zoom-all="in" title="Zoom every icon in">+ All</button>
+      <button type="button" id="background">Background: checker</button>
+    </div>
+  </header>
+  <main id="gallery"></main>
+  <script>
+    const icons = ["root", "anime", "playlists", "liked", "search", "fallback"];
+    const gallery = document.querySelector("#gallery");
+    const clamp = value => Math.min(8, Math.max(.25, value));
+
+    function setZoom(card, next) {
+      const viewport = card.querySelector(".viewport");
+      const value = clamp(next);
+      viewport.dataset.zoom = value;
+      viewport.style.setProperty("--scale", value);
+      card.querySelector(".zoom-value").textContent = `${Math.round(value * 100)}%`;
+      card.querySelector("input").value = value;
+    }
+
+    for (const name of icons) {
+      const card = document.createElement("article");
+      card.className = "card";
+      card.innerHTML = `
+        <div class="card-head">
+          <h2>${name}</h2>
+          <span class="hint">2048 × 2048 trace</span>
+        </div>
+        <div class="viewport" data-zoom="1">
+          <div class="stage"><img class="icon" src="${name}.svg" alt="${name} vector candidate"></div>
+        </div>
+        <div class="card-foot">
+          <div class="controls">
+            <button type="button" data-action="out" aria-label="Zoom ${name} out">−</button>
+            <input type="range" min="0.25" max="8" step="0.05" value="1" aria-label="${name} zoom">
+            <button type="button" data-action="in" aria-label="Zoom ${name} in">+</button>
+            <span class="zoom-value">100%</span>
+          </div>
+          <a class="source-link" href="${name}.svg" target="_blank" rel="noopener">Open SVG</a>
+        </div>`;
+      gallery.append(card);
+      card.querySelector('[data-action="out"]').addEventListener("click", () => setZoom(card, Number(card.querySelector(".viewport").dataset.zoom) / 1.25));
+      card.querySelector('[data-action="in"]').addEventListener("click", () => setZoom(card, Number(card.querySelector(".viewport").dataset.zoom) * 1.25));
+      card.querySelector("input").addEventListener("input", event => setZoom(card, Number(event.target.value)));
+      card.querySelector(".viewport").addEventListener("dblclick", () => setZoom(card, 1));
+    }
+
+    document.querySelectorAll("[data-zoom-all]").forEach(button => button.addEventListener("click", () => {
+      document.querySelectorAll(".card").forEach(card => {
+        const current = Number(card.querySelector(".viewport").dataset.zoom);
+        const action = button.dataset.zoomAll;
+        setZoom(card, action === "reset" ? 1 : action === "in" ? current * 1.25 : current / 1.25);
+      });
+    }));
+
+    const backgrounds = ["checker", "light", "dark"];
+    let backgroundIndex = 0;
+    document.querySelector("#background").addEventListener("click", event => {
+      backgroundIndex = (backgroundIndex + 1) % backgrounds.length;
+      const background = backgrounds[backgroundIndex];
+      document.querySelectorAll(".viewport").forEach(viewport => viewport.className = `viewport ${background === "checker" ? "" : background}`);
+      event.currentTarget.textContent = `Background: ${background}`;
+    });
+  </script>
+</body>
+</html>
