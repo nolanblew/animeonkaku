@@ -18,6 +18,12 @@ const SMAPI_NS = "http://www.sonos.com/Services/1.1";
 export const SONOS_BODY_LIMIT = 256 * 1024;
 const LINK_TTL_MS = 10 * 60_000;
 const MAX_LINK_FAILURES = 5;
+const SONOS_SEARCH_CATEGORIES = [
+  { id: "all", title: "All" },
+  { id: "albums", title: "Albums" },
+  { id: "playlists", title: "Playlists" },
+  { id: "tracks", title: "Tracks" },
+] as const;
 // Sonos requires a privateKey in the browser-link success response even when
 // the service does not implement refresh tokens. It is an opaque sentinel, not
 // a credential, and Sonos only passes it back during a future refresh flow.
@@ -56,7 +62,7 @@ interface SonosEntry {
   id: string;
   title: string;
   kind: "container" | "track";
-  collectionType?: "album" | "albumList" | "container" | "playlist" | "trackList";
+  collectionType?: "album" | "albumList" | "container" | "playlist" | "search" | "trackList";
   readOnly?: boolean;
   userContent?: boolean;
   canPlay?: boolean;
@@ -296,6 +302,7 @@ async function loadCatalog(client: ClientApiService, userId: string): Promise<Ca
 }
 
 function browse(c: Catalog, id: string, origin: string): SonosEntry[] {
+  if (id === "search") return SONOS_SEARCH_CATEGORIES.map(({ id: categoryId, title }) => container(categoryId, title, "search", { canPlay: false }));
   if (id === "root") return [container("anime", "Anime", "albumList"), container("playlists", "Playlists"), container("liked", "Liked Songs", "trackList")];
   if (id === "anime") return c.anime.map((a) => ({ ...container(`anime:${a.kitsuId}`, titleAnime(a), "album", { canPlay: true, canEnumerate: true }), artwork: absolute(origin, a.posterUrl ?? a.coverUrl) }));
   if (id === "playlists") return c.playlists.map((p) => container(`playlist:${p.id}`, p.name, "playlist", { readOnly: true, userContent: true, canPlay: true, canEnumerate: true }));
