@@ -123,7 +123,8 @@ export function registerSonosRoutes(
     if (!pending) return reply.code(404).send();
     const png = await pending;
     if (!png) return reply.code(404).send();
-    return reply.header("cache-control", "public, max-age=31536000, immutable").type("image/png").send(png);
+    return reply.header("cache-control", "public, max-age=300")
+      .header("x-content-type-options", "nosniff").type("image/png").send(png);
   });
 
 
@@ -177,11 +178,13 @@ export function registerSonosRoutes(
         if (action.method === "getMetadata") {
           const catalog = await loadCatalog(client, userId);
           const id = tag(xml, "id") ?? "root";
+          const index = pageIndex(xml);
+          const count = pageCount(xml);
           const playlistArtwork = id === "playlists"
-            ? await playlistArtworkCache.prepare(catalog, catalog.playlists, origin)
+            ? await playlistArtworkCache.prepare(catalog, catalog.playlists.slice(index, index + count), origin)
             : new Map<number, string>();
           const entries = browse(catalog, id, origin, playlistArtwork);
-          result = resultPage("getMetadata", entries, pageIndex(xml), pageCount(xml));
+          result = resultPage("getMetadata", entries, index, count);
         } else if (action.method === "search") {
           const catalog = await loadCatalog(client, userId);
           const category = tag(xml, "id") ?? "all";

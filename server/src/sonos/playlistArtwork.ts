@@ -18,31 +18,32 @@ interface ArtworkSource {
   url: string;
 }
 
+interface CachedArtwork {
+  sources: string[];
+  origin: string;
+  pending?: Promise<Buffer | null> | undefined;
+}
+
 export class PlaylistArtworkCache {
-  private readonly assets = new Map<string, Promise<Buffer | null>>();
+  private readonly assets = new Map<string, CachedArtwork>();
 
   constructor(private readonly fetchImpl: FetchLike = (url, init) => fetch(url, init)) {}
 
   async prepare(catalog: PlaylistArtworkCatalog, playlists: PlaylistDto[], origin: string): Promise<Map<number, string>> {
-    const prepared = await Promise.all(playlists.map(async (playlist) => {
+    const prepared: Array<[number, string]> = [];
+    for (const playlist of playlists) {
       const sources = playlistArtworkSources(catalog, playlist, origin);
-      if (sources.length === 0) return null;
+      if (sources.length === 0) continue;
       const id = createHash("sha256")
         .update(JSON.stringify({ version: 1, updatedAt: playlist.updatedAt, sources }))
         .digest("hex");
-      let pending = this.assets.get(id);
-      if (!pending) {
+      if (!this.assets.has(id)) {
         if (this.assets.size >= MAX_CACHED_ARTWORK) this.assets.delete(this.assets.keys().next().value as string);
-        pending = this.render(sources, origin);
-        this.assets.set(id, pending);
+        this.assets.set(id, { sources, origin });
       }
-      if (!await pending) {
-        this.assets.delete(id);
-        return null;
-      }
-      return [playlist.id, `${origin}/sonos/playlist-art/${id}.png`] as [number, string];
-    }));
-    return new Map(prepared.filter((entry): entry is [number, string] => entry !== null));
+      prepared.push([playlist.id, `${origin}/sonos/playlist-art/${id}.png`]);
+    }
+    return new Map(prepared);
   }
 
   get(id: string): Promise<Buffer | null> | undefined {
@@ -50,8 +51,9 @@ export class PlaylistArtworkCache {
     if (value) {
       this.assets.delete(id);
       this.assets.set(id, value);
+      value.pending ??= this.render(value.sources, value.origin);
     }
-    return value;
+    return value?.pending;
   }
 
   private async render(sources: string[], origin: string): Promise<Buffer | null> {
@@ -69,7 +71,8 @@ export class PlaylistArtworkCache {
       const parsed = new URL(url);
       if (parsed.origin !== origin || parsed.username || parsed.password) return null;
       const response = await this.fetchImpl(parsed.toString(), { signal: AbortSignal.timeout(5_000) });
-      if (!response.ok || !response.headers.get("content-type")?.toLowerCase().startsWith("image/")) return null;
+      const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+      if (!response.ok || !contentType || !["image/jpeg", "image/png", "image/webp", "image/avif"].includes(contentType)) return null;
       const declared = Number(response.headers.get("content-length"));
       if (Number.isFinite(declared) && declared > MAX_SOURCE_BYTES) return null;
       return await readLimited(response, MAX_SOURCE_BYTES);
@@ -99,7 +102,8 @@ export async function renderPlaylistArtwork(images: Buffer[]): Promise<Buffer> {
   const tiles = tileLayout(selected.length);
   const composite = await Promise.all(selected.map((image, index) => {
     const tile = tiles[index]!;
-    return sharp(image).resize(tile.width, tile.height, { fit: "cover", position: "centre" }).png().toBuffer()
+    return sharp(image, { limitInputPixels: 25_000_000, failOn: "warning" })
+      .resize(tile.width, tile.height, { fit: "cover", position: "centre" }).png().toBuffer()
       .then((input) => ({ input, left: tile.left, top: tile.top }));
   }));
   return sharp({ create: { width: ARTWORK_SIZE, height: ARTWORK_SIZE, channels: 3, background: "#17171c" } })
