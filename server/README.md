@@ -75,6 +75,31 @@ cookie-authenticated SSE invalidation hints. Events carry only canonical
 they have no reliable completion callback, so the browser's bounded fallback
 polling remains the safety net for those updates.
 
+### Sonos sandbox Music API
+
+Set `SONOS_SMAPI_ENABLED=true` together with the canonical HTTPS
+`SONOS_PUBLIC_ORIGIN` (or `WEB_PUBLIC_ORIGIN` as a fallback) to expose the sandbox adapter. Production Compose enables
+the endpoint by default; the Sonos developer service must remain in **Sandbox**
+and must not be submitted for production review yet.
+
+- SOAP 1.1 endpoint: `POST /sonos/smapi`
+- Account-link page/action: `GET|POST /sonos/link`
+- Browse roots: Anime (active user library), Playlists (read-only manual/auto/
+  dynamic snapshots), and Liked Songs
+- Search categories: all, albums, playlists, and tracks
+- Supported SMAPI methods: `getMetadata`, `getMediaMetadata`,
+  `getExtendedMetadata`, `getMediaURI`, `search`, `getLastUpdate`, `getAppLink`,
+  and `getDeviceAuthToken`
+
+The basic sandbox link flow creates a normal Anime Ongaku device session named
+`Sonos` and returns that opaque bearer token to Sonos. Only its SHA-256 hash is
+persisted, existing device-session revocation continues to work, and this avoids
+a Sonos-specific token table or database migration. `getMediaURI` passes the
+same token through an `Authorization` HTTP header; tokens are never put in media
+URLs. Link codes are random, one-time, device-bound, valid for at most ten
+minutes, and revoked after repeated failed logins. No Sonos credential or secret
+is required by this adapter or should be committed to `.env`.
+
 ## Operational notes
 
 ### Anime Music Fetcher operator and mounts

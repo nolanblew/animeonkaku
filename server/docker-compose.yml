@@ -13,6 +13,8 @@ services:
       MEDIA_ROOT: /data/media
       WEB_DIST_PATH: /app/web
       WEB_PUBLIC_ORIGIN: ${WEB_PUBLIC_ORIGIN:?Set WEB_PUBLIC_ORIGIN to the public HTTPS site origin}
+      SONOS_SMAPI_ENABLED: ${SONOS_SMAPI_ENABLED:-true}
+      SONOS_PUBLIC_ORIGIN: ${SONOS_PUBLIC_ORIGIN:-}
       AMF_LIBRARY_ROOT: /mnt/amf-library
       KITSU_CLIENT_ID: ${KITSU_CLIENT_ID:-}
       KITSU_CLIENT_SECRET: ${KITSU_CLIENT_SECRET:-}

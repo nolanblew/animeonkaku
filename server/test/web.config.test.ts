@@ -23,4 +23,20 @@ describe("web server configuration", () => {
       /WEB_PUBLIC_ORIGIN/,
     );
   });
+
+  it("accepts a distinct canonical public origin for Sonos links and media", () => {
+    const config = loadConfig({
+      ...baseEnv,
+      WEB_PUBLIC_ORIGIN: "https://ongaku-api.example",
+      SONOS_PUBLIC_ORIGIN: "https://ongaku.example",
+      SONOS_SMAPI_ENABLED: "true",
+    });
+    expect(config.SONOS_PUBLIC_ORIGIN).toBe("https://ongaku.example");
+  });
+
+  it("rejects an invalid Sonos public origin", () => {
+    expect(() => loadConfig({ ...baseEnv, SONOS_PUBLIC_ORIGIN: "ongaku.example" })).toThrow(
+      /SONOS_PUBLIC_ORIGIN/,
+    );
+  });
 });

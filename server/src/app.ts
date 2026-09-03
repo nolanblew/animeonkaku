@@ -32,6 +32,7 @@ import {
   type LiveChangePublisher,
   type LiveLibraryHub,
 } from "./web/liveRoutes.js";
+import { registerSonosRoutes, sendFault as sendSonosFault, type SonosRouteOptions } from "./sonos/routes.js";
 
 export interface AppDeps {
   authService: AuthService;
@@ -60,6 +61,8 @@ export interface AppDeps {
     distPath: string;
   };
   onLogin?: (result: LoginResult) => Promise<void>;
+  /** Enables the sandbox-only Sonos SMAPI adapter at its exact public paths. */
+  sonos?: Omit<SonosRouteOptions, "onLogin">;
   /**
    * Fires after every request that carried a valid session (post-response, so
    * it never adds latency). Drives the device-activity sync trigger.
@@ -104,6 +107,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   }
 
   app.setErrorHandler((error, request, reply) => {
+    if (request.url.startsWith("/sonos/smapi") && (error as { statusCode?: number }).statusCode === 413) {
+      return sendSonosFault(reply, 413, "Client.BadRequest", "SOAP request exceeds the 256 KiB limit.");
+    }
     if (error instanceof KitsuAuthError) {
       request.log.warn({ errorName: error.name }, "Kitsu authentication failed");
       return reply.code(401).send(errorEnvelope("KITSU_AUTH_FAILED", "Kitsu authentication failed."));
@@ -131,6 +137,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
 
   registerHealthRoutes(app, deps.health);
+  // Sonos requires this unprefixed endpoint. Register it once, not again under /api.
+  if (deps.sonos && deps.clientApi) {
+    registerSonosRoutes(app, deps.authService, deps.clientApi, { ...deps.sonos, onLogin: deps.onLogin });
+  }
   if (deps.musicSearchSettings) {
     if (!deps.adminPassword) throw new Error("ADMIN_PASSWORD is required when the admin dashboard is enabled.");
     registerAdminRoutes(app, deps.musicSearchSettings, deps.adminPassword, deps.adminDashboard);

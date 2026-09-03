@@ -5,6 +5,7 @@ import { JobPriority } from "../jobs/types.js";
 import type { AnimeThemeEntry, AnimeThemesLookupResult } from "../animethemes/types.js";
 import type { KitsuAnimeEntry, KitsuGenre } from "../kitsu/types.js";
 import type { KitsuCatalogRecord, LibrarySyncPipelineDeps, MapThemesInput, SyncJobInput } from "./types.js";
+import { resolveManagedMediaPath } from "../media/mediaPathSafety.js";
 
 const DEFAULT_MAPPING_BATCH_SIZE = 50;
 // Kept well under the MAP_THEMES job timeout so a single invocation always
@@ -218,8 +219,14 @@ export class LibrarySyncPipeline {
     const removed: string[] = [];
     for (const file of files) {
       const rel = normalizeRelativePath(relative(mediaRoot, file));
-      if (rel.includes("/tmp/") || readyPaths.has(rel)) continue;
-      await rm(file, { force: true });
+      // Sonos derivatives are content-addressed and are not represented by
+      // READY media rows. This also protects in-flight .tmp.mp3 outputs.
+      if (isSonosDerivativePath(rel) || rel.includes("/tmp/") || readyPaths.has(rel)) continue;
+      // Do not let maintenance delete a file reached through a symlink or
+      // junction that redirects outside the managed media root.
+      const managedPath = await resolveManagedMediaPath(mediaRoot, rel).catch(() => null);
+      if (!managedPath) continue;
+      await rm(managedPath, { force: true });
       removed.push(rel);
     }
     return removed.sort();
@@ -458,6 +465,9 @@ async function listFiles(root: string): Promise<string[]> {
   return files;
 }
 
+function isSonosDerivativePath(path: string): boolean {
+  return path === "sonos" || path.startsWith("sonos/");
+}
 function normalizeRelativePath(path: string): string {
   return path.replace(/\\/g, "/");
 }

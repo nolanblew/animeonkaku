@@ -50,6 +50,17 @@ const EnvSchema = z.object({
       return protocol === "http:" || protocol === "https:";
     }, "Must be an absolute HTTP(S) URL.").optional(),
   ),
+  // Sandbox Sonos Music API endpoint. It is opt-in outside production Compose
+  // and can use a dedicated canonical public origin for links and media URLs.
+  SONOS_SMAPI_ENABLED: booleanFromEnvironment.default(false),
+  SONOS_PUBLIC_ORIGIN: z.preprocess(
+    blankToUndefined,
+    z.string().url().refine((value) => {
+      if (!URL.canParse(value)) return false;
+      const protocol = new URL(value).protocol;
+      return protocol === "http:" || protocol === "https:";
+    }, "Must be an absolute HTTP(S) URL.").optional(),
+  ),
   AMF_LIBRARY_ROOT: z.preprocess(blankToUndefined, z.string().min(1).optional()),
   KITSU_CLIENT_ID: z.preprocess(blankToUndefined, z.string().default(PUBLIC_KITSU_CLIENT_ID)),
   KITSU_CLIENT_SECRET: z.preprocess(
@@ -95,6 +106,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error(
       "Invalid environment configuration — ADMIN_PASSWORD must be at least 6 characters and use at least 3 of uppercase, lowercase-or-space, digit, and special categories outside development/test.",
     );
+  }
+  if (parsed.data.SONOS_SMAPI_ENABLED && !parsed.data.SONOS_PUBLIC_ORIGIN && !parsed.data.WEB_PUBLIC_ORIGIN) {
+    throw new Error("Invalid environment configuration — SONOS_PUBLIC_ORIGIN or WEB_PUBLIC_ORIGIN is required when SONOS_SMAPI_ENABLED is true.");
   }
   return parsed.data;
 }

@@ -1,6 +1,7 @@
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, rename, rm, stat } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -10,7 +11,8 @@ import type { FetchLike } from "../http/types.js";
 import { JobPriority, type JobQueue } from "../jobs/index.js";
 import type { AppLogger } from "../logging.js";
 import { safeExternalUrl } from "../logging.js";
-import { resolveManagedMediaPath } from "../media/mediaPathSafety.js";
+import { MediaPathEscapeError, resolveManagedMediaPath } from "../media/mediaPathSafety.js";
+import { FfmpegSonosTranscoder, type SonosTranscoder, withSonosTranscodeLimit } from "../media/sonosTranscoder.js";
 import type { MediaState } from "../media/types.js";
 import type { AudioState } from "./clientRoutes.js";
 import { ApiError } from "./errors.js";
@@ -57,6 +59,8 @@ export interface MediaApiRepository {
 }
 
 export interface MediaStreamingServiceDeps {
+  /** Produces Sonos-compatible MP3 derivatives; injectable for tests. */
+  sonosTranscoder?: SonosTranscoder;
   repo: MediaApiRepository;
   queue: JobQueue;
   mediaRoot: string;
@@ -87,11 +91,14 @@ export class MediaStreamingService {
   private readonly mediaRoot: string;
   private readonly fetchImpl: FetchLike;
   private readonly imageFetchImpl: FetchLike;
+  private readonly sonosTranscoder: SonosTranscoder;
+  private readonly sonosTranscodes = new Map<string, Promise<ReadyMediaFile>>();
 
   constructor(private readonly deps: MediaStreamingServiceDeps) {
     this.mediaRoot = resolve(deps.mediaRoot);
     this.fetchImpl = deps.fetch ?? ((url, init) => fetch(url, init));
     this.imageFetchImpl = deps.imageFetch ?? this.fetchImpl;
+    this.sonosTranscoder = deps.sonosTranscoder ?? new FfmpegSonosTranscoder();
   }
 
   async sendAudio(
@@ -194,6 +201,107 @@ export class MediaStreamingService {
     });
   }
 
+  async sendSonosThemeAudio(
+    themeId: number,
+    method: "GET" | "HEAD",
+    rangeHeader: string | undefined,
+    reply: FastifyReply,
+  ): Promise<FastifyReply> {
+    const audio = await this.deps.repo.findAudio(themeId);
+    if (!audio) throw new ApiError(404, "NOT_FOUND", "Theme not found.");
+    if (audio.state !== "READY") throw new ApiError(503, "AUDIO_PREPARING", "Audio is being prepared. Retry shortly.");
+    if (this.deps.loudnessPlaybackGainEnabled && (audio.loudnessState !== "READY" || audio.loudnessSha256 !== audio.sha256)) {
+      throw new ApiError(503, "AUDIO_PREPARING", "Audio is being loudness-analyzed. Retry shortly.");
+    }
+    const source = await this.readyMediaFile(audio.filePath);
+    if (!source) throw new ApiError(503, "AUDIO_UNAVAILABLE", "Audio is missing from server storage.");
+    return this.sendSonosMp3({ kind: "themes", id: themeId, source, sourceSha: audio.sha256, method, rangeHeader, reply });
+  }
+
+  async sendSonosSongAudio(
+    songId: number,
+    method: "GET" | "HEAD",
+    rangeHeader: string | undefined,
+    reply: FastifyReply,
+  ): Promise<FastifyReply> {
+    if (!this.deps.musicCatalogEnabled) throw new ApiError(404, "MUSIC_NOT_FOUND", "Song audio is not in the ready catalog.");
+    const audio = await this.deps.repo.findSongAudio(songId);
+    if (!audio || audio.state !== "READY") throw new ApiError(404, "MUSIC_NOT_FOUND", "Song audio is not in the ready catalog.");
+    if (this.deps.loudnessPlaybackGainEnabled && (audio.loudnessState !== "READY" || audio.loudnessSha256 !== audio.sha256)) {
+      throw new ApiError(503, "MUSIC_AUDIO_PREPARING", "Song audio is being loudness-analyzed. Retry shortly.");
+    }
+    const source = await this.readyMediaFile(audio.filePath);
+    if (!source) throw new ApiError(503, "MUSIC_MEDIA_UNAVAILABLE", "Catalog song audio is missing from server storage.");
+    return this.sendSonosMp3({ kind: "songs", id: songId, source, sourceSha: audio.sha256, method, rangeHeader, reply });
+  }
+
+  private async sendSonosMp3(input: {
+    kind: "themes" | "songs"; id: number; source: ReadyMediaFile; sourceSha: string | null;
+    method: "GET" | "HEAD"; rangeHeader: string | undefined; reply: FastifyReply;
+  }): Promise<FastifyReply> {
+    const fingerprint = createHash("sha256").update(`${input.sourceSha ?? ""}:${input.source.absolutePath}:${input.source.size}`, "utf8").digest("hex").slice(0, 24);
+    const outputRelativePath = join("sonos", input.kind, String(input.id), `${fingerprint}.mp3`);
+    const ready = await this.prepareSonosMp3(input.source.absolutePath, outputRelativePath);
+    return this.sendReadyFile({ absolutePath: ready.absolutePath, method: input.method, rangeHeader: input.rangeHeader,
+      reply: input.reply, totalSize: ready.size, etag: fingerprint, contentType: "audio/mpeg" });
+  }
+
+  private async prepareSonosMp3(
+    sourcePath: string,
+    outputRelativePath: string,
+  ): Promise<ReadyMediaFile> {
+    const outputPath = await this.resolveSonosPath(outputRelativePath, true);
+    const existing = await stat(outputPath).catch(() => null);
+    if (existing?.isFile() && existing.size > 0) return { absolutePath: outputPath, size: existing.size };
+    const pending = this.sonosTranscodes.get(outputPath);
+    if (pending) return pending;
+    const transcode = this.buildSonosMp3(sourcePath, outputRelativePath);
+    this.sonosTranscodes.set(outputPath, transcode);
+    try { return await transcode; }
+    finally { if (this.sonosTranscodes.get(outputPath) === transcode) this.sonosTranscodes.delete(outputPath); }
+  }
+
+  private async buildSonosMp3(
+    sourcePath: string,
+    outputRelativePath: string,
+  ): Promise<ReadyMediaFile> {
+    const outputPath = await this.resolveSonosPath(outputRelativePath, true);
+    const existing = await stat(outputPath).catch(() => null);
+    if (existing?.isFile() && existing.size > 0) return { absolutePath: outputPath, size: existing.size };
+    const temporaryRelativePath = `${outputRelativePath}.${randomUUID()}.tmp.mp3`;
+    let temporaryPath: string | null = null;
+    try {
+      temporaryPath = await this.resolveSonosPath(temporaryRelativePath, true);
+      await withSonosTranscodeLimit(() => this.sonosTranscoder.transcodeToMp3(sourcePath, temporaryPath!));
+      const temporary = await stat(temporaryPath);
+      if (!temporary.isFile() || temporary.size <= 0) throw new Error("FFmpeg produced an empty MP3.");
+      await rename(temporaryPath, outputPath);
+      return { absolutePath: outputPath, size: temporary.size };
+    } catch (error) {
+      if (temporaryPath) await rm(temporaryPath, { force: true }).catch(() => undefined);
+      if (error instanceof ApiError) throw error;
+      this.deps.logger?.warn?.({ errorName: error instanceof Error ? error.name : "Error" }, "Sonos audio transcoding failed");
+      throw new ApiError(503, "SONOS_AUDIO_UNAVAILABLE", "Sonos-compatible audio could not be prepared.");
+    }
+  }
+
+  private async resolveSonosPath(relativePath: string, createParent: boolean): Promise<string> {
+    try {
+      let absolutePath = await resolveManagedMediaPath(this.mediaRoot, relativePath);
+      if (createParent) {
+        await mkdir(dirname(absolutePath), { recursive: true });
+        // Recheck after parent creation so a pre-existing junction cannot be
+        // hidden by a missing ancestor during the first check.
+        absolutePath = await resolveManagedMediaPath(this.mediaRoot, relativePath);
+      }
+      return absolutePath;
+    } catch (error) {
+      if (error instanceof MediaPathEscapeError) {
+        throw new ApiError(500, "INTERNAL", "Invalid media path.");
+      }
+      throw error;
+    }
+  }
   async requestAudio(themeId: number): Promise<{ themeId: number; audioState: AudioState; jobId: number }> {
     const audio = await this.deps.repo.findAudio(themeId);
     if (!audio) throw new ApiError(404, "NOT_FOUND", "Theme not found.");
@@ -486,6 +594,30 @@ export function registerMediaRoutes(
         reply,
         request.log,
       ),
+  );
+
+  app.get(
+    "/v1/media/sonos/themes/:themeId.mp3",
+    { schema: { params: audioParams }, preHandler: requireAuth, exposeHeadRoute: false },
+    async (request, reply) => service.sendSonosThemeAudio(request.params.themeId, "GET", headerValue(request.headers.range), reply),
+  );
+
+  app.head(
+    "/v1/media/sonos/themes/:themeId.mp3",
+    { schema: { params: audioParams }, preHandler: requireAuth },
+    async (request, reply) => service.sendSonosThemeAudio(request.params.themeId, "HEAD", headerValue(request.headers.range), reply),
+  );
+
+  app.get(
+    "/v1/media/sonos/songs/:songId.mp3",
+    { schema: { params: songAudioParams }, preHandler: requireAuth, exposeHeadRoute: false },
+    async (request, reply) => service.sendSonosSongAudio(request.params.songId, "GET", headerValue(request.headers.range), reply),
+  );
+
+  app.head(
+    "/v1/media/sonos/songs/:songId.mp3",
+    { schema: { params: songAudioParams }, preHandler: requireAuth },
+    async (request, reply) => service.sendSonosSongAudio(request.params.songId, "HEAD", headerValue(request.headers.range), reply),
   );
 
   app.post(

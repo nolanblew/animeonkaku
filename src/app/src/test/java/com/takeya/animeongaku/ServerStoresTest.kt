@@ -44,6 +44,36 @@ class ServerStoresTest {
     }
 
     @Test
+    fun `retired public api hostname migrates to compiled canonical hostname`() {
+        val prefs = FakeSharedPreferences()
+        ServerSettingsStore(prefs).serverBaseUrl = "https://ongaku-api.takeya.ninja/"
+
+        val upgradedStore = ServerSettingsStore(
+            prefs = prefs,
+            compiledServerBaseUrl = "https://ongaku.takeya.ninja/"
+        )
+
+        assertEquals("https://ongaku.takeya.ninja/", upgradedStore.serverBaseUrl)
+        assertEquals(
+            "https://ongaku.takeya.ninja/",
+            ServerSettingsStore(prefs).serverBaseUrl
+        )
+    }
+
+    @Test
+    fun `custom persisted server remains selected after public hostname migration`() {
+        val prefs = FakeSharedPreferences()
+        ServerSettingsStore(prefs).serverBaseUrl = "https://music.example.test/"
+
+        val upgradedStore = ServerSettingsStore(
+            prefs = prefs,
+            compiledServerBaseUrl = "https://ongaku.takeya.ninja/"
+        )
+
+        assertEquals("https://music.example.test/", upgradedStore.serverBaseUrl)
+    }
+
+    @Test
     fun `blank compiled server url keeps persisted settings editable`() {
         val store = ServerSettingsStore(
             prefs = FakeSharedPreferences(),

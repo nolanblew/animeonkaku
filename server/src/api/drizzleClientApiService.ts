@@ -1244,6 +1244,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
         fileSize: audio?.byteSize ?? null,
         mediaModes: {
           tvSize: { url: `/v1/media/audio/${row.id}`, durationSeconds: row.durationSeconds, fileSize: audio?.byteSize ?? null,
+            mimeType: audio?.videoFallback ? "video/webm" : audio?.contentType ?? "audio/ogg",
             ...(audio ? { loudness: playbackLoudness(audio, this.loudnessPlaybackGainEnabled) } : {}) },
           fullSize: row.deletedAt === null ? catalogModes.full.get(row.id) ?? null : null,
           video: row.deletedAt === null ? catalogModes.video.get(row.id) ?? null : null,
@@ -1375,6 +1376,8 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
         loudnessRangeLu: mediaFiles.loudnessRangeLu,
         loudnessGainDb: mediaFiles.loudnessGainDb,
         loudnessPolicyVersion: mediaFiles.loudnessPolicyVersion,
+        contentType: mediaFiles.contentType,
+        videoFallback: mediaFiles.videoFallback,
       })
       .from(mediaFiles)
       .where(
@@ -1829,7 +1832,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
   }
 
   private async themeCatalogModes(themeIds: number[]) {
-    const full = new Map<number, { songId: number; url: string; durationSeconds: number | null; fileSize: number | null; sourceReleaseId: number | null; loudness?: ReturnType<typeof playbackLoudness> }>();
+    const full = new Map<number, { songId: number; url: string; durationSeconds: number | null; fileSize: number | null; sourceReleaseId: number | null; mimeType: string | null; loudness?: ReturnType<typeof playbackLoudness> }>();
     const video = new Map<number, { url: string; mimeType: string | null; spoiler: boolean; nsfw: boolean; entryVersion: number | null }>();
     if (!this.musicCatalogEnabled || themeIds.length === 0) return { full, video };
 
@@ -1848,6 +1851,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
         loudnessRangeLu: mediaFiles.loudnessRangeLu,
         loudnessGainDb: mediaFiles.loudnessGainDb,
         loudnessPolicyVersion: mediaFiles.loudnessPolicyVersion,
+        contentType: mediaFiles.contentType,
       })
       .from(themeFullSongs)
       .innerJoin(songs, and(eq(songs.id, themeFullSongs.songId), isNull(songs.deletedAt)))
@@ -1878,6 +1882,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
           durationSeconds: row.durationSeconds,
           fileSize: row.fileSize,
           sourceReleaseId: row.sourceReleaseId,
+          mimeType: row.contentType,
           loudness: playbackLoudness(row, this.loudnessPlaybackGainEnabled),
         });
       }
@@ -1950,6 +1955,7 @@ export class DrizzleClientApiService implements ClientApiService, LegacyLibraryI
         songArtistNames: songs.artistNames,
         durationSeconds: songs.durationSeconds,
         fileSize: mediaFiles.byteSize,
+        contentType: mediaFiles.contentType,
         sha256: mediaFiles.sha256,
         loudnessState: mediaFiles.loudnessState,
         loudnessSha256: mediaFiles.loudnessSha256,
@@ -2033,6 +2039,7 @@ function musicTrackDto(row: ReadyMusicRow, loudnessEnabled: boolean) {
     durationSeconds: row.durationSeconds,
     audioUrl: `/v1/media/songs/${row.songId}/audio`,
     fileSize: row.fileSize,
+    mimeType: row.contentType,
     discNumber: row.discNumber,
     trackNumber: row.trackNumber,
     displayOrder: row.displayOrder,

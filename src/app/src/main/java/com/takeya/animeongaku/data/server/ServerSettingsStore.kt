@@ -13,6 +13,10 @@ class ServerSettingsStore @Inject constructor(
 ) {
     val compiledServerBaseUrl: String? = normalizeBaseUrl(compiledServerBaseUrl)
 
+    init {
+        migrateRetiredPublicServerBaseUrl()
+    }
+
     val isServerBaseUrlCompiled: Boolean
         get() = compiledServerBaseUrl != null
 
@@ -62,7 +66,22 @@ class ServerSettingsStore @Inject constructor(
         prefs.edit().remove(KEY_SERVER_MIGRATION_COMPLETE).apply()
     }
 
+    private fun migrateRetiredPublicServerBaseUrl() {
+        if (compiledServerBaseUrl != CANONICAL_PUBLIC_SERVER_BASE_URL) return
+
+        val persistedServerBaseUrl = normalizeBaseUrl(
+            prefs.getString(KEY_SERVER_BASE_URL, null)
+        )
+        if (persistedServerBaseUrl != RETIRED_PUBLIC_SERVER_BASE_URL) return
+
+        prefs.edit()
+            .putString(KEY_SERVER_BASE_URL, CANONICAL_PUBLIC_SERVER_BASE_URL)
+            .apply()
+    }
+
     companion object {
+        private const val CANONICAL_PUBLIC_SERVER_BASE_URL = "https://ongaku.takeya.ninja/"
+        private const val RETIRED_PUBLIC_SERVER_BASE_URL = "https://ongaku-api.takeya.ninja/"
         private const val KEY_SERVER_BASE_URL = "ongaku_server_base_url"
         private const val KEY_SERVER_PULL_CURSOR = "ongaku_server_pull_cursor"
         private const val KEY_SERVER_LAST_PULL_AT = "ongaku_server_last_pull_at"

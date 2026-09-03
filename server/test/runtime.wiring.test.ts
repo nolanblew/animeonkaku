@@ -50,4 +50,10 @@ describe("server runtime wiring", () => {
     expect(source).toMatch(/const browserHomeService = new DrizzleBrowserHomeService\(db\)/);
     expect(source).toContain("webLive: { hub: liveHub, home: browserHomeService }");
   });
+
+  it("uses the dedicated Sonos public origin before the general web origin", async () => {
+    const source = await readFile(new URL("../src/index.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("config.SONOS_PUBLIC_ORIGIN ?? config.WEB_PUBLIC_ORIGIN");
+  });
 });

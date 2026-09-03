@@ -23,6 +23,8 @@ export interface MusicTrackDto {
   durationSeconds: number | null;
   audioUrl: string;
   fileSize: number | null;
+  /** Backing media type when known. Additive for clients that need codec-aware playback. */
+  mimeType?: string | null;
   discNumber: number;
   trackNumber: number | null;
   displayOrder: number;
@@ -58,8 +60,8 @@ export interface AnimeMusicDto {
 }
 
 export interface ThemeMediaModesDto {
-  tvSize: { url: string; durationSeconds: number | null; fileSize: number | null; loudness?: LoudnessDto | undefined };
-  fullSize: { songId: number; url: string; durationSeconds: number | null; fileSize: number | null; sourceReleaseId: number | null; loudness?: LoudnessDto | undefined } | null;
+  tvSize: { url: string; durationSeconds: number | null; fileSize: number | null; mimeType?: string | null; loudness?: LoudnessDto | undefined };
+  fullSize: { songId: number; url: string; durationSeconds: number | null; fileSize: number | null; sourceReleaseId: number | null; mimeType?: string | null; loudness?: LoudnessDto | undefined } | null;
   video: { url: string; mimeType: string | null; spoiler: boolean; nsfw: boolean; entryVersion: number | null } | null;
 }
 
