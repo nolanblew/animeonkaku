@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiClient } from '../../lib/api'
@@ -72,6 +72,28 @@ describe('library action API and hook', () => {
     expect(client.getQueryData<ReturnType<typeof createEmptyLibrary>>(LIBRARY_QUERY_KEY)?.prefsByThemeId['41']).toMatchObject({ liked: true, updatedAt: 2 })
   })
 
+  it('commits the successful server preference over a stale cache refresh', async () => {
+    let resolveRequest!: (value: unknown) => void
+    vi.spyOn(apiClient, 'request').mockReturnValue(new Promise((resolve) => { resolveRequest = resolve }) as never)
+    const { client } = renderWithQuery(<ActionProbe />, queryClient)
+    client.setQueryData(LIBRARY_QUERY_KEY, {
+      ...createEmptyLibrary(),
+      prefsByThemeId: { '41': { themeId: 41, liked: false, disliked: false, dislikedTvSize: false, dislikedFullSize: false, preferredMode: null, playCount: 0, lastPlayedAt: null, updatedAt: 1, deleted: false } },
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: 'like' }))
+    expect(client.getQueryData<ReturnType<typeof createEmptyLibrary>>(LIBRARY_QUERY_KEY)?.prefsByThemeId['41']?.liked).toBe(true)
+
+    client.setQueryData(LIBRARY_QUERY_KEY, (current: ReturnType<typeof createEmptyLibrary>) => ({
+      ...current,
+      prefsByThemeId: { ...current.prefsByThemeId, '41': { ...current.prefsByThemeId['41']!, liked: false } },
+    }))
+    resolveRequest({ themeId: 41, liked: true, disliked: false, dislikedTvSize: false, dislikedFullSize: false, preferredMode: null, playCount: 0, lastPlayedAt: null, updatedAt: 2, deleted: false })
+
+    await waitFor(() => expect(screen.getByTestId('pending')).toHaveTextContent('none'))
+    expect(client.getQueryData<ReturnType<typeof createEmptyLibrary>>(LIBRARY_QUERY_KEY)?.prefsByThemeId['41']).toMatchObject({ liked: true, updatedAt: 2 })
+  })
+
   it('writes like and preferred mode through the existing theme preference contract', async () => {
     const request = vi.spyOn(apiClient, 'request').mockResolvedValue({ themeId: 41, liked: true })
     renderWithQuery(<ActionProbe />)
@@ -116,6 +138,39 @@ describe('TrackActionMenu', () => {
     expect(request).toHaveBeenCalledWith('/v1/prefs/themes/41', expect.objectContaining({ body: JSON.stringify({ liked: true }) }))
 
     resolveRequest({ themeId: 41, liked: true, disliked: false })
+  })
+
+  it('opens playback-size dislike choices on right-click and writes the selected scope', async () => {
+    const request = vi.spyOn(apiClient, 'request').mockResolvedValue({ themeId: 41, liked: false, disliked: false, dislikedTvSize: false, dislikedFullSize: true })
+    const onDislike = vi.fn()
+    renderWithQuery(<TrackActionMenu item={{ itemType: 'THEME', itemId: 41, title: 'Opening theme', modeOverride: 'FULL_SIZE' }} hasFullSize onDislike={onDislike} />)
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Dislike' }))
+    const menu = screen.getByRole('menu', { name: 'Choose dislike scope for Opening theme' })
+    expect(within(menu).getByRole('menuitem', { name: 'Dislike TV Size' })).toBeInTheDocument()
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Dislike Full Size' }))
+
+    await waitFor(() => expect(request).toHaveBeenCalledWith('/v1/prefs/themes/41', expect.objectContaining({ body: JSON.stringify({ dislikedFullSize: true }) })))
+    expect(onDislike).toHaveBeenCalledOnce()
+  })
+
+  it('opens playback-size dislike choices after a touch long-press without applying a whole-theme dislike', async () => {
+    vi.useFakeTimers()
+    const request = vi.spyOn(apiClient, 'request').mockResolvedValue({})
+    try {
+      renderWithQuery(<TrackActionMenu item={{ itemType: 'THEME', itemId: 41, title: 'Opening theme' }} hasFullSize />)
+      const dislike = screen.getByRole('button', { name: 'Dislike' })
+
+      fireEvent.pointerDown(dislike, { pointerType: 'touch', pointerId: 7 })
+      act(() => { vi.advanceTimersByTime(600) })
+      fireEvent.pointerUp(dislike, { pointerType: 'touch', pointerId: 7 })
+      fireEvent.click(dislike)
+
+      expect(screen.getByRole('menu', { name: 'Choose dislike scope for Opening theme' })).toBeInTheDocument()
+      expect(request).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('uses separate mobile-style like and dislike controls and exposes a working action menu', async () => {
