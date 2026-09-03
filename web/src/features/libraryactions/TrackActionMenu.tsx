@@ -18,6 +18,9 @@ export interface TrackActionMenuProps {
   item: TrackActionItem
   liked?: boolean
   disliked?: boolean
+  dislikedTvSize?: boolean
+  dislikedFullSize?: boolean
+  activePlaybackMode?: PlaylistPlaybackMode | null
   menuOnly?: boolean
   onPlayNext?: () => void
   onAddToQueue?: () => void
@@ -37,7 +40,7 @@ export interface TrackActionMenuProps {
   removeLabel?: string
 }
 
-export function TrackActionMenu({ item, liked = false, disliked = false, menuOnly = false, onPlayNext, onAddToQueue, onReplaceQueue, onDislike, onPlayVideo, onGoToArtist, onGoToAnime, onRelatedMusic, onSetPreferredMode, hasFullSize = false, preferredMode = null, artistName, animeName, onRemove, removeLabel = 'Remove from playlist' }: TrackActionMenuProps) {
+export function TrackActionMenu({ item, liked = false, disliked = false, dislikedTvSize = false, dislikedFullSize = false, activePlaybackMode = null, menuOnly = false, onPlayNext, onAddToQueue, onReplaceQueue, onDislike, onPlayVideo, onGoToArtist, onGoToAnime, onRelatedMusic, onSetPreferredMode, hasFullSize = false, preferredMode = null, artistName, animeName, onRemove, removeLabel = 'Remove from playlist' }: TrackActionMenuProps) {
   const actions = useLibraryActions()
   const [open, setOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -47,50 +50,100 @@ export function TrackActionMenu({ item, liked = false, disliked = false, menuOnl
   const [newName, setNewName] = useState('')
   const [localLiked, setLocalLiked] = useState(Boolean(liked))
   const [localDisliked, setLocalDisliked] = useState(Boolean(disliked))
-  const optimisticPreference = useRef<{ liked: boolean; disliked: boolean } | null>(null)
+  const [localDislikedTvSize, setLocalDislikedTvSize] = useState(Boolean(dislikedTvSize))
+  const [localDislikedFullSize, setLocalDislikedFullSize] = useState(Boolean(dislikedFullSize))
+  const [dislikeScopeOpen, setDislikeScopeOpen] = useState(false)
+  const optimisticPreference = useRef<{ liked: boolean; disliked: boolean; dislikedTvSize: boolean; dislikedFullSize: boolean } | null>(null)
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const suppressDislikeClick = useRef(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  const dislikeTriggerRef = useRef<HTMLButtonElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRovingMenu<HTMLDivElement>({ open, onClose: () => setOpen(false), triggerRef })
+  const dislikeScopeMenuRef = useRovingMenu<HTMLDivElement>({ open: dislikeScopeOpen, onClose: () => setDislikeScopeOpen(false), triggerRef: dislikeTriggerRef })
   const pickerRef = useAccessibleFocusScope<HTMLElement>({ active: pickerOpen, onEscape: () => setPickerOpen(false), restoreFocusRef: triggerRef })
   const playlistItem: PlaylistItemInput = { itemType: item.itemType, itemId: item.itemId, modeOverride: item.itemType === 'THEME' ? item.modeOverride ?? null : null }
 
   useEffect(() => {
-    const incoming = { liked: Boolean(liked), disliked: Boolean(disliked) }
-    const optimistic = optimisticPreference.current
-    if (optimistic && optimistic.liked === incoming.liked && optimistic.disliked === incoming.disliked) optimisticPreference.current = null
-    if (!optimisticPreference.current) {
-      setLocalLiked(incoming.liked)
-      setLocalDisliked(incoming.disliked)
-    }
-  }, [liked, disliked])
+    if (optimisticPreference.current) return
+    setLocalLiked(Boolean(liked))
+    setLocalDisliked(Boolean(disliked))
+    setLocalDislikedTvSize(Boolean(dislikedTvSize))
+    setLocalDislikedFullSize(Boolean(dislikedFullSize))
+  }, [liked, disliked, dislikedTvSize, dislikedFullSize])
 
   useEffect(() => {
-    if (!open) return undefined
+    if (!open && !dislikeScopeOpen) return undefined
     const close = (event: PointerEvent) => {
       const target = event.target as Node
-      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false)
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target) && !dislikeScopeMenuRef.current?.contains(target)) {
+        setOpen(false)
+        setDislikeScopeOpen(false)
+      }
     }
     window.addEventListener('pointerdown', close)
     return () => window.removeEventListener('pointerdown', close)
-  }, [open])
+  }, [open, dislikeScopeOpen])
 
-  const updatePreference = (kind: 'liked' | 'disliked', value: boolean) => {
-    const previous = { liked: localLiked, disliked: localDisliked }
-    const next = {
-      liked: kind === 'liked' ? value : value ? false : previous.liked,
-      disliked: kind === 'disliked' ? value : value ? false : previous.disliked,
+  useEffect(() => () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current)
+  }, [])
+
+  const updatePreference = (kind: 'liked' | 'disliked' | 'dislikedTvSize' | 'dislikedFullSize', value: boolean) => {
+    const previous = { liked: localLiked, disliked: localDisliked, dislikedTvSize: localDislikedTvSize, dislikedFullSize: localDislikedFullSize }
+    const next = { ...previous, [kind]: value }
+    if (kind === 'liked' && value) {
+      next.disliked = false
+      next.dislikedTvSize = false
+      next.dislikedFullSize = false
+    }
+    if (kind === 'disliked' && value) {
+      next.liked = false
+      next.dislikedTvSize = false
+      next.dislikedFullSize = false
+    }
+    if ((kind === 'dislikedTvSize' || kind === 'dislikedFullSize') && value) {
+      next.liked = false
+      next.disliked = false
     }
     optimisticPreference.current = next
     setLocalLiked(next.liked)
     setLocalDisliked(next.disliked)
-    if (kind === 'disliked' && value) onDislike?.()
+    setLocalDislikedTvSize(next.dislikedTvSize)
+    setLocalDislikedFullSize(next.dislikedFullSize)
+    if (kind !== 'liked' && value) onDislike?.()
     const patch = { [kind]: value }
-    const request = item.itemType === 'SONG' ? actions.updateSongPreference(item.itemId, patch) : actions.updateThemePreference(item.itemId, patch)
-    void request.catch(() => {
+    const request = item.itemType === 'SONG'
+      ? actions.updateSongPreference(item.itemId, { [kind]: value } as { liked?: boolean; disliked?: boolean })
+      : actions.updateThemePreference(item.itemId, patch)
+    void request.then((result) => {
+      if (optimisticPreference.current !== next) return
+      optimisticPreference.current = null
+      const confirmed = result as Partial<typeof next>
+      setLocalLiked(confirmed.liked ?? next.liked)
+      setLocalDisliked(confirmed.disliked ?? next.disliked)
+      setLocalDislikedTvSize(confirmed.dislikedTvSize ?? next.dislikedTvSize)
+      setLocalDislikedFullSize(confirmed.dislikedFullSize ?? next.dislikedFullSize)
+    }).catch(() => {
+      if (optimisticPreference.current !== next) return
       optimisticPreference.current = null
       setLocalLiked(previous.liked)
       setLocalDisliked(previous.disliked)
+      setLocalDislikedTvSize(previous.dislikedTvSize)
+      setLocalDislikedFullSize(previous.dislikedFullSize)
     })
+  }
+  const hasDislikeScopes = item.itemType === 'THEME' && hasFullSize
+  const currentDisliked = localDisliked || (activePlaybackMode === 'TV_SIZE' && localDislikedTvSize) || (activePlaybackMode === 'FULL_SIZE' && localDislikedFullSize)
+  const openDislikeScopes = () => {
+    if (!hasDislikeScopes) return
+    setOpen(false)
+    setDislikeScopeOpen(true)
+  }
+  const clearLongPress = () => {
+    if (!longPressTimer.current) return
+    clearTimeout(longPressTimer.current)
+    longPressTimer.current = null
   }
   const runAndClose = (action?: () => void) => { setOpen(false); action?.() }
   const openPicker = async () => {
@@ -107,10 +160,36 @@ export function TrackActionMenu({ item, liked = false, disliked = false, menuOnl
   return <>
     <div className={menuOnly ? 'track-actions track-actions--menu-only' : 'track-actions'} ref={rootRef}>
       {!menuOnly && <>
-        <button type="button" className="player-icon-button player-icon-button--quiet" aria-label={localDisliked ? 'Remove dislike' : 'Dislike'} aria-pressed={localDisliked} disabled={actions.pendingAction === 'preference'} onClick={() => updatePreference('disliked', !localDisliked)}><ThumbsDown size={18} fill={localDisliked ? 'currentColor' : 'none'} /></button>
+        <button
+          ref={dislikeTriggerRef}
+          type="button"
+          className="player-icon-button player-icon-button--quiet"
+          aria-label={currentDisliked ? 'Remove dislike' : 'Dislike'}
+          aria-pressed={currentDisliked}
+          aria-haspopup={hasDislikeScopes ? 'menu' : undefined}
+          aria-expanded={hasDislikeScopes ? dislikeScopeOpen : undefined}
+          disabled={actions.pendingAction === 'preference'}
+          onClick={() => {
+            if (suppressDislikeClick.current) { suppressDislikeClick.current = false; return }
+            updatePreference('disliked', !localDisliked)
+          }}
+          onContextMenu={(event) => { if (hasDislikeScopes) { event.preventDefault(); openDislikeScopes() } }}
+          onPointerDown={(event) => {
+            if (!hasDislikeScopes || event.pointerType !== 'touch') return
+            clearLongPress()
+            longPressTimer.current = setTimeout(() => { longPressTimer.current = null; suppressDislikeClick.current = true; openDislikeScopes() }, 500)
+          }}
+          onPointerUp={clearLongPress}
+          onPointerCancel={clearLongPress}
+          onPointerLeave={clearLongPress}
+        ><ThumbsDown size={18} fill={currentDisliked ? 'currentColor' : 'none'} /></button>
         <button type="button" className="player-icon-button player-icon-button--quiet" aria-label={localLiked ? 'Remove like' : 'Like'} aria-pressed={localLiked} disabled={actions.pendingAction === 'preference'} onClick={() => updatePreference('liked', !localLiked)}><ThumbsUp size={18} fill={localLiked ? 'currentColor' : 'none'} /></button>
       </>}
       <button ref={triggerRef} type="button" className="player-icon-button player-icon-button--quiet" aria-label={`More actions for ${item.title}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)}><MoreHorizontal size={20} /></button>
+      <ViewportMenu open={dislikeScopeOpen} triggerRef={dislikeTriggerRef} menuRef={dislikeScopeMenuRef} className="track-actions__menu track-actions__dislike-scope-menu" label={`Choose dislike scope for ${item.title}`}>
+        <button type="button" role="menuitem" onClick={() => { updatePreference('dislikedTvSize', !localDislikedTvSize); setDislikeScopeOpen(false) }}>{localDislikedTvSize ? 'Remove TV Size Dislike' : 'Dislike TV Size'}</button>
+        <button type="button" role="menuitem" onClick={() => { updatePreference('dislikedFullSize', !localDislikedFullSize); setDislikeScopeOpen(false) }}>{localDislikedFullSize ? 'Remove Full Size Dislike' : 'Dislike Full Size'}</button>
+      </ViewportMenu>
       <ViewportMenu open={open} triggerRef={triggerRef} menuRef={menuRef} className="track-actions__menu" label={`${item.title} actions`}>
         {onPlayNext && <button type="button" role="menuitem" onClick={() => runAndClose(onPlayNext)}>Play next</button>}
         {onAddToQueue && <button type="button" role="menuitem" onClick={() => runAndClose(onAddToQueue)}>Add to queue</button>}

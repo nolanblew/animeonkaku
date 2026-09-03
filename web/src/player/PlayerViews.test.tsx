@@ -247,6 +247,13 @@ describe('player views', () => {
 
   it('exposes the complete context-aware track menu from both full and mini players', () => {
     const expectSharedActions = () => {
+      fireEvent.contextMenu(screen.getByRole('button', { name: 'Dislike' }))
+      const dislikeMenu = screen.getByRole('menu', { name: 'Choose dislike scope for Opening' })
+      expect(screen.getByRole('menuitem', { name: 'Dislike TV Size' })).toBeInTheDocument()
+      expect(screen.getByRole('menuitem', { name: 'Dislike Full Size' })).toBeInTheDocument()
+      fireEvent.keyDown(dislikeMenu, { key: 'Escape' })
+      expect(screen.queryByRole('menu', { name: 'Choose dislike scope for Opening' })).not.toBeInTheDocument()
+
       fireEvent.click(screen.getByRole('button', { name: 'More actions for Opening' }))
       expect(screen.getByRole('menuitem', { name: 'Replace queue' })).toBeInTheDocument()
       expect(screen.getByRole('menuitem', { name: 'Play Video' })).toBeInTheDocument()
