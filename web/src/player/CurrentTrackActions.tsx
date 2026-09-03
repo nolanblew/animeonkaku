@@ -29,14 +29,19 @@ function CurrentTrackActionsContent({ onNavigate }: { onNavigate: (to: string) =
   const itemType = current.itemType === 'SONG' ? 'SONG' : 'THEME'
   const itemId = itemType === 'SONG' ? current.songId ?? Number(current.id) : current.themeId ?? Number(current.id)
   if (!Number.isInteger(itemId) || itemId <= 0) return null
-  const preference = itemType === 'SONG' ? library?.songPrefsById[String(itemId)] : library?.prefsByThemeId[String(itemId)]
-  const preferredMode = itemType === 'THEME' ? library?.prefsByThemeId[String(itemId)]?.preferredMode ?? null : null
+  const themePreference = itemType === 'THEME' ? library?.prefsByThemeId[String(itemId)] : undefined
+  const songPreference = itemType === 'SONG' ? library?.songPrefsById[String(itemId)] : undefined
+  const preference = themePreference ?? songPreference
+  const preferredMode = themePreference?.preferredMode ?? null
   const animeId = current.animeId ?? (itemType === 'THEME' ? library?.themesById[String(itemId)]?.kitsuAnimeIds?.[0] : undefined)
   const artistSlug = artistRouteSlug(current.artist)
   return <TrackActionMenu
     item={{ itemType, itemId, title: current.title, modeOverride: itemType === 'THEME' && current.mode === 'FULL_SIZE' ? 'FULL_SIZE' : null }}
     liked={preference?.liked}
     disliked={preference?.disliked}
+    dislikedTvSize={themePreference?.dislikedTvSize}
+    dislikedFullSize={themePreference?.dislikedFullSize}
+    activePlaybackMode={itemType === 'THEME' && player.mode !== 'VIDEO' ? player.mode : null}
     onDislike={() => { void player.next() }}
     onReplaceQueue={() => player.playItems([current], { contextLabel: 'Now playing', startIndex: 0, shuffle: false })}
     onPlayVideo={player.videoAvailable && Boolean(current.videoUrl) ? () => player.setMode('VIDEO') : undefined}
