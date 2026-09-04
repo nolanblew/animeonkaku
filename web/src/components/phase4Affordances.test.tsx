@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { LibraryThemeDto, NormalizedLibrary } from '../lib/library'
 import { createEmptyLibrary } from '../lib/library'
 
-vi.mock('../lib/query', () => ({
+vi.mock('../lib/query', async () => ({
+  ...await vi.importActual<typeof import('../lib/query')>('../lib/query'),
   useLibraryQuery: () => ({ library: libraryFixture(), status: 'success', isPending: false, isError: false, isSuccess: true, error: null }),
 }))
 

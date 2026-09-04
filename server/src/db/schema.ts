@@ -369,6 +369,7 @@ export const libraryEntries = pgTable(
     watchingStatus: text("watching_status"), // current/completed/planned/...
     userRating: doublePrecision("user_rating"),
     libraryUpdatedAt: timestamp("library_updated_at", { withTimezone: true }), // Kitsu's updatedAt
+    watchedAt: timestamp("watched_at", { withTimezone: true }),
     isManuallyAdded: boolean("is_manually_added").notNull().default(false),
     updatedAt: updatedAt(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }), // tombstone for client delta

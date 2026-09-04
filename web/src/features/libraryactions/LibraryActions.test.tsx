@@ -30,6 +30,16 @@ beforeEach(() => {
 })
 
 describe('library action API and hook', () => {
+  it('offers variant dislikes on web and restores feedback after a rejected write', async () => {
+    queryClient.setQueryData(LIBRARY_QUERY_KEY, { ...createEmptyLibrary(), prefsByThemeId: { '41': { themeId: 41, liked: true, disliked: false } } })
+    const request = vi.spyOn(apiClient, 'request').mockRejectedValue(new Error('offline'))
+    renderWithQuery(<TrackActionMenu item={{ itemType: 'THEME', itemId: 41, title: 'Theme' }} hasFullSize />, queryClient)
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Theme' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Dislike TV Size only' }))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Could not complete'))
+    expect(request).toHaveBeenCalledWith('/v1/prefs/themes/41', expect.objectContaining({ body: JSON.stringify({ dislikedTvSize: true, dislikedFullSize: false }) }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Remove like' })).toHaveAttribute('aria-pressed', 'true'))
+  })
   it('rolls back only the failed preference and preserves concurrent library updates', async () => {
     let rejectRequest!: (reason: Error) => void
     vi.spyOn(apiClient, 'request').mockReturnValue(new Promise((_, reject) => { rejectRequest = reject }) as never)

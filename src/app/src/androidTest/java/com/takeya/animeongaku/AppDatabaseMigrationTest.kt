@@ -27,6 +27,24 @@ class AppDatabaseMigrationTest {
 
     @Test
     @Throws(IOException::class)
+    fun migrate27To28DoesNotInventAViewingDateFromLibraryEdits() {
+        helper.createDatabase(DB_NAME, 27).apply {
+            execSQL("""INSERT INTO anime (kitsuId, title, syncedAt, isManuallyAdded, watchingStatus, libraryUpdatedAt)
+                VALUES ('planned', 'Planned anime', 1, 0, 'planned', 123456)""")
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB_NAME, 28, true, AppDatabase.MIGRATION_27_28)
+        db.query("SELECT libraryUpdatedAt, watchedAt, watchingStatus FROM anime WHERE kitsuId = 'planned'").use { cursor ->
+            cursor.moveToFirst()
+            assertEquals(123456L, cursor.getLong(0))
+            assertEquals(true, cursor.isNull(1))
+            assertEquals("planned", cursor.getString(2))
+        }
+        db.close()
+    }
+
+    @Test
+    @Throws(IOException::class)
     fun migrate26To27DefaultsPlaylistPreferenceOverrideOff() {
         helper.createDatabase(DB_NAME, 26).apply {
             execSQL(

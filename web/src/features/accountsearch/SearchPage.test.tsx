@@ -11,7 +11,8 @@ vi.mock('../../lib/api', () => ({
   apiClient: { get: vi.fn(), url: (value: string) => value.startsWith('/v1/') ? `/api${value}` : value },
 }))
 
-vi.mock('../../lib/query', () => ({
+vi.mock('../../lib/query', async () => ({
+  ...await vi.importActual<typeof import('../../lib/query')>('../../lib/query'),
   useLibraryQuery: vi.fn(),
 }))
 

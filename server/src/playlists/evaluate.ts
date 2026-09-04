@@ -20,6 +20,7 @@ export interface EvalAnime {
   userRating: number | null;
   watchingStatus: string | null;
   libraryUpdatedAt: number | null; // epoch ms
+  watchedAt?: number | null; // recorded viewing date, never library modification time
   kitsuId: string | null;
 }
 
@@ -134,10 +135,10 @@ export function matches(node: unknown, theme: EvalTheme, ctx: EvalContext): bool
       return asStringArray(node.statuses).includes(status);
     }
     case "watched_on": {
-      const updatedAt = anime?.libraryUpdatedAt;
-      if (updatedAt == null) return false;
+      const watchedAt = anime?.watchedAt;
+      if (watchedAt == null) return false;
       const anchorMs = resolveMillis(node.anchor, ctx.nowMillis);
-      return compareMillisOp(node.operator, updatedAt, anchorMs, () =>
+      return compareMillisOp(node.operator, watchedAt, anchorMs, () =>
         node.endAnchor != null ? resolveMillis(node.endAnchor, ctx.nowMillis) : anchorMs,
       );
     }
@@ -190,12 +191,12 @@ export function matches(node: unknown, theme: EvalTheme, ctx: EvalContext): bool
       return year != null && year >= num(node.minYear) && year <= num(node.maxYear);
     }
     case "library_updated_after": {
-      const updatedAt = anime?.libraryUpdatedAt;
-      return updatedAt != null && updatedAt > num(node.epochMillis);
+      const watchedAt = anime?.watchedAt;
+      return watchedAt != null && watchedAt > num(node.epochMillis);
     }
     case "library_updated_within": {
-      const updatedAt = anime?.libraryUpdatedAt;
-      return updatedAt != null && updatedAt > ctx.nowMillis - num(node.durationMillis);
+      const watchedAt = anime?.watchedAt;
+      return watchedAt != null && watchedAt > ctx.nowMillis - num(node.durationMillis);
     }
     case "played_since": {
       const lastPlayed = ctx.lastPlayedByTheme.get(theme.id);
@@ -351,7 +352,7 @@ const THEME_TYPE_ORDER = ["OP", "IN", "ED"];
 const DEFAULT_CATEGORICAL: Record<string, string[]> = {
   THEME_TYPE: THEME_TYPE_ORDER,
   SEASON: ["WINTER", "SPRING", "SUMMER", "FALL"],
-  WATCHING_STATUS: ["current", "completed"],
+  WATCHING_STATUS: ["current", "completed", "planned", "on_hold", "dropped"],
   SUBTYPE: ["tv", "movie", "ova", "ona", "special", "music"],
 };
 
@@ -417,7 +418,7 @@ function comparatorForKey(key: Json, ctx: EvalContext): Cmp {
     case "AIRED_DATE":
       return nullableNumberCmp(desc, (t) => startMillis(animeFor(t, ctx)));
     case "WATCHED_DATE":
-      return nullableNumberCmp(desc, (t) => animeFor(t, ctx)?.libraryUpdatedAt ?? null);
+      return nullableNumberCmp(desc, (t) => animeFor(t, ctx)?.watchedAt ?? null);
     case "AVERAGE_RATING":
       return nullableNumberCmp(desc, (t) => animeFor(t, ctx)?.averageRating ?? null);
     case "MY_RATING":

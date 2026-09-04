@@ -8,7 +8,8 @@ import type { NormalizedLibrary } from '../../lib/library'
 import { useLibraryQuery } from '../../lib/query'
 import { HomeCatalogPage, LibraryCatalogPage } from './index'
 
-vi.mock('../../lib/query', () => ({
+vi.mock('../../lib/query', async () => ({
+  ...await vi.importActual<typeof import('../../lib/query')>('../../lib/query'),
   useLibraryQuery: vi.fn(),
 }))
 

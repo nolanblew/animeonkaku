@@ -153,6 +153,7 @@ data class OngakuAnimeDto(
     val averageRating: Double?,
     val userRating: Double?,
     val libraryUpdatedAt: Long?,
+    val watchedAt: Long? = null,
     val slug: String?,
     val genres: List<String>,
     val updatedAt: Long,

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Check, ListMusic, Music2, Play, Plus, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 import { useAccessibleFocusScope } from '../../components/focusScope'
 import { listManualPlaylists } from './api'
-import { useLibraryActions } from './hooks'
+import { useLibraryActions, useLiveLibrarySnapshot } from './hooks'
 import type { PlaylistDto, PlaylistPlaybackMode } from '../../lib/library'
 import './libraryactions.css'
 
@@ -44,6 +44,11 @@ export function ThemeActionSheet({
   onClose,
 }: ThemeActionSheetProps) {
   const actions = useLibraryActions()
+  const library = useLiveLibrarySnapshot()
+  const preference = library?.prefsByThemeId[String(themeId)]
+  liked = preference?.liked ?? liked
+  disliked = preference?.disliked ?? disliked
+  preferredMode = preference ? preference.preferredMode ?? null : preferredMode
   const [playlistOpen, setPlaylistOpen] = useState(false)
   const [playlists, setPlaylists] = useState<PlaylistDto[]>([])
   const [playlistLoading, setPlaylistLoading] = useState(false)
@@ -103,6 +108,11 @@ export function ThemeActionSheet({
           <ActionRow icon={<ThumbsUp size={18} />} label={liked ? 'Remove like' : 'Like'} busy={actions.pendingAction === 'preference'} onClick={() => { void actions.updateThemePreference(themeId, { liked: !liked }).catch(() => undefined) }} />
           <ActionRow icon={<ThumbsDown size={18} />} label={disliked ? 'Remove dislike' : 'Dislike'} busy={actions.pendingAction === 'preference'} onClick={() => { void actions.updateThemePreference(themeId, { disliked: !disliked }).catch(() => undefined) }} />
           {hasFullSize && <ActionRow icon={<ListMusic size={18} />} label={preferredMode === 'FULL_SIZE' ? 'Prefer TV Size' : 'Prefer Full Size'} busy={actions.pendingAction === 'preference'} onClick={() => { void actions.setPreferredMode(themeId, preferredMode === 'FULL_SIZE' ? 'TV_SIZE' : 'FULL_SIZE').catch(() => undefined) }} />}
+          {preferredMode && <ActionRow icon={<ListMusic size={18} />} label="Clear version preference" busy={actions.pendingAction === 'preference'} onClick={() => { void actions.setPreferredMode(themeId, null).catch(() => undefined) }} />}
+          {(hasFullSize || preference?.dislikedTvSize || preference?.dislikedFullSize) && <>
+            <ActionRow icon={<ThumbsDown size={18} />} label={preference?.dislikedTvSize ? 'Remove TV Size dislike' : 'Dislike TV Size only'} busy={actions.pendingAction === 'preference'} onClick={() => { void actions.updateThemePreference(themeId, { dislikedTvSize: !preference?.dislikedTvSize, dislikedFullSize: false }).catch(() => undefined) }} />
+            <ActionRow icon={<ThumbsDown size={18} />} label={preference?.dislikedFullSize ? 'Remove Full Size dislike' : 'Dislike Full Size only'} busy={actions.pendingAction === 'preference'} onClick={() => { void actions.updateThemePreference(themeId, { dislikedFullSize: !preference?.dislikedFullSize, dislikedTvSize: false }).catch(() => undefined) }} />
+          </>}
           {!inLibrary && <ActionRow icon={<Plus size={18} />} label="Add to library" busy={actions.pendingAction === 'library'} onClick={() => { void actions.addAnimeToLibrary({ kitsuId: animeKitsuId, animeThemesId: animeThemesId ?? themeId }).catch(() => undefined) }} />}
           {inAnimeLibrary && animeKitsuId && <ActionRow icon={<X size={18} />} label={confirmingLibraryRemoval ? 'Confirm remove anime' : 'Remove anime from library'} busy={actions.pendingAction === 'library'} onClick={() => {
             if (!confirmingLibraryRemoval) { setConfirmingLibraryRemoval(true); return }
