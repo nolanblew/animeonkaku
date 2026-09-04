@@ -9,7 +9,8 @@ import type { LibraryAnimeDto, LibraryThemeDto, MusicReleaseDto, MusicTrackDto, 
 import { useLibraryQuery } from '../../lib/query'
 import { AnimeDetailPage } from './AnimeDetailPage'
 
-vi.mock('../../lib/query', () => ({
+vi.mock('../../lib/query', async () => ({
+  ...await vi.importActual<typeof import('../../lib/query')>('../../lib/query'),
   useLibraryQuery: vi.fn(),
 }))
 

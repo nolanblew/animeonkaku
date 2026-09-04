@@ -172,10 +172,12 @@ class PlaybackResolver @Inject constructor() {
             "FULL_SIZE" -> PlaybackMode.FULL_SIZE
             else -> preferredThemeMode
         }
-        val requested = if (intent.sessionOverride == PlaybackMode.VIDEO) {
+        val requiredMode = entry.baseModePolicy.takeIf { it.overrideUserPreference }
+            ?.resolvePreferred(intent.copy(sessionOverride = null))
+        val requested = if (requiredMode != null) {
+            requiredMode
+        } else if (intent.sessionOverride == PlaybackMode.VIDEO) {
             PlaybackMode.VIDEO
-        } else if (entry.baseModePolicy.overrideUserPreference) {
-            entry.baseModePolicy.resolvePreferred(intent)
         } else {
             storedPreferredMode ?: entry.baseModePolicy.resolvePreferred(intent)
         }
@@ -209,10 +211,11 @@ class PlaybackResolver @Inject constructor() {
             if (isOnline && videoUrl != null) add(PlaybackMode.VIDEO)
         }
 
-        val actual = if (!isOnline) {
+        val candidate = if (!isOnline) {
             when {
                 preferred in availableModes && preferred != PlaybackMode.VIDEO -> preferred
-                preferredThemeMode == PlaybackMode.FULL_SIZE && PlaybackMode.TV_SIZE in availableModes -> PlaybackMode.TV_SIZE
+                PlaybackMode.TV_SIZE in availableModes -> PlaybackMode.TV_SIZE
+                PlaybackMode.FULL_SIZE in availableModes -> PlaybackMode.FULL_SIZE
                 else -> null
             }
         } else {
@@ -234,6 +237,13 @@ class PlaybackResolver @Inject constructor() {
                 }
                 PlaybackMode.RELATED_AUDIO -> null
             }
+        }
+
+        // A required playlist version is a constraint, never permission to ignore the user.
+        val required = requiredMode
+        val actual = candidate.takeUnless {
+            required != null && (candidate != required ||
+                (storedPreferredMode != null && storedPreferredMode != required))
         }
 
         val actualKey = when (actual) {

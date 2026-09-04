@@ -45,7 +45,7 @@ class ThemePreferredModeTest {
     }
 
     @Test
-    fun `playlist override outranks a theme preference but never a scoped dislike`() {
+    fun `required playlist skips conflicting preferences and dislikes`() {
         val overridingEntry = themeEntry(
             queueId = 42,
             policy = BaseModePolicy(
@@ -75,9 +75,9 @@ class ThemePreferredModeTest {
         )
 
         assertEquals(PlaybackMode.TV_SIZE, overridden.preferredMode)
-        assertEquals(PlaybackMode.TV_SIZE, overridden.actualMode)
+        assertEquals(null, overridden.actualMode)
         assertEquals(PlaybackMode.FULL_SIZE, disliked.preferredMode)
-        assertEquals(PlaybackMode.FULL_SIZE, disliked.actualMode)
+        assertEquals(null, disliked.actualMode)
         assertTrue(PlaybackMode.TV_SIZE !in disliked.availableModes)
     }
 

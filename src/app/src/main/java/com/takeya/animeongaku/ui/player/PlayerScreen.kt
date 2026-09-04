@@ -718,19 +718,25 @@ fun PlayerScreen(
                  IconButton(onClick = {
                      if (currentPreference?.isDisliked == true) {
                          viewModel.toggleDislike(currentTheme.id)
+                     } else if (queuedThemeModesById[currentTheme.id]?.fullSizeUrl.isNullOrBlank() &&
+                         currentPreference?.isDislikedTvSize != true && currentPreference?.isDislikedFullSize != true) {
+                         viewModel.toggleDislike(currentTheme.id)
                      } else {
                          scopedDislikeThemeId = currentTheme.id
-                         viewModel.toggleDislike(currentTheme.id)
                      }
                  }) {
                      Icon(
                          Icons.Rounded.ThumbDown,
                          if (currentPreference?.isDisliked == true) {
                              "Remove dislike"
+                         } else if (currentPreference?.isDislikedTvSize == true) {
+                             "Change TV Size dislike"
+                         } else if (currentPreference?.isDislikedFullSize == true) {
+                             "Change Full Size dislike"
                          } else {
                              "Dislike all versions, or choose one version only"
                          },
-                         tint = if (currentPreference?.isDisliked == true) Rose500 else Mist200,
+                         tint = if (currentPreference?.let { it.isDisliked || it.isDislikedTvSize || it.isDislikedFullSize } == true) Rose500 else Mist200,
                          modifier = Modifier.size(26.dp)
                      )
                  }
@@ -762,23 +768,29 @@ fun PlayerScreen(
             AlertDialog(
                 onDismissRequest = { scopedDislikeThemeId = null },
                 title = { Text("Dislike this theme") },
-                text = { Text("All versions are now hidden. Choose one option to keep the other version visible instead.") },
+                text = { Text("Dislike all versions, or only one size to use the other available version for playback and downloads.") },
                 confirmButton = {
                     TextButton(onClick = {
-                        viewModel.setOnlyModeDislike(themeId, fullSize = true)
+                        if (currentPreference?.isDislikedFullSize == true) viewModel.toggleModeDislike(themeId, fullSize = true)
+                        else viewModel.setOnlyModeDislike(themeId, fullSize = true)
                         scopedDislikeThemeId = null
                     }) {
-                        Text("Full Size only")
+                        Text(if (currentPreference?.isDislikedFullSize == true) "Remove Full Size dislike" else "Full Size only")
                     }
                 },
                 dismissButton = {
-                    Row {
+                    Column {
                         TextButton(onClick = {
-                            viewModel.setOnlyModeDislike(themeId, fullSize = false)
+                            if (currentPreference?.isDislikedTvSize == true) viewModel.toggleModeDislike(themeId, fullSize = false)
+                            else viewModel.setOnlyModeDislike(themeId, fullSize = false)
                             scopedDislikeThemeId = null
                         }) {
-                            Text("TV Size only")
+                            Text(if (currentPreference?.isDislikedTvSize == true) "Remove TV Size dislike" else "TV Size only")
                         }
+                        TextButton(onClick = {
+                            viewModel.toggleDislike(themeId)
+                            scopedDislikeThemeId = null
+                        }) { Text("All versions") }
                         TextButton(onClick = { scopedDislikeThemeId = null }) { Text("Cancel") }
                     }
                 }

@@ -46,6 +46,28 @@ function includedAnime(id: string, title: string) {
 }
 
 describe("KitsuClient.getLibraryEntries", () => {
+  it("syncs every status and uses finish/start dates rather than edit or status timestamps", async () => {
+    const statuses = ["current", "completed", "planned", "on_hold", "dropped"];
+    const page = JSON.stringify({
+      data: statuses.map((status, index) => {
+        const entry = libraryEntry(String(index + 1), { status });
+        return { ...entry, attributes: { ...entry.attributes,
+          progressedAt: "2026-09-01T00:00:00Z",
+          startedAt: status === "planned" ? null : "2020-01-01T00:00:00Z",
+          finishedAt: status === "completed" ? "2020-02-01T00:00:00Z" : null,
+        } };
+      }),
+      included: statuses.map((_, index) => includedAnime(String(index + 1), "Anime")),
+      meta: { count: 5 },
+    });
+    const { client, requests } = makeClient([{ match: "library-entries", response: { status: 200, body: page } }]);
+    const entries = await client.getLibraryEntries("123");
+    expect(entries.map(entry => entry.watchingStatus)).toEqual(statuses);
+    expect(entries.map(entry => entry.watchedAt)).toEqual([
+      "2020-01-01T00:00:00Z", "2020-02-01T00:00:00Z", null, "2020-01-01T00:00:00Z", "2020-01-01T00:00:00Z",
+    ]);
+    expect(new URL(String(requests[0]!.url)).searchParams.has("filter[status]")).toBe(false);
+  });
   it("parses entries with conversions and follows pagination", async () => {
     const page1 = JSON.stringify({
       data: [libraryEntry("1", { ratingTwenty: 16 }), libraryEntry("2")],

@@ -1,5 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query'
-import { useCallback, useState } from 'react'
+import { useCallback, useState, useSyncExternalStore } from 'react'
 import { invalidateCategories, LIBRARY_QUERY_KEY, queryClient } from '../../lib/query'
 import type { NormalizedLibrary, PlaylistDto, PlaylistPlaybackMode, SongPrefDto, ThemePrefDto } from '../../lib/library'
 import {
@@ -17,6 +17,12 @@ import {
 } from './api'
 
 export type LibraryActionKey = 'preference' | 'library' | 'playlist'
+
+export function useLiveLibrarySnapshot(): NormalizedLibrary | undefined {
+  const subscribe = useCallback((notify: () => void) => queryClient.getQueryCache().subscribe(notify), [])
+  const snapshot = useCallback(() => queryClient.getQueryData<NormalizedLibrary>(LIBRARY_QUERY_KEY), [])
+  return useSyncExternalStore(subscribe, snapshot, snapshot)
+}
 
 export interface LibraryActions {
   pendingAction: LibraryActionKey | null

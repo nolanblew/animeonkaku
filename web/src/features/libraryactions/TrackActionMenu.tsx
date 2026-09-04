@@ -4,7 +4,7 @@ import type { PlaylistDto, PlaylistPlaybackMode } from '../../lib/library'
 import { useAccessibleFocusScope, useRovingMenu } from '../../components/focusScope'
 import { ViewportMenu } from '../../components/ViewportMenu'
 import { listManualPlaylists, type PlaylistItemInput } from './api'
-import { useLibraryActions } from './hooks'
+import { useLibraryActions, useLiveLibrarySnapshot } from './hooks'
 import './libraryactions.css'
 
 export interface TrackActionItem {
@@ -39,6 +39,13 @@ export interface TrackActionMenuProps {
 
 export function TrackActionMenu({ item, liked = false, disliked = false, menuOnly = false, onPlayNext, onAddToQueue, onReplaceQueue, onDislike, onPlayVideo, onGoToArtist, onGoToAnime, onRelatedMusic, onSetPreferredMode, hasFullSize = false, preferredMode = null, artistName, animeName, onRemove, removeLabel = 'Remove from playlist' }: TrackActionMenuProps) {
   const actions = useLibraryActions()
+  const library = useLiveLibrarySnapshot()
+  const themePreference = item.itemType === 'THEME' ? library?.prefsByThemeId[String(item.itemId)] : undefined
+  const livePreference = themePreference ?? (item.itemType === 'SONG' ? library?.songPrefsById[String(item.itemId)] : undefined)
+  liked = livePreference?.liked ?? liked
+  disliked = livePreference?.disliked ?? disliked
+  preferredMode = themePreference ? themePreference.preferredMode ?? null : preferredMode
+  hasFullSize = hasFullSize || Boolean(library?.themesById[String(item.itemId)]?.mediaModes?.fullSize)
   const [open, setOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [playlists, setPlaylists] = useState<PlaylistDto[]>([])
@@ -48,6 +55,7 @@ export function TrackActionMenu({ item, liked = false, disliked = false, menuOnl
   const [localLiked, setLocalLiked] = useState(Boolean(liked))
   const [localDisliked, setLocalDisliked] = useState(Boolean(disliked))
   const optimisticPreference = useRef<{ liked: boolean; disliked: boolean } | null>(null)
+  useEffect(() => { optimisticPreference.current = null; setLocalLiked(Boolean(liked)); setLocalDisliked(Boolean(disliked)) }, [item.itemType, item.itemId])
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRovingMenu<HTMLDivElement>({ open, onClose: () => setOpen(false), triggerRef })
@@ -83,14 +91,20 @@ export function TrackActionMenu({ item, liked = false, disliked = false, menuOnl
     optimisticPreference.current = next
     setLocalLiked(next.liked)
     setLocalDisliked(next.disliked)
-    if (kind === 'disliked' && value) onDislike?.()
     const patch = { [kind]: value }
     const request = item.itemType === 'SONG' ? actions.updateSongPreference(item.itemId, patch) : actions.updateThemePreference(item.itemId, patch)
-    void request.catch(() => {
+    void request.then(() => { optimisticPreference.current = null; if (kind === 'disliked' && value) onDislike?.() }).catch(() => {
       optimisticPreference.current = null
       setLocalLiked(previous.liked)
       setLocalDisliked(previous.disliked)
     })
+  }
+  const setVariantDislike = (full: boolean) => {
+    const active = full ? themePreference?.dislikedFullSize : themePreference?.dislikedTvSize
+    setOpen(false)
+    void actions.updateThemePreference(item.itemId, full
+      ? { dislikedFullSize: !active, ...(!active ? { dislikedTvSize: false } : {}) }
+      : { dislikedTvSize: !active, ...(!active ? { dislikedFullSize: false } : {}) }).catch(() => undefined)
   }
   const runAndClose = (action?: () => void) => { setOpen(false); action?.() }
   const openPicker = async () => {
@@ -120,7 +134,12 @@ export function TrackActionMenu({ item, liked = false, disliked = false, menuOnl
         {onGoToArtist && <button type="button" role="menuitem" onClick={() => runAndClose(onGoToArtist)}>{artistName ? `Go to ${artistName}` : 'Go to artist'}</button>}
         {onGoToAnime && <button type="button" role="menuitem" onClick={() => runAndClose(onGoToAnime)}>{animeName ? `Go to ${animeName}` : 'Go to anime'}</button>}
         {onRelatedMusic && <button type="button" role="menuitem" onClick={() => runAndClose(onRelatedMusic)}>Related Music</button>}
-        {item.itemType === 'THEME' && hasFullSize && onSetPreferredMode && <button type="button" role="menuitem" onClick={() => runAndClose(() => onSetPreferredMode(preferredMode === 'FULL_SIZE' ? 'TV_SIZE' : 'FULL_SIZE'))}>{preferredMode === 'FULL_SIZE' ? 'Prefer TV Size' : 'Prefer Full Size'}</button>}
+        {item.itemType === 'THEME' && (hasFullSize || preferredMode || themePreference?.dislikedTvSize || themePreference?.dislikedFullSize) && <>
+          <button type="button" role="menuitem" disabled={actions.pendingAction === 'preference'} onClick={() => runAndClose(() => { const mode = preferredMode === 'FULL_SIZE' ? 'TV_SIZE' : 'FULL_SIZE'; if (onSetPreferredMode) onSetPreferredMode(mode); else void actions.setPreferredMode(item.itemId, mode).catch(() => undefined) })}>{preferredMode === 'FULL_SIZE' ? 'Prefer TV Size' : 'Prefer Full Size'}</button>
+          {preferredMode && <button type="button" role="menuitem" onClick={() => runAndClose(() => { void actions.setPreferredMode(item.itemId, null).catch(() => undefined) })}>Clear version preference</button>}
+          <button type="button" role="menuitem" disabled={actions.pendingAction === 'preference'} onClick={() => setVariantDislike(false)}>{themePreference?.dislikedTvSize ? 'Remove TV Size dislike' : 'Dislike TV Size only'}</button>
+          <button type="button" role="menuitem" disabled={actions.pendingAction === 'preference'} onClick={() => setVariantDislike(true)}>{themePreference?.dislikedFullSize ? 'Remove Full Size dislike' : 'Dislike Full Size only'}</button>
+        </>}
         {menuOnly && <><button type="button" role="menuitem" onClick={() => { updatePreference('liked', !localLiked); setOpen(false) }}>{localLiked ? 'Remove like' : 'Like'}</button><button type="button" role="menuitem" onClick={() => { updatePreference('disliked', !localDisliked); setOpen(false) }}>{localDisliked ? 'Remove dislike' : 'Dislike'}</button></>}
         {onRemove && <button type="button" role="menuitem" className="track-actions__danger" onClick={() => runAndClose(onRemove)}>{removeLabel}</button>}
       </ViewportMenu>

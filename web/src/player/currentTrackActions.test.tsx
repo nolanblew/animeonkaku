@@ -58,7 +58,7 @@ describe('CurrentTrackActions preference subscription', () => {
     resolveRequest({ themeId: 44, liked: true, disliked: false })
   })
 
-  it('persists toggle state and immediately advances after adding a dislike', async () => {
+  it('persists feedback and leaves queue advancement to the player preference observer', async () => {
     const request = vi.spyOn(apiClient, 'request').mockImplementation(async (_path, options) => ({
       themeId: 44,
       liked: JSON.parse(String(options?.body)).liked ?? false,
@@ -75,7 +75,7 @@ describe('CurrentTrackActions preference subscription', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Dislike' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Remove dislike' })).toHaveAttribute('aria-pressed', 'true'))
-    expect(playerState.player.next).toHaveBeenCalledOnce()
+    expect(playerState.player.next).not.toHaveBeenCalled()
     expect(request.mock.calls.map(([, options]) => JSON.parse(String(options?.body)))).toEqual([
       { liked: true },
       { liked: false },

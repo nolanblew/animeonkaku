@@ -39,6 +39,7 @@ fun OngakuAnimeDto.toAnimeEntity(serverBaseUrl: String): AnimeEntity = AnimeEnti
     averageRating = averageRating,
     userRating = userRating,
     libraryUpdatedAt = libraryUpdatedAt,
+    watchedAt = watchedAt,
     slug = slug
 )
 

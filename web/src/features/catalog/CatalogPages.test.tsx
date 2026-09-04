@@ -6,7 +6,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiClient } from '../../lib/api'
 import type { MusicTrackDto, NormalizedLibrary } from '../../lib/library'
 
-vi.mock('../../lib/query', () => ({
+vi.mock('../../lib/query', async () => ({
+  ...await vi.importActual<typeof import('../../lib/query')>('../../lib/query'),
   useLibraryQuery: vi.fn(),
 }))
 

@@ -183,6 +183,13 @@
       "when": 1787866170829,
       "tag": "0025_ancient_tusk",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1788556192186,
+      "tag": "0026_special_selene",
+      "breakpoints": true
     }
   ]
 }

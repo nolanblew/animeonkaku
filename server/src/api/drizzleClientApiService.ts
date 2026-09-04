@@ -2154,6 +2154,7 @@ const libraryAnimeColumns = {
   watchingStatus: libraryEntries.watchingStatus,
   userRating: libraryEntries.userRating,
   libraryUpdatedAt: libraryEntries.libraryUpdatedAt,
+  watchedAt: libraryEntries.watchedAt,
   libraryEntryUpdatedAt: libraryEntries.updatedAt,
   libraryDeletedAt: libraryEntries.deletedAt,
 } as const;
@@ -2181,6 +2182,7 @@ type LibraryAnimeRow = {
   watchingStatus: string | null;
   userRating: number | null;
   libraryUpdatedAt: Date | string | null;
+  watchedAt?: Date | string | null;
   libraryEntryUpdatedAt: Date | string | null;
   libraryDeletedAt: Date | string | null;
 };
@@ -2208,6 +2210,7 @@ function libraryAnimeDto(row: LibraryAnimeRow, genres: string[]): LibraryAnimeDt
     averageRating: row.averageRating,
     userRating: row.userRating,
     libraryUpdatedAt: dateMillis(row.libraryUpdatedAt),
+    watchedAt: dateMillis(row.watchedAt ?? null),
     slug: row.slug,
     genres,
     updatedAt: Math.max(dateMillis(row.libraryEntryUpdatedAt) ?? 0, dateMillis(row.animeUpdatedAt) ?? 0),

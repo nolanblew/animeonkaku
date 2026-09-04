@@ -236,7 +236,7 @@ export function PlaylistEditor({ playlist, onSubmit, onCancel, initialFocusRef }
         <label className="playlist-field"><span>Name</span><input aria-label="Playlist name" value={values.name} maxLength={100} onChange={(event) => setValue('name', event.target.value)} autoComplete="off" placeholder={creationKind === 'SMART' ? 'Late-night openings' : 'My favorites'} />{errors.name && <small className="playlist-field__error">{errors.name}</small>}</label>
         <div className="playlist-editor__grid">
           <label className="playlist-field"><span>Default playback</span><select value={values.defaultMode} onChange={(event) => setValue('defaultMode', event.target.value as PlaylistPlaybackMode)}><option value="TV_SIZE">TV size</option><option value="FULL_SIZE">Full size</option></select></label>
-          <label className="playlist-check"><input type="checkbox" checked={values.overrideUserPreference} onChange={(event) => setValue('overrideUserPreference', event.target.checked)} /><span>Use this mode over song preferences</span></label>
+          <label className="playlist-check"><input type="checkbox" checked={values.overrideUserPreference} onChange={(event) => setValue('overrideUserPreference', event.target.checked)} /><span>Require selected version (skip unavailable or conflicting tracks)</span></label>
         </div>
       </div>}
       {!isCreate && <label className="playlist-check"><input aria-label="Dynamic playlist" type="checkbox" checked={values.isDynamic === true} onChange={(event) => { const checked = event.target.checked; setValue('isDynamic', checked); if (checked && !values.createdMode) { setCreatedMode('SIMPLE'); setValue('createdMode', 'SIMPLE') } }} /><span>Dynamic playlist (smart collection)</span></label>}

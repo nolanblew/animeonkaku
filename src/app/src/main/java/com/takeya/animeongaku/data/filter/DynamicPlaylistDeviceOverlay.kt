@@ -135,24 +135,24 @@ private fun matchesOverlayFilter(node: FilterNode, theme: ThemeEntity, ctx: Eval
             status in node.statuses
         }
         is FilterNode.WatchedOn -> {
-            val updatedAt = anime?.libraryUpdatedAt ?: return false
+            val watchedAt = anime?.watchedAt ?: return false
             val anchorMillis = resolveOverlayMillis(node.anchor, ctx.nowMillis)
             when (node.operator) {
-                DateOperator.GT -> updatedAt > anchorMillis
-                DateOperator.LT -> updatedAt < anchorMillis
+                DateOperator.GT -> watchedAt > anchorMillis
+                DateOperator.LT -> watchedAt < anchorMillis
                 DateOperator.BETWEEN -> {
                     val endMillis = node.endAnchor?.let { resolveOverlayMillis(it, ctx.nowMillis) } ?: anchorMillis
-                    updatedAt in minOf(anchorMillis, endMillis)..maxOf(anchorMillis, endMillis)
+                    watchedAt in minOf(anchorMillis, endMillis)..maxOf(anchorMillis, endMillis)
                 }
             }
         }
         is FilterNode.LibraryUpdatedAfter -> {
-            val updatedAt = anime?.libraryUpdatedAt ?: return false
-            updatedAt > node.epochMillis
+            val watchedAt = anime?.watchedAt ?: return false
+            watchedAt > node.epochMillis
         }
         is FilterNode.LibraryUpdatedWithin -> {
-            val updatedAt = anime?.libraryUpdatedAt ?: return false
-            updatedAt > (ctx.nowMillis - node.durationMillis)
+            val watchedAt = anime?.watchedAt ?: return false
+            watchedAt > (ctx.nowMillis - node.durationMillis)
         }
         is FilterNode.ThemeTypeIn -> {
             val type = theme.themeType?.uppercase() ?: return false

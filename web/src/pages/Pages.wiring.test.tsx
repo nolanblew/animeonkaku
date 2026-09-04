@@ -285,7 +285,7 @@ describe('page-to-player wiring', () => {
     renderPath(<PlaylistPage />, '/playlist/7', '/playlist/:playlistId')
     captures.playlistDetailProps.onPlay(playlist, true)
     expect(captures.player.playItems).toHaveBeenCalledWith([
-      expect.objectContaining({ themeId: 11, mode: 'TV_SIZE' }),
+      expect.objectContaining({ themeId: 11, mode: 'FULL_SIZE' }),
       expect.objectContaining({ songId: 90 }),
     ], { contextLabel: 'Mixed modes', startIndex: 0, shuffle: true })
 

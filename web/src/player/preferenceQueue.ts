@@ -1,10 +1,12 @@
 import type { PlaybackMode } from '../media/modeSwitch'
+import { queueItemAudioUrl, queueItemVideoUrl, type PlayerQueueItem } from './mapping'
 import type { QueueEntry, QueueEntryId, QueueItem } from './queue'
 
 export interface QueueThemePreference {
   readonly disliked?: boolean
   readonly dislikedTvSize?: boolean
   readonly dislikedFullSize?: boolean
+  readonly preferredMode?: 'TV_SIZE' | 'FULL_SIZE' | null
 }
 
 export interface QueueSongPreference {
@@ -43,7 +45,12 @@ export function isQueueEntryAllowedByPreference(
   unskippedEntryIds: ReadonlySet<QueueEntryId> = new Set(),
   actualMode?: PlaybackMode,
 ): boolean {
-  if (unskippedEntryIds.has(entry.queueId)) return true
+  if (unskippedEntryIds.has(entry.queueId)) {
+    const item = entry.item as PlayerQueueItem
+    if (item.itemType !== 'THEME') return true
+    const pref = preferences.themesById[String(item.themeId)]
+    return isQueueItemAllowedByPreference(item, { ...preferences, themesById: { ...preferences.themesById, [String(item.themeId)]: { ...pref, disliked: false } } }, actualMode)
+  }
   return isQueueItemAllowedByPreference(entry.item, preferences, actualMode)
 }
 
@@ -62,11 +69,32 @@ export function isQueueItemAllowedByPreference(
   const themeId = candidate.themeId
   if (!Number.isInteger(themeId)) return true
   const preference = preferences.themesById[String(themeId)]
-  if (!preference || preference.disliked) return !preference?.disliked
+  if (actualMode === undefined && ('tvAudioUrl' in item || 'fullAudioUrl' in item)) {
+    return !preference?.disliked && resolveQueueItemMode(item, preferences, candidate.mode ?? 'TV_SIZE') !== null
+  }
   const mode = actualMode ?? candidate.mode
+  const required = (item as PlayerQueueItem).requiredMode
+  if (required && (mode !== required || (preference?.preferredMode && preference.preferredMode !== required))) return false
+  if (!preference || preference.disliked) return !preference?.disliked
   if (mode === 'TV_SIZE') return !preference.dislikedTvSize
   if (mode === 'FULL_SIZE') return !preference.dislikedFullSize
   return true
+}
+
+/** Shared selection for queue eligibility and the media element. Never load a rejected size. */
+export function resolveQueueItemMode(item: QueueItem, preferences: QueuePreferenceSnapshot, fallback: PlaybackMode, manualMode?: PlaybackMode): PlaybackMode | null {
+  const candidate = item as PlayerQueueItem
+  const pref = candidate.itemType === 'THEME' ? preferences.themesById[String(candidate.themeId)] : undefined
+  const required = candidate.requiredMode
+  if (required && pref?.preferredMode && pref.preferredMode !== required) return null
+  const requested = required ?? manualMode ?? (fallback === 'VIDEO' ? 'VIDEO' : pref?.preferredMode ?? candidate.mode ?? fallback)
+  const modes: PlaybackMode[] = required ? [required] : requested === 'FULL_SIZE' ? ['FULL_SIZE', 'TV_SIZE'] : requested === 'VIDEO' ? ['VIDEO', 'TV_SIZE', 'FULL_SIZE'] : ['TV_SIZE', 'FULL_SIZE']
+  return modes.find(mode => {
+    if (mode === 'VIDEO') return Boolean(queueItemVideoUrl(item))
+    if (mode === 'TV_SIZE' && pref?.dislikedTvSize) return false
+    if (mode === 'FULL_SIZE' && pref?.dislikedFullSize) return false
+    return Boolean(queueItemAudioUrl(item, mode))
+  }) ?? null
 }
 
 /** Returns the playback projection of the logical queue, without mutating it. */
