@@ -145,6 +145,9 @@ button.player-queue__primary:hover { background: rgba(255,255,255,.065); }
 }
 @media (max-width: 700px) {
   .player-mini-player { grid-template-columns: minmax(0,1fr) auto; min-height: 5.2rem; padding: .55rem .75rem; }
+  .player-mini-player__identity { display: grid; grid-template-columns: minmax(0,1fr); gap: .15rem; }
+  .player-mini-player__track { gap: .5rem; }
+  .player-mini-player__identity > .track-actions { padding-left: 3.5rem; }
   .player-mini-player__transport { display: flex; }
   .player-mini-player__transport .player-mini-player__controls > :first-child, .player-mini-player__transport .player-mini-player__controls > :last-child, .player-mini-player__progress { display: none; }
   .player-mini-player__identity > .player-icon-button { display: none; }

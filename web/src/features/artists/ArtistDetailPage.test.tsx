@@ -33,12 +33,12 @@ type ArtistDetailResponse = {
   fullSongs: ArtistFullSongDto[]
 }
 
-const anime: ArtistAnimeLink = {
+const anime = {
   kitsuId: 'anime-1',
   title: 'Signal Breaker',
   titleEn: 'Signal Breaker',
   posterUrl: '/v1/media/images/anime/anime-1/poster',
-}
+} satisfies ArtistAnimeLink
 
 const themes: ArtistThemeDto[] = [{
   id: 2222,
