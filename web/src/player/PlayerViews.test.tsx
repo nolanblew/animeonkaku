@@ -102,15 +102,48 @@ describe('player views', () => {
 
   it('matches mobile title hierarchy in the mini player, full player, and queue', () => {
     const mini = renderPlayer(<MiniPlayerView />)
-    expect(screen.getByText('A Couple of Cuckoos · ED 2')).toBeInTheDocument()
+    expect(screen.getByText('A Couple of Cuckoos', { selector: '.player-mini-player__meta strong' })).toBeInTheDocument()
+    expect(screen.getByText('ED 2', { selector: '.player-mini-player__type-pill' })).toBeInTheDocument()
     expect(screen.getByText('Opening · Band')).toBeInTheDocument()
     mini.unmount()
 
     renderPlayer(<NowPlayingView />)
     expect(screen.getByRole('heading', { name: 'A Couple of Cuckoos · ED 2' })).toBeInTheDocument()
-    expect(screen.getByText('Opening · Band')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Opening' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Band' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Show queue' }))
     expect(screen.getByText('A Couple of Cuckoos · ED 2', { selector: '.player-queue__title' })).toBeInTheDocument()
+  })
+
+  it('links the full-player anime and artist identities independently while keeping the song title', () => {
+    renderPlayer(<NowPlayingView />)
+
+    expect(screen.getByRole('link', { name: 'A Couple of Cuckoos' })).toHaveAttribute('href', '/anime/anime-1')
+    expect(screen.getByRole('link', { name: 'Opening' })).toHaveAttribute('href', '/anime/anime-1')
+    expect(screen.getByRole('link', { name: 'Band' })).toHaveAttribute('href', '/artist/band')
+    expect(screen.getByText('Opening')).toBeInTheDocument()
+  })
+
+  it('keeps the mini-player theme type visible beside a truncated anime title', () => {
+    state.player.currentItem = {
+      ...state.player.currentItem,
+      animeTitle: 'A Very Long Anime Title That Must Yield Space To The Player Controls',
+    }
+
+    renderPlayer(<MiniPlayerView />)
+
+    expect(screen.getByText('ED 2', { selector: '.player-mini-player__type-pill' })).toBeInTheDocument()
+    expect(screen.getByText('A Very Long Anime Title That Must Yield Space To The Player Controls', { selector: '.player-mini-player__meta strong' })).toBeInTheDocument()
+  })
+
+  it('preserves song fallback metadata in the full player without duplicating the song title', () => {
+    state.player.currentItem = { id: 7, itemType: 'SONG', songId: 7, title: 'Standalone Song', album: 'Anime OST' }
+
+    renderPlayer(<NowPlayingView />)
+
+    expect(screen.getByRole('heading', { name: 'Standalone Song' })).toBeInTheDocument()
+    expect(screen.getByText('Anime OST')).toBeInTheDocument()
+    expect(screen.queryByText('Standalone Song · Anime OST')).not.toBeInTheDocument()
   })
 
   it('updates an already-playing theme when the local anime-title preference changes', () => {

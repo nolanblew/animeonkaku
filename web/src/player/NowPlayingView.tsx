@@ -8,7 +8,7 @@ import { windowQueueEntries } from './queueWindow'
 import { useAccessibleFocusScope } from '../components/focusScope'
 import { themePresentation } from '../lib/themePresentation'
 import { preferredAnimeTitle, useAnimeTitlePreference } from '../lib/animeTitlePreference'
-import { useInRouterContext, useNavigate } from 'react-router-dom'
+import { Link as RouterLink, useInRouterContext, useNavigate } from 'react-router-dom'
 import { artistRouteSlug } from '../lib/navigation'
 
 export interface NowPlayingViewProps { className?: string; onCollapse?: () => void }
@@ -19,10 +19,14 @@ export function NowPlayingView({ className = '', onCollapse }: NowPlayingViewPro
   const current = player.currentItem
   const animeTitlePreference = useAnimeTitlePreference()
   const presentation = playerItemPresentation(current, animeTitlePreference)
-  const title = presentation.primary
-  const artist = presentation.secondary
   const isVideo = player.mode === 'VIDEO'
   const [queueOpen, setQueueOpen] = useState(false)
+  const animePath = presentation.animeId !== undefined && presentation.animeId !== null && String(presentation.animeId).trim()
+    ? `/anime/${encodeURIComponent(String(presentation.animeId))}`
+    : undefined
+  const artistPath = presentation.artistSlug
+    ? `/artist/${encodeURIComponent(presentation.artistSlug)}`
+    : undefined
 
   const modeLabel = player.mode === 'FULL_SIZE' ? 'Full size' : player.mode === 'VIDEO' ? 'Video' : 'TV size'
   return (
@@ -45,7 +49,11 @@ export function NowPlayingView({ className = '', onCollapse }: NowPlayingViewPro
         </div>
 
         <div className="player-now-playing__details">
-          <div className="player-now-playing__copy"><p className="player-eyebrow">Now playing</p><h2>{title}</h2><p>{artist}</p><span className="player-now-playing__type-label">{modeLabel}</span></div>
+          <div className="player-now-playing__copy"><p className="player-eyebrow">Now playing</p><h2>{animePath && presentation.animeTitle
+            ? <><PlayerIdentityLink className="player-now-playing__identity-link" to={animePath}>{presentation.animeTitle}</PlayerIdentityLink>{presentation.typeLabel ? <> · {presentation.typeLabel}</> : null}</>
+            : presentation.primary}</h2><p>{presentation.songTitle
+              ? <>{animePath ? <PlayerIdentityLink className="player-now-playing__identity-link" to={animePath}>{presentation.songTitle}</PlayerIdentityLink> : presentation.songTitle}{presentation.artist ? <> · {artistPath ? <PlayerIdentityLink className="player-now-playing__identity-link" to={artistPath}>{presentation.artist}</PlayerIdentityLink> : presentation.artist}</> : null}</>
+              : artistPath ? <PlayerIdentityLink className="player-now-playing__identity-link" to={artistPath}>{presentation.artist}</PlayerIdentityLink> : presentation.secondary}</p><span className="player-now-playing__type-label">{modeLabel}</span></div>
           <div className="player-now-playing__progress"><span aria-live="off">{formatTime(player.currentTime)}</span><input type="range" min="0" max={Math.max(0, player.duration)} step="0.1" value={Math.min(player.currentTime, Math.max(0, player.duration))} onChange={(event) => player.seek(Number(event.currentTarget.value))} aria-label="Seek" disabled={!current} /><span aria-live="off">{formatTime(player.duration)}</span></div>
           <div className="player-now-playing__controls" aria-label="Playback controls"><button type="button" className="player-icon-button player-icon-button--quiet" onClick={() => player.toggleShuffle()} aria-label={player.queueState.isShuffled ? 'Disable shuffle' : 'Enable shuffle'} aria-pressed={player.queueState.isShuffled}><Shuffle size={20} /></button><button type="button" className="player-icon-button player-icon-button--quiet player-skip-button" onClick={() => void player.previous()} aria-label="Previous track" disabled={!current}><SkipBack size={24} fill="currentColor" /></button><button type="button" className="player-play-button player-play-button--hero" onClick={() => void player.togglePlay()} aria-label={player.isPlaying ? 'Pause current track' : 'Play current track'} disabled={!current}>{player.isPlaying ? <Pause size={29} fill="currentColor" /> : <Play size={29} fill="currentColor" />}</button><button type="button" className="player-icon-button player-icon-button--quiet player-skip-button" onClick={() => void player.next()} aria-label="Next track" disabled={!current}><SkipForward size={24} fill="currentColor" /></button><button type="button" className="player-icon-button player-icon-button--quiet" onClick={() => player.cycleRepeat()} aria-label={`Repeat ${player.queueState.repeatMode}`} aria-pressed={player.queueState.repeatMode !== 'off'}><Repeat size={20} /></button></div>
           <div className="player-now-playing__secondary-actions"><CurrentTrackActions /><button type="button" className="player-icon-button player-icon-button--quiet player-queue-toggle" onClick={() => setQueueOpen((open) => !open)} aria-label={queueOpen ? 'Hide queue' : 'Show queue'} aria-controls="playback-queue" aria-expanded={queueOpen}><ListMusic size={19} /></button></div>
@@ -400,15 +408,40 @@ function reorderPreview(entries: QueueEntry[], sourceId: number, targetId: numbe
   return preview
 }
 
-function playerItemPresentation(item: QueueEntry['item'] | undefined, preference?: 'ENGLISH' | 'ROMAJI' | 'JAPANESE'): { primary: string; secondary: string } {
+interface PlayerItemPresentation {
+  primary: string
+  secondary: string
+  animeTitle?: string
+  animeId?: QueueEntry['item']['animeId']
+  typeLabel?: string | null
+  songTitle?: string
+  artist?: string
+  artistSlug?: string
+}
+
+function playerItemPresentation(item: QueueEntry['item'] | undefined, preference?: 'ENGLISH' | 'ROMAJI' | 'JAPANESE'): PlayerItemPresentation {
   if (!item) return { primary: 'Nothing playing', secondary: 'Choose a theme or song to begin.' }
-  if (item.itemType === 'THEME') return themePresentation({
-    animeTitle: preferredAnimeTitle({ title: item.animeTitle as string | undefined, titleEn: item.animeTitleEn as string | undefined, titleRomaji: item.animeTitleRomaji as string | undefined, titleJa: item.animeTitleJa as string | undefined }, preference),
-    themeType: item.themeType as string | undefined,
-    songTitle: item.title,
-    artist: item.artist,
-  })
-  return { primary: item.title, secondary: item.artist ?? item.album ?? 'Anime Ongaku' }
+  if (item.itemType === 'THEME') {
+    const animeTitle = preferredAnimeTitle({ title: item.animeTitle as string | undefined, titleEn: item.animeTitleEn as string | undefined, titleRomaji: item.animeTitleRomaji as string | undefined, titleJa: item.animeTitleJa as string | undefined }, preference)
+    const presentation = themePresentation({ animeTitle, themeType: item.themeType as string | undefined, songTitle: item.title, artist: item.artist })
+    const artist = item.artist?.trim() || undefined
+    return {
+      ...presentation,
+      animeTitle: animeTitle?.trim() || undefined,
+      animeId: item.animeId,
+      typeLabel: presentation.typeLabel,
+      songTitle: item.title?.trim() || 'Untitled theme',
+      artist,
+      artistSlug: artistRouteSlug(artist),
+    }
+  }
+  const artist = item.artist?.trim() || undefined
+  return { primary: item.title, secondary: artist ?? item.album ?? 'Anime Ongaku', artist, artistSlug: artistRouteSlug(artist) }
+}
+
+function PlayerIdentityLink({ to, className, children }: { to: string; className?: string; children: ReactNode }) {
+  if (useInRouterContext()) return <RouterLink className={className} to={to}>{children}</RouterLink>
+  return <a className={className} href={to}>{children}</a>
 }
 
 function formatTime(value: number): string {

@@ -136,12 +136,17 @@ describe('anime detail feedback contracts', () => {
     const rows = within(themes).getAllByRole('article')
     expect(rows).toHaveLength(2)
     for (const row of rows) {
-      const title = within(row).getByRole('heading').textContent
-      const play = within(row).getByRole('button', { name: `Play ${title}` })
+      const play = within(row).getByRole('button', { name: /^Play / })
       expect(play).toHaveClass('catalog-theme-row__play')
       expect(play.textContent).toBe('')
       expect(play).not.toBeDisabled()
     }
+    expect(within(themes).getAllByText('Violet Evergarden', { selector: '.catalog-theme-row__anime-title' })).toHaveLength(2)
+    expect(within(themes).getByText('OP', { selector: '.catalog-theme-row__type' })).toBeInTheDocument()
+    expect(within(themes).getByText('ED', { selector: '.catalog-theme-row__type' })).toBeInTheDocument()
+    expect(within(themes).getByText('Sincerely · TRUE')).toBeInTheDocument()
+    expect(within(themes).getByTestId('theme-anime-artwork-1')).toHaveClass('catalog-theme-row__anime-artwork')
+    expect(within(themes).getByTestId('theme-anime-artwork-2')).toHaveClass('catalog-theme-row__anime-artwork')
     expect(within(themes).queryByText('Ready')).not.toBeInTheDocument()
     expect(within(themes).queryByText('Pending')).not.toBeInTheDocument()
     expect(within(themes).queryByTestId('theme-readiness')).not.toBeInTheDocument()

@@ -22,6 +22,11 @@
 .home-quick-pick .media-item__copy { gap: .23rem; }
 .home-quick-pick .media-item__copy strong { font-size: .9rem; }
 .home-quick-pick .media-item__copy small { font-size: .74rem; }
+.home-quick-pick .media-item__copy > strong,
+.home-top-song .media-item__copy > strong { display: block; min-width: 0; overflow: visible; text-overflow: clip; white-space: normal; }
+.home-theme-identity { display: flex; min-width: 0; align-items: center; gap: .38rem; }
+.home-theme-identity__type { display: inline-flex; flex: 0 0 auto; align-items: center; padding: .15rem .38rem; border: 1px solid rgba(71,217,232,.32); border-radius: 999px; background: rgba(71,217,232,.1); color: var(--cyan); font-size: .64rem; font-weight: 800; letter-spacing: .04em; line-height: 1.1; white-space: nowrap; }
+.home-theme-identity__anime { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-quick-pick__more { display: inline-grid; width: 2.2rem; height: 2.2rem; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; opacity: 0; }
 .home-quick-pick:hover .home-quick-pick__more, .home-quick-pick:focus-within .home-quick-pick__more { opacity: 1; }
 .home-quick-pick .track-actions, .home-top-song .track-actions { opacity: 0; transition: opacity .18s; }
@@ -150,6 +155,13 @@
 .catalog-theme-row h3 { font-size: .88rem; }
 .catalog-theme-row p { margin-top: .22rem; color: var(--muted); font-size: .76rem; }
 .catalog-theme-row__image { width: 2.7rem; height: 2.7rem; flex: 0 0 auto; border-radius: .45rem; object-fit: cover; }
+.catalog-theme-row--anime-detail { gap: .65rem; }
+.catalog-theme-row--anime-detail .catalog-theme-row__anime-artwork { width: 2.7rem; height: 3.7rem; flex: 0 0 auto; border-radius: .4rem; }
+.catalog-theme-row--anime-detail .catalog-theme-row__copy { display: grid; gap: .2rem; }
+.catalog-theme-row--anime-detail h3 { display: flex; min-width: 0; align-items: center; gap: .35rem; overflow: visible; text-overflow: clip; white-space: normal; }
+.catalog-theme-row--anime-detail .catalog-theme-row__type { display: inline-flex; align-items: center; padding: .15rem .38rem; border: 1px solid rgba(71,217,232,.32); border-radius: 999px; background: rgba(71,217,232,.1); color: var(--cyan); font-size: .64rem; line-height: 1.1; white-space: nowrap; }
+.catalog-theme-row--anime-detail .catalog-theme-row__anime-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-theme-row--anime-detail p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .catalog-theme-row__play { display: inline-grid; width: 2.25rem; height: 2.25rem; flex: 0 0 auto; place-items: center; border: 0; border-radius: 50%; background: var(--coral); color: white; cursor: pointer; }
 .catalog-theme-row__play:disabled { cursor: not-allowed; opacity: .45; }
 .catalog-theme-row__more { display: inline-grid; width: 2.25rem; height: 2.25rem; flex: 0 0 auto; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }

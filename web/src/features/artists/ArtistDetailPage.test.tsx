@@ -8,7 +8,8 @@ import type { LibraryThemeDto, MusicTrackDto } from '../../lib/library'
 import { ArtistDetailPage } from './ArtistDetailPage'
 
 type ArtistAnimeLink = {
-  kitsuId: string
+  kitsuId: string | null
+  animeThemesAnimeId?: number | null
   title: string
   titleEn: string | null
   posterUrl: string | null
@@ -135,6 +136,49 @@ describe('artist detail page', () => {
     expect(apiClient.get).toHaveBeenCalledWith('/v1/artists/karuta', expect.anything())
   })
 
+  it('shows anime artwork and an identifiable anime relationship for themes and full songs', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue(response)
+    renderPage()
+
+    await screen.findByRole('heading', { name: 'Karuta' })
+
+    expect(screen.getByText('1 Themes')).toBeInTheDocument()
+    const rows = screen.getAllByRole('listitem')
+    const themeRow = rows[0]!
+    const songRow = rows[1]!
+    expect(within(themeRow).getByRole('button', { name: 'Play Ichiban no Takaramono' })).toBeInTheDocument()
+    expect(within(themeRow).getByRole('img', { name: 'Signal Breaker cover' })).toHaveAttribute('src', '/api/v1/media/images/anime/anime-1/poster')
+    expect(within(themeRow).getByRole('link', { name: 'Signal Breaker' })).toBeInTheDocument()
+    expect(within(songRow).getByRole('img', { name: 'Signal Breaker cover' })).toHaveAttribute('src', '/api/v1/media/images/anime/anime-1/poster')
+    expect(within(songRow).getByRole('link', { name: 'Signal Breaker' })).toBeInTheDocument()
+  })
+
+  it('keeps no-Kitsu anime artwork and title visible without inventing an anime link', async () => {
+    const noKitsuAnime: ArtistAnimeLink = {
+      kitsuId: null,
+      animeThemesAnimeId: 4885,
+      title: 'Rich Girl Caretaker',
+      titleEn: 'The Rich Girl Caretaker',
+      posterUrl: '/v1/media/images/anime/rich-girl-caretaker/poster',
+    }
+    vi.mocked(apiClient.get).mockResolvedValue({
+      ...response,
+      themes: [{ ...themes[0], kitsuAnimeIds: [], animeThemesAnimeId: 4885, anime: [noKitsuAnime] }],
+      fullSongs: [{ ...fullSongs[0], anime: [noKitsuAnime] }],
+    })
+    renderPage()
+
+    await screen.findByRole('heading', { name: 'Karuta' })
+
+    const rows = screen.getAllByRole('listitem')
+    expect(screen.getByText('1 Themes')).toBeInTheDocument()
+    expect(within(rows[0]!).getByRole('img', { name: 'Rich Girl Caretaker cover' })).toHaveAttribute('src', '/api/v1/media/images/anime/rich-girl-caretaker/poster')
+    expect(within(rows[0]!).getByText(/Rich Girl Caretaker/)).toBeInTheDocument()
+    expect(within(rows[0]!).queryByRole('link', { name: /Rich Girl Caretaker/ })).not.toBeInTheDocument()
+    expect(within(rows[1]!).getByRole('img', { name: 'Rich Girl Caretaker cover' })).toBeInTheDocument()
+    expect(within(rows[1]!).getByText(/Rich Girl Caretaker/)).toBeInTheDocument()
+  })
+
   it('offers play and shuffle for the complete artist collection', async () => {
     vi.mocked(apiClient.get).mockResolvedValue(response)
     const onPlayAll = vi.fn()
@@ -227,7 +271,7 @@ describe('artist detail page', () => {
 
     expect(await screen.findByRole('heading', { name: 'Unknown artist' })).toBeInTheDocument()
     expect(screen.getAllByText('Unmatched theme')).toHaveLength(2)
-    expect(screen.getByText('Available online')).toBeInTheDocument()
+    expect(screen.queryByText('Available online')).not.toBeInTheDocument()
     expect(screen.getAllByText('Metadata only')).toHaveLength(2)
     expect(screen.getAllByText('Unknown artist')).toHaveLength(2)
     expect(screen.getByRole('button', { name: 'Play Metadata only' })).toBeDisabled()

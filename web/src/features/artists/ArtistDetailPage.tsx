@@ -78,7 +78,7 @@ function ArtistArtwork({ artworkUrl, name }: { artworkUrl?: string; name: string
 function ArtistThemeSection({ artist, themes, onPlayItem, onPlayNextItem, onAddToQueueItem, onReplaceQueueItem }: { artist: ArtistDetailResponse; themes: ArtistThemeDto[]; onPlayItem?: (artist: ArtistDetailResponse, startIndex: number) => void; onPlayNextItem?: (artist: ArtistDetailResponse, startIndex: number) => void; onAddToQueueItem?: (artist: ArtistDetailResponse, startIndex: number) => void; onReplaceQueueItem?: (artist: ArtistDetailResponse, startIndex: number) => void }) {
   return (
     <section className="artist-page__section" aria-labelledby="artist-themes-title">
-      <div className="artist-page__section-heading"><div><p className="eyebrow">Opening and ending themes</p><h2 id="artist-themes-title">Themes</h2></div><span>{themes.length}</span></div>
+      <div className="artist-page__section-heading"><div><p className="eyebrow">Opening and ending themes</p><h2 id="artist-themes-title">Themes</h2></div><span>{themes.length} Themes</span></div>
       {themes.length === 0 ? <p className="catalog-empty">No ready themes are available for this artist yet.</p> : <ol className="artist-page__list">{themes.map((theme, index) => <ArtistThemeRow key={theme.id} theme={theme} onPlay={() => onPlayItem?.(artist, index)} onPlayNext={onPlayNextItem ? () => onPlayNextItem(artist, index) : undefined} onAddToQueue={onAddToQueueItem ? () => onAddToQueueItem(artist, index) : undefined} onReplaceQueue={onReplaceQueueItem ? () => onReplaceQueueItem(artist, index) : undefined} />)}</ol>}
     </section>
   )
@@ -95,34 +95,69 @@ function ArtistSongSection({ artist, themes, songs, onPlayItem, onPlayNextItem, 
 
 function ArtistThemeRow({ theme, onPlay, onPlayNext, onAddToQueue, onReplaceQueue }: { theme: ArtistThemeDto; onPlay?: () => void; onPlayNext?: () => void; onAddToQueue?: () => void; onReplaceQueue?: () => void }) {
   const titlePreference = useAnimeTitlePreference()
-  const anime = theme.anime ?? theme.kitsuAnimeIds.map((kitsuId) => ({ kitsuId, title: null, titleEn: null, posterUrl: null }))
-  const state = theme.audioState ?? 'Available online'
+  const anime = theme.anime?.length ? theme.anime : theme.kitsuAnimeIds.map((kitsuId) => ({ kitsuId, title: null, titleEn: null, posterUrl: null }))
+  const state = theme.audioState ? theme.audioState === 'READY' ? 'Ready' : theme.audioState === 'MISSING' ? 'Unavailable' : theme.audioState : null
   const navigate = useNavigate()
-  const linkedAnime = anime.find((entry) => entry.kitsuId)
+  const linkedAnime = anime.find((entry): entry is ArtistAnimeLink & { kitsuId: string } => Boolean(entry.kitsuId))
+  const displayAnime = anime.find((entry) => entry.title || entry.titleEn || entry.posterUrl) ?? anime[0]
   const linkedAnimeTitle = preferredAnimeTitle(linkedAnime, titlePreference)
-  const presentation = themePresentation({ animeTitle: linkedAnimeTitle, themeType: theme.themeType, songTitle: theme.title, artist: theme.artists.map((artist) => artist.name).join(', ') })
+  const displayAnimeTitle = preferredAnimeTitle(displayAnime, titlePreference)
+  const presentation = themePresentation({ animeTitle: displayAnimeTitle, themeType: theme.themeType, songTitle: theme.title, artist: theme.artists.map((artist) => artist.name).join(', ') })
   const typeLabel = formatThemeType(theme.themeType)
-  return <li className="artist-page__row"><button className="artist-page__row-play" type="button" disabled={!onPlay || !theme.audioUrl || theme.audioState === 'FAILED' || theme.audioState === 'MISSING'} onClick={onPlay} aria-label={`Play ${theme.title}`}><Play size={16} fill="currentColor" /></button><div className="artist-page__row-copy"><strong>{linkedAnime && linkedAnimeTitle ? <><Link to={`/anime/${encodeURIComponent(linkedAnime.kitsuId)}`}>{linkedAnimeTitle}</Link>{typeLabel ? ` · ${typeLabel}` : ''}</> : presentation.primary}</strong><small>{presentation.secondary}</small>{anime.length > 1 && <AnimeLinks anime={anime.slice(1)} />}</div><span className="artist-page__row-state">{state === 'READY' ? 'Ready' : state === 'MISSING' ? 'Unavailable' : state}</span><TrackActionMenu menuOnly item={{ itemType: 'THEME', itemId: theme.id, title: theme.title }} hasFullSize={Boolean(theme.mediaModes.fullSize)} onPlayNext={onPlayNext} onAddToQueue={onAddToQueue} onReplaceQueue={onReplaceQueue} onGoToAnime={linkedAnime ? () => navigate(`/anime/${encodeURIComponent(linkedAnime.kitsuId)}`) : undefined} animeName={linkedAnimeTitle || undefined} onRelatedMusic={linkedAnime ? () => navigate(`/anime/${encodeURIComponent(linkedAnime.kitsuId)}/related-music`) : undefined} /></li>
+  return <li className="artist-page__row"><button className="artist-page__row-play" type="button" disabled={!onPlay || !theme.audioUrl || theme.audioState === 'FAILED' || theme.audioState === 'MISSING'} onClick={onPlay} aria-label={`Play ${theme.title}`}><Play size={16} fill="currentColor" /></button><ArtistAnimeArtwork anime={anime} /><div className="artist-page__row-copy"><strong className="artist-page__row-heading">{typeLabel && <span className="artist-page__row-type">{typeLabel}</span>}{linkedAnime && linkedAnimeTitle ? <Link to={`/anime/${encodeURIComponent(linkedAnime.kitsuId)}`}>{linkedAnimeTitle}</Link> : <span className="artist-page__row-heading-title">{displayAnimeTitle || theme.title.trim() || presentation.primary}</span>}</strong><small>{presentation.secondary}</small>{anime.length > 1 && <AnimeLinks anime={anime.slice(1)} />}</div>{state && <span className="artist-page__row-state">{state}</span>}<TrackActionMenu menuOnly item={{ itemType: 'THEME', itemId: theme.id, title: theme.title }} hasFullSize={Boolean(theme.mediaModes.fullSize)} onPlayNext={onPlayNext} onAddToQueue={onAddToQueue} onReplaceQueue={onReplaceQueue} onGoToAnime={linkedAnime ? () => navigate(`/anime/${encodeURIComponent(linkedAnime.kitsuId)}`) : undefined} animeName={linkedAnimeTitle || undefined} onRelatedMusic={linkedAnime ? () => navigate(`/anime/${encodeURIComponent(linkedAnime.kitsuId)}/related-music`) : undefined} /></li>
 }
 
 function ArtistSongRow({ song, onPlay, onPlayNext, onAddToQueue, onReplaceQueue }: { song: ArtistFullSongDto; onPlay?: () => void; onPlayNext?: () => void; onAddToQueue?: () => void; onReplaceQueue?: () => void }) {
+  const titlePreference = useAnimeTitlePreference()
   const playable = song.audioAvailable !== false && Boolean(song.audioUrl)
   const navigate = useNavigate()
-  const linkedAnime = song.anime?.find((entry) => entry.kitsuId)
-  return <li className="artist-page__row"><button className="artist-page__row-play" type="button" disabled={!onPlay || !playable} onClick={onPlay} aria-label={`Play ${song.title}`}><Play size={16} fill="currentColor" /></button><div className="artist-page__row-copy"><strong>{song.title}</strong><small>{song.artistCredit || 'Unknown artist'}{song.releaseId ? <> · <Link to={`/release/${song.releaseId}`}>{song.releaseTitle || 'Release'}</Link></> : null}</small><AnimeLinks anime={song.anime ?? []} /></div><span className="artist-page__row-duration">{playable ? formatDuration(song.durationSeconds) : 'Metadata only'}</span><TrackActionMenu menuOnly item={{ itemType: 'SONG', itemId: song.id, title: song.title }} onPlayNext={playable ? onPlayNext : undefined} onAddToQueue={playable ? onAddToQueue : undefined} onReplaceQueue={playable ? onReplaceQueue : undefined} onGoToAnime={linkedAnime ? () => navigate(`/anime/${encodeURIComponent(linkedAnime.kitsuId)}`) : undefined} animeName={linkedAnime?.title || linkedAnime?.titleEn} onRelatedMusic={linkedAnime ? () => navigate(`/anime/${encodeURIComponent(linkedAnime.kitsuId)}/related-music`) : undefined} /></li>
+  const anime = song.anime ?? []
+  const linkedAnime = anime.find((entry): entry is ArtistAnimeLink & { kitsuId: string } => Boolean(entry.kitsuId))
+  const linkedAnimeTitle = preferredAnimeTitle(linkedAnime, titlePreference)
+  return <li className="artist-page__row"><button className="artist-page__row-play" type="button" disabled={!onPlay || !playable} onClick={onPlay} aria-label={`Play ${song.title}`}><Play size={16} fill="currentColor" /></button><ArtistAnimeArtwork anime={anime} /><div className="artist-page__row-copy"><strong>{song.title}</strong><small>{song.artistCredit || 'Unknown artist'}{song.releaseId ? <> · <Link to={`/release/${song.releaseId}`}>{song.releaseTitle || 'Release'}</Link></> : null}</small><AnimeLinks anime={anime} /></div><span className="artist-page__row-duration">{playable ? formatDuration(song.durationSeconds) : 'Metadata only'}</span><TrackActionMenu menuOnly item={{ itemType: 'SONG', itemId: song.id, title: song.title }} onPlayNext={playable ? onPlayNext : undefined} onAddToQueue={playable ? onAddToQueue : undefined} onReplaceQueue={playable ? onReplaceQueue : undefined} onGoToAnime={linkedAnime ? () => navigate(`/anime/${encodeURIComponent(linkedAnime.kitsuId)}`) : undefined} animeName={linkedAnimeTitle || undefined} onRelatedMusic={linkedAnime ? () => navigate(`/anime/${encodeURIComponent(linkedAnime.kitsuId)}/related-music`) : undefined} /></li>
+}
+
+function ArtistAnimeArtwork({ anime }: { anime: ArtistAnimeLink[] }) {
+  const [failed, setFailed] = useState(false)
+  const coverAnime = anime.find((entry) => entry.posterUrl) ?? anime[0]
+  const artworkUrl = browserAssetUrl(coverAnime?.posterUrl)
+  const label = coverAnime?.title || coverAnime?.titleEn || 'Anime'
+  return <span className="artist-page__row-artwork">{artworkUrl && !failed ? <img src={artworkUrl} alt={`${label} cover`} loading="lazy" decoding="async" onError={() => setFailed(true)} /> : <span aria-label={`${label} artwork unavailable`}><Disc3 size={18} /></span>}</span>
 }
 
 function AnimeLinks({ anime }: { anime: ArtistAnimeLink[] }) {
   const titlePreference = useAnimeTitlePreference()
-  const linked = anime.filter((entry) => entry.kitsuId && (entry.title || entry.titleEn))
+  const linked = anime.filter((entry) => entry.title || entry.titleEn)
   if (linked.length === 0) return null
-  return <span className="artist-page__row-anime">{linked.map((entry, index) => <span key={entry.kitsuId}>{index > 0 && ', '}<Link to={`/anime/${encodeURIComponent(entry.kitsuId)}`}>{preferredAnimeTitle(entry, titlePreference)}</Link></span>)}</span>
+  return <span className="artist-page__row-anime">{linked.map((entry, index) => <span key={`${entry.kitsuId ?? 'animethemes'}:${entry.animeThemesAnimeId ?? index}`}>{index > 0 && ', '}{entry.kitsuId ? <Link to={`/anime/${encodeURIComponent(entry.kitsuId)}`}>{preferredAnimeTitle(entry, titlePreference)}</Link> : preferredAnimeTitle(entry, titlePreference)}</span>)}</span>
 }
 
 function animeCount(themes: ArtistThemeDto[], songs: ArtistFullSongDto[]): number {
-  const ids = new Set<string>()
-  for (const item of [...themes, ...songs]) for (const anime of item.anime ?? []) if (anime.kitsuId) ids.add(anime.kitsuId)
-  return ids.size
+  const kitsuIds = new Set<string>()
+  const animeThemesIds = new Set<number>()
+  const animeThemesIdsWithKitsu = new Set<number>()
+  for (const theme of themes) {
+    for (const anime of theme.anime ?? []) {
+      if (anime.kitsuId) kitsuIds.add(anime.kitsuId)
+      if (anime.animeThemesAnimeId) {
+        animeThemesIds.add(anime.animeThemesAnimeId)
+        if (anime.kitsuId) animeThemesIdsWithKitsu.add(anime.animeThemesAnimeId)
+      }
+    }
+    for (const kitsuId of theme.kitsuAnimeIds) if (kitsuId) kitsuIds.add(kitsuId)
+    if (theme.animeThemesAnimeId) {
+      animeThemesIds.add(theme.animeThemesAnimeId)
+      if (theme.kitsuAnimeIds.some(Boolean)) animeThemesIdsWithKitsu.add(theme.animeThemesAnimeId)
+    }
+  }
+  for (const song of songs) for (const anime of song.anime ?? []) {
+    if (anime.kitsuId) kitsuIds.add(anime.kitsuId)
+    if (anime.animeThemesAnimeId) {
+      animeThemesIds.add(anime.animeThemesAnimeId)
+      if (anime.kitsuId) animeThemesIdsWithKitsu.add(anime.animeThemesAnimeId)
+    }
+  }
+  return kitsuIds.size + [...animeThemesIds].filter((id) => !animeThemesIdsWithKitsu.has(id)).length
 }
 
 function collectionPlaylistItems(themes: readonly ArtistThemeDto[], songs: readonly ArtistFullSongDto[]): PlaylistItemInput[] {

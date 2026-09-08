@@ -120,13 +120,39 @@ describe("AnimeThemesClient query shapes", () => {
 
   it("parses the single anime response shape", async () => {
     const { client, requests } = makeClient([
-      { match: "/anime/2984", response: { status: 200, body: JSON.stringify({ anime: sampleAnime() }) } },
+      { match: "filter%5Bid%5D=2984", response: { status: 200, body: apiPage([sampleAnime()]) } },
     ]);
 
     const themes = await client.fetchAnimeById(2984);
 
-    expect(new URL(requests[0]!.url).pathname).toBe("/anime/2984");
+    expect(new URL(requests[0]!.url).pathname).toBe("/anime");
+    expect(new URL(requests[0]!.url).searchParams.get("filter[id]")).toBe("2984");
     expect(themes.map((theme) => theme.themeId)).toEqual([3040]);
+  });
+
+  it("requests nested anime records for artist responses", async () => {
+    const { client, requests } = makeClient([
+      { match: "/artist/karuta", response: { status: 200, body: JSON.stringify({ artist: {} }) } },
+    ]);
+
+    await client.fetchArtist("karuta");
+
+    const include = new URL(requests[0]!.url).searchParams.get("include") ?? "";
+    expect(include).toContain("songs.animethemes.anime");
+  });
+
+  it("fetches complete anime metadata by slug", async () => {
+    const { client, requests } = makeClient([
+      { match: "/anime/toradora", response: { status: 200, body: JSON.stringify({ anime: sampleAnime() }) } },
+    ]);
+
+    const themes = await client.fetchAnimeBySlug("toradora");
+
+    const requestUrl = new URL(requests[0]!.url);
+    expect(requestUrl.pathname).toBe("/anime/toradora");
+    expect(requestUrl.searchParams.get("include")).toContain("resources");
+    expect(themes[0]?.kitsuId).toBe("4224");
+    expect(themes[0]?.coverUrl).toBe("https://i.animethemes.moe/covers/toradora.jpg");
   });
 });
 

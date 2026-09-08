@@ -1,7 +1,8 @@
 import type { AudioState, LibraryThemeDto, MusicTrackDto } from '../../lib/library'
 
 export interface ArtistAnimeLink {
-  kitsuId: string
+  kitsuId: string | null
+  animeThemesAnimeId?: number | null
   title: string | null
   titleEn: string | null
   posterUrl: string | null

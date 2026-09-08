@@ -11,7 +11,7 @@ import { artistRouteSlug } from '../../lib/navigation'
 import { readShowOstsOnHome, subscribeToHomePreference } from '../../lib/homePreference'
 import type { LibraryThemeDto, NormalizedLibrary } from '../../lib/library'
 import { useLibraryQuery } from '../../lib/query'
-import { themePresentation } from '../../lib/themePresentation'
+import { themePresentation, type ThemePresentation } from '../../lib/themePresentation'
 import { preferredAnimeTitle, useAnimeTitlePreference, type AnimeTitlePreference } from '../../lib/animeTitlePreference'
 import { TrackActionMenu, useLibraryActions } from '../libraryactions'
 import { playlistArtworkUrls } from '../playlists'
@@ -86,7 +86,7 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
               artwork={<button type="button" className="home-quick-pick__play" onClick={() => onPlayTheme?.(theme, artworkUrl)} disabled={!onPlayTheme || !isPlayable(theme)} aria-label={`Play ${theme.title}`}>
                 {artworkUrl ? <img src={artworkUrl} alt="" /> : <span aria-hidden="true">AO</span>}<span className="home-quick-pick__play-icon"><Play size={18} fill="currentColor" /></span>
               </button>}
-              title={presentation.primary}
+              title={<HomeThemeIdentity animeTitle={animeTitle} presentation={presentation} />}
               subtitle={presentation.secondary}
               actions={<TrackActionMenu
                 item={{ itemType: 'THEME', itemId: theme.id, title: theme.title }}
@@ -117,7 +117,7 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
             artwork={<button type="button" className="home-top-song__play" aria-label={`Play ${song.title}`} disabled={!onPlayTheme || !theme || !isPlayable(theme)} onClick={() => theme && onPlayTheme?.(theme, artworkUrl)}>
               {artworkUrl ? <img src={artworkUrl} alt="" loading="lazy" /> : <span aria-hidden="true">AO</span>}<Play size={16} fill="currentColor" />
             </button>}
-            title={presentation.primary}
+            title={<HomeThemeIdentity animeTitle={song.animeTitle} presentation={presentation} />}
             subtitle={presentation.secondary}
             actions={theme && <TrackActionMenu
               item={{ itemType: 'THEME', itemId: theme.id, title: song.title }}
@@ -162,6 +162,16 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
       </section>
     </>
   )
+}
+
+function HomeThemeIdentity({ animeTitle, presentation }: { animeTitle?: string | null; presentation: ThemePresentation }) {
+  const normalizedAnimeTitle = animeTitle?.trim()
+  if (!normalizedAnimeTitle || !presentation.typeLabel) return presentation.primary
+
+  return <span className="home-theme-identity">
+    <span className="home-theme-identity__type">{presentation.typeLabel}</span>
+    <span className="home-theme-identity__anime" title={normalizedAnimeTitle}>{normalizedAnimeTitle}</span>
+  </span>
 }
 
 function themeDestinations(theme: LibraryThemeDto, library: NormalizedLibrary | null | undefined) {
