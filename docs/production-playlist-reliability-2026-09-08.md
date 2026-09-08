@@ -12,7 +12,7 @@ After signing out, the web client rejected valid Kitsu credentials before authen
 
 A full Kitsu library sync was run for every configured account. The existing sync pipeline refreshed all five library statuses, repopulated watched dates from Kitsu, refreshed auto-updating dynamic playlists, and tombstoned entries no longer present upstream. The follow-up theme mapping queue completed without pending work.
 
-The refresh confirmed that `on_hold`, `dropped`, and `planned` entries can retain a historical `startedAt` date. That value remains valid viewing history under the generic watched-date contract; status-specific playlist behavior belongs in the playlist filter tree rather than in a parser-side exception.
+The refresh confirmed that `on_hold`, `dropped`, and `planned` entries can retain a historical `startedAt` date. The app preserves these dates as reported by Kitsu; status-specific playlist behavior belongs in the playlist filter tree rather than in a parser-side exception.
 
 ## `6 Months & Liked`
 
