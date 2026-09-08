@@ -8,6 +8,8 @@ vi.mock('./PlayerProvider', () => ({ usePlayer: () => state.player }))
 import { MiniPlayerView } from './MiniPlayerView'
 import { NowPlayingView } from './NowPlayingView'
 import { writeAnimeTitlePreference } from '../lib/animeTitlePreference'
+import { createEmptyLibrary } from '../lib/library'
+import { LIBRARY_QUERY_KEY, queryClient } from '../lib/query'
 
 function renderPlayer(ui: React.ReactElement) {
   return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>)
@@ -52,7 +54,10 @@ beforeEach(() => {
   }
 })
 
-afterEach(() => localStorage.clear())
+afterEach(() => {
+  localStorage.clear()
+  queryClient.clear()
+})
 
 describe('player views', () => {
   it('forwards every now-playing control including mode, fullscreen, seek, and queue selection', () => {
@@ -122,6 +127,41 @@ describe('player views', () => {
     expect(screen.getByRole('link', { name: 'Opening' })).toHaveAttribute('href', '/anime/anime-1')
     expect(screen.getByRole('link', { name: 'Band' })).toHaveAttribute('href', '/artist/band')
     expect(screen.getByText('Opening')).toBeInTheDocument()
+  })
+
+  it('resolves a missing theme anime id from the cached library for full-player links', () => {
+    state.player.currentItem = {
+      ...state.player.currentItem,
+      themeId: 14601,
+      animeId: undefined,
+      animeTitle: 'Rich Girl Caretaker',
+      title: 'Caretaker Theme',
+    }
+    queryClient.setQueryData(LIBRARY_QUERY_KEY, {
+      ...createEmptyLibrary(),
+      themesById: { '14601': { kitsuAnimeIds: ['anime-50761'] } as any },
+    })
+
+    renderPlayer(<NowPlayingView />)
+
+    expect(screen.getByRole('link', { name: 'Rich Girl Caretaker' })).toHaveAttribute('href', '/anime/anime-50761')
+    expect(screen.getByRole('link', { name: 'Caretaker Theme' })).toHaveAttribute('href', '/anime/anime-50761')
+  })
+
+  it('keeps an unresolvable missing theme anime id as plain player text', () => {
+    state.player.currentItem = {
+      ...state.player.currentItem,
+      themeId: 404,
+      animeId: undefined,
+      animeTitle: 'Unknown Anime',
+      title: 'Unknown Theme',
+    }
+
+    renderPlayer(<NowPlayingView />)
+
+    expect(screen.queryByRole('link', { name: 'Unknown Anime' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Unknown Theme' })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Unknown Anime · ED 2' })).toBeInTheDocument()
   })
 
   it('keeps the mini-player theme type visible beside a truncated anime title', () => {

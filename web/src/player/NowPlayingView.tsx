@@ -1,5 +1,5 @@
 import { ChevronDown, Ellipsis, GripVertical, ListMusic, Maximize, Pause, Play, Repeat, Shuffle, SkipBack, SkipForward, Trash2, X } from 'lucide-react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { usePlayer } from './PlayerProvider'
 import type { PlaybackMode } from '../media/modeSwitch'
 import { CurrentTrackActions } from './CurrentTrackActions'
@@ -8,6 +8,8 @@ import { windowQueueEntries } from './queueWindow'
 import { useAccessibleFocusScope } from '../components/focusScope'
 import { themePresentation } from '../lib/themePresentation'
 import { preferredAnimeTitle, useAnimeTitlePreference } from '../lib/animeTitlePreference'
+import type { NormalizedLibrary } from '../lib/library'
+import { LIBRARY_QUERY_KEY, queryClient } from '../lib/query'
 import { Link as RouterLink, useInRouterContext, useNavigate } from 'react-router-dom'
 import { artistRouteSlug } from '../lib/navigation'
 
@@ -18,7 +20,10 @@ export function NowPlayingView({ className = '', onCollapse }: NowPlayingViewPro
   const player = usePlayer()
   const current = player.currentItem
   const animeTitlePreference = useAnimeTitlePreference()
-  const presentation = playerItemPresentation(current, animeTitlePreference)
+  const subscribeToLibrary = useCallback((onStoreChange: () => void) => queryClient.getQueryCache().subscribe(onStoreChange), [])
+  const getLibrarySnapshot = useCallback(() => queryClient.getQueryData<NormalizedLibrary>(LIBRARY_QUERY_KEY), [])
+  const library = useSyncExternalStore(subscribeToLibrary, getLibrarySnapshot, getLibrarySnapshot)
+  const presentation = playerItemPresentation(current, animeTitlePreference, library)
   const isVideo = player.mode === 'VIDEO'
   const [queueOpen, setQueueOpen] = useState(false)
   const animePath = presentation.animeId !== undefined && presentation.animeId !== null && String(presentation.animeId).trim()
@@ -419,16 +424,21 @@ interface PlayerItemPresentation {
   artistSlug?: string
 }
 
-function playerItemPresentation(item: QueueEntry['item'] | undefined, preference?: 'ENGLISH' | 'ROMAJI' | 'JAPANESE'): PlayerItemPresentation {
+function playerItemPresentation(item: QueueEntry['item'] | undefined, preference?: 'ENGLISH' | 'ROMAJI' | 'JAPANESE', library?: NormalizedLibrary): PlayerItemPresentation {
   if (!item) return { primary: 'Nothing playing', secondary: 'Choose a theme or song to begin.' }
   if (item.itemType === 'THEME') {
+    const themeId = Number(item.themeId ?? item.id)
+    const libraryAnimeId = Number.isInteger(themeId) && themeId > 0
+      ? library?.themesById[String(themeId)]?.kitsuAnimeIds?.[0]
+      : undefined
+    const animeId = item.animeId ?? libraryAnimeId
     const animeTitle = preferredAnimeTitle({ title: item.animeTitle as string | undefined, titleEn: item.animeTitleEn as string | undefined, titleRomaji: item.animeTitleRomaji as string | undefined, titleJa: item.animeTitleJa as string | undefined }, preference)
     const presentation = themePresentation({ animeTitle, themeType: item.themeType as string | undefined, songTitle: item.title, artist: item.artist })
     const artist = item.artist?.trim() || undefined
     return {
       ...presentation,
       animeTitle: animeTitle?.trim() || undefined,
-      animeId: item.animeId,
+      animeId,
       typeLabel: presentation.typeLabel,
       songTitle: item.title?.trim() || 'Untitled theme',
       artist,
