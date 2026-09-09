@@ -30,6 +30,14 @@ export interface ArtistProfileDto {
   [key: string]: unknown
 }
 
+export type ArtistCatalogStateStatus = 'loading' | 'refreshing' | 'ready' | 'error'
+
+export interface ArtistCatalogState {
+  status: ArtistCatalogStateStatus
+  hasData: boolean
+  lastUpdatedAt: string | null
+}
+
 /**
  * The raw AnimeThemes artist payload is deliberately allowed to pass through
  * this response. Android reads artist.songs; the top-level projections are for
@@ -39,5 +47,6 @@ export interface ArtistDetailResponse {
   artist: ArtistProfileDto & { songs?: unknown[] }
   themes: ArtistThemeDto[]
   fullSongs: ArtistFullSongDto[]
+  catalogState?: ArtistCatalogState
   [key: string]: unknown
 }

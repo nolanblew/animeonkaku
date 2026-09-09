@@ -1,10 +1,10 @@
-import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Disc3, Play, Shuffle } from 'lucide-react'
-import { useState } from 'react'
+import { AlertTriangle, ArrowLeft, Disc3, Play, RotateCcw, Shuffle } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { apiClient } from '../../lib/api'
 import { browserAssetUrl } from '../../lib/assets'
-import { CatalogError, CatalogLoading } from '../catalog/CatalogError'
+import { CatalogError } from '../catalog/CatalogError'
 import { CollectionActionMenu, TrackActionMenu, type PlaylistItemInput } from '../libraryactions'
 import { formatThemeType, themePresentation } from '../../lib/themePresentation'
 import { preferredAnimeTitle, useAnimeTitlePreference } from '../../lib/animeTitlePreference'
@@ -24,21 +24,67 @@ export interface ArtistDetailPageProps {
 
 export function ArtistDetailPage({ onPlayAll, onPlayItem, onPlayNextItem, onAddToQueueItem, onReplaceQueueItem, onPlayNextAll, onAddToQueueAll, onReplaceQueueAll }: ArtistDetailPageProps = {}) {
   const { artistSlug } = useParams()
+  const queryClient = useQueryClient()
   const query = useQuery<ArtistDetailResponse>({
-    queryKey: ['artist', artistSlug],
+    queryKey: ['artist-catalog', artistSlug],
     enabled: Boolean(artistSlug),
-    queryFn: ({ signal }) => apiClient.get<ArtistDetailResponse>(`/v1/artists/${encodeURIComponent(artistSlug!)}`, { signal }),
+    queryFn: ({ signal }) => apiClient.get<ArtistDetailResponse>(`/v1/artists/${encodeURIComponent(artistSlug!)}/catalog`, { signal }),
     staleTime: 60_000,
+    refetchIntervalInBackground: true,
+    refetchInterval: (currentQuery) => {
+      if (currentQuery.state.status === 'error') return false
+      const status = currentQuery.state.data?.catalogState?.status
+      return status === 'loading' || status === 'refreshing' ? 2_000 : false
+    },
   })
+  const [retrying, setRetrying] = useState(false)
+  const [retryError, setRetryError] = useState(false)
+  const retryVersion = useRef(0)
+  const activeArtistSlug = useRef(artistSlug)
+  activeArtistSlug.current = artistSlug
+
+  useEffect(() => {
+    retryVersion.current += 1
+    setRetrying(false)
+    setRetryError(false)
+  }, [artistSlug])
 
   if (!artistSlug) return <CatalogError title="Artist unavailable" message="This artist link is not valid." />
-  if (query.isError) return <CatalogError title="Artist unavailable" message="Could not load this artist. Try again in a moment." error={query.error} onRetry={() => void query.refetch()} />
-  if (query.isPending || !query.data) return <CatalogLoading label="Loading artist details" />
+  if (query.isError && !query.data) return <CatalogError title="Artist unavailable" message="Could not load this artist. Try again in a moment." error={query.error} onRetry={() => void query.refetch()} />
+  if (query.isPending && !query.data) return <ArtistCatalogSkeleton message="Finding this artist’s music…" />
+  if (!query.data) return <ArtistCatalogSkeleton message="Finding this artist’s music…" />
 
-  const artist = query.data.artist
+  const response = query.data
+  const artist = response.artist
   const name = artist.name.trim() || 'Unknown artist'
-  const themes = Array.isArray(query.data.themes) ? query.data.themes : []
-  const fullSongs = Array.isArray(query.data.fullSongs) ? query.data.fullSongs : []
+  const themes = Array.isArray(response.themes) ? response.themes : []
+  const fullSongs = Array.isArray(response.fullSongs) ? response.fullSongs : []
+  const catalogState = response.catalogState
+  const hasCatalogData = catalogState?.hasData ?? (themes.length > 0 || fullSongs.length > 0)
+  const catalogStatus = catalogState?.status
+  const catalogLoading = catalogStatus === 'loading' || catalogStatus === 'refreshing'
+  const catalogError = query.isError || catalogStatus === 'error'
+  const retryCatalog = async () => {
+    const slug = artistSlug
+    if (!slug) return
+    const version = retryVersion.current
+    const isCurrentRetry = () => activeArtistSlug.current === slug && retryVersion.current === version
+    setRetrying(true)
+    setRetryError(false)
+    try {
+      const refreshed = await apiClient.post<ArtistDetailResponse>(`/v1/artists/${encodeURIComponent(slug)}/catalog/refresh`)
+      if (!isCurrentRetry()) return
+      const queryKey = ['artist-catalog', slug] as const
+      queryClient.setQueryData(queryKey, refreshed)
+      await queryClient.refetchQueries({ queryKey, type: 'active' })
+    } catch {
+      if (isCurrentRetry()) setRetryError(true)
+    } finally {
+      if (isCurrentRetry()) setRetrying(false)
+    }
+  }
+  if (catalogError && !hasCatalogData) return <ArtistCatalogRetryError failed={retryError} retrying={retrying} onRetry={() => void retryCatalog()} />
+  if (catalogLoading && !hasCatalogData) return <ArtistCatalogSkeleton message={catalogStatus === 'refreshing' ? 'Preparing anime artwork…' : 'Finding this artist’s music…'} artistName={name} />
   const artworkUrl = browserAssetUrl(artist.artworkUrl)
   const totalSongs = themes.length + fullSongs.length
   const playableSongs = themes.filter((theme) => Boolean(theme.audioUrl) && theme.audioState !== 'FAILED' && theme.audioState !== 'MISSING').length + fullSongs.filter((song) => song.audioAvailable !== false && Boolean(song.audioUrl)).length
@@ -46,6 +92,8 @@ export function ArtistDetailPage({ onPlayAll, onPlayItem, onPlayNextItem, onAddT
 
   return (
     <section className="page artist-page" aria-labelledby="artist-title">
+      {catalogLoading && hasCatalogData && !query.isError && <ArtistCatalogBanner message="Preparing anime artwork…" />}
+      {catalogError && hasCatalogData && <ArtistCatalogBanner message={retryError ? 'Refresh failed. Your cached music is still available.' : 'Some anime artwork could not be refreshed.'} error onRetry={retryCatalog} retrying={retrying} />}
       <Link className="catalog-back-link" to="/search"><ArrowLeft size={16} /> Back to search</Link>
       <header className="artist-page__hero">
         <ArtistArtwork artworkUrl={artworkUrl} name={name} />
@@ -57,22 +105,23 @@ export function ArtistDetailPage({ onPlayAll, onPlayItem, onPlayNextItem, onAddT
             <span>{animeCount(themes, fullSongs)} anime</span>
           </div>
           <div className="artist-page__actions">
-            <button className="button button--primary" type="button" disabled={!onPlayAll || playableSongs === 0} onClick={() => onPlayAll?.(query.data, false)}><Play size={17} fill="currentColor" /> Play all</button>
-            <button className="button button--secondary" type="button" disabled={!onPlayAll || playableSongs === 0} onClick={() => onPlayAll?.(query.data, true)}><Shuffle size={17} /> Shuffle</button>
-            <CollectionActionMenu name={name} items={collectionItems} onPlayNext={onPlayNextAll ? () => onPlayNextAll(query.data) : undefined} onAddToQueue={onAddToQueueAll ? () => onAddToQueueAll(query.data) : undefined} onReplaceQueue={onReplaceQueueAll ? () => onReplaceQueueAll(query.data) : undefined} />
+            <button className="button button--primary" type="button" disabled={!onPlayAll || playableSongs === 0} onClick={() => onPlayAll?.(response, false)}><Play size={17} fill="currentColor" /> Play all</button>
+            <button className="button button--secondary" type="button" disabled={!onPlayAll || playableSongs === 0} onClick={() => onPlayAll?.(response, true)}><Shuffle size={17} /> Shuffle</button>
+            <CollectionActionMenu name={name} items={collectionItems} onPlayNext={onPlayNextAll ? () => onPlayNextAll(response) : undefined} onAddToQueue={onAddToQueueAll ? () => onAddToQueueAll(response) : undefined} onReplaceQueue={onReplaceQueueAll ? () => onReplaceQueueAll(response) : undefined} />
           </div>
         </div>
       </header>
 
-      <ArtistThemeSection artist={query.data} themes={themes} onPlayItem={onPlayItem} onPlayNextItem={onPlayNextItem} onAddToQueueItem={onAddToQueueItem} onReplaceQueueItem={onReplaceQueueItem} />
-      <ArtistSongSection artist={query.data} themes={themes} songs={fullSongs} onPlayItem={onPlayItem} onPlayNextItem={onPlayNextItem} onAddToQueueItem={onAddToQueueItem} onReplaceQueueItem={onReplaceQueueItem} />
+      <ArtistThemeSection artist={response} themes={themes} onPlayItem={onPlayItem} onPlayNextItem={onPlayNextItem} onAddToQueueItem={onAddToQueueItem} onReplaceQueueItem={onReplaceQueueItem} />
+      <ArtistSongSection artist={response} themes={themes} songs={fullSongs} onPlayItem={onPlayItem} onPlayNextItem={onPlayNextItem} onAddToQueueItem={onAddToQueueItem} onReplaceQueueItem={onReplaceQueueItem} />
     </section>
   )
 }
 
 function ArtistArtwork({ artworkUrl, name }: { artworkUrl?: string; name: string }) {
-  const [failed, setFailed] = useState(false)
-  return <div className="artist-page__artwork">{artworkUrl && !failed ? <img src={artworkUrl} alt={`${name} artwork`} onError={() => setFailed(true)} /> : <span aria-hidden="true"><Disc3 size={64} /></span>}</div>
+  const [failedArtworkUrl, setFailedArtworkUrl] = useState<string | null>(null)
+  const showArtwork = Boolean(artworkUrl && artworkUrl !== failedArtworkUrl)
+  return <div className="artist-page__artwork">{showArtwork ? <img src={artworkUrl} alt={`${name} artwork`} onError={() => setFailedArtworkUrl(artworkUrl ?? null)} /> : <span aria-hidden="true"><Disc3 size={64} /></span>}</div>
 }
 
 function ArtistThemeSection({ artist, themes, onPlayItem, onPlayNextItem, onAddToQueueItem, onReplaceQueueItem }: { artist: ArtistDetailResponse; themes: ArtistThemeDto[]; onPlayItem?: (artist: ArtistDetailResponse, startIndex: number) => void; onPlayNextItem?: (artist: ArtistDetailResponse, startIndex: number) => void; onAddToQueueItem?: (artist: ArtistDetailResponse, startIndex: number) => void; onReplaceQueueItem?: (artist: ArtistDetailResponse, startIndex: number) => void }) {
@@ -105,6 +154,32 @@ function ArtistThemeRow({ theme, onPlay, onPlayNext, onAddToQueue, onReplaceQueu
   const presentation = themePresentation({ animeTitle: displayAnimeTitle, themeType: theme.themeType, songTitle: theme.title, artist: theme.artists.map((artist) => artist.name).join(', ') })
   const typeLabel = formatThemeType(theme.themeType)
   return <li className="artist-page__row"><button className="artist-page__row-play" type="button" disabled={!onPlay || !theme.audioUrl || theme.audioState === 'FAILED' || theme.audioState === 'MISSING'} onClick={onPlay} aria-label={`Play ${theme.title}`}><Play size={16} fill="currentColor" /></button><ArtistAnimeArtwork anime={anime} /><div className="artist-page__row-copy"><strong className="artist-page__row-heading">{typeLabel && <span className="artist-page__row-type">{typeLabel}</span>}{linkedAnime && linkedAnimeTitle ? <Link to={`/anime/${encodeURIComponent(linkedAnime.kitsuId)}`}>{linkedAnimeTitle}</Link> : <span className="artist-page__row-heading-title">{displayAnimeTitle || theme.title.trim() || presentation.primary}</span>}</strong><small>{presentation.secondary}</small>{anime.length > 1 && <AnimeLinks anime={anime.slice(1)} />}</div>{state && <span className="artist-page__row-state">{state}</span>}<TrackActionMenu menuOnly item={{ itemType: 'THEME', itemId: theme.id, title: theme.title }} hasFullSize={Boolean(theme.mediaModes.fullSize)} onPlayNext={onPlayNext} onAddToQueue={onAddToQueue} onReplaceQueue={onReplaceQueue} onGoToAnime={linkedAnime ? () => navigate(`/anime/${encodeURIComponent(linkedAnime.kitsuId)}`) : undefined} animeName={linkedAnimeTitle || undefined} onRelatedMusic={linkedAnime ? () => navigate(`/anime/${encodeURIComponent(linkedAnime.kitsuId)}/related-music`) : undefined} /></li>
+}
+
+function ArtistCatalogSkeleton({ message, artistName }: { message: string; artistName?: string }) {
+  return <section className="page artist-page artist-page--loading" aria-labelledby="artist-loading-title">
+    <div className="artist-page__loading-status" role="status" aria-live="polite"><span className="spinner" /><span>{message}</span></div>
+    <header className="artist-page__hero artist-page__hero--skeleton" aria-hidden="true">
+      <div className="artist-page__artwork artist-page__skeleton-block" />
+      <div className="artist-page__copy"><p className="eyebrow">Artist</p><h1 id="artist-loading-title">{artistName || <span className="artist-page__skeleton-line artist-page__skeleton-line--title" />}</h1><div className="artist-page__facts"><span className="artist-page__skeleton-line" /><span className="artist-page__skeleton-line" /></div></div>
+    </header>
+    <section className="artist-page__section" aria-hidden="true"><div className="artist-page__section-heading"><div><p className="eyebrow">Opening and ending themes</p><h2>Themes</h2></div><span className="artist-page__skeleton-line artist-page__skeleton-line--count" /></div><div className="artist-page__list">{[1, 2, 3].map((row) => <div className="artist-page__row artist-page__row--skeleton" key={row}><span className="artist-page__skeleton-circle" /><span className="artist-page__skeleton-art" /><span className="artist-page__skeleton-copy"><span className="artist-page__skeleton-line" /><span className="artist-page__skeleton-line artist-page__skeleton-line--short" /></span></div>)}</div></section>
+  </section>
+}
+
+function ArtistCatalogBanner({ message, error = false, onRetry, retrying = false }: { message: string; error?: boolean; onRetry?: () => void; retrying?: boolean }) {
+  return <div className={`artist-page__catalog-banner${error ? ' artist-page__catalog-banner--error' : ''}`} role={error ? 'alert' : 'status'} aria-live="polite"><span>{message}</span>{onRetry && <button className="button button--text" type="button" disabled={retrying} onClick={() => void onRetry()}>{retrying ? 'Retrying…' : 'Retry'}</button>}</div>
+}
+
+function ArtistCatalogRetryError({ failed, retrying, onRetry }: { failed: boolean; retrying: boolean; onRetry: () => void }) {
+  return <section className="catalog-status catalog-status--error" aria-labelledby="artist-catalog-error-title" role="alert">
+    <AlertTriangle size={28} aria-hidden="true" />
+    <div>
+      <h2 id="artist-catalog-error-title">Artist music unavailable</h2>
+      <p>{failed ? 'We could not start the catalog refresh. Try again in a moment.' : 'We could not prepare this artist’s music yet. Try again to refresh it.'}</p>
+    </div>
+    <button className="button button--secondary" type="button" disabled={retrying} onClick={onRetry}><RotateCcw size={16} /> {retrying ? 'Retrying…' : 'Try again'}</button>
+  </section>
 }
 
 function ArtistSongRow({ song, onPlay, onPlayNext, onAddToQueue, onReplaceQueue }: { song: ArtistFullSongDto; onPlay?: () => void; onPlayNext?: () => void; onAddToQueue?: () => void; onReplaceQueue?: () => void }) {

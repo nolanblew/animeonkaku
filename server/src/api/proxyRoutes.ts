@@ -9,6 +9,11 @@ export interface ProxyApiService {
   artist(slug: string): Promise<unknown>;
 }
 
+export interface ArtistCatalogApiService {
+  catalog(slug: string): Promise<unknown>;
+  refresh(slug: string): Promise<unknown>;
+}
+
 export interface ProxyUpstream {
   search(query: string): Promise<unknown>;
   artist(slug: string): Promise<unknown>;
@@ -78,6 +83,7 @@ export function registerProxyRoutes(
   fastify: FastifyInstance,
   authService: AuthService,
   service: ProxyApiService,
+  artistCatalog?: ArtistCatalogApiService,
 ): void {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
   const requireAuth = makeRequireAuth(authService);
@@ -93,6 +99,19 @@ export function registerProxyRoutes(
     { schema: { params: artistParams }, preHandler: requireAuth },
     async (request) => service.artist(request.params.slug),
   );
+
+  if (artistCatalog) {
+    app.get(
+      "/v1/artists/:slug/catalog",
+      { schema: { params: artistParams }, preHandler: requireAuth },
+      async (request) => artistCatalog.catalog(request.params.slug),
+    );
+    app.post(
+      "/v1/artists/:slug/catalog/refresh",
+      { schema: { params: artistParams }, preHandler: requireAuth },
+      async (request) => artistCatalog.refresh(request.params.slug),
+    );
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

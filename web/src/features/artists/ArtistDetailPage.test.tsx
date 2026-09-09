@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiClient } from '../../lib/api'
 import type { LibraryThemeDto, MusicTrackDto } from '../../lib/library'
 import { ArtistDetailPage } from './ArtistDetailPage'
@@ -115,6 +115,11 @@ function renderPage(
 
 beforeEach(() => {
   vi.spyOn(apiClient, 'get').mockReset()
+  vi.spyOn(apiClient, 'post').mockReset()
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('artist detail page', () => {
@@ -122,7 +127,7 @@ describe('artist detail page', () => {
     vi.mocked(apiClient.get).mockResolvedValue(response)
     renderPage()
 
-    expect(screen.getByRole('status')).toHaveTextContent(/loading artist/i)
+    expect(screen.getByRole('status')).toHaveTextContent(/finding this artist/i)
     expect(await screen.findByRole('heading', { name: 'Karuta' })).toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'Karuta artwork' })).toHaveAttribute('src', response.artist.artworkUrl)
     expect(screen.getByRole('heading', { name: /themes/i })).toBeInTheDocument()
@@ -133,7 +138,7 @@ describe('artist detail page', () => {
     expect(screen.getAllByRole('link', { name: 'Signal Breaker' })[0]).toHaveAttribute('href', '/anime/anime-1')
     fireEvent.error(screen.getByRole('img', { name: 'Karuta artwork' }))
     expect(screen.queryByRole('img', { name: 'Karuta artwork' })).not.toBeInTheDocument()
-    expect(apiClient.get).toHaveBeenCalledWith('/v1/artists/karuta', expect.anything())
+    expect(apiClient.get).toHaveBeenCalledWith('/v1/artists/karuta/catalog', expect.anything())
   })
 
   it('shows anime artwork and an identifiable anime relationship for themes and full songs', async () => {
@@ -290,5 +295,143 @@ describe('artist detail page', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
     expect(await screen.findByRole('heading', { name: 'Karuta' })).toBeInTheDocument()
     expect(calls).toBe(2)
+  })
+
+  it('keeps the artist-shaped loading state while polling a cold catalog', async () => {
+    vi.useFakeTimers()
+    const loading = { ...response, themes: [], fullSongs: [], catalogState: { status: 'loading' as const, hasData: false, lastUpdatedAt: null } }
+    const ready = { ...response, catalogState: { status: 'ready' as const, hasData: true, lastUpdatedAt: '2026-09-08T22:00:00Z' } }
+    let calls = 0
+    vi.mocked(apiClient.get).mockImplementation(async () => {
+      calls += 1
+      return calls === 1 ? loading : ready
+    })
+
+    renderPage()
+    expect(screen.getByRole('status')).toHaveTextContent(/finding this artist/i)
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+    expect(screen.getByRole('status')).toHaveTextContent(/finding this artist|preparing anime artwork/i)
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000) })
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+
+    expect(screen.getByRole('heading', { name: 'Karuta' })).toBeInTheDocument()
+    expect(calls).toBe(2)
+  })
+
+  it('keeps cached content visible when a background refresh fails and stops polling', async () => {
+    vi.useFakeTimers()
+    const refreshing = { ...response, catalogState: { status: 'refreshing' as const, hasData: true, lastUpdatedAt: '2026-09-08T21:00:00Z' } }
+    vi.mocked(apiClient.get).mockResolvedValueOnce(refreshing).mockRejectedValueOnce(new Error('artwork provider unavailable'))
+
+    renderPage()
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000) })
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+
+    expect(screen.getByRole('heading', { name: 'Karuta' })).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(/could not be refreshed/i)
+    expect(screen.getByText('Ichiban no Takaramono · Karuta')).toBeInTheDocument()
+    const callsAfterFailure = vi.mocked(apiClient.get).mock.calls.length
+    await act(async () => { await vi.advanceTimersByTimeAsync(4_000) })
+    expect(vi.mocked(apiClient.get).mock.calls.length).toBe(callsAfterFailure)
+  })
+
+  it('offers the explicit catalog refresh contract for a no-data error', async () => {
+    const failed = { ...response, themes: [], fullSongs: [], catalogState: { status: 'error' as const, hasData: false, lastUpdatedAt: null } }
+    vi.mocked(apiClient.get).mockResolvedValueOnce(failed).mockResolvedValueOnce(response)
+    vi.mocked(apiClient.post).mockResolvedValue(failed)
+
+    renderPage()
+
+    expect(await screen.findByRole('heading', { name: 'Artist music unavailable' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+    expect(apiClient.post).toHaveBeenCalledWith('/v1/artists/karuta/catalog/refresh')
+    expect(await screen.findByRole('heading', { name: 'Karuta' })).toBeInTheDocument()
+  })
+
+  it('shows a retry failure and disables the no-data retry while it is pending', async () => {
+    const failed = { ...response, themes: [], fullSongs: [], catalogState: { status: 'error' as const, hasData: false, lastUpdatedAt: null } }
+    let rejectRefresh: ((reason?: unknown) => void) | undefined
+    vi.mocked(apiClient.get).mockResolvedValue(failed)
+    vi.mocked(apiClient.post).mockImplementation(() => new Promise<ArtistDetailResponse>((_resolve, reject) => { rejectRefresh = reject }))
+
+    renderPage()
+
+    await screen.findByRole('heading', { name: 'Artist music unavailable' })
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Retrying…' })).toBeDisabled())
+
+    await act(async () => { rejectRefresh?.(new Error('refresh unavailable')) })
+    expect(await screen.findByText(/could not start the catalog refresh/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Try again' })).not.toBeDisabled()
+  })
+
+  it('does not let an old artist retry update a newly selected artist', async () => {
+    const failed = { ...response, themes: [], fullSongs: [], catalogState: { status: 'error' as const, hasData: false, lastUpdatedAt: null } }
+    const loadingOther = { ...response, artist: { ...response.artist, name: 'Other Artist', slug: 'other', artworkUrl: 'https://images.example/other.jpg' }, themes: [], fullSongs: [], catalogState: { status: 'loading' as const, hasData: false, lastUpdatedAt: null } }
+    let rejectRefresh: ((reason?: unknown) => void) | undefined
+    vi.mocked(apiClient.get).mockImplementation(async (path) => path === '/v1/artists/karuta/catalog' ? failed : loadingOther)
+    vi.mocked(apiClient.post).mockImplementation(() => new Promise<ArtistDetailResponse>((_resolve, reject) => { rejectRefresh = reject }))
+
+    function RouteSwitcher() {
+      const navigate = useNavigate()
+      return <><button type="button" onClick={() => navigate('/artist/other')}>Switch artist</button><ArtistDetailPage /></>
+    }
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/artist/karuta']}><Routes><Route path="/artist/:artistSlug" element={<RouteSwitcher />} /></Routes></MemoryRouter></QueryClientProvider>)
+
+    await screen.findByRole('heading', { name: 'Artist music unavailable' })
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await screen.findByRole('button', { name: 'Retrying…' })
+    await userEvent.click(screen.getByRole('button', { name: 'Switch artist' }))
+    expect(await screen.findByRole('status')).toHaveTextContent(/finding this artist/i)
+
+    await act(async () => { rejectRefresh?.(new Error('old artist refresh unavailable')) })
+    expect(screen.queryByRole('heading', { name: 'Artist music unavailable' })).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(/finding this artist/i)
+  })
+
+  it('retries artist artwork when the artwork URL changes', async () => {
+    const other = { ...response, artist: { ...response.artist, name: 'Other Artist', slug: 'other', artworkUrl: 'https://images.example/other.jpg' } }
+    vi.mocked(apiClient.get).mockImplementation(async (path) => path === '/v1/artists/karuta/catalog' ? response : other)
+
+    function RouteSwitcher() {
+      const navigate = useNavigate()
+      return <><button type="button" onClick={() => navigate('/artist/other')}>Switch artist</button><ArtistDetailPage /></>
+    }
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/artist/karuta']}><Routes><Route path="/artist/:artistSlug" element={<RouteSwitcher />} /></Routes></MemoryRouter></QueryClientProvider>)
+
+    const oldArtwork = await screen.findByRole('img', { name: 'Karuta artwork' })
+    fireEvent.error(oldArtwork)
+    expect(screen.queryByRole('img', { name: 'Karuta artwork' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Switch artist' }))
+
+    expect(await screen.findByRole('img', { name: 'Other Artist artwork' })).toHaveAttribute('src', 'https://images.example/other.jpg')
+  })
+
+  it('does not keep the previous artist visible after a route change', async () => {
+    function RouteSwitcher() {
+      const navigate = useNavigate()
+      return <><button type="button" onClick={() => navigate('/artist/other')}>Switch artist</button><ArtistDetailPage /></>
+    }
+    vi.mocked(apiClient.get).mockImplementation(async (path) => {
+      if (path === '/v1/artists/karuta/catalog') return response
+      return new Promise(() => undefined)
+    })
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={['/artist/karuta']}><Routes><Route path="/artist/:artistSlug" element={<RouteSwitcher />} /></Routes></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('heading', { name: 'Karuta' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Switch artist' }))
+
+    expect(screen.queryByRole('heading', { name: 'Karuta' })).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(/finding this artist/i)
+    expect(apiClient.get).toHaveBeenLastCalledWith('/v1/artists/other/catalog', expect.anything())
   })
 })

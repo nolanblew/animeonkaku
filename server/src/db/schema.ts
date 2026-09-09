@@ -336,6 +336,27 @@ export const artists = pgTable("artists", {
   imageUrl: text("image_url"),
 });
 
+export type ArtistCatalogStatus = "loading" | "refreshing" | "ready" | "error";
+
+/** Durable browser-facing artist projection and refresh state. */
+export const artistCatalogs = pgTable("artist_catalogs", {
+  slug: text("slug")
+    .primaryKey()
+    .references(() => artists.slug, { onDelete: "cascade" }),
+  artist: jsonb("artist").notNull().default({}),
+  themes: jsonb("themes").notNull().default([]),
+  fullSongs: jsonb("full_songs").notNull().default([]),
+  status: text("status").$type<ArtistCatalogStatus>().notNull().default("loading"),
+  hasData: boolean("has_data").notNull().default(false),
+  lastUpdatedAt: timestamp("last_updated_at", { withTimezone: true }),
+  refreshRequestedAt: timestamp("refresh_requested_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [
+  index("artist_catalogs_status_idx").on(t.status, t.updatedAt),
+]);
+
 export const genres = pgTable("genres", {
   slug: text("slug").primaryKey(),
   displayName: text("display_name").notNull(),

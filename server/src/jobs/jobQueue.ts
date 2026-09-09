@@ -42,6 +42,11 @@ export class JobQueue {
     return this.repo.enqueue(repoInput);
   }
 
+  async findByDedupeKey(dedupeKey: string): Promise<JobRecord | null> {
+    if (this.repo.findByDedupeKey) return this.repo.findByDedupeKey(dedupeKey);
+    return (await this.repo.list(undefined, 10_000)).find((job) => job.dedupeKey === dedupeKey) ?? null;
+  }
+
   async claimNext(maxPriority?: number): Promise<JobRecord | null> {
     return this.repo.claimNext(this.now(), maxPriority);
   }

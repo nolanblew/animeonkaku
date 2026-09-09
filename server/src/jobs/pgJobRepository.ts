@@ -58,7 +58,7 @@ export class PgJobRepository implements JobRepository {
         input.nextRunAt,
       ],
     );
-    const row = result.rows[0] ?? (await this.findByDedupeKey(input.dedupeKey));
+    const row = result.rows[0] ?? (await this.findJobRowByDedupeKey(input.dedupeKey));
     if (!row) throw new Error("Job enqueue failed without returning a row.");
     return toJobRecord(row);
   }
@@ -192,7 +192,12 @@ export class PgJobRepository implements JobRepository {
     return result.rows[0]?.exists ?? false;
   }
 
-  private async findByDedupeKey(dedupeKey: string | null | undefined): Promise<JobRow | null> {
+  async findByDedupeKey(dedupeKey: string): Promise<JobRecord | null> {
+    const row = await this.findJobRowByDedupeKey(dedupeKey);
+    return row ? toJobRecord(row) : null;
+  }
+
+  private async findJobRowByDedupeKey(dedupeKey: string | null | undefined): Promise<JobRow | null> {
     if (!dedupeKey) return null;
     const result = await this.pool.query<JobRow>("SELECT * FROM jobs WHERE dedupe_key = $1 LIMIT 1", [
       dedupeKey,

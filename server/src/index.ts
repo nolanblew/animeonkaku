@@ -5,6 +5,7 @@ import { buildApp } from "./app.js";
 import { PgAdminDashboardService } from "./admin/service.js";
 import { AnimeThemesClient } from "./animethemes/client.js";
 import { DrizzleClientApiService } from "./api/drizzleClientApiService.js";
+import { ArtistCatalogService } from "./api/artistCatalogService.js";
 import { DrizzleMediaApiRepository } from "./api/drizzleMediaApiRepository.js";
 import { JobSyncApiService } from "./api/jobSyncApiService.js";
 import { MediaStreamingService } from "./api/mediaRoutes.js";
@@ -204,6 +205,11 @@ const syncPipeline = new LibrarySyncPipeline({
   animeThemes: animeThemesBackgroundClient,
   queue: jobQueue,
 });
+const artistCatalogService = new ArtistCatalogService(
+  db,
+  jobQueue,
+  new UpstreamProxyService(animeThemesBackgroundClient, kitsuBackgroundClient, syncRepo),
+);
 const loudnessRepository = new DrizzleLoudnessRepository(db);
 const loudnessBackfill = new LoudnessBackfillService(loudnessRepository, jobQueue);
 const mediaStore = new MediaStore({
@@ -247,13 +253,31 @@ for (const batchId of await amfDeliveryRepo.listRecoverableBatchIds()) {
   await jobQueue.enqueue({ type: "IMPORT_AMF_MUSIC_BATCH", priority: JobPriority.NORMAL, payload: { batchId },
     dedupeKey: `IMPORT_AMF_MUSIC_BATCH:${batchId}`, maxAttempts: 8 });
 }
+let artistPrecacheTimer: NodeJS.Timeout | undefined;
+function scheduleArtistPrecache(): void {
+  // Coalesce library mapping batches; provider work stays in durable jobs.
+  if (artistPrecacheTimer) clearTimeout(artistPrecacheTimer);
+  artistPrecacheTimer = setTimeout(() => {
+    artistPrecacheTimer = undefined;
+    void artistCatalogService.precacheKnownArtists().catch((error) => {
+      externalLogger.warn({ err: error }, "unable to precache updated artist catalogs");
+    });
+  }, 5_000);
+  artistPrecacheTimer.unref();
+}
 const syncHandlers = createSyncJobHandlers(syncPipeline, {
-  onUserChanges: (userId, categories) => liveHub.publish(userId, categories),
+  onUserChanges: (userId, categories) => {
+    liveHub.publish(userId, categories);
+    if (categories.includes("library")) scheduleArtistPrecache();
+  },
 });
 const loudnessHandlers = createLoudnessHandlers({ repo: loudnessRepository, mediaRoot: config.MEDIA_ROOT });
 const jobHandlers = { ...fetchHandlers, ...syncHandlers, ...musicRequestHandlers,
   ...fullSizeReimportHandlers, ...amfDeliveryHandlers, ...musicOperatorHandlers,
-  ...musicSearchPolicyHandlers, ...loudnessHandlers };
+  ...musicSearchPolicyHandlers, ...loudnessHandlers, ...artistCatalogService.handlers() };
+void artistCatalogService.precacheKnownArtists().catch((error) => {
+  externalLogger.warn({ err: error }, "unable to precache known artist catalogs");
+});
 if (config.LOUDNESS_BACKFILL_ON_STARTUP) {
   const queued = await loudnessBackfill.enqueue({ limit: config.LOUDNESS_BACKFILL_LIMIT });
   externalLogger.info({ queued, limit: config.LOUDNESS_BACKFILL_LIMIT }, "queued bounded loudness analysis backfill");
@@ -359,6 +383,7 @@ const app = buildApp({
     upstream: new UpstreamProxyService(animeThemesClient, kitsuClient, syncRepo),
     musicSearch: (userId, query) => clientApi.searchMusic(userId, query),
   }),
+  artistCatalog: artistCatalogService,
   onLogin: async (result) => {
     // Fresh returning libraries use the cached server copy. New users and
     // long-dormant libraries get a FULL sync; stale returning users get a
@@ -379,6 +404,7 @@ const app = buildApp({
 async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, "shutting down");
   clearInterval(incompleteMusicRequestTimer);
+  if (artistPrecacheTimer) clearTimeout(artistPrecacheTimer);
   syncScheduler.stop();
   musicSearchPolicyScheduler.stop();
   worker.stop();

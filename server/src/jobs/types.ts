@@ -28,7 +28,8 @@ export type JobType =
   | "IMPORT_AMF_MUSIC_ITEM"
   | "REIMPORT_AMF_FULL_SIZE"
   | "OPERATE_AMF_MUSIC_BATCH"
-  | "RECONCILE_MUSIC_SEARCH_POLICY";
+  | "RECONCILE_MUSIC_SEARCH_POLICY"
+  | "REFRESH_ARTIST_CATALOG";
 
 export interface JobRecord {
   id: number;
@@ -64,6 +65,8 @@ export interface RetryJobInput {
 
 export interface JobRepository {
   enqueue(input: EnqueueJobInput): Promise<JobRecord>;
+  /** Find a durable job by dedupe key without changing its state. */
+  findByDedupeKey?(dedupeKey: string): Promise<JobRecord | null>;
   /** Claim the next runnable job; `maxPriority` limits the claim to jobs at that priority or better (lower). */
   claimNext(now: Date, maxPriority?: number): Promise<JobRecord | null>;
   complete(id: number): Promise<void>;
