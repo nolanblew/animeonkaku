@@ -109,9 +109,9 @@ fun PlaylistPlaybackSettingsSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Override song preferences", color = Mist100, fontWeight = FontWeight.Medium)
+                    Text("Require selected version", color = Mist100, fontWeight = FontWeight.Medium)
                     Text(
-                        "Use the playlist choice instead of a song's saved TV/Full preference. Disliked versions are always excluded.",
+                        "Skip tracks when this version is unavailable, disliked, or conflicts with your song preference. When off, prefer this version and allow fallback.",
                         style = MaterialTheme.typography.bodySmall,
                         color = Mist200
                     )
@@ -119,7 +119,7 @@ fun PlaylistPlaybackSettingsSheet(
                 Switch(
                     checked = overrideUserPreference,
                     onCheckedChange = onOverrideChanged,
-                    modifier = Modifier.semantics { contentDescription = "Override song preferences" }
+                    modifier = Modifier.semantics { contentDescription = "Require selected version" }
                 )
             }
         }

@@ -32,6 +32,8 @@ export interface KitsuAnimeEntry {
   userRating: number | null;
   /** Kitsu's ISO-8601 `updatedAt` on the library entry. */
   libraryUpdatedAt: string | null;
+  /** Recorded finish date, or start date if no finish date exists. Never updatedAt. */
+  watchedAt?: string | null;
   slug: string | null;
 }
 

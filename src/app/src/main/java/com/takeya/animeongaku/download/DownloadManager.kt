@@ -26,6 +26,7 @@ import com.takeya.animeongaku.data.local.SongEntity
 import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.local.ThemeModeDao
+import com.takeya.animeongaku.data.local.ThemeModeEntity
 import com.takeya.animeongaku.data.local.UserPreferenceDao
 import com.takeya.animeongaku.data.local.UserPreferenceEntity
 import com.takeya.animeongaku.network.ConnectivityMonitor
@@ -86,12 +87,14 @@ internal fun resumedDownloadStatus(status: String): String =
     if (status == DownloadItemEntity.STATUS_PAUSED) DownloadItemEntity.STATUS_PENDING else status
 
 private data class ThemeDownloadDirective(
+    val disliked: Boolean,
     val preferredMode: String?,
     val tvSizeDisliked: Boolean,
     val fullSizeDisliked: Boolean
 )
 
 private fun UserPreferenceEntity.toDownloadDirective() = ThemeDownloadDirective(
+    disliked = isDisliked,
     preferredMode = preferredMode,
     tvSizeDisliked = isDislikedTvSize,
     fullSizeDisliked = isDislikedFullSize
@@ -143,9 +146,16 @@ class DownloadManager @Inject constructor(
                 }
         }
         scope.launch {
-            var previous: Map<Long, ThemeDownloadDirective>? = null
+            var previous: Map<Long, Pair<ThemeDownloadDirective, ThemeModeEntity?>>? = null
             userPreferenceDao.observeAllPreferences()
-                .map { preferences -> preferences.associate { it.themeId to it.toDownloadDirective() } }
+                .flatMapLatest { preferences ->
+                    val modes = if (preferences.isEmpty()) flowOf(emptyList())
+                        else themeModeDao.observeByThemeIds(preferences.map { it.themeId })
+                    modes.map { descriptors ->
+                        val byId = descriptors.associateBy { it.themeId }
+                        preferences.associate { it.themeId to (it.toDownloadDirective() to byId[it.themeId]) }
+                    }
+                }
                 .distinctUntilChanged()
                 .collect { current ->
                     val changedThemeIds = previous?.let { before ->
@@ -400,15 +410,14 @@ class DownloadManager @Inject constructor(
 
     private suspend fun reconcileTrackedThemeDownload(themeId: Long) {
         val theme = themeDao.getByIds(listOf(themeId)).firstOrNull() ?: return
-        if (resolvePreferredThemeDownload(theme) == null) return
 
         val groups = downloadDao.getAllGroups()
         val singleIds = setOf(themeId.toString(), "theme:$themeId:full")
         groups.filter {
             it.groupType == DownloadGroupEntity.TYPE_SINGLE && it.groupId in singleIds
         }.forEach { group ->
-            val desired = resolvePreferredThemeDownload(theme) ?: return@forEach
-            replaceAndPrepare(group, listOf(desired))
+            val desired = resolvePreferredThemeDownload(theme)
+            replaceAndPrepare(group, listOfNotNull(desired))
         }
 
         groups.filter { it.groupType == DownloadGroupEntity.TYPE_ANIME }

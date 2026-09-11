@@ -55,6 +55,50 @@ function renderPlayer(store = new QueueStore(), options: Record<string, unknown>
 
 afterEach(() => vi.restoreAllMocks())
 
+describe('live variant preferences', () => {
+  it('waits for preferences before loading a restored queue or prefetching audio', async () => {
+    const cache = { reconcile: vi.fn(() => Promise.resolve()) } as unknown as ManagedMediaCache
+    const store = new QueueStore()
+    store.play([item({ itemType: 'THEME', themeId: 1, tvAudioUrl: '/tv/1', fullAudioUrl: '/full/1' })])
+    const view = (ready: boolean) => <PlayerProvider queueStore={store} mediaCache={cache} preferencesReady={ready} preferenceSnapshot={{ themesById: { 1: { dislikedTvSize: true } }, songsById: {} }}><Harness /></PlayerProvider>
+    const rendered = render(view(false))
+    expect(screen.getByTestId('player-audio')).not.toHaveAttribute('src')
+    expect(cache.reconcile).not.toHaveBeenCalled()
+    rendered.rerender(view(true))
+    await waitFor(() => expect(screen.getByTestId('player-audio')).toHaveAttribute('src', '/api/full/1'))
+  })
+  it('replaces a disliked current variant and never loads it again, then skips on a broad dislike', async () => {
+    vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => undefined)
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined)
+    const store = new QueueStore()
+    const current = item({ itemType: 'THEME', themeId: 1, mode: 'TV_SIZE', tvAudioUrl: '/tv/1', fullAudioUrl: '/full/1' })
+    store.play([current, item({ id: 'next', itemType: 'THEME', themeId: 2, tvAudioUrl: '/tv/2' })])
+    const view = (pref: Record<string, unknown>) => <PlayerProvider queueStore={store} preferenceSnapshot={{ themesById: { 1: pref }, songsById: {} }}><Harness /></PlayerProvider>
+    const rendered = render(view({}))
+    await waitFor(() => expect(screen.getByTestId('player-audio')).toHaveAttribute('src', '/api/tv/1'))
+    const queueId = store.currentEntry!.queueId
+    rendered.rerender(view({ dislikedTvSize: true }))
+    await waitFor(() => expect(screen.getByTestId('player-audio')).toHaveAttribute('src', '/api/full/1'))
+    expect(store.currentEntry!.queueId).toBe(queueId)
+    rendered.rerender(view({ disliked: true }))
+    await waitFor(() => expect(screen.getByTestId('player-audio')).toHaveAttribute('src', '/api/tv/2'))
+    expect(store.currentEntry!.item.id).toBe('next')
+  })
+
+  it('skips a required version that conflicts with the saved preference before assigning a media source', async () => {
+    vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => undefined)
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined)
+    const store = new QueueStore()
+    store.play([
+      item({ itemType: 'THEME', themeId: 1, mode: 'TV_SIZE', requiredMode: 'TV_SIZE', tvAudioUrl: '/tv/1', fullAudioUrl: '/full/1' }),
+      item({ id: 'next', audioUrl: '/tv/2' }),
+    ])
+    renderPlayer(store, { preferenceSnapshot: { themesById: { 1: { preferredMode: 'FULL_SIZE' } }, songsById: {} } })
+    await waitFor(() => expect(screen.getByTestId('player-audio')).toHaveAttribute('src', '/api/tv/2'))
+    expect(store.currentEntry!.item.id).toBe('next')
+  })
+})
+
 describe('queue item mappings and protected media URLs', () => {
   it('maps a theme to distinct TV/full/video sources', () => {
     const mapped = mapThemeToQueueItem({
@@ -138,7 +182,9 @@ describe('PlayerProvider', () => {
     writeAnimeTitlePreference('JAPANESE')
 
     expect(await screen.findByRole('heading', { name: '日本語タイトル · OP' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Open now playing for Opening Theme' })).toHaveTextContent('日本語タイトル · OP')
+    const miniTrack = screen.getByRole('button', { name: 'Open now playing for Opening Theme' })
+    expect(miniTrack.querySelector('.player-mini-player__meta strong')).toHaveTextContent('日本語タイトル')
+    expect(miniTrack.querySelector('.player-mini-player__type-pill')).toHaveTextContent('OP')
   })
 
   it('renders real media elements and preserves occurrence identity for duplicate songs', async () => {
@@ -340,6 +386,17 @@ describe('PlayerProvider', () => {
 })
 
 describe('media cache reconciliation', () => {
+  it('prefetches only the resolved allowed version and omits required conflicts', async () => {
+    const reconcile = vi.fn(() => Promise.resolve())
+    const cache = { reconcile } as unknown as ManagedMediaCache
+    const store = new QueueStore()
+    store.play([item(),
+      item({ id: 2, itemType: 'THEME', themeId: 2, mode: 'TV_SIZE', tvAudioUrl: '/tv/2', fullAudioUrl: '/full/2' }),
+      item({ id: 3, itemType: 'THEME', themeId: 3, mode: 'TV_SIZE', requiredMode: 'TV_SIZE', tvAudioUrl: '/tv/3', fullAudioUrl: '/full/3' }),
+    ])
+    renderPlayer(store, { mediaCache: cache, preferenceSnapshot: { themesById: { 2: { dislikedTvSize: true }, 3: { preferredMode: 'FULL_SIZE' } }, songsById: {} } })
+    await waitFor(() => expect(reconcile).toHaveBeenCalledWith(expect.objectContaining({ nextAudioUrls: ['/api/full/2'] })))
+  })
   it('passes exactly the next three audio URLs and never a video URL', async () => {
     const reconcile = vi.fn(() => Promise.resolve())
     const cache = { reconcile } as unknown as ManagedMediaCache

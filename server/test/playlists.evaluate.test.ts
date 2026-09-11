@@ -52,6 +52,28 @@ function ctx(themes: EvalTheme[], animeByThemesId: Map<number, EvalAnime>, over:
 }
 
 describe("matches — boolean operators", () => {
+  it("current OR liked OR watched within six months excludes planned edits and broad dislikes", () => {
+    const themes = [1, 2, 3, 4, 5, 6].map(id => theme(id, { animeThemesId: id }));
+    const library = new Map([
+      [1, anime({ watchingStatus: "planned", libraryUpdatedAt: NOW, watchedAt: null })],
+      [2, anime({ watchingStatus: "current", watchedAt: null })],
+      [3, anime({ watchingStatus: "completed", watchedAt: NOW - 86400000 })],
+      [4, anime({ watchingStatus: "planned", watchedAt: null })],
+      [5, anime({ watchingStatus: "completed", watchedAt: NOW - 86400000 })],
+      [6, anime({ watchingStatus: "completed", libraryUpdatedAt: NOW, watchedAt: Date.UTC(2020, 0, 1) })],
+    ]);
+    const context = ctx(themes, library, { likedThemeIds: new Set([4]), dislikedThemeIds: new Set([5]) });
+    const filter = { type: "and", children: [
+      { type: "or", children: [
+        { type: "watching_status_in", statuses: ["current"] },
+        { type: "liked" },
+        { type: "watched_on", operator: "GT", anchor: { type: "relative", unit: "MONTHS", amount: 6 } },
+      ] },
+      { type: "not", child: { type: "disliked" } },
+    ] };
+    expect(evaluate(filter, null, context).sort()).toEqual([2, 3, 4]);
+    expect(matches({ type: "library_updated_within", durationMillis: 180 * 86400000 }, themes[0]!, context)).toBe(false);
+  });
   const t = theme(1);
   const c = ctx([t], new Map([[1, anime()]]));
 
@@ -104,7 +126,7 @@ describe("matches — leaves", () => {
   });
 
   it("watched_on GT is strict", () => {
-    const c = ctx([theme(1)], new Map([[1, anime({ libraryUpdatedAt: Date.UTC(2026, 0, 1) })]]));
+    const c = ctx([theme(1)], new Map([[1, anime({ watchedAt: Date.UTC(2026, 0, 1) })]]));
     const node = { type: "watched_on", operator: "GT", anchor: { type: "absolute_year", year: 2025 } };
     expect(matches(node, theme(1), c)).toBe(true);
   });

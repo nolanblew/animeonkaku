@@ -10,7 +10,7 @@ import { registerClientRoutes, type ClientApiService } from "./api/clientRoutes.
 import { ApiError, errorEnvelope } from "./api/errors.js";
 import { registerHealthRoutes, type HealthDeps } from "./api/healthRoutes.js";
 import { registerMediaRoutes, type MediaStreamingService } from "./api/mediaRoutes.js";
-import { registerProxyRoutes, type ProxyApiService } from "./api/proxyRoutes.js";
+import { registerProxyRoutes, type ArtistCatalogApiService, type ProxyApiService } from "./api/proxyRoutes.js";
 import type { AuthService, LoginResult } from "./auth/service.js";
 import { KitsuAuthError, type UserRecord } from "./auth/types.js";
 import { registerJobAdminRoutes, type JobAdminService } from "./jobs/adminRoutes.js";
@@ -42,6 +42,7 @@ export interface AppDeps {
   mediaApi?: MediaStreamingService;
   syncApi?: SyncApiService;
   proxyApi?: ProxyApiService;
+  artistCatalog?: ArtistCatalogApiService;
   legacyLibraryImport?: LegacyLibraryImportService;
   musicRequests?: MusicRequestService;
   musicOperator?: MusicOperatorApiService;
@@ -189,7 +190,7 @@ function registerApiRoutes(app: FastifyInstance, deps: AppDeps, webPrefix: boole
     registerSyncRoutes(app, deps.authService, deps.syncApi);
   }
   if (deps.proxyApi) {
-    registerProxyRoutes(app, deps.authService, deps.proxyApi);
+    registerProxyRoutes(app, deps.authService, deps.proxyApi, deps.artistCatalog);
   }
   if (deps.jobs) {
     registerJobAdminRoutes(app, deps.authService, deps.jobs);

@@ -26,5 +26,6 @@ data class AnimeEntity(
     val averageRating: Double? = null,
     val userRating: Double? = null,
     val libraryUpdatedAt: Long? = null,
+    val watchedAt: Long? = null,
     val slug: String? = null
 )

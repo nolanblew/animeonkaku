@@ -8,7 +8,8 @@ import { AnimeDetailPage } from './catalog/AnimeDetailPage'
 import { PlaylistDetail } from './playlists/components'
 import { ReleaseDetailPage } from './releases/ReleaseDetailPage'
 
-vi.mock('../lib/query', () => ({
+vi.mock('../lib/query', async () => ({
+  ...await vi.importActual<typeof import('../lib/query')>('../lib/query'),
   useLibraryQuery: () => ({ library: playlistLibrary(), status: 'success', isPending: false, isError: false, isSuccess: true, error: null }),
 }))
 

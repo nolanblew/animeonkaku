@@ -78,6 +78,7 @@ export class DrizzleDynamicPlaylistEvaluator {
         userRating: libraryEntries.userRating,
         watchingStatus: libraryEntries.watchingStatus,
         libraryUpdatedAt: libraryEntries.libraryUpdatedAt,
+        watchedAt: libraryEntries.watchedAt,
       })
       .from(libraryEntries)
       .innerJoin(kitsuAnime, eq(libraryEntries.kitsuId, kitsuAnime.kitsuId))
@@ -107,6 +108,7 @@ export class DrizzleDynamicPlaylistEvaluator {
         userRating: row.userRating,
         watchingStatus: row.watchingStatus,
         libraryUpdatedAt: row.libraryUpdatedAt ? row.libraryUpdatedAt.getTime() : null,
+        watchedAt: row.watchedAt?.getTime() ?? null,
         kitsuId: row.kitsuId,
       });
     }

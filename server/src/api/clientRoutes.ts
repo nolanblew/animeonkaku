@@ -83,6 +83,7 @@ export interface LibraryAnimeDto {
   averageRating: number | null;
   userRating: number | null;
   libraryUpdatedAt: number | null;
+  watchedAt?: number | null;
   slug: string | null;
   genres: string[];
   updatedAt: number;

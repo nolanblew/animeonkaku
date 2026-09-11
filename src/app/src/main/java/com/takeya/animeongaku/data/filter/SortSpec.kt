@@ -52,7 +52,7 @@ data class SortKey(
         fun defaultCategoricalOrder(attribute: SortAttribute): List<String> = when (attribute) {
             SortAttribute.THEME_TYPE -> listOf("OP", "IN", "ED")
             SortAttribute.SEASON -> listOf("WINTER", "SPRING", "SUMMER", "FALL")
-            SortAttribute.WATCHING_STATUS -> listOf("current", "completed")
+            SortAttribute.WATCHING_STATUS -> listOf("current", "completed", "planned", "on_hold", "dropped")
             SortAttribute.SUBTYPE -> listOf("tv", "movie", "ova", "ona", "special", "music")
             else -> emptyList()
         }

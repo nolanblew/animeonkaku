@@ -18,6 +18,25 @@ import org.junit.Test
 
 class DynamicPlaylistDeviceOverlayTest {
     @Test
+    fun `recent library edits do not satisfy watched date in mixed OR filter`() {
+        val now = java.time.Instant.parse("2026-09-04T00:00:00Z").toEpochMilli()
+        val tracks = (1L..5L).map { id -> track(id, "Song $id").let { it.copy(theme = it.theme.copy(animeId = id)) } }
+        val anime = tracks.map { track ->
+            val id = track.theme.id
+            com.takeya.animeongaku.data.local.AnimeEntity(
+                kitsuId = "$id", animeThemesId = id, title = "Anime $id", thumbnailUrl = null, coverUrl = null, syncedAt = 0,
+                watchingStatus = if (id == 2L) "current" else "planned", libraryUpdatedAt = now,
+                watchedAt = if (id == 3L || id == 5L) now - 86400000 else null)
+        }
+        val filter = FilterNode.And(listOf(
+            FilterNode.Or(listOf(FilterNode.WatchingStatusIn(listOf("current")), FilterNode.Liked(),
+                FilterNode.WatchedOn(com.takeya.animeongaku.data.filter.DateOperator.GT,
+                    com.takeya.animeongaku.data.filter.DateAnchor.AbsoluteYear(2026)))),
+            FilterNode.Not(FilterNode.Disliked()), FilterNode.Downloaded()))
+        val context = buildDynamicOverlayContext(tracks, anime, emptyList(), setOf(4L), setOf(5L), (1L..5L).toSet(), emptyList(), now)
+        assertEquals(listOf(2L, 3L, 4L), applyDynamicDeviceOverlay(tracks, filter, SortSpec.DEFAULT, context).map { it.theme.id })
+    }
+    @Test
     fun `downloaded OR liked filter narrows server superset using local device state`() {
         val tracks = listOf(track(1L), track(2L), track(3L))
         val filter = FilterNode.Or(listOf(FilterNode.Downloaded(), FilterNode.Liked()))

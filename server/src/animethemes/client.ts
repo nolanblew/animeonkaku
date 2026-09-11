@@ -98,7 +98,20 @@ export class AnimeThemesClient {
 
   async fetchAnimeById(animeThemesId: number): Promise<AnimeThemeEntry[]> {
     const json = await this.getJson(
-      `${this.baseUrl}/anime/${animeThemesId}?${new URLSearchParams({ include: SINGLE_INCLUDE })}`,
+      `${this.baseUrl}/anime?${new URLSearchParams({
+        "filter[id]": String(animeThemesId),
+        include: SINGLE_INCLUDE,
+        "page[size]": "1",
+      })}`,
+    );
+    return parseAnimeThemesPage(json).anime.flatMap(toThemeEntries);
+  }
+
+  async fetchAnimeBySlug(slug: string): Promise<AnimeThemeEntry[]> {
+    const normalizedSlug = slug.trim();
+    if (!normalizedSlug) return [];
+    const json = await this.getJson(
+      `${this.baseUrl}/anime/${encodeURIComponent(normalizedSlug)}?${new URLSearchParams({ include: SINGLE_INCLUDE })}`,
     );
     const anime = parseSingleAnime(json);
     return anime ? toThemeEntries(anime) : [];

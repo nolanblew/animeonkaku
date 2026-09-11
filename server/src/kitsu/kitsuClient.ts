@@ -213,8 +213,6 @@ export class KitsuClient {
       };
       if (options.status !== undefined) {
         params["filter[status]"] = options.status;
-      } else if (!options.stopAtOrBefore) {
-        params["filter[status]"] = "current,completed";
       }
 
       const requestOptions =
@@ -308,6 +306,8 @@ function parseLibraryEntry(
     watchingStatus: stringAttr(resource, "status"),
     userRating: toNumber(ratingTwenty) !== null ? toNumber(ratingTwenty)! / 2 : null,
     libraryUpdatedAt: stringAttr(resource, "updatedAt"),
+    // progressedAt also changes on status edits (including Planned); it is not a watch date.
+    watchedAt: stringAttr(resource, "finishedAt") ?? stringAttr(resource, "startedAt"),
   };
 }
 

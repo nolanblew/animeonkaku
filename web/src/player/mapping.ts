@@ -5,6 +5,7 @@ import type { QueueItem } from './queue'
 export interface PlayerQueueItem extends QueueItem {
   readonly itemType: 'THEME' | 'SONG'
   readonly mode?: PlaybackMode
+  readonly requiredMode?: PlaybackMode
   readonly tvAudioUrl?: string
   readonly fullAudioUrl?: string
   readonly tvDurationMs?: number
@@ -31,6 +32,7 @@ export interface ThemeQueueItemOptions {
   animeTitleRomaji?: string | null
   animeTitleJa?: string | null
   mode?: PlaybackMode
+  requiredMode?: PlaybackMode
 }
 
 /** Converts an API theme into the occurrence payload used by QueueStore. */
@@ -63,6 +65,7 @@ export function mapThemeToQueueItem(theme: LibraryThemeDto, options: ThemeQueueI
     // An absent mode inherits the provider's remembered user default. Playlist
     // projections pass an explicit mode when their policy requires one.
     mode: options.mode,
+    requiredMode: options.requiredMode,
     tvAudioUrl,
     fullAudioUrl,
     tvDurationMs: secondsToMilliseconds(tv?.durationSeconds ?? theme.durationSeconds),
@@ -106,6 +109,7 @@ export function queueItemAudioUrl(item: QueueItem, mode: PlaybackMode): string |
     return candidate.audioUrl || candidate.tvAudioUrl
   }
   if (candidate.itemType === 'SONG') return undefined
+  if (candidate.itemType === 'THEME') return 'tvAudioUrl' in candidate ? candidate.tvAudioUrl : candidate.audioUrl
   return candidate.tvAudioUrl || candidate.audioUrl || candidate.fullAudioUrl
 }
 

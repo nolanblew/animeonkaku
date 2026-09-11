@@ -21,15 +21,17 @@ describe("server runtime wiring", () => {
     expect(source).toContain("createAmfDeliveryImportHandlers");
     expect(source).toContain("createFullSizeReimportHandlers");
     expect(source).toContain("new PgFullSizeReimportCleanup(pool, config.MEDIA_ROOT)");
+    expect(source).toContain("const artistCatalogService = new ArtistCatalogService(");
     expect(source).not.toContain("MusicDiscoveryScheduler");
     expect(source).not.toContain("createMusicDiscoveryHandlers");
     expect(source).not.toContain("createMusicImportHandlers");
     expect(source).not.toContain("listRecoverableAcquisitionIds");
     expect(source).not.toContain("listRecoverableImportIds");
-    expect(source).toMatch(/const jobHandlers = \{ \.\.\.fetchHandlers, \.\.\.syncHandlers, \.\.\.musicRequestHandlers,[\s\S]*\.\.\.fullSizeReimportHandlers,[\s\S]*\.\.\.musicSearchPolicyHandlers, \.\.\.loudnessHandlers \}/);
+    expect(source).toMatch(/const jobHandlers = \{ \.\.\.fetchHandlers, \.\.\.syncHandlers, \.\.\.musicRequestHandlers,[\s\S]*\.\.\.fullSizeReimportHandlers,[\s\S]*\.\.\.musicSearchPolicyHandlers, \.\.\.loudnessHandlers, \.\.\.artistCatalogService\.handlers\(\) \}/);
     expect(source.match(/handlers: jobHandlers/g)).toHaveLength(2);
     expect(source).toContain("musicOperator: musicOperatorService");
     expect(source).toContain("musicSearchSettings: musicSearchPolicy");
+    expect(source).toContain("artistCatalog: artistCatalogService");
     expect(source).toContain("musicSearchPolicyScheduler.start()");
   });
 

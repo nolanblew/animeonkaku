@@ -52,7 +52,10 @@ import com.takeya.animeongaku.ui.theme.Rose500
 internal val SimpleSubtypeOptions = listOf("tv", "movie", "ova", "ona", "special")
 internal val SimpleWatchingStatusOptions = listOf(
     "current" to "Current",
-    "completed" to "Completed"
+    "completed" to "Completed",
+    "planned" to "Planned",
+    "on_hold" to "On hold",
+    "dropped" to "Dropped"
 )
 internal val SimpleThemeTypeOptions = listOf(
     "OP" to "Opening",

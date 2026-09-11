@@ -177,12 +177,12 @@ class DownloadMediaResolutionTest {
     }
 
     @Test
-    fun `playlist override controls downloads unless that version is disliked`() {
+    fun `required playlist skips conflicting preferences and dislikes`() {
         val entry = PlaylistEntryEntity(7, 10, 0, 100, "THEME", 10, null)
         val mode = ThemeModeEntity(10, "/tv/10", fullSizeSongId = 90, fullSizeUrl = "/songs/90")
 
         assertEquals(
-            listOf(DownloadMediaSpec.themeTv(10, "/tv/10")),
+            emptyList<DownloadMediaSpec>(),
             resolvePlaylistDownloadMedia(
                 entries = listOf(entry),
                 playlistDefaultMode = "TV_SIZE",
@@ -193,7 +193,7 @@ class DownloadMediaResolutionTest {
             )
         )
         assertEquals(
-            listOf(DownloadMediaSpec.song(90, "/songs/90")),
+            emptyList<DownloadMediaSpec>(),
             resolvePlaylistDownloadMedia(
                 entries = listOf(entry),
                 playlistDefaultMode = "TV_SIZE",
@@ -216,7 +216,7 @@ class DownloadMediaResolutionTest {
         val entry = PlaylistEntryEntity(7, 10, 0, 100, "THEME", 10, "FULL_SIZE")
         val modes = mapOf(10L to ThemeModeEntity(10, "/tv/10"))
 
-        assertEquals(emptyList<DownloadMediaSpec>(), resolvePlaylistDownloadMedia(listOf(entry), "TV_SIZE", modes, emptyMap()))
+        assertEquals(emptyList<DownloadMediaSpec>(), resolvePlaylistDownloadMedia(listOf(entry), "TV_SIZE", modes, emptyMap(), overrideUserPreference = true))
     }
 
     @Test

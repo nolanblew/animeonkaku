@@ -78,7 +78,7 @@ private fun comparatorForKey(
                 animeFor(theme, ctx)?.startDate?.let(::parseStartDateMillis)
             }
         SortAttribute.WATCHED_DATE ->
-            nullableLongComparator(descending) { theme -> animeFor(theme, ctx)?.libraryUpdatedAt }
+            nullableLongComparator(descending) { theme -> animeFor(theme, ctx)?.watchedAt }
         SortAttribute.AVERAGE_RATING ->
             nullableDoubleComparator(descending) { theme -> animeFor(theme, ctx)?.averageRating }
         SortAttribute.MY_RATING ->

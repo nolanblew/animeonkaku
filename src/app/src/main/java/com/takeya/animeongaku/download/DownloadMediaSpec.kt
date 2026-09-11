@@ -79,14 +79,14 @@ internal fun resolveThemeDownloadMedia(
     val tvUrl = descriptor?.tvSizeUrl?.takeIf(String::isNotBlank)
         ?: fallbackTvUrl.takeIf(String::isNotBlank)
     val full = resolveThemeFullSizeDownload(descriptor, canonicalSongUrl, canonicalSongLoudness)
+    if (preference?.isDisliked == true) return null
+    if (overrideUserPreference && preference?.preferredMode != null && preference.preferredMode != fallbackMode) return null
     val preferredMode = if (overrideUserPreference) fallbackMode else preference?.preferredMode ?: fallbackMode
     val tvAllowed = preference?.isDislikedTvSize != true
     val fullAllowed = preference?.isDislikedFullSize != true
-    val hasThemeDirective = (!overrideUserPreference && preference?.preferredMode != null) || !tvAllowed || !fullAllowed
-
     val orderedModes = when (preferredMode) {
-        "FULL_SIZE" -> if (hasThemeDirective) listOf("FULL_SIZE", "TV_SIZE") else listOf("FULL_SIZE")
-        "TV_SIZE" -> if (hasThemeDirective) listOf("TV_SIZE", "FULL_SIZE") else listOf("TV_SIZE")
+        "FULL_SIZE" -> if (overrideUserPreference) listOf("FULL_SIZE") else listOf("FULL_SIZE", "TV_SIZE")
+        "TV_SIZE" -> if (overrideUserPreference) listOf("TV_SIZE") else listOf("TV_SIZE", "FULL_SIZE")
         else -> emptyList()
     }
     return orderedModes.firstNotNullOfOrNull { mode ->

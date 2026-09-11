@@ -6,7 +6,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiClient } from '../../lib/api'
 import type { MusicTrackDto, NormalizedLibrary } from '../../lib/library'
 
-vi.mock('../../lib/query', () => ({
+vi.mock('../../lib/query', async () => ({
+  ...await vi.importActual<typeof import('../../lib/query')>('../../lib/query'),
   useLibraryQuery: vi.fn(),
 }))
 
@@ -115,7 +116,8 @@ describe('catalog pages', () => {
 
     expect(await screen.findByRole('heading', { name: 'Recommended' })).toBeInTheDocument()
     const recommended = screen.getByRole('region', { name: 'Recommended' })
-    expect(within(recommended).getAllByText('Frieren: Beyond Journey’s End · OP', { selector: 'strong' }).length).toBeGreaterThan(0)
+    expect(within(recommended).getAllByText('Frieren: Beyond Journey’s End', { selector: '.home-theme-identity__anime' }).length).toBeGreaterThan(0)
+    expect(within(recommended).getAllByText('OP', { selector: '.home-theme-identity__type' }).length).toBeGreaterThan(0)
     expect(within(recommended).getAllByText(/^Opening(?: ·|$)/, { selector: 'small' }).length).toBeGreaterThan(0)
     expect(screen.queryByText('Continue watching')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Openings' })).toBeInTheDocument()
@@ -214,10 +216,13 @@ describe('catalog pages', () => {
     await userEvent.click(screen.getByRole('button', { name: 'More actions for Song 10' }))
     expect(screen.getByRole('dialog', { name: 'Frieren: Beyond Journey’s End · OP actions' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Play next' }))
+    expect(screen.queryByRole('dialog', { name: 'Frieren: Beyond Journey’s End · OP actions' })).not.toBeInTheDocument()
+    expect(onPlayNext).toHaveBeenCalledOnce()
+
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Song 10' }))
     await userEvent.click(screen.getByRole('button', { name: 'Add to queue' }))
-    expect(onPlayNext).toHaveBeenCalled()
-    expect(onAddToQueue).toHaveBeenCalled()
-    await userEvent.click(screen.getByRole('button', { name: 'Close actions' }))
+    expect(screen.queryByRole('dialog', { name: 'Frieren: Beyond Journey’s End · OP actions' })).not.toBeInTheDocument()
+    expect(onAddToQueue).toHaveBeenCalledOnce()
 
     await userEvent.click(screen.getByRole('tab', { name: 'Playlists' }))
     expect(screen.getByRole('link', { name: /Night drive/ })).toHaveAttribute('href', '/playlist/7')
@@ -314,8 +319,13 @@ describe('catalog pages', () => {
     await screen.findByRole('heading', { name: 'Themes' })
     const rows = document.querySelectorAll('.catalog-theme-row')
     expect(rows).toHaveLength(2)
-    expect(rows[0]).toHaveTextContent('OP 1Opening songOpening Artist')
-    expect(rows[1]).toHaveTextContent('ED 2Ending songEnding Artist')
+    expect(rows[0].querySelector('.catalog-theme-row__type')).toHaveTextContent('OP 1')
+    expect(rows[0].querySelector('.catalog-theme-row__anime-title')).toHaveTextContent('Frieren: Beyond Journey’s End')
+    expect(rows[0].querySelector('.catalog-theme-row__anime-artwork img')).toHaveAttribute('src', 'https://images.example/a.jpg')
+    expect(rows[0]).toHaveTextContent('Opening song · Opening Artist')
+    expect(rows[1].querySelector('.catalog-theme-row__type')).toHaveTextContent('ED 2')
+    expect(rows[1].querySelector('.catalog-theme-row__anime-title')).toHaveTextContent('Frieren: Beyond Journey’s End')
+    expect(rows[1]).toHaveTextContent('Ending song · Ending Artist')
   })
 
   it('exposes shared actions for anime detail release tracks with anime context', async () => {

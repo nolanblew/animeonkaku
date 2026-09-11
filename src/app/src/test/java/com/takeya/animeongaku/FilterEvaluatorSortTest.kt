@@ -38,7 +38,7 @@ class FilterEvaluatorSortTest {
         animeThemesId: Long?,
         title: String? = null,
         startDate: String? = null,
-        libraryUpdatedAt: Long? = null,
+        watchedAt: Long? = null,
         averageRating: Double? = null,
         userRating: Double? = null
     ) = AnimeEntity(
@@ -49,7 +49,7 @@ class FilterEvaluatorSortTest {
         coverUrl = null,
         syncedAt = 0,
         startDate = startDate,
-        libraryUpdatedAt = libraryUpdatedAt,
+        watchedAt = watchedAt,
         averageRating = averageRating,
         userRating = userRating
     )
@@ -80,9 +80,9 @@ class FilterEvaluatorSortTest {
 
     @Test
     fun `default sort orders by watched desc then title asc`() {
-        val animeA = anime("a", 10L, title = "A", libraryUpdatedAt = 100L)
-        val animeB = anime("b", 20L, title = "B", libraryUpdatedAt = 200L)
-        val animeC = anime("c", 30L, title = "C", libraryUpdatedAt = 200L)
+        val animeA = anime("a", 10L, title = "A", watchedAt = 100L)
+        val animeB = anime("b", 20L, title = "B", watchedAt = 200L)
+        val animeC = anime("c", 30L, title = "C", watchedAt = 200L)
         val t1 = theme(1, title = "Beta", animeId = 10L)  // watched = 100
         val t2 = theme(2, title = "Alpha", animeId = 20L) // watched = 200
         val t3 = theme(3, title = "Beta", animeId = 30L)  // watched = 200 — tied with t2
@@ -96,8 +96,8 @@ class FilterEvaluatorSortTest {
 
     @Test
     fun `null watched dates sort last regardless of direction`() {
-        val withDate = anime("a", 10L, libraryUpdatedAt = 500L)
-        val withoutDate = anime("b", 20L, libraryUpdatedAt = null)
+        val withDate = anime("a", 10L, watchedAt = 500L)
+        val withoutDate = anime("b", 20L, watchedAt = null)
         val t1 = theme(1, animeId = 10L)
         val t2 = theme(2, animeId = 20L)
         val context = ctx(listOf(t1, t2), anime = listOf(withDate, withoutDate))
@@ -186,9 +186,9 @@ class FilterEvaluatorSortTest {
 
     @Test
     fun `multi key tiebreaking uses later keys only for equal earlier values`() {
-        val animeA = anime("a", 10L, libraryUpdatedAt = 500L)
-        val animeB = anime("b", 20L, libraryUpdatedAt = 500L)
-        val animeC = anime("c", 30L, libraryUpdatedAt = 100L)
+        val animeA = anime("a", 10L, watchedAt = 500L)
+        val animeB = anime("b", 20L, watchedAt = 500L)
+        val animeC = anime("c", 30L, watchedAt = 100L)
         val t1 = theme(1, title = "Z", animeId = 10L)
         val t2 = theme(2, title = "A", animeId = 20L)
         val t3 = theme(3, title = "M", animeId = 30L)

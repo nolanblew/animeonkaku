@@ -88,7 +88,7 @@ class PlaybackResolverTest {
     }
 
     @Test
-    fun `all offline preferred and local combinations require exact key`() {
+    fun `offline audio preferences fall back to another available local size`() {
         val entry = themeEntry(modes(tv = true, full = true, video = true))
         listOf(PlaybackMode.TV_SIZE, PlaybackMode.FULL_SIZE, PlaybackMode.VIDEO).forEach { preferred ->
             listOf(false, true).forEach { tvLocal ->
@@ -98,9 +98,9 @@ class PlaybackResolverTest {
                         if (fullLocal) MediaKey.songAudio(10).also { put(it, LocalMediaFile(it, "/full")) }
                     }
                     val expected = when (preferred) {
-                        PlaybackMode.TV_SIZE -> PlaybackMode.TV_SIZE.takeIf { tvLocal }
-                        PlaybackMode.FULL_SIZE -> PlaybackMode.FULL_SIZE.takeIf { fullLocal }
-                        PlaybackMode.VIDEO -> null
+                        PlaybackMode.TV_SIZE -> if (tvLocal) PlaybackMode.TV_SIZE else PlaybackMode.FULL_SIZE.takeIf { fullLocal }
+                        PlaybackMode.FULL_SIZE -> if (fullLocal) PlaybackMode.FULL_SIZE else PlaybackMode.TV_SIZE.takeIf { tvLocal }
+                        PlaybackMode.VIDEO -> if (tvLocal) PlaybackMode.TV_SIZE else PlaybackMode.FULL_SIZE.takeIf { fullLocal }
                         PlaybackMode.RELATED_AUDIO -> null
                     }
                     assertEquals(
@@ -149,7 +149,7 @@ class PlaybackResolverTest {
     }
 
     @Test
-    fun `offline requires exact media key and never substitutes`() {
+    fun `offline prefers the selected size and falls back to available audio`() {
         val entry = themeEntry(modes(tv = true, full = true, video = true))
         val tvKey = MediaKey.themeTv(1)
         val fullKey = MediaKey.songAudio(10)
@@ -162,8 +162,8 @@ class PlaybackResolverTest {
             isOnline = false,
             localMedia = tvLocal
         )
-        assertNull(fullMissing.actualMode)
-        assertEquals(RetainedIntentReason.EXACT_OFFLINE_MEDIA_MISSING, fullMissing.retainedIntentReason)
+        assertEquals(PlaybackMode.TV_SIZE, fullMissing.actualMode)
+        assertEquals(RetainedIntentReason.PREFERRED_MODE_UNAVAILABLE, fullMissing.retainedIntentReason)
 
         val tvMissing = resolver.resolve(
             entry,
@@ -171,7 +171,7 @@ class PlaybackResolverTest {
             isOnline = false,
             localMedia = fullLocal
         )
-        assertNull(tvMissing.actualMode)
+        assertEquals(PlaybackMode.FULL_SIZE, tvMissing.actualMode)
 
         val fullReady = resolver.resolve(
             entry,
@@ -189,7 +189,7 @@ class PlaybackResolverTest {
             isOnline = false,
             localMedia = tvLocal + fullLocal
         )
-        assertNull(videoOffline.actualMode)
+        assertEquals(PlaybackMode.TV_SIZE, videoOffline.actualMode)
         assertTrue(PlaybackMode.VIDEO !in videoOffline.availableModes)
     }
 

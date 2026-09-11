@@ -223,7 +223,13 @@ function artistQueueItems(artist: ArtistDetailResponse): Array<PlayerQueueItem |
   const songs = Array.isArray(artist.fullSongs) ? artist.fullSongs : []
   return [
     ...themes.map((theme) => {
-      const anime = theme.anime?.find((entry) => entry.kitsuId)
+      // Keep the first useful AnimeThemes relationship for artwork/title even
+      // when the upstream record has no Kitsu resource. Navigation still uses
+      // the nullable kitsuId below, so a no-Kitsu row remains playable without
+      // inventing an anime route.
+      const anime = theme.anime?.find((entry) => entry.kitsuId) ??
+        theme.anime?.find((entry) => entry.posterUrl || entry.title || entry.titleEn) ??
+        theme.anime?.[0]
       return theme.audioUrl && theme.audioState !== 'FAILED' && theme.audioState !== 'MISSING' ? mapThemeToQueueItem(theme as LibraryThemeDto, { artworkUrl: resolveBrowserAsset(anime?.posterUrl) ?? artworkUrl, animeId: anime?.kitsuId, ...animeTitleQueueOptions(anime) }) : null
     }),
     ...songs.map((song) => song.audioAvailable !== false && song.audioUrl ? mapSongToQueueItem(song as MusicTrackDto, { artworkUrl }) : null),
@@ -314,9 +320,8 @@ function playlistQueueItems(library: NormalizedLibrary, playlist: PlaylistDto): 
     const theme = library.themesById[String(item.itemId)]
     if (!theme || theme.deleted) return null
     const anime = theme.kitsuAnimeIds.map((id) => library.animeById[id]).find((entry) => entry && !entry.deleted)
-    const preferredMode = library.prefsByThemeId[String(theme.id)]?.preferredMode
-    const mode = item.modeOverride ?? (playlist.overrideUserPreference ? playlist.defaultMode : preferredMode ?? playlist.defaultMode)
-    return mapThemeToQueueItem(theme, { artworkUrl: resolveBrowserAsset(anime?.posterUrl ?? anime?.coverUrl), animeId: anime?.kitsuId, ...animeTitleQueueOptions(anime), mode })
+    const mode = item.modeOverride ?? playlist.defaultMode
+    return mapThemeToQueueItem(theme, { artworkUrl: resolveBrowserAsset(anime?.posterUrl ?? anime?.coverUrl), animeId: anime?.kitsuId, ...animeTitleQueueOptions(anime), mode, requiredMode: playlist.overrideUserPreference ? mode : undefined })
   })
 }
 
