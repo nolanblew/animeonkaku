@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ThemeActionSheet } from './ThemeActionSheet'
 import { TrackActionMenu } from './TrackActionMenu'
 
-function ThemeActionSheetHarness() {
+function ThemeActionSheetHarness({ onAddToQueue = vi.fn() }: { onAddToQueue?: () => void } = {}) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -17,6 +17,7 @@ function ThemeActionSheetHarness() {
           title="Opening theme"
           subtitle="Anime · OP1"
           onPlay={vi.fn()}
+          onAddToQueue={onAddToQueue}
           onClose={() => setOpen(false)}
         />
       )}
@@ -109,5 +110,26 @@ describe('theme action sheet dialog behavior', () => {
     expect(scrim).not.toBeNull()
     await user.click(scrim as HTMLElement)
     expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('unmounts after a queue action, restores focus, and requires reopening for another insert', async () => {
+    const user = userEvent.setup()
+    const onAddToQueue = vi.fn()
+    render(<ThemeActionSheetHarness onAddToQueue={onAddToQueue} />)
+
+    const opener = screen.getByRole('button', { name: 'Open theme actions' })
+    await user.click(opener)
+    await user.click(screen.getByRole('button', { name: 'Add to queue' }))
+
+    expect(screen.queryByRole('dialog', { name: 'Opening theme actions' })).not.toBeInTheDocument()
+    expect(opener).toHaveFocus()
+    expect(onAddToQueue).toHaveBeenCalledOnce()
+
+    await user.click(opener)
+    await user.click(screen.getByRole('button', { name: 'Add to queue' }))
+
+    expect(screen.queryByRole('dialog', { name: 'Opening theme actions' })).not.toBeInTheDocument()
+    expect(opener).toHaveFocus()
+    expect(onAddToQueue).toHaveBeenCalledTimes(2)
   })
 })

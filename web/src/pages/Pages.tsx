@@ -223,7 +223,13 @@ function artistQueueItems(artist: ArtistDetailResponse): Array<PlayerQueueItem |
   const songs = Array.isArray(artist.fullSongs) ? artist.fullSongs : []
   return [
     ...themes.map((theme) => {
-      const anime = theme.anime?.find((entry) => entry.kitsuId)
+      // Keep the first useful AnimeThemes relationship for artwork/title even
+      // when the upstream record has no Kitsu resource. Navigation still uses
+      // the nullable kitsuId below, so a no-Kitsu row remains playable without
+      // inventing an anime route.
+      const anime = theme.anime?.find((entry) => entry.kitsuId) ??
+        theme.anime?.find((entry) => entry.posterUrl || entry.title || entry.titleEn) ??
+        theme.anime?.[0]
       return theme.audioUrl && theme.audioState !== 'FAILED' && theme.audioState !== 'MISSING' ? mapThemeToQueueItem(theme as LibraryThemeDto, { artworkUrl: resolveBrowserAsset(anime?.posterUrl) ?? artworkUrl, animeId: anime?.kitsuId, ...animeTitleQueueOptions(anime) }) : null
     }),
     ...songs.map((song) => song.audioAvailable !== false && song.audioUrl ? mapSongToQueueItem(song as MusicTrackDto, { artworkUrl }) : null),

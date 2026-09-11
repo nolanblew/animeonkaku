@@ -177,6 +177,17 @@ describe('page-to-player wiring', () => {
 
     captures.artistProps.onPlayAll({ artist: { name: '', artworkUrl: null }, themes: null, fullSongs: null }, false)
     expect(captures.player.playItems).toHaveBeenCalledTimes(2)
+
+    const noKitsuTheme = {
+      ...opening,
+      kitsuAnimeIds: [],
+      anime: [{ kitsuId: null, title: 'Rich Girl Caretaker', titleEn: 'The Rich Girl Caretaker', posterUrl: '/rich-girl-caretaker.jpg' }],
+    }
+    captures.artistProps.onPlayAll({ artist: { name: 'Caretaker Artist', artworkUrl: null }, themes: [noKitsuTheme], fullSongs: [] }, false)
+    expect(captures.player.playItems).toHaveBeenLastCalledWith(
+      [expect.objectContaining({ artworkUrl: '/api/rich-girl-caretaker.jpg', animeTitle: 'Rich Girl Caretaker', animeId: undefined })],
+      { contextLabel: 'Caretaker Artist', startIndex: 0, shuffle: false },
+    )
   })
 
   it('connects library play, play-next, append, and empty-queue bootstrapping', () => {

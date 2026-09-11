@@ -22,6 +22,10 @@ export function MiniPlayerView({ className = '', onOpen }: MiniPlayerViewProps) 
   const presentation = current.itemType === 'THEME'
     ? themePresentation({ animeTitle: preferredAnimeTitle({ title: current.animeTitle as string | undefined, titleEn: current.animeTitleEn as string | undefined, titleRomaji: current.animeTitleRomaji as string | undefined, titleJa: current.animeTitleJa as string | undefined }, animeTitlePreference), themeType: current.themeType as string | undefined, songTitle: current.title, artist: current.artist })
     : { primary: current.title, secondary: current.artist ?? current.album ?? 'Anime Ongaku' }
+  const animeTitle = current.itemType === 'THEME'
+    ? preferredAnimeTitle({ title: current.animeTitle as string | undefined, titleEn: current.animeTitleEn as string | undefined, titleRomaji: current.animeTitleRomaji as string | undefined, titleJa: current.animeTitleJa as string | undefined }, animeTitlePreference)?.trim() || undefined
+    : undefined
+  const miniTitle = animeTitle || (current.itemType === 'THEME' && 'typeLabel' in presentation && presentation.typeLabel ? current.title : presentation.primary)
   const changeVolume = (value: number) => {
     const bounded = Math.max(0, Math.min(100, value))
     const contentGain = queueItemLoudnessVolume(current, player.mode)
@@ -34,7 +38,7 @@ export function MiniPlayerView({ className = '', onOpen }: MiniPlayerViewProps) 
       <div className="player-mini-player__identity">
         <button className="player-mini-player__track" type="button" onClick={onOpen} disabled={!onOpen} aria-label={`Open now playing for ${current.title}`}>
           {current.artworkUrl ? <img className="player-shared-artwork" src={current.artworkUrl} alt="" /> : <span className="player-mini-player__artwork player-shared-artwork" aria-hidden="true">AO</span>}
-          <span className="player-mini-player__meta"><strong>{presentation.primary}</strong><small>{presentation.secondary}</small></span>
+          <span className="player-mini-player__meta"><span className="player-mini-player__anime">{'typeLabel' in presentation && presentation.typeLabel && <span className="player-mini-player__type-pill">{presentation.typeLabel}</span>}<strong title={miniTitle}>{miniTitle}</strong></span><small>{presentation.secondary}</small></span>
         </button>
         <CurrentTrackActions />
       </div>

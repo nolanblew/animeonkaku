@@ -182,7 +182,9 @@ describe('PlayerProvider', () => {
     writeAnimeTitlePreference('JAPANESE')
 
     expect(await screen.findByRole('heading', { name: '日本語タイトル · OP' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Open now playing for Opening Theme' })).toHaveTextContent('日本語タイトル · OP')
+    const miniTrack = screen.getByRole('button', { name: 'Open now playing for Opening Theme' })
+    expect(miniTrack.querySelector('.player-mini-player__meta strong')).toHaveTextContent('日本語タイトル')
+    expect(miniTrack.querySelector('.player-mini-player__type-pill')).toHaveTextContent('OP')
   })
 
   it('renders real media elements and preserves occurrence identity for duplicate songs', async () => {

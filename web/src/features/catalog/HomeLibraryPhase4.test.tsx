@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -158,10 +158,36 @@ describe('Phase 4 Home and Library navigation contracts', () => {
     renderWithQuery(<HomeCatalogPage />)
 
     expect(await screen.findByRole('heading', { name: 'Currently Watching' })).toBeInTheDocument()
-    expect(screen.getByText('Frieren: Beyond Journey’s End')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Frieren: Beyond Journey’s End' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Top songs' })).toBeInTheDocument()
-    expect(screen.getAllByText('Bocchi the Rock! · ED', { selector: 'strong' }).length).toBeGreaterThan(0)
-    expect(screen.getByText('Top ending · Kessoku Band')).toBeInTheDocument()
+    const topSongs = screen.getByRole('region', { name: 'Top songs' })
+    expect(within(topSongs).getAllByText('Bocchi the Rock!', { selector: '.home-theme-identity__anime' }).length).toBeGreaterThan(0)
+    expect(within(topSongs).getAllByText('ED', { selector: '.home-theme-identity__type' }).length).toBeGreaterThan(0)
+    expect(within(topSongs).getByText('Top ending · Kessoku Band')).toBeInTheDocument()
+  })
+
+  it('keeps the home theme type visible beside long anime titles', async () => {
+    const longAnimeTitle = 'The Very Long Anime Title That Should Keep Its Theme Identity Visible'
+    const longTitleLibrary = {
+      ...library,
+      animeById: {
+        ...library.animeById,
+        b: { ...library.animeById.b, title: longAnimeTitle, titleEn: longAnimeTitle },
+      },
+    }
+    vi.mocked(useLibraryQuery).mockReturnValue({
+      status: 'success', isPending: false, isError: false, isSuccess: true, error: null, library: longTitleLibrary,
+    } as never)
+    vi.mocked(apiClient.get).mockResolvedValue(homeResponse() as never)
+
+    renderWithQuery(<HomeCatalogPage />)
+
+    const topSongs = await screen.findByRole('region', { name: 'Top songs' })
+    const animeTitle = within(topSongs).getByText(longAnimeTitle, { selector: '.home-theme-identity__anime' })
+    expect(animeTitle.previousElementSibling).toHaveClass('home-theme-identity__type')
+    expect(animeTitle.previousElementSibling).toHaveTextContent('ED')
+    expect(within(topSongs).getByText('Top ending · Kessoku Band')).toBeInTheDocument()
+    expect(animeTitle.parentElement).not.toHaveTextContent(`${longAnimeTitle} · ED`)
   })
 
   it('provides Home-level Play all for the Recommended collection', async () => {

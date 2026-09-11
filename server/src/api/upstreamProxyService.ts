@@ -15,9 +15,16 @@ export interface ProxyCatalogWriter {
   upsertArtistImages?(artists: ProxyArtistImage[]): Promise<void>;
 }
 
+const ARTIST_METADATA_CACHE_TTL_MS = 10 * 60 * 1000;
+const ARTIST_METADATA_CACHE_MAX_ENTRIES = 256;
+type ArtistMetadataCacheEntry = { value: Promise<AnimeThemeEntry[]>; expiresAt: number };
+
 export class UpstreamProxyService implements ProxyUpstream {
+  private readonly animeMetadataCache = new Map<string, ArtistMetadataCacheEntry>();
+
   constructor(
-    private readonly animeThemes: Pick<AnimeThemesClient, "search" | "fetchArtist">,
+    private readonly animeThemes: Pick<AnimeThemesClient, "search" | "fetchArtist"> &
+      Partial<Pick<AnimeThemesClient, "fetchAnimeById" | "fetchAnimeBySlug">>,
     private readonly kitsu: Pick<KitsuClient, "searchAnimeByText">,
     private readonly catalog?: ProxyCatalogWriter,
   ) {}
@@ -34,15 +41,78 @@ export class UpstreamProxyService implements ProxyUpstream {
 
   async artist(slug: string): Promise<unknown> {
     const artist = await this.animeThemes.fetchArtist(slug);
-    await this.catalog?.saveOnlineAnimeCatalog?.(artistThemeEntries(artist));
+    const themes = await this.hydrateArtistThemes(artistThemeEntries(artist));
+    await this.catalog?.saveOnlineAnimeCatalog?.(themes);
     await this.catalog?.upsertArtistImages?.(artistImages(artist));
     // Keep the AnimeThemes payload intact for Android clients, which deserialize
     // artist.songs directly, while adding a stable browser-facing projection.
-    return artistCatalogResponse(artist);
+    return artistCatalogResponse(artist, themes);
+  }
+
+  private async hydrateArtistThemes(themes: AnimeThemeEntry[]): Promise<AnimeThemeEntry[]> {
+    if ((!this.animeThemes.fetchAnimeBySlug && !this.animeThemes.fetchAnimeById) || themes.length === 0) return themes;
+
+    const animeTargets = [...new Map(themes
+      .filter((theme) => !theme.kitsuId || !theme.coverUrl)
+      .map((theme) => [theme.animeId, theme.animeSlug] as const)).entries()];
+    const hydrated = Array<AnimeThemeEntry[]>(animeTargets.length);
+    let nextIndex = 0;
+    const worker = async () => {
+      while (nextIndex < animeTargets.length) {
+        const index = nextIndex++;
+        const [animeId, animeSlug] = animeTargets[index]!;
+        hydrated[index] = await this.fetchArtistAnimeMetadata(animeId, animeSlug);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, animeTargets.length) }, () => worker()));
+    const byThemeId = new Map<number, AnimeThemeEntry>();
+    for (const entries of hydrated) {
+      for (const entry of entries) byThemeId.set(entry.themeId, entry);
+    }
+
+    return themes.map((theme) => {
+      const metadata = byThemeId.get(theme.themeId);
+      if (!metadata) return theme;
+      return {
+        ...theme,
+        animeName: metadata.animeName ?? theme.animeName,
+        animeNameEn: metadata.animeNameEn ?? theme.animeNameEn,
+        animeSlug: metadata.animeSlug ?? theme.animeSlug,
+        animeSynonyms: metadata.animeSynonyms.length > 0 ? metadata.animeSynonyms : theme.animeSynonyms,
+        kitsuId: metadata.kitsuId ?? theme.kitsuId,
+        coverUrl: metadata.coverUrl ?? theme.coverUrl,
+      };
+    });
+  }
+
+  private fetchArtistAnimeMetadata(animeId: number, animeSlug: string | null): Promise<AnimeThemeEntry[]> {
+    const cacheKey = animeSlug ? `slug:${animeSlug}` : `id:${animeId}`;
+    const cached = this.animeMetadataCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    if (cached) this.animeMetadataCache.delete(cacheKey);
+    const pending = (animeSlug && this.animeThemes.fetchAnimeBySlug
+      ? this.animeThemes.fetchAnimeBySlug(animeSlug)
+      : this.animeThemes.fetchAnimeById?.(animeId) ?? Promise.resolve([])).catch(() => {
+      // Artist discovery must still work when one metadata refresh is unavailable.
+      return [];
+    });
+    // A failed lookup must be retried on the next artist request.
+    this.animeMetadataCache.set(cacheKey, { value: pending, expiresAt: Date.now() + ARTIST_METADATA_CACHE_TTL_MS });
+    while (this.animeMetadataCache.size > ARTIST_METADATA_CACHE_MAX_ENTRIES) {
+      const oldest = this.animeMetadataCache.keys().next().value;
+      if (typeof oldest !== "string") break;
+      this.animeMetadataCache.delete(oldest);
+    }
+    void pending.then((entries) => {
+      if (entries.length > 0) return;
+      const current = this.animeMetadataCache.get(cacheKey);
+      if (current?.value === pending) this.animeMetadataCache.delete(cacheKey);
+    });
+    return pending;
   }
 }
 
-function artistCatalogResponse(payload: unknown): unknown {
+function artistCatalogResponse(payload: unknown, themes = artistThemeEntries(payload)): unknown {
   const response = asRecord(payload);
   if (!response) return payload;
 
@@ -51,20 +121,19 @@ function artistCatalogResponse(payload: unknown): unknown {
   return {
     ...response,
     artist: profile ? { ...profile, artworkUrl } : response.artist,
-    themes: artistThemeEntries(payload).map(artistThemeDto),
-    fullSongs: artistFullSongs(payload),
+    themes: themes.map(artistThemeDto),
+    fullSongs: artistFullSongs(payload, themes),
   };
 }
 
 function artistThemeDto(entry: AnimeThemeEntry) {
-  const anime = entry.kitsuId
-    ? [{
-      kitsuId: entry.kitsuId,
-      title: entry.animeName,
-      titleEn: entry.animeNameEn,
-      posterUrl: entry.coverUrl,
-    }]
-    : [];
+  const anime = [{
+    kitsuId: entry.kitsuId,
+    animeThemesAnimeId: entry.animeId,
+    title: entry.animeName,
+    titleEn: entry.animeNameEn,
+    posterUrl: entry.coverUrl,
+  }];
   const audioUrl = `/v1/media/audio/${entry.themeId}`;
   return {
     id: entry.themeId,
@@ -90,8 +159,9 @@ function artistThemeDto(entry: AnimeThemeEntry) {
   };
 }
 
-function artistFullSongs(payload: unknown) {
+function artistFullSongs(payload: unknown, themes: AnimeThemeEntry[] = artistThemeEntries(payload)) {
   const profile = asRecord(asRecord(payload)?.artist);
+  const themesById = new Map(themes.map((theme) => [theme.themeId, theme]));
   return asRecordArray(profile?.songs).flatMap((song) => {
     const title = stringValue(song.title);
     const themeRecords = asRecordArray(song.animethemes);
@@ -103,7 +173,7 @@ function artistFullSongs(payload: unknown) {
     const artists = asRecordArray(song.artists)
       .map((artist) => stringValue(artist.name))
       .filter((name): name is string => name !== null);
-    const anime = uniqueArtistAnime(themeRecords);
+    const anime = uniqueArtistAnime(themeRecords, themesById);
     return [{
       id: songId,
       title,
@@ -127,18 +197,22 @@ function artistFullSongs(payload: unknown) {
   });
 }
 
-function uniqueArtistAnime(themes: Record<string, unknown>[]) {
+function uniqueArtistAnime(themes: Record<string, unknown>[], themesById: ReadonlyMap<number, AnimeThemeEntry>) {
   const seen = new Set<string>();
   return themes.flatMap((theme) => {
     const anime = asRecord(theme.anime);
-    const kitsuId = externalKitsuId(anime);
-    if (!anime || !kitsuId || seen.has(kitsuId)) return [];
-    seen.add(kitsuId);
+    const catalogTheme = numericId(theme.id) === null ? undefined : themesById.get(numericId(theme.id)!);
+    const kitsuId = catalogTheme?.kitsuId ?? externalKitsuId(anime);
+    const animeThemesAnimeId = catalogTheme?.animeId ?? numericId(anime?.id);
+    const key = kitsuId ? `kitsu:${kitsuId}` : animeThemesAnimeId === null ? null : `animethemes:${animeThemesAnimeId}`;
+    if (!key || seen.has(key)) return [];
+    seen.add(key);
     return [{
       kitsuId,
-      title: stringValue(anime.name),
-      titleEn: null,
-      posterUrl: coverUrlForAnime(anime),
+      animeThemesAnimeId,
+      title: catalogTheme?.animeName ?? stringValue(anime?.name),
+      titleEn: catalogTheme?.animeNameEn ?? null,
+      posterUrl: catalogTheme?.coverUrl ?? (anime ? coverUrlForAnime(anime) : null),
     }];
   });
 }
