@@ -12,4 +12,19 @@ Kitsu library sync now includes Current, Completed, Planned, On hold, and Droppe
 
 The server migration adds `watched_at` and resets the Kitsu status-sync cursor so the next successful sync reads historical dates and all statuses. The Android Room migration adds a nullable `watchedAt` column without inventing dates. Recently liked planned shows can still match an explicit Liked branch of an OR filter.
 
+When a playlist should include currently watching titles, recently completed titles, and liked themes while excluding disliked themes, keep the status rule explicit in the filter tree:
+
+```text
+AND(
+  OR(
+    WatchingStatusIn(current),
+    AND(WatchingStatusIn(completed), WatchedOn(GT, relative MONTHS 6)),
+    Liked
+  ),
+  NOT(Disliked)
+)
+```
+
+This keeps recent `on_hold`, `dropped`, and `planned` entries out of that playlist even when Kitsu retains an older `startedAt` value, while preserving liked themes as an independent exception. It also keeps the generic watched-date contract intact for playlists that intentionally include any recently started or finished title.
+
 Kitsu source: https://github.com/hummingbird-me/kitsu-server/blob/master/app/models/library_entry.rb
