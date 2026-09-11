@@ -61,6 +61,7 @@ export function ThemeActionSheet({
   const ids = selectedThemeIds.length > 0 ? selectedThemeIds : [themeId]
   const firstActionRef = useRef<HTMLButtonElement>(null)
   const dialogRef = useAccessibleFocusScope<HTMLElement>({ onEscape: onClose, initialFocusRef: firstActionRef })
+  const runAndClose = (action?: () => void) => { onClose(); action?.() }
 
   useEffect(() => {
     if (!playlistOpen) return undefined
@@ -103,7 +104,7 @@ export function ThemeActionSheet({
       <div className="library-actions__scrim" onClick={onClose}>
       <section ref={dialogRef} className="library-actions" role="dialog" aria-modal="true" aria-label={`${title} actions`} onClick={(event) => event.stopPropagation()}>
         <header className="library-actions__header"><div className="library-actions__art" aria-hidden="true"><Music2 size={22} /></div><div><h2 id="theme-actions-title">{title}</h2><p>{subtitle}</p></div><button className="library-actions__close" type="button" aria-label="Close actions" onClick={onClose}><X size={20} /></button></header>
-        <div className="library-actions__primary"><ActionButton buttonRef={firstActionRef} icon={<Play size={18} fill="currentColor" />} label="Play now" onClick={onPlay} /><ActionButton icon={<Play size={18} />} label="Play next" onClick={onPlayNext} /><ActionButton icon={<ListMusic size={18} />} label="Add to queue" onClick={onAddToQueue} /><ActionButton icon={<Plus size={18} />} label="Save to playlist" onClick={() => setPlaylistOpen(true)} /></div>
+        <div className="library-actions__primary"><ActionButton buttonRef={firstActionRef} icon={<Play size={18} fill="currentColor" />} label="Play now" onClick={onPlay ? () => runAndClose(onPlay) : undefined} /><ActionButton icon={<Play size={18} />} label="Play next" onClick={onPlayNext ? () => runAndClose(onPlayNext) : undefined} /><ActionButton icon={<ListMusic size={18} />} label="Add to queue" onClick={onAddToQueue ? () => runAndClose(onAddToQueue) : undefined} /><ActionButton icon={<Plus size={18} />} label="Save to playlist" onClick={() => setPlaylistOpen(true)} /></div>
         <div className="library-actions__list">
           <ActionRow icon={<ThumbsUp size={18} />} label={liked ? 'Remove like' : 'Like'} busy={actions.pendingAction === 'preference'} onClick={() => { void actions.updateThemePreference(themeId, { liked: !liked }).catch(() => undefined) }} />
           <ActionRow icon={<ThumbsDown size={18} />} label={disliked ? 'Remove dislike' : 'Dislike'} busy={actions.pendingAction === 'preference'} onClick={() => { void actions.updateThemePreference(themeId, { disliked: !disliked }).catch(() => undefined) }} />

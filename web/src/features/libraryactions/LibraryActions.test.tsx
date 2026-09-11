@@ -242,6 +242,21 @@ describe('TrackActionMenu', () => {
 })
 
 describe('ThemeActionSheet', () => {
+  it.each([
+    ['Play now', 'onPlay'],
+    ['Play next', 'onPlayNext'],
+    ['Add to queue', 'onAddToQueue'],
+  ] as const)('closes immediately after %s', async (label, callbackProp) => {
+    const callback = vi.fn()
+    const onClose = vi.fn()
+    renderWithQuery(<ThemeActionSheet themeId={41} title="Opening theme" subtitle="Anime · OP1" {...{ [callbackProp]: callback }} onClose={onClose} />)
+
+    await userEvent.click(screen.getByRole('button', { name: label }))
+
+    expect(callback).toHaveBeenCalledOnce()
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
   it('exposes mobile-equivalent play, preference, library, and queue actions accessibly', async () => {
     const onPlay = vi.fn()
     const onPlayNext = vi.fn()

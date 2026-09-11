@@ -216,10 +216,13 @@ describe('catalog pages', () => {
     await userEvent.click(screen.getByRole('button', { name: 'More actions for Song 10' }))
     expect(screen.getByRole('dialog', { name: 'Frieren: Beyond Journey’s End · OP actions' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Play next' }))
+    expect(screen.queryByRole('dialog', { name: 'Frieren: Beyond Journey’s End · OP actions' })).not.toBeInTheDocument()
+    expect(onPlayNext).toHaveBeenCalledOnce()
+
+    await userEvent.click(screen.getByRole('button', { name: 'More actions for Song 10' }))
     await userEvent.click(screen.getByRole('button', { name: 'Add to queue' }))
-    expect(onPlayNext).toHaveBeenCalled()
-    expect(onAddToQueue).toHaveBeenCalled()
-    await userEvent.click(screen.getByRole('button', { name: 'Close actions' }))
+    expect(screen.queryByRole('dialog', { name: 'Frieren: Beyond Journey’s End · OP actions' })).not.toBeInTheDocument()
+    expect(onAddToQueue).toHaveBeenCalledOnce()
 
     await userEvent.click(screen.getByRole('tab', { name: 'Playlists' }))
     expect(screen.getByRole('link', { name: /Night drive/ })).toHaveAttribute('href', '/playlist/7')
