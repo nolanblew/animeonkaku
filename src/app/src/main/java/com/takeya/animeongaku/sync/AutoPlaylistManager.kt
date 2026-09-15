@@ -79,7 +79,6 @@ class AutoPlaylistManager @Inject constructor(
 
         val existing = playlistDao.findAutoPlaylistByName(CURRENTLY_WATCHING_NAME)
         val playlistId = if (existing != null) {
-            playlistDao.deletePlaylistEntries(existing.id)
             existing.id
         } else {
             playlistDao.insertPlaylist(
@@ -99,7 +98,7 @@ class AutoPlaylistManager @Inject constructor(
                 orderIndex = index
             )
         }
-        playlistDao.insertEntries(entries)
+        playlistDao.replacePlaylistEntries(playlistId, entries)
         Log.d(TAG, "Updated '$CURRENTLY_WATCHING_NAME' with ${entries.size} tracks from ${watchingAnimeThemesIds.size} anime")
     }
 
@@ -123,7 +122,6 @@ class AutoPlaylistManager @Inject constructor(
         // Find or create the auto-playlist
         val existing = playlistDao.findAutoPlaylistByName(LIKED_SONGS_NAME)
         val playlistId = if (existing != null) {
-            playlistDao.deletePlaylistEntries(existing.id)
             existing.id
         } else {
             playlistDao.insertPlaylist(
@@ -144,7 +142,7 @@ class AutoPlaylistManager @Inject constructor(
                 orderIndex = index
             )
         }
-        playlistDao.insertEntries(entries)
+        playlistDao.replacePlaylistEntries(playlistId, entries)
         Log.d(TAG, "Updated '$LIKED_SONGS_NAME' with ${entries.size} tracks")
     }
 }

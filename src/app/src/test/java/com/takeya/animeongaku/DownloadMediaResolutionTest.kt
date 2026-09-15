@@ -160,6 +160,22 @@ class DownloadMediaResolutionTest {
     }
 
     @Test
+    fun `playlist resolver uses ThemeEntity audio fallback when descriptor is absent`() {
+        val entry = PlaylistEntryEntity(7, 10, 0, 100, "THEME", 10, null)
+
+        assertEquals(
+            listOf(DownloadMediaSpec.themeTv(10, "/legacy/tv/10")),
+            resolvePlaylistDownloadMedia(
+                entries = listOf(entry),
+                playlistDefaultMode = "TV_SIZE",
+                themeModes = emptyMap(),
+                songUrls = emptyMap(),
+                themeTvUrls = mapOf(10L to "/legacy/tv/10")
+            )
+        )
+    }
+
+    @Test
     fun `theme preference outranks playlist policy for downloads`() {
         val entry = PlaylistEntryEntity(7, 10, 0, 100, "THEME", 10, null)
         val mode = ThemeModeEntity(10, "/tv/10", fullSizeSongId = 90, fullSizeUrl = "/songs/90")

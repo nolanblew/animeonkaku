@@ -173,6 +173,55 @@ adb -s emulator-5560 shell am instrument -w com.takeya.animeongaku.debug.test/an
 Server tests used `vitest run --maxWorkers=2` with `MIGRATION_TEST_DATABASE_URL` pointing
 at a fresh local PostgreSQL container. That disposable container was stopped after testing.
 
+## Physical-device follow-up (September 15, 2026)
+
+Testing on an authorized Pixel 7 Pro exposed a download regression that the earlier
+emulator checks missed. Downloading the existing 135-entry smart playlist initially
+resolved only a small subset, then its download group became empty after the worker
+reported success.
+
+The completion path updated `ThemeEntity` through SQLite `REPLACE`. That deletes the
+parent row before inserting it, so `theme_modes` was removed by its cascading foreign
+key. Subsequent reconciliation could remove the downloaded media. Theme writes now
+use Room `Upsert`, and playlist TV downloads also use the theme's canonical audio URL
+when a separate mode descriptor has not been hydrated. Auto-playlist entry replacement
+is transactional so observers cannot act on its temporary empty state.
+
+A JVM regression covers missing-descriptor TV downloads. An in-memory Room device
+regression checks that a download-state update preserves Full Size metadata and user
+preferences. These fixtures do not modify the signed-in account.
+
+Verification after the correction:
+
+- **696 Android unit tests passed**; debug app/test APK builds and lint passed.
+- **6 physical-device instrumented tests passed**: three isolated Room download tests,
+  two real ExoPlayer continuity tests, and the isolated MediaSession reaction test.
+- All **135 playlist downloads completed** (361,896,727 bytes). Every recorded file
+  existed, and all 135 memberships/files remained after offline use and app restarts.
+- The first downloaded song after Play exposed TV/Full/Video online. Full Size advanced
+  to 11 seconds; Video rendered and advanced. A shuffled first song also exposed all
+  three choices without advancing to a second song.
+- Offline Play and a cold-start offline Shuffle both played downloaded TV audio. The
+  mode picker restricted itself to TV. Reconnection restored Full/Video while retaining
+  TV: playing position advanced from 9,393 to 24,449 ms; a separate paused reconnect
+  retained exactly 10,722 ms.
+- Shuffle/repeat changes retained the same paused song at exactly 9,552 ms. Earlier
+  playing-state checks also advanced without a reset.
+- No app crash appeared in the device crash log. The original 141-entry queue/current
+  index and playback preferences were restored, with playback paused. Wi-Fi and mobile
+  data settings were restored; the 135 requested downloads were retained.
+
+Before the user's live-account restriction, brief Like/Unlike and Dislike checks were
+performed; the temporary reactions were restored to neutral. Subsequent testing avoids
+reaction, song-preference, and request/report writes. The expanded Pixel media player
+visibly displayed Like and Dislike buttons. Actual Wear OS/Bluetooth reaction rendering
+and lock-screen interaction remain unverified.
+
+The Pixel reported `NOT_READY` for both SIM slots and no default network with Wi-Fi
+disabled. Wi-Fi/offline testing cannot establish real cellular behavior on this device.
+No USB reverse tunnel was used. New request/report submissions remain untested against
+production because the new server endpoint has not been deployed.
+
 ## Sources
 
 1. Android Developers, [Read network state](https://developer.android.com/develop/connectivity/network-ops/reading-network-state), accessed September 14, 2026.

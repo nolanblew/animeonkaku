@@ -1,9 +1,8 @@
 package com.takeya.animeongaku.data.local
 
 import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -44,7 +43,7 @@ interface ThemeDao {
     @Query("SELECT * FROM themes WHERE id IN (:themeIds)")
     fun observeByIds(themeIds: List<Long>): Flow<List<ThemeEntity>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsertAll(themes: List<ThemeEntity>)
 
     @Query("SELECT id FROM themes WHERE animeId IN (:animeIds)")

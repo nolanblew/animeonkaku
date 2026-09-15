@@ -6,6 +6,7 @@ import androidx.room.Embedded
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -88,6 +89,12 @@ interface PlaylistDao {
 
     @Query("DELETE FROM playlist_entries WHERE playlistId = :playlistId")
     suspend fun deletePlaylistEntries(playlistId: Long)
+
+    @Transaction
+    suspend fun replacePlaylistEntries(playlistId: Long, entries: List<PlaylistEntryEntity>) {
+        deletePlaylistEntries(playlistId)
+        if (entries.isNotEmpty()) insertEntries(entries)
+    }
 
     @Query("UPDATE playlists SET name = :newName WHERE id = :playlistId")
     suspend fun renamePlaylist(playlistId: Long, newName: String)
