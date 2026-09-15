@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate.js";
 import { PgMusicRequestRepository } from "../src/music/requests/repository.js";
 import { AMF_PROVIDER_JOB_FILE_INDEX_STRIDE } from "../src/music/requests/providerGraph.js";
+import { MusicRequestConflictError } from "../src/music/requests/types.js";
 import type { NewMusicRequest, ProviderEvidenceScope, StoredProviderJobLink } from "../src/music/requests/types.js";
 import type { AmfJob } from "../src/music/animeMusicFetcher/schemas.js";
 
@@ -63,6 +64,27 @@ describe.skipIf(!adminDatabaseUrl)("anime music requests (PostgreSQL)", () => {
       expect(fresh).toMatchObject({ created: true, request: { id: "admin-reimport" } });
       expect((await pool.query("SELECT state FROM anime_music_request_batches WHERE id='old-batch'")).rows[0]?.state).toBe("CANCELLED");
       expect((await pool.query("SELECT completed_at FROM anime_music_requests WHERE id='old-request'")).rows[0]?.completed_at).not.toBeNull();
+    });
+  });
+
+  it("replays only an exact active targeted request and conflicts with another theme or selection mode", async () => {
+    await withDatabase(async (pool) => {
+      await seedAnime(pool);
+      await pool.query(`INSERT INTO themes (id,animethemes_anime_id,title,theme_type,audio_origin_url) VALUES
+        (11,42,'Opening','OP1','https://example.invalid/op'),
+        (12,42,'Ending','ED1','https://example.invalid/ed')`);
+      const repo = new PgMusicRequestRepository(pool);
+      const first = targetedRequest("targeted-first", "targeted-first-batch", "targeted-first-item", 11, "automatic");
+      const created = await repo.createOrReplay(first);
+      expect(created).toMatchObject({ created: true, request: { id: first.id } });
+
+      const replayed = await repo.createOrReplay(targetedRequest("targeted-replay", "targeted-replay-batch", "targeted-replay-item", 11, "automatic"));
+      expect(replayed).toMatchObject({ created: false, request: { id: first.id } });
+
+      await expect(repo.createOrReplay(targetedRequest("targeted-other", "targeted-other-batch", "targeted-other-item", 12, "automatic")))
+        .rejects.toBeInstanceOf(MusicRequestConflictError);
+      await expect(repo.createOrReplay(targetedRequest("targeted-review", "targeted-review-batch", "targeted-review-item", 11, "review")))
+        .rejects.toBeInstanceOf(MusicRequestConflictError);
     });
   });
 
@@ -402,6 +424,17 @@ function scopedRequest(id: string, batchId: string, itemId: string, scope: "FULL
     body: { titles: { romaji: "Show" }, items: [{ kind, ...(numbered ? { number: 1, version: "FULL" as const, release_preference: "INDIVIDUAL" as const } : {}) }], destination: `anime-ongaku-staging/request-${id}/batch-0` },
     items: [{ id: itemId, itemIndex: 0, kind, number: numbered ? 1 : null, themeId: null }],
   }] };
+}
+
+function targetedRequest(id: string, batchId: string, itemId: string, themeId: number, selectionMode: "automatic" | "review"): NewMusicRequest {
+  const request = scopedRequest(id, batchId, itemId, "FULL_SONGS", "OP");
+  return {
+    ...request, targetThemeId: themeId, targetSelectionMode: selectionMode,
+    batches: request.batches.map((batch) => ({
+      ...batch, body: { ...batch.body, selection_mode: selectionMode },
+      items: batch.items.map((item) => ({ ...item, themeId })),
+    })),
+  };
 }
 
 async function withDatabase(run: (pool: Pool) => Promise<void>): Promise<void> {

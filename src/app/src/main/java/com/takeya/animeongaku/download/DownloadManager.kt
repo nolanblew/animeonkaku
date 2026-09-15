@@ -214,6 +214,16 @@ class DownloadManager @Inject constructor(
         }
     }
 
+    /** Keep a reported file in its own removable group when a later catalog update replaces it. */
+    suspend fun retainReportedFullSizeDownload(songId: Long, title: String) {
+        val key = com.takeya.animeongaku.media.MediaKey.songAudio(songId).value
+        groupMutationMutex.withLock {
+            downloadItemDao.get(key) ?: return@withLock
+            val group = ensureGroup(DownloadGroupEntity.TYPE_SINGLE, "reported-song:$songId", "Reported: $title")
+            downloadItemDao.insertGroupItems(listOf(DownloadGroupItemEntity(group.id, key)))
+        }
+    }
+
     fun downloadAlbum(release: MusicReleaseEntity, songs: List<SongEntity>) {
         scope.launch {
             val group = ensureGroup(DownloadGroupEntity.TYPE_ALBUM, release.id.toString(), release.title)
@@ -380,6 +390,7 @@ class DownloadManager @Inject constructor(
             }
         }
         val themeIds = entries.filter { it.itemType == "THEME" }.map { it.itemId }.distinct()
+        val themes = themeDao.getByIds(themeIds).associateBy(ThemeEntity::id)
         val modes = themeModeDao.getByThemeIds(themeIds).associateBy { it.themeId }
         val songIds = buildSet {
             addAll(entries.filter { it.itemType == "SONG" }.map { it.itemId })
@@ -393,7 +404,8 @@ class DownloadManager @Inject constructor(
             themeModes = modes,
             songUrls = songs.mapValues { it.value.audioUrl },
             songLoudness = songs.mapValues { it.value.loudness },
-            themePreferences = activePreferences(themeIds)
+            themePreferences = activePreferences(themeIds),
+            themeTvUrls = themes.mapValues { it.value.audioUrl }
         )
         val group = ensureGroup(DownloadGroupEntity.TYPE_PLAYLIST, playlistId.toString(), playlist.name)
         replaceAndPrepare(group, specs)

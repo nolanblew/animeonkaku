@@ -107,7 +107,8 @@ internal fun resolvePlaylistDownloadMedia(
     songUrls: Map<Long, String>,
     songLoudness: Map<Long, LoudnessProfile?> = emptyMap(),
     themePreferences: Map<Long, UserPreferenceEntity> = emptyMap(),
-    overrideUserPreference: Boolean = false
+    overrideUserPreference: Boolean = false,
+    themeTvUrls: Map<Long, String> = emptyMap()
 ): List<DownloadMediaSpec> = entries.mapNotNull { entry ->
     when (entry.itemType) {
         PlaylistEntryEntity.ITEM_TYPE_SONG -> songUrls[entry.itemId]
@@ -119,7 +120,7 @@ internal fun resolvePlaylistDownloadMedia(
             val descriptor = themeModes[entry.itemId]
             resolveThemeDownloadMedia(
                 themeId = entry.itemId,
-                fallbackTvUrl = descriptor?.tvSizeUrl.orEmpty(),
+                fallbackTvUrl = themeTvUrls[entry.itemId].orEmpty(),
                 descriptor = descriptor,
                 canonicalSongUrl = descriptor?.fullSizeSongId?.let(songUrls::get),
                 canonicalSongLoudness = descriptor?.fullSizeSongId?.let(songLoudness::get),

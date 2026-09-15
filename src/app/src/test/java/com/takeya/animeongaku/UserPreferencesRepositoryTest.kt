@@ -53,6 +53,32 @@ import retrofit2.Response
 
 class UserPreferencesRepositoryTest {
     @Test
+    fun `system reactions are idempotent desired states and retain playback preference`() = runBlocking {
+        val dao = FakeUserPreferenceDao().apply {
+            insertOrUpdate(UserPreferenceEntity(themeId = 100L, preferredMode = "FULL_SIZE", isDislikedTvSize = true))
+        }
+        val api = RecordingOngakuApi()
+        val store = PreferenceSyncStore()
+        val settings = ServerSettingsStore(FakeSharedPreferences())
+        val repository = UserPreferencesRepository(dao, syncEngine(store, api, settings), RecordingServerUserStateRefresher())
+        repository.setThemeReaction(100L, liked = true, disliked = false)
+        repository.setThemeReaction(100L, liked = true, disliked = false)
+        assertEquals(2, dao.saved.size) // Seed plus one desired-state write.
+        assertTrue(dao.getPreference(100L)!!.isLiked)
+        assertFalse(dao.getPreference(100L)!!.isDislikedTvSize)
+        repository.setThemeReaction(100L, liked = false, disliked = true)
+        repository.setThemeReaction(100L, liked = false, disliked = true)
+        assertEquals(3, dao.saved.size)
+        assertTrue(dao.getPreference(100L)!!.isDisliked)
+        repository.setThemeReaction(100L, liked = false, disliked = false)
+        repository.setThemeReaction(100L, liked = false, disliked = false)
+        assertEquals(4, dao.saved.size)
+        assertFalse(dao.getPreference(100L)!!.isLiked)
+        assertFalse(dao.getPreference(100L)!!.isDisliked)
+        assertEquals("FULL_SIZE", dao.getPreference(100L)!!.preferredMode)
+    }
+
+    @Test
     fun `set preferred mode persists and syncs without changing reactions`() = runBlocking {
         val dao = FakeUserPreferenceDao().apply {
             insertOrUpdate(UserPreferenceEntity(themeId = 100L, isLiked = true, isDislikedFullSize = true))

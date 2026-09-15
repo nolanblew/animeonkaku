@@ -97,6 +97,8 @@ import com.takeya.animeongaku.media.NowPlayingState
 import com.takeya.animeongaku.media.PlaybackState
 import com.takeya.animeongaku.ui.common.ActionSheet
 import com.takeya.animeongaku.ui.common.ActionSheetConfig
+import com.takeya.animeongaku.ui.common.ActionSheetAction
+import com.takeya.animeongaku.data.repository.ThemeMusicRequestReason
 import com.takeya.animeongaku.ui.common.preferredModeForThemeAction
 import com.takeya.animeongaku.ui.common.themeModePreferenceAction
 import com.takeya.animeongaku.ui.common.MarqueeText
@@ -142,6 +144,8 @@ fun PlayerScreen(
     var showUpNext by remember { mutableStateOf(false) }
     var scopedDislikeThemeId by remember { mutableStateOf<Long?>(null) }
     var showPlayerSheet by remember { mutableStateOf(false) }
+    var showMusicRequestStatus by remember { mutableStateOf(false) }
+    val themeMusicRequestState by viewModel.themeMusicRequests.state.collectAsStateWithLifecycle()
     var pendingModeConfirmation by remember {
         mutableStateOf<Pair<Long, ModeSelectionDecision.Confirm>?>(null)
     }
@@ -156,6 +160,26 @@ fun PlayerScreen(
     val offlinePlayableMediaKeys by viewModel.offlinePlayableMediaKeys.collectAsStateWithLifecycle()
     val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
     val queuedThemeModesById by viewModel.queuedThemeModesById.collectAsStateWithLifecycle()
+
+    if (showMusicRequestStatus) {
+        themeMusicRequestState?.let { requestState ->
+            AlertDialog(
+                onDismissRequest = { showMusicRequestStatus = false },
+                title = { Text(requestState.target.title) },
+                text = { Text(requestState.message) },
+                confirmButton = {
+                    TextButton(onClick = { showMusicRequestStatus = false }) { Text("Close") }
+                },
+                dismissButton = {
+                    if (!requestState.busy && (requestState.error != null || requestState.result?.request?.active == true)) {
+                        TextButton(onClick = { viewModel.themeMusicRequests.retry() }) {
+                            Text(if (requestState.error != null) "Try again" else "Check status")
+                        }
+                    }
+                }
+            )
+        }
+    }
 
     pendingBrowseVideo?.let { (queueId, request) ->
         BrowseVideoWarningDialog(request, { pendingBrowseVideo = null }) {
@@ -217,12 +241,25 @@ fun PlayerScreen(
                     ),
                     artistName = item.display.artist?.split(",")?.firstOrNull()?.trim(),
                     animeName = animeEntity?.title,
-                    customActions = if (theme == null) emptyList() else listOfNotNull(
+                    customActions = (if (theme == null) emptyList() else listOfNotNull(
                         themeModePreferenceAction(
                             queuedThemeModesById[theme.id]?.fullSizeUrl?.isNotBlank(),
                             currentPreference?.preferredMode
                         )
-                    )
+                    )) + if (theme != null && animeEntity != null) buildList {
+                        val fullDescriptor = queuedThemeModesById[theme.id]
+                            ?: (item as? PlayableItem.Theme)?.modeDescriptor
+                        val fullAvailable = !fullDescriptor?.fullSizeUrl.isNullOrBlank()
+                        add(ActionSheetAction(
+                            if (fullAvailable) "report_full_size" else "request_full_size",
+                            if (fullAvailable) "Report incorrect full-size song" else "Request Full Size",
+                            if (fullAvailable) "Request manual review; keep existing downloads" else "Ask the fetcher for this song",
+                            enabled = themeMusicRequestState?.busy != true
+                        ))
+                        if (themeMusicRequestState?.target?.themeId == theme.id) {
+                            add(ActionSheetAction("music_request_status", "Full-size request status"))
+                        }
+                    } else emptyList()
                 ),
                 onDismiss = { showPlayerSheet = false },
                 onPlayVideo = {
@@ -240,6 +277,19 @@ fun PlayerScreen(
                 onCustomAction = { key ->
                     val mode = preferredModeForThemeAction(key)
                     if (theme != null && mode != null) viewModel.setPreferredMode(theme.id, mode)
+                    if (key == "music_request_status") showMusicRequestStatus = true
+                    if (theme != null && animeEntity != null && key in setOf("request_full_size", "report_full_size")) {
+                        viewModel.themeMusicRequests.submit(
+                            ThemeMusicRequestTarget(
+                                animeEntity.kitsuId, theme.id, item.display.title,
+                                queuedThemeModesById[theme.id]?.fullSizeSongId
+                                    ?: (item as? PlayableItem.Theme)?.modeDescriptor?.fullSizeSongId
+                            ),
+                            if (key == "report_full_size") ThemeMusicRequestReason.INCORRECT_FULL_SIZE
+                            else ThemeMusicRequestReason.REQUEST_FULL_SIZE
+                        )
+                        showMusicRequestStatus = true
+                    }
                 }
             )
         }

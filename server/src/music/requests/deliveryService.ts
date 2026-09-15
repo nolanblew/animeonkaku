@@ -411,7 +411,15 @@ export class PgAmfDeliveryRepository implements AmfDeliveryRepository {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const result = await client.query<any>(`SELECT d.*,i.id item_id,i.kind,i.theme_id,i.batch_id,i.acquisition_id,r.animethemes_anime_id
+      const identity = await client.query<{ animethemes_anime_id: string | number }>(`SELECT r.animethemes_anime_id
+        FROM anime_music_request_deliveries d JOIN anime_music_request_items i ON i.id=d.item_id
+        JOIN anime_music_request_batches b ON b.id=i.batch_id JOIN anime_music_requests r ON r.id=b.request_id
+        WHERE d.id=$1`, [deliveryId]);
+      if (!identity.rows[0]) throw new Error("AMF delivery does not exist");
+      // Use the same per-anime transaction lock as request creation so the
+      // newer-request check below cannot race a just-committed correction.
+      await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`anime-music-request:${identity.rows[0].animethemes_anime_id}`]);
+      const result = await client.query<any>(`SELECT d.*,i.id item_id,i.kind,i.theme_id,i.batch_id,i.acquisition_id,r.id request_id,r.animethemes_anime_id
         FROM anime_music_request_deliveries d JOIN anime_music_request_items i ON i.id=d.item_id
         JOIN anime_music_request_batches b ON b.id=i.batch_id JOIN anime_music_requests r ON r.id=b.request_id
         WHERE d.id=$1 FOR UPDATE`, [deliveryId]);
@@ -421,10 +429,22 @@ export class PgAmfDeliveryRepository implements AmfDeliveryRepository {
       if (!media.rows[0]) throw new Error("AMF delivery media is not READY");
       await client.query("UPDATE anime_music_request_deliveries SET import_state='READY',import_error=NULL,updated_at=now() WHERE id=$1", [deliveryId]);
       if ((row.kind === "OP" || row.kind === "ED") && row.theme_id !== null) {
-        await client.query(`INSERT INTO theme_full_songs (theme_id,song_id,source_release_id,confidence,evidence)
-          VALUES ($1,$2,$3,1,$4::jsonb) ON CONFLICT (theme_id) DO UPDATE SET song_id=EXCLUDED.song_id,source_release_id=EXCLUDED.source_release_id,
-          confidence=EXCLUDED.confidence,evidence=EXCLUDED.evidence,updated_at=now()`,
-          [row.theme_id, row.song_id, row.release_id, JSON.stringify({ source: "AMF", deliveryId })]);
+        // A provider job can outlive the request that superseded it. Once a
+        // newer request for this exact theme exists, a late delivery from the
+        // older request must never replace the newer generation's mapping.
+        const newerRequest = await client.query(`SELECT 1
+          FROM anime_music_requests newer
+          JOIN anime_music_request_batches newer_batch ON newer_batch.request_id=newer.id
+          JOIN anime_music_request_items newer_item ON newer_item.batch_id=newer_batch.id
+          WHERE newer.animethemes_anime_id=$1 AND newer_item.theme_id=$2
+            AND (newer.created_at,newer.id) > (SELECT older.created_at,older.id FROM anime_music_requests older WHERE older.id=$3)
+          LIMIT 1`, [row.animethemes_anime_id, row.theme_id, row.request_id]);
+        if (!newerRequest.rows[0]) {
+          await client.query(`INSERT INTO theme_full_songs (theme_id,song_id,source_release_id,confidence,evidence)
+            VALUES ($1,$2,$3,1,$4::jsonb) ON CONFLICT (theme_id) DO UPDATE SET song_id=EXCLUDED.song_id,source_release_id=EXCLUDED.source_release_id,
+            confidence=EXCLUDED.confidence,evidence=EXCLUDED.evidence,updated_at=now()`,
+            [row.theme_id, row.song_id, row.release_id, JSON.stringify({ source: "AMF", deliveryId })]);
+        }
       } else {
         await client.query(`INSERT INTO anime_music_releases (animethemes_anime_id,release_id,relationship_type,confidence,evidence)
           VALUES ($1,$2,$3,1,$4::jsonb) ON CONFLICT (animethemes_anime_id,release_id) DO UPDATE SET

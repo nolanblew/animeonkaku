@@ -126,6 +126,9 @@ class MusicRequestModelsTest {
 private class FakeMusicRequestApi : MusicRequestApi {
     val calls = mutableListOf<String>()
 
+    override suspend fun requestTheme(kitsuId: String, themeId: Long, body: com.takeya.animeongaku.data.remote.ThemeMusicRequestBody) =
+        com.takeya.animeongaku.data.remote.OngakuThemeMusicRequestEnvelope(envelope("theme-1", "FULL_SONGS").request, themeId = themeId)
+
     override suspend fun create(kitsuId: String): OngakuMusicRequestEnvelope = createFullSongs(kitsuId)
 
     override suspend fun createFullSongs(kitsuId: String): OngakuMusicRequestEnvelope {

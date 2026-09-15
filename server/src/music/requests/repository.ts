@@ -4,7 +4,7 @@ import type { AmfJob, AmfJobCreate } from "../animeMusicFetcher/schemas.js";
 import { normalizeMusicText } from "../matching/normalize.js";
 import type { AppLogger } from "../../logging.js";
 import { AMF_PROVIDER_JOB_FILE_INDEX_STRIDE } from "./providerGraph.js";
-import type { MusicRequestRepository, MusicRequestScope, MusicRequestScopeAvailability, NewMusicRequest, ProviderEvidenceScope, StoredMusicBatch, StoredProviderJobLink, StoredMusicRequest, MusicBatchState } from "./types.js";
+import { MusicRequestConflictError, type MusicRequestRepository, type MusicRequestScope, type MusicRequestScopeAvailability, type NewMusicRequest, type ProviderEvidenceScope, type StoredMusicBatch, type StoredProviderJobLink, type StoredMusicRequest, type MusicBatchState } from "./types.js";
 import { AMF_IGNORED_FULL_SIZE_VARIANT_ERROR_PREFIX } from "./deliveryService.js";
 
 const TERMINAL = new Set<MusicBatchState>(["COMPLETED", "COMPLETED_WITH_WARNINGS", "FAILED", "CANCELLED"]);
@@ -70,6 +70,20 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
         WHERE animethemes_anime_id=$1 AND completed_at IS NULL AND scope IN ($2,'LEGACY_ALL')
         ORDER BY (scope=$2) DESC,created_at DESC LIMIT 1`, [input.animeThemesAnimeId, input.scope]);
       if (active.rows[0]) {
+        if (input.targetThemeId !== undefined) {
+          const exactTarget = await client.query<{ id: string }>(`SELECT r.id
+            FROM anime_music_requests r
+            JOIN anime_music_request_batches b ON b.request_id=r.id
+            JOIN anime_music_request_items i ON i.batch_id=b.id
+            WHERE r.id=$1
+            GROUP BY r.id
+            HAVING count(i.id)=1
+              AND bool_and(i.theme_id=$2)
+              AND bool_and(i.kind IN ('OP','ED'))
+              AND bool_and(COALESCE(b.amf_request_body->>'selection_mode','automatic')=$3)`,
+          [active.rows[0].id, input.targetThemeId, input.targetSelectionMode ?? "automatic"]);
+          if (!exactTarget.rows[0]) throw new MusicRequestConflictError();
+        }
         if (input.source === "ADMIN_REIMPORT") {
           const blocking = await client.query(`SELECT 1 FROM anime_music_request_batches
             WHERE request_id=$1 AND state<>'AWAITING_OPERATOR' LIMIT 1`, [active.rows[0].id]);
@@ -88,8 +102,10 @@ export class PgMusicRequestRepository implements MusicRequestRepository {
         return { request: request!, created: false };
         }
       }
+      // Stamp after acquiring the anime lock: now() is the transaction start and
+      // can predate a request that this transaction waited behind.
       await client.query(`INSERT INTO anime_music_requests
-        (id, requested_by_user_id, kitsu_id, animethemes_anime_id, source, scope) VALUES ($1,$2,$3,$4,$5,$6)`,
+        (id, requested_by_user_id, kitsu_id, animethemes_anime_id, source, scope, created_at) VALUES ($1,$2,$3,$4,$5,$6,clock_timestamp())`,
         [input.id, input.requestedByUserId, input.kitsuId, input.animeThemesAnimeId, input.source, input.scope]);
       for (const batch of input.batches) {
         await client.query(`INSERT INTO anime_music_request_batches

@@ -62,6 +62,13 @@ Schema changes: edit `src/db/schema.ts`, then `npm run db:generate` (never edit 
 | `DELETE /v1/auth/devices/:id` | bearer | revoke another device session |
 | `GET`/`HEAD /v1/media/audio/:themeId` | bearer | stream stable audio URLs for player clients |
 | `POST /v1/media/audio/:themeId/request` | bearer | prioritize server-side audio warming for downloads |
+| `POST /v1/anime/:kitsuId/themes/:themeId/music-requests` | bearer | `{reason: "REQUEST_FULL_SIZE"}` queues one OP/ED full song, or `{reason: "INCORRECT_FULL_SIZE"}` queues one review request using raw theme identity |
+
+The theme-scoped music request returns `{request, replayed, themeId,
+manualSelectionRequired}`. A review request uses Anime Music Fetcher's manual
+selection mode; an active request for a different theme or selection mode
+returns `409 MUSIC_REQUEST_CONFLICT`. Requests never delete existing catalog
+media. A completed request may be submitted again.
 
 With `KITSU_AUTH_MODE=stub` (compose default), any non-empty credentials log in and the user id is `stub-<username>`. Set `KITSU_AUTH_MODE=real` to use Kitsu OAuth; the public Kitsu client id/secret default from `../.planning/02-external-apis.md` are already in `.env.example`.
 

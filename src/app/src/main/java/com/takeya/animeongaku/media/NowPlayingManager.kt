@@ -99,10 +99,10 @@ class NowPlayingManager @Inject constructor(
             rememberedAudioMode = playbackPreferences.rememberedAudioMode,
             sessionOverride = mode
         )
-        if (current.playbackIntent == intent) return
         _state.value = current.copy(
             playbackIntent = intent,
             queueVersion = current.queueVersion + 1,
+            modeSelectionGeneration = current.modeSelectionGeneration + 1,
             isFullReload = false
         )
     }
@@ -774,7 +774,9 @@ data class NowPlayingState(
     val unskippedEntryIds: Set<Long> = emptySet(),
     val playbackIntent: PlaybackIntent = PlaybackIntent(),
     /** Monotonic user intent consumed once by MediaController queue reconciliation. */
-    val playRequestGeneration: Long = 0L
+    val playRequestGeneration: Long = 0L,
+    /** Explicit mode retries must resolve again even when an offline fallback retained this intent. */
+    val modeSelectionGeneration: Long = 0L
 ) {
     private val entriesById: Map<Long, QueueEntry> by lazy {
         buildMap {

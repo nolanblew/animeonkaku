@@ -52,7 +52,11 @@ class PlayerViewModel @Inject constructor(
     private val serverReachabilityMonitor: ServerReachabilityMonitor,
     private val downloadManager: com.takeya.animeongaku.download.DownloadManager,
     offlineMediaAvailability: OfflineMediaAvailability,
+    musicRequestRepository: com.takeya.animeongaku.data.repository.MusicRequestRepository,
 ) : ViewModel() {
+    val themeMusicRequests = ThemeMusicRequestCoordinator(musicRequestRepository, viewModelScope) { target ->
+        target.fullSizeSongId?.let { downloadManager.retainReportedFullSizeDownload(it, target.title) }
+    }
     private val videoModeSessionTracker = VideoModeSessionTracker()
     val nowPlayingState: StateFlow<NowPlayingState> = nowPlayingManager.state
     val playbackState: StateFlow<PlaybackState> = mediaControllerManager.playbackState

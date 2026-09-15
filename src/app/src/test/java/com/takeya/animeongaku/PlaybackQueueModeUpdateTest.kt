@@ -17,6 +17,7 @@ import com.takeya.animeongaku.media.ResolvedPlaybackItem
 import com.takeya.animeongaku.media.replaceModeChangedPlaybackItems
 import com.takeya.animeongaku.media.descriptorsAfterStructuralDiff
 import com.takeya.animeongaku.media.resolveForCurrentPlaybackSnapshot
+import com.takeya.animeongaku.media.retainCurrentPlaybackSource
 import com.takeya.animeongaku.media.toPlaybackMediaDescriptor
 import com.takeya.animeongaku.data.local.LoudnessProfile
 import kotlinx.coroutines.CompletableDeferred
@@ -47,6 +48,46 @@ class PlaybackQueueModeUpdateTest {
         assertEquals(listOf(1), player.replacedIndexes)
         assertEquals(0, player.prepareCalls)
         assertTrue(player.playWhenReady)
+    }
+
+    @Test
+    fun `passive refresh retains current source while updating available modes`() {
+        val previous = resolved(10, PlaybackMode.TV_SIZE, "file:///cache/tv-10.mp3")
+        val refreshed = resolved(
+            queueId = 10,
+            actual = PlaybackMode.FULL_SIZE,
+            uri = "https://server/full/10",
+            preferred = PlaybackMode.FULL_SIZE
+        ).copy(availableModes = setOf(PlaybackMode.TV_SIZE, PlaybackMode.FULL_SIZE, PlaybackMode.VIDEO))
+
+        val retained = retainCurrentPlaybackSource(previous, refreshed)
+
+        assertEquals(PlaybackMode.TV_SIZE, retained.actualMode)
+        assertEquals("file:///cache/tv-10.mp3", retained.uri)
+        assertEquals(PlaybackSource.SERVER_AUDIO, retained.source)
+        assertEquals(setOf(PlaybackMode.TV_SIZE, PlaybackMode.FULL_SIZE, PlaybackMode.VIDEO), retained.availableModes)
+        assertEquals(PlaybackMode.FULL_SIZE, retained.preferredMode)
+    }
+
+    @Test
+    fun `passive replacement updates future entries but never reloads current`() {
+        val old = listOf(
+            resolved(10, PlaybackMode.TV_SIZE, "https://server/tv/10").toPlaybackMediaDescriptor(),
+            resolved(11, PlaybackMode.TV_SIZE, "https://server/tv/11").toPlaybackMediaDescriptor()
+        )
+        val desired = listOf(
+            resolved(10, PlaybackMode.FULL_SIZE, "https://server/full/10").toPlaybackMediaDescriptor(),
+            resolved(11, PlaybackMode.FULL_SIZE, "https://server/full/11").toPlaybackMediaDescriptor()
+        )
+        val player = FakePlaybackItemController(old, currentIndex = 0, playWhenReady = true)
+
+        replaceModeChangedPlaybackItems(player, desired, preserveCurrent = true)
+
+        assertEquals(listOf(1), player.replacedIndexes)
+        assertEquals(emptyList<Pair<Int, Long>>(), player.seeks)
+        assertEquals(0, player.prepareCalls)
+        assertEquals("https://server/tv/10", player.items[0].uri)
+        assertEquals("https://server/full/11", player.items[1].uri)
     }
 
     @Test
@@ -201,6 +242,21 @@ class PlaybackQueueModeUpdateTest {
         allowResolution.complete(Unit)
 
         assertEquals(null, result.await())
+    }
+
+    @Test
+    fun `track transition invalidates a resolution before the next collector starts`() = runTest {
+        val sync = LatestPlaybackQueueSync()
+        var queueVersion = 1L
+        val capturedVersion = queueVersion
+        val commits = mutableListOf<String>()
+        val committed = sync.runLatest(
+            resolve = { queueVersion = 2L; "old track" },
+            commit = commits::add,
+            isCurrent = { queueVersion == capturedVersion }
+        )
+        assertFalse(committed)
+        assertTrue(commits.isEmpty())
     }
 
     @Test

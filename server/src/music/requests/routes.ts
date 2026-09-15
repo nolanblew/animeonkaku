@@ -4,17 +4,25 @@ import { z } from "zod";
 import type { AuthService } from "../../auth/service.js";
 import { ApiError } from "../../api/errors.js";
 import { makeRequireAuth } from "../../api/requireAuth.js";
-import { MusicRequestEmptyError, MusicRequestNotFoundError, MusicRequestNotMappedError, type MusicRequestService } from "./service.js";
+import { MusicRequestConflictError, MusicRequestEmptyError, MusicRequestNotFoundError, MusicRequestNotMappedError, MusicRequestThemeNotEligibleError, MusicRequestThemeNotFoundError, type MusicRequestService } from "./service.js";
 
 const animeParams = z.object({ kitsuId: z.string().min(1).max(100) });
+const themeParams = animeParams.extend({ themeId: z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER) });
+const themeRequestBody = z.object({ reason: z.enum(["REQUEST_FULL_SIZE", "INCORRECT_FULL_SIZE"]) });
 const requestParams = z.object({ requestId: z.string().uuid() });
 
-export function registerMusicRequestRoutes(fastify: FastifyInstance, auth: AuthService, service: Pick<MusicRequestService, "trigger" | "get" | "latest" | "status">): void {
+export function registerMusicRequestRoutes(fastify: FastifyInstance, auth: AuthService, service: Pick<MusicRequestService, "trigger" | "triggerTheme" | "get" | "latest" | "status">): void {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
   const requireAuth = makeRequireAuth(auth);
   app.post("/v1/anime/:kitsuId/music-requests", { schema: { params: animeParams }, preHandler: requireAuth }, async (request, reply) => {
     try {
       const result = await service.trigger(request.auth!.user.kitsuUserId, request.params.kitsuId, "DEBUG_USER", "FULL_SONGS");
+      return reply.header("Location", `/v1/music-requests/${result.request.id}`).code(202).send(result);
+    } catch (error) { throw routeError(error); }
+  });
+  app.post("/v1/anime/:kitsuId/themes/:themeId/music-requests", { schema: { params: themeParams, body: themeRequestBody }, preHandler: requireAuth }, async (request, reply) => {
+    try {
+      const result = await service.triggerTheme(request.auth!.user.kitsuUserId, request.params.kitsuId, request.params.themeId, request.body.reason);
       return reply.header("Location", `/v1/music-requests/${result.request.id}`).code(202).send(result);
     } catch (error) { throw routeError(error); }
   });
@@ -44,5 +52,8 @@ function routeError(error: unknown): Error {
   if (error instanceof MusicRequestNotFoundError) return new ApiError(404, "MUSIC_REQUEST_NOT_FOUND", "Music request not found.");
   if (error instanceof MusicRequestNotMappedError) return new ApiError(409, "ANIME_NOT_MAPPED", "Anime is not mapped for music requests.");
   if (error instanceof MusicRequestEmptyError) return new ApiError(409, "MUSIC_REQUEST_EMPTY", error.message);
+  if (error instanceof MusicRequestThemeNotFoundError) return new ApiError(404, "MUSIC_REQUEST_THEME_NOT_FOUND", "Theme not found for this anime.");
+  if (error instanceof MusicRequestThemeNotEligibleError) return new ApiError(409, "MUSIC_REQUEST_THEME_NOT_ELIGIBLE", error.message);
+  if (error instanceof MusicRequestConflictError) return new ApiError(409, "MUSIC_REQUEST_CONFLICT", error.message);
   return error instanceof Error ? error : new Error("Music request failed");
 }

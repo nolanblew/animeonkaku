@@ -2,11 +2,18 @@ import { randomUUID } from "node:crypto";
 import type { JobQueue } from "../../jobs/jobQueue.js";
 import { JobPriority } from "../../jobs/types.js";
 import { buildMusicRequestBatches } from "./builder.js";
-import type { ExplicitMusicRequestScope, MusicRequestRepository, MusicRequestScope, MusicRequestSource, MusicRequestStatus, MusicRequestSummary, StoredMusicRequest } from "./types.js";
+import type { ExplicitMusicRequestScope, MusicRequestReason, MusicRequestRepository, MusicRequestScope, MusicRequestSource, MusicRequestStatus, MusicRequestSummary, StoredMusicRequest, ThemeMusicRequestResult } from "./types.js";
+export { MusicRequestConflictError } from "./types.js";
 
 export class MusicRequestNotFoundError extends Error {}
 export class MusicRequestNotMappedError extends Error {}
 export class MusicRequestEmptyError extends Error {}
+export class MusicRequestThemeNotFoundError extends Error {
+  constructor(message = "Requested theme was not found for this anime.") { super(message); this.name = "MusicRequestThemeNotFoundError"; }
+}
+export class MusicRequestThemeNotEligibleError extends Error {
+  constructor(message = "Requested theme is not an eligible opening or ending theme.") { super(message); this.name = "MusicRequestThemeNotEligibleError"; }
+}
 
 export class MusicRequestService {
   constructor(private readonly deps: { repo: MusicRequestRepository; queue: JobQueue; uuid?: () => string }) {}
@@ -30,6 +37,45 @@ export class MusicRequestService {
     });
     await Promise.all(persisted.request.batches.map((batch) => this.enqueueBatch(batch.id, Boolean(batch.amfJobId))));
     return { request: toSummary(persisted.request), replayed: !persisted.created };
+  }
+
+  async triggerTheme(userId: string, kitsuId: string, themeId: number, reason: MusicRequestReason): Promise<ThemeMusicRequestResult> {
+    if (!Number.isSafeInteger(themeId) || themeId <= 0) throw new MusicRequestThemeNotFoundError();
+    const metadata = await this.deps.repo.loadMetadata(kitsuId);
+    if (!metadata) throw new MusicRequestNotMappedError();
+    const theme = metadata.themes.find((candidate) => candidate.id === themeId);
+    if (!theme) throw new MusicRequestThemeNotFoundError();
+    const match = /^(OP|ED)([1-9]\d?)?$/i.exec(theme.themeType?.trim() ?? "");
+    if (!match) throw new MusicRequestThemeNotEligibleError("Only opening and ending themes can be requested as full songs.");
+    const kind = match[1]!.toUpperCase();
+    const hasExplicitFirst = metadata.themes.some((candidate) => candidate.themeType?.trim().toUpperCase() === `${kind}1`);
+    if (!match[2] && (hasExplicitFirst || metadata.themes.filter((candidate) => candidate.themeType?.trim().toUpperCase() === kind).length !== 1)) {
+      throw new MusicRequestThemeNotEligibleError("The unnumbered opening or ending theme is ambiguous.");
+    }
+    const manualSelectionRequired = reason === "INCORRECT_FULL_SIZE";
+    const selectionMode = manualSelectionRequired ? "review" as const : "automatic" as const;
+    const requestTheme = manualSelectionRequired
+      ? { ...theme, titleEnglish: null, titleJapanese: null, titleRomaji: null, artistNames: [] }
+      : theme;
+    const uuid = this.deps.uuid ?? randomUUID;
+    const requestId = uuid();
+    const built = buildMusicRequestBatches({ ...metadata, requestId, themes: [requestTheme] }, {
+      scope: "FULL_SONGS", includeRelated: false, selectionMode,
+    });
+    if (built.length !== 1 || built[0]!.items.length !== 1 || built[0]!.items[0]!.themeId !== themeId) {
+      throw new MusicRequestThemeNotEligibleError("The selected theme is not an eligible full-song item.");
+    }
+    const persisted = await this.deps.repo.createOrReplay({
+      id: requestId, requestedByUserId: userId, kitsuId, animeThemesAnimeId: metadata.animeThemesAnimeId,
+      source: "DEBUG_USER", scope: "FULL_SONGS", targetThemeId: themeId, targetSelectionMode: selectionMode,
+      batches: built.map((batch) => ({
+        id: uuid(), index: batch.index, body: batch.body,
+        idempotencyKey: `anime-ongaku:${requestId}:${batch.index}`,
+        items: batch.items.map((item) => ({ id: uuid(), ...item })),
+      })),
+    });
+    await Promise.all(persisted.request.batches.map((batch) => this.enqueueBatch(batch.id, Boolean(batch.amfJobId))));
+    return { request: toSummary(persisted.request), replayed: !persisted.created, themeId, manualSelectionRequired };
   }
 
   async startFullSizeReimport(userId: string, kitsuId: string, requestId: string) {

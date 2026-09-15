@@ -145,6 +145,42 @@ describe.skipIf(!adminDatabaseUrl)("AMF delivery publication (PostgreSQL + files
     });
   });
 
+  it("does not let a late older full-size delivery replace a newer theme request", async () => {
+    await withDatabase(async (pool) => {
+      const libraryRoot = await mkdtemp(join(tmpdir(), "ongaku-amf-order-library-"));
+      const mediaRoot = await mkdtemp(join(tmpdir(), "ongaku-amf-order-media-"));
+      const bytes = Buffer.alloc(4096, 61);
+      const sha = createHash("sha256").update(bytes).digest("hex");
+      await seedCatalog(pool);
+      const repo = new PgAmfDeliveryRepository(pool);
+      const mediaStore = new MediaStore({ mediaRoot, providerImportRoot: libraryRoot,
+        repo: new DrizzleMediaFileRepo(drizzle(pool)), minBytes: 1 });
+      const oldPath = "anime-ongaku-staging/request-old/batch-0/opening.flac";
+      await stage(libraryRoot, oldPath, bytes);
+      await seedRequest(pool, { requestId: "request-old", batchId: "batch-old", items: [{
+        id: "item-old", index: 0, kind: "OP", number: 1, themeId: 100, fileIndex: 0, relativePath: oldPath,
+        metadata: { title: "Old Opening", artist: "Old Singer", album: "Old Single" }, sha,
+      }] });
+      const reserved = await repo.reserveCatalog("item-old:0", { byteSize: bytes.length, sha256: sha });
+      await mediaStore.importLocalSongFile({ songId: reserved.songId, sourcePath: join(libraryRoot, ...oldPath.split("/")),
+        expectedByteSize: bytes.length, expectedSha256: sha });
+
+      // The old request is terminal, but its provider job is still allowed to
+      // report a late delivery while the newer correction is active.
+      await pool.query("UPDATE anime_music_requests SET completed_at=clock_timestamp() WHERE id='request-old'");
+      await seedRequest(pool, { requestId: "request-new", batchId: "batch-new", items: [{
+        id: "item-new", index: 0, kind: "OP", number: 1, themeId: 100, fileIndex: 0,
+        relativePath: "anime-ongaku-staging/request-new/batch-0/opening.flac", metadata: {}, sha: null,
+      }] });
+      await pool.query("UPDATE anime_music_requests SET created_at=clock_timestamp()+interval '1 second' WHERE id='request-new'");
+
+      await repo.publishDelivery("item-old:0");
+      expect((await pool.query("SELECT count(*)::int count FROM theme_full_songs WHERE theme_id=100")).rows[0].count).toBe(0);
+      expect((await pool.query("SELECT import_state FROM anime_music_request_deliveries WHERE id='item-old:0'")).rows[0].import_state).toBe("READY");
+      expect((await pool.query("SELECT count(*)::int count FROM media_files WHERE state='READY'")).rows[0].count).toBe(1);
+    });
+  });
+
   it("closes an unsupported-format delivery as COMPLETED_WITH_WARNINGS instead of stranding the request in AWAITING_OPERATOR (F6/MC-S18)", async () => {
     await withDatabase(async (pool) => {
       const libraryRoot = await mkdtemp(join(tmpdir(), "ongaku-amf-pg-library-"));

@@ -19,7 +19,7 @@ class PlaylistPlaybackSettingsSheetTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun sheetExposesPlaylistModeAndOverrideWithoutPuttingThemInMainContent() {
+    fun sheetExposesPreferredVersionAndRequiredVersionSetting() {
         var selectedMode: String? = null
         var overrideValue: Boolean? = null
         composeRule.setContent {
@@ -36,7 +36,7 @@ class PlaylistPlaybackSettingsSheetTest {
 
         composeRule.onNodeWithText("Playlist settings").assertIsDisplayed()
         composeRule.onNodeWithText("Full Size").assertIsDisplayed().performClick()
-        composeRule.onNodeWithContentDescription("Override song preferences").performClick()
+        composeRule.onNodeWithContentDescription("Require selected version").performClick()
 
         composeRule.runOnIdle {
             assertEquals("FULL_SIZE", selectedMode)

@@ -45,7 +45,7 @@ export interface BuiltMusicRequestBatch {
 
 export function buildMusicRequestBatches(
   input: MusicRequestMetadata,
-  options: { includeRelated?: boolean; scope?: MusicRequestScope } = {},
+  options: { includeRelated?: boolean; scope?: MusicRequestScope; selectionMode?: "automatic" | "review" } = {},
 ): BuiltMusicRequestBatch[] {
   const primary = {
     english: clean(input.titles.english) ?? clean(input.titles.animeThemesNameEn),
@@ -130,7 +130,7 @@ export function buildMusicRequestBatches(
       // rejecting them after the fact (F6 in the AMF robustness review).
       quality: { preferred_formats: SUPPORTED_AUDIO_FORMATS },
       destination: `anime-ongaku-staging/request-${input.requestId}/batch-${index}`,
-      selection_mode: "automatic",
+      selection_mode: options.selectionMode ?? "automatic",
     });
     batches.push({ index, body, items: slice.map((item, itemIndex) => ({
       itemIndex, kind: item.kind, number: "number" in item ? item.number : null, themeId: item.themeId,
