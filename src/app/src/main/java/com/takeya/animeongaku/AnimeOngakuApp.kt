@@ -17,6 +17,7 @@ import com.takeya.animeongaku.media.AudioCacheProvider
 import com.takeya.animeongaku.media.MediaControllerManager
 import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.PreCacheManager
+import com.takeya.animeongaku.media.PlaybackVariantHydrator
 import com.takeya.animeongaku.updater.AppUpdateScheduler
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -43,6 +44,7 @@ class AnimeOngakuApp : Application(), Configuration.Provider, ImageLoaderFactory
     @Inject lateinit var pendingWritesScheduler: PendingWritesScheduler
     @Inject lateinit var sessionStorageMigrator: SessionStorageMigrator
     @Inject lateinit var appUpdateScheduler: AppUpdateScheduler
+    @Inject lateinit var playbackVariantHydrator: PlaybackVariantHydrator
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -63,6 +65,7 @@ class AnimeOngakuApp : Application(), Configuration.Provider, ImageLoaderFactory
         pendingWritesScheduler.schedule()
         appUpdateScheduler.schedule()
         preCacheManager.start()
+        playbackVariantHydrator.start()
         scope.launch(Dispatchers.IO) {
             audioCacheProvider.warmUp()
         }

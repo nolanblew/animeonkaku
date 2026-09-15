@@ -77,6 +77,41 @@ class QueueDiffTest {
         )
     }
 
+    @Test
+    fun `explicit mode retry generation prevents structural reuse with same intent`() {
+        val intent = PlaybackIntent(sessionOverride = PlaybackMode.FULL_SIZE)
+
+        assertEquals(
+            null,
+            reusableResolvedQueueIdsForStructuralMutation(
+                previousQueueEntryIds = listOf(40L, 41L),
+                previousResolvedMediaIds = ids("40", "41"),
+                previousCurrentQueueId = 40L,
+                previousIntent = intent,
+                previousModeSelectionGeneration = 3L,
+                nextQueueEntryIds = listOf(40L, 41L),
+                nextCurrentQueueId = 40L,
+                nextIntent = intent,
+                nextModeSelectionGeneration = 4L
+            )
+        )
+
+        assertEquals(
+            ids("40", "41"),
+            reusableResolvedQueueIdsForStructuralMutation(
+                previousQueueEntryIds = listOf(40L, 41L),
+                previousResolvedMediaIds = ids("40", "41"),
+                previousCurrentQueueId = 40L,
+                previousIntent = intent,
+                previousModeSelectionGeneration = 3L,
+                nextQueueEntryIds = listOf(40L, 41L),
+                nextCurrentQueueId = 40L,
+                nextIntent = intent,
+                nextModeSelectionGeneration = 3L
+            )
+        )
+    }
+
 
     @Test
     fun `typed queue diff uses occurrence ids not playable ids`() {

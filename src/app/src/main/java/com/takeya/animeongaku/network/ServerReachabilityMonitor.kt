@@ -30,18 +30,29 @@ import okhttp3.Request
 import okhttp3.Response
 import kotlin.coroutines.resume
 
+data class ServerReachabilityState(
+    val reachable: Boolean,
+    val networkGeneration: Long,
+    /** False while the previous result is retained and the current network is being probed. */
+    val verifiedForNetwork: Boolean
+)
+
 internal fun serverReachabilityFlow(
-    networkOnline: Flow<Boolean>,
+    networkAvailability: Flow<NetworkAvailability>,
     probe: suspend () -> Boolean,
     probeIntervalMs: Long,
     failuresBeforeUnavailable: Int = 2,
     failureRetryIntervalMs: Long = probeIntervalMs,
-): Flow<Boolean> = channelFlow {
+    initialReachableHint: Boolean = false,
+): Flow<ServerReachabilityState> = channelFlow {
     require(failuresBeforeUnavailable > 0)
-    networkOnline.distinctUntilChanged().collectLatest { online ->
-        if (!online) {
-            send(false)
+    var lastReachable = initialReachableHint
+    networkAvailability.distinctUntilChanged().collectLatest { network ->
+        if (!network.isOnline) {
+            lastReachable = false
+            send(ServerReachabilityState(false, network.generation, verifiedForNetwork = true))
         } else {
+            send(ServerReachabilityState(lastReachable, network.generation, verifiedForNetwork = false))
             var consecutiveFailures = 0
             while (currentCoroutineContext().isActive) {
                 val reachable = try {
@@ -53,11 +64,15 @@ internal fun serverReachabilityFlow(
                 }
                 if (reachable) {
                     consecutiveFailures = 0
-                    send(true)
+                    lastReachable = true
+                    send(ServerReachabilityState(true, network.generation, verifiedForNetwork = true))
                     delay(probeIntervalMs)
                 } else {
                     consecutiveFailures++
-                    if (consecutiveFailures >= failuresBeforeUnavailable) send(false)
+                    if (consecutiveFailures >= failuresBeforeUnavailable) {
+                        lastReachable = false
+                        send(ServerReachabilityState(false, network.generation, verifiedForNetwork = true))
+                    }
                     delay(
                         if (consecutiveFailures < failuresBeforeUnavailable) {
                             failureRetryIntervalMs
@@ -94,17 +109,30 @@ class ServerReachabilityMonitor @Inject constructor(
         .readTimeout(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .callTimeout(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .build()
-    private val _isReachable = MutableStateFlow(connectivityMonitor.isOnline.value)
+    private val initialReachableHint = connectivityMonitor.availability.value.isOnline
+    private val _state = MutableStateFlow(
+        ServerReachabilityState(
+            reachable = initialReachableHint,
+            networkGeneration = connectivityMonitor.availability.value.generation,
+            verifiedForNetwork = !connectivityMonitor.availability.value.isOnline
+        )
+    )
+    val state: StateFlow<ServerReachabilityState> = _state.asStateFlow()
+    private val _isReachable = MutableStateFlow(initialReachableHint)
     val isReachable: StateFlow<Boolean> = _isReachable.asStateFlow()
 
     init {
         scope.launch {
             serverReachabilityFlow(
-                networkOnline = connectivityMonitor.isOnline,
+                networkAvailability = connectivityMonitor.availability,
                 probe = ::probeServer,
                 probeIntervalMs = PROBE_INTERVAL_MS,
                 failureRetryIntervalMs = FAILURE_RETRY_INTERVAL_MS,
-            ).collect { _isReachable.value = it }
+                initialReachableHint = initialReachableHint,
+            ).collect {
+                _state.value = it
+                _isReachable.value = it.reachable
+            }
         }
     }
 

@@ -51,11 +51,12 @@ internal class LatestPlaybackQueueSync {
 
     suspend fun <T> runLatest(
         resolve: suspend () -> T,
-        commit: (T) -> Unit
+        commit: (T) -> Unit,
+        isCurrent: () -> Boolean = { true }
     ): Boolean {
         val ownedGeneration = generation.incrementAndGet()
         val result = resolve()
-        if (generation.get() != ownedGeneration) return false
+        if (generation.get() != ownedGeneration || !isCurrent()) return false
         commit(result)
         return true
     }
@@ -77,7 +78,8 @@ internal class VideoFallbackAttemptRegistry {
 /** Replaces same-occurrence sources/metadata while retaining queue order and play intent. */
 internal fun replaceModeChangedPlaybackItems(
     controller: PlaybackItemController,
-    desiredItems: List<PlaybackMediaDescriptor>
+    desiredItems: List<PlaybackMediaDescriptor>,
+    preserveCurrent: Boolean = false
 ) {
     if (controller.items.map { it.mediaId } != desiredItems.map { it.mediaId }) return
     val currentIndex = controller.currentIndex
@@ -89,8 +91,11 @@ internal fun replaceModeChangedPlaybackItems(
     // A completed analysis can arrive while this item is playing. Keep its gain fixed until the
     // next item boundary; replacing only an updated gain would cause a mid-song level step.
     val replaceNow = changed.filter { index ->
-        index != currentIndex ||
-            controller.items[index].contentFingerprint() != desiredItems[index].contentFingerprint()
+        when {
+            index == currentIndex && preserveCurrent -> false
+            index != currentIndex -> true
+            else -> controller.items[index].contentFingerprint() != desiredItems[index].contentFingerprint()
+        }
     }
     replaceNow.forEach { index -> controller.replaceMediaItem(index, desiredItems[index]) }
 
@@ -107,6 +112,25 @@ internal fun replaceModeChangedPlaybackItems(
         controller.playWhenReady = wasPlayWhenReady
         controller.prepare()
     }
+}
+
+/**
+ * Keeps the source that is already loaded for the active occurrence while adopting refreshed
+ * resolver metadata and availability. Passive preference, network, and catalog refreshes must not
+ * turn into an implicit mode switch for a song that is currently playing.
+ */
+internal fun retainCurrentPlaybackSource(
+    previous: ResolvedPlaybackItem?,
+    refreshed: ResolvedPlaybackItem
+): ResolvedPlaybackItem {
+    if (previous == null || !previous.isPlayable) return refreshed
+    return refreshed.copy(
+        actualMode = previous.actualMode,
+        uri = previous.uri,
+        mediaKey = previous.mediaKey,
+        source = previous.source,
+        loudness = previous.loudness
+    )
 }
 
 private fun PlaybackMediaDescriptor.playbackFingerprint(): List<String?> = listOf(

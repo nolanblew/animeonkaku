@@ -15,8 +15,10 @@ import com.takeya.animeongaku.media.PlayableItem
 import com.takeya.animeongaku.media.PlayableKey
 import com.takeya.animeongaku.media.PlayableKind
 import com.takeya.animeongaku.media.QueueEntry
+import com.takeya.animeongaku.media.PreferenceSkipAction
 import com.takeya.animeongaku.media.desiredCurrentIndexAfterFiltering
 import com.takeya.animeongaku.media.isQueueEntryAllowedByPreference
+import com.takeya.animeongaku.media.preferenceSkipAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -243,6 +245,46 @@ class PlayableQueueTest {
         val songEntry = QueueEntry(queueId = 2L, item = relatedSong(10))
         assertFalse(isQueueEntryAllowedByPreference(songEntry, PlaybackMode.RELATED_AUDIO, emptyMap(), setOf(10L), emptySet()))
         assertTrue(isQueueEntryAllowedByPreference(songEntry, PlaybackMode.RELATED_AUDIO, emptyMap(), setOf(10L), setOf(2L)))
+    }
+
+    @Test
+    fun `duplicate dislike emissions skip one queue occurrence and preserve end stop`() {
+        assertEquals(
+            PreferenceSkipAction.SEEK_NEXT,
+            preferenceSkipAction(
+                currentQueueId = 21L,
+                currentMediaId = "21",
+                pendingQueueId = null,
+                hasNextMediaItem = true
+            )
+        )
+        assertEquals(
+            PreferenceSkipAction.NONE,
+            preferenceSkipAction(
+                currentQueueId = 21L,
+                currentMediaId = "21",
+                pendingQueueId = 21L,
+                hasNextMediaItem = true
+            )
+        )
+        assertEquals(
+            PreferenceSkipAction.STOP,
+            preferenceSkipAction(
+                currentQueueId = 21L,
+                currentMediaId = "21",
+                pendingQueueId = null,
+                hasNextMediaItem = false
+            )
+        )
+        assertEquals(
+            PreferenceSkipAction.SEEK_NEXT,
+            preferenceSkipAction(
+                currentQueueId = 22L,
+                currentMediaId = "22",
+                pendingQueueId = 21L,
+                hasNextMediaItem = true
+            )
+        )
     }
 
     @Test

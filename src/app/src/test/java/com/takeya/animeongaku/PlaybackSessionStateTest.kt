@@ -36,6 +36,22 @@ class PlaybackSessionStateTest {
     }
 
     @Test
+    fun `selecting retained full mode again retries after offline fallback without replacing queue identity`() {
+        manager.playItems("Downloaded playlist", listOf(PlayableItem.Theme(theme(1)), PlayableItem.Theme(theme(1))))
+        manager.selectThemeMode(PlaybackMode.FULL_SIZE)
+        val before = manager.state.value
+
+        manager.selectThemeMode(PlaybackMode.FULL_SIZE)
+
+        val after = manager.state.value
+        assertEquals(before.playbackIntent, after.playbackIntent)
+        assertEquals(before.modeSelectionGeneration + 1, after.modeSelectionGeneration)
+        assertEquals(before.queueVersion + 1, after.queueVersion)
+        assertEquals(before.nowPlayingEntries.map { it.queueId }, after.nowPlayingEntries.map { it.queueId })
+        assertEquals(before.currentIndex, after.currentIndex)
+    }
+
+    @Test
     fun `manual mode applies to subsequent items without changing queue identity`() {
         val policy = BaseModePolicy(ThemeModePolicy.TV_SIZE, PlaybackMode.FULL_SIZE)
         manager.playItems(

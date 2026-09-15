@@ -17,6 +17,80 @@ const metadata = {
 };
 
 describe("scoped anime music requests", () => {
+  it("creates one automatic FULL/INDIVIDUAL request for the exact theme", async () => {
+    const { service, repo, queue } = fixture({
+      ...metadata,
+      themes: [{ id: 11, themeType: "OP2", title: "Raw Opening", artists: ["Raw Singer"] }],
+    });
+
+    const result = await service.triggerTheme("user-1", "42", 11, "REQUEST_FULL_SIZE");
+
+    expect(result).toMatchObject({ themeId: 11, manualSelectionRequired: false, replayed: false });
+    const input = repo.createOrReplay.mock.calls[0]?.[0];
+    expect(input).toMatchObject({
+      scope: "FULL_SONGS",
+      source: "DEBUG_USER",
+      targetThemeId: 11,
+      targetSelectionMode: "automatic",
+    });
+    expect(input?.batches).toHaveLength(1);
+    expect(input?.batches[0]?.items).toEqual([{ id: expect.any(String), itemIndex: 0, kind: "OP", number: 2, themeId: 11 }]);
+    expect(input?.batches[0]?.body).toMatchObject({
+      selection_mode: "automatic",
+      items: [{ kind: "OP", number: 2, version: "FULL", release_preference: "INDIVIDUAL", song_titles: { romaji: "Raw Opening" }, artists: ["Raw Singer"] }],
+    });
+    expect(queue.enqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports an incorrect song with raw theme identity and review selection", async () => {
+    const { service, repo } = fixture({
+      ...metadata,
+      themes: [{
+        id: 11, themeType: "OP1", title: "Raw Opening", artists: ["Raw Singer"],
+        titleEnglish: "Wrong Matched Song", titleJapanese: "誤った曲", titleRomaji: "Wrong Matched Song",
+        artistNames: [{ english: "Wrong Artist", romaji: "Wrong Artist" }],
+      }],
+    });
+
+    const result = await service.triggerTheme("user-1", "42", 11, "INCORRECT_FULL_SIZE");
+
+    expect(result).toMatchObject({ themeId: 11, manualSelectionRequired: true, replayed: false });
+    const input = repo.createOrReplay.mock.calls[0]?.[0];
+    expect(input).toMatchObject({ targetThemeId: 11, targetSelectionMode: "review" });
+    expect(input?.batches[0]?.body.selection_mode).toBe("review");
+    expect(input?.batches[0]?.body.items[0]).toMatchObject({
+      kind: "OP", number: 1, version: "FULL", release_preference: "INDIVIDUAL",
+      song_titles: { romaji: "Raw Opening" }, artists: ["Raw Singer"],
+    });
+    expect(input?.batches[0]?.body.items[0]).not.toHaveProperty("artist_names", [{ english: "Wrong Artist", romaji: "Wrong Artist" }]);
+  });
+
+  it("rejects a theme that is missing or not an OP/ED target before persistence", async () => {
+    const { service, repo, queue } = fixture({
+      ...metadata,
+      themes: [{ id: 11, themeType: "OST", title: "Score", artists: [] }],
+    });
+
+    await expect(service.triggerTheme("user-1", "42", 99, "REQUEST_FULL_SIZE")).rejects.toThrow(/theme/i);
+    await expect(service.triggerTheme("user-1", "42", 11, "REQUEST_FULL_SIZE")).rejects.toThrow(/opening|ending|OP|ED/i);
+    expect(repo.createOrReplay).not.toHaveBeenCalled();
+    expect(queue.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unnumbered theme when an explicit first item exists", async () => {
+    const { service, repo, queue } = fixture({
+      ...metadata,
+      themes: [
+        { id: 11, themeType: "OP", title: "Ambiguous Opening", artists: ["Singer"] },
+        { id: 12, themeType: "OP1", title: "Numbered Opening", artists: ["Singer"] },
+      ],
+    });
+
+    await expect(service.triggerTheme("user-1", "42", 11, "REQUEST_FULL_SIZE")).rejects.toThrow(/ambiguous|numbered/i);
+    expect(repo.createOrReplay).not.toHaveBeenCalled();
+    expect(queue.enqueue).not.toHaveBeenCalled();
+  });
+
   it("builds FULL_SONGS as OP/ED FULL individual items only", () => {
     const batches = buildMusicRequestBatches(
       { ...metadata, requestId: "11111111-1111-4111-8111-111111111111" },

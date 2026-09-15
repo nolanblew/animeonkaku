@@ -37,12 +37,15 @@ internal fun reusableResolvedQueueIdsForStructuralMutation(
     previousResolvedMediaIds: List<String>,
     previousCurrentQueueId: Long?,
     previousIntent: PlaybackIntent,
+    previousModeSelectionGeneration: Long = 0L,
     nextQueueEntryIds: List<Long>,
     nextCurrentQueueId: Long?,
-    nextIntent: PlaybackIntent
+    nextIntent: PlaybackIntent,
+    nextModeSelectionGeneration: Long = 0L
 ): List<String>? {
     if (previousCurrentQueueId == null || previousCurrentQueueId != nextCurrentQueueId) return null
     if (previousIntent != nextIntent) return null
+    if (previousModeSelectionGeneration != nextModeSelectionGeneration) return null
 
     val previousQueueIds = previousQueueEntryIds.map(Long::toString)
     val nextQueueIds = nextQueueEntryIds.map(Long::toString)

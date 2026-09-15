@@ -4,6 +4,7 @@ import { buildApp } from "../src/app.js";
 import { AuthService } from "../src/auth/service.js";
 import { StubKitsuAuthClient } from "../src/auth/stubKitsuAuthClient.js";
 import { FakeAuthRepo } from "./helpers/fakeAuthRepo.js";
+import { MusicRequestConflictError } from "../src/music/requests/service.js";
 import type { MusicRequestSummary } from "../src/music/requests/types.js";
 
 describe("music request API", () => {
@@ -16,10 +17,11 @@ describe("music request API", () => {
     { scope: "FULL_SONGS", latest: summary, active: true, eligibleCount: 2, availableCount: 1, missingCount: 1 },
     { scope: "EXTRA_MUSIC", latest: null, active: false, eligibleCount: 4, availableCount: 0, missingCount: 4 },
   ] };
-  const service = { trigger: vi.fn(), get: vi.fn(), latest: vi.fn(), status: vi.fn() };
+  const service = { trigger: vi.fn(), triggerTheme: vi.fn(), get: vi.fn(), latest: vi.fn(), status: vi.fn() };
 
   beforeEach(() => {
     service.trigger.mockResolvedValue({ request: summary, replayed: false });
+    service.triggerTheme.mockResolvedValue({ request: summary, replayed: false, themeId: 11, manualSelectionRequired: false });
     service.get.mockResolvedValue(summary);
     service.latest.mockResolvedValue(null);
     service.status.mockResolvedValue(status);
@@ -69,5 +71,52 @@ describe("music request API", () => {
     expect(service.get).toHaveBeenCalledWith("stub-nolan", summary.id);
     const latest = await app.inject({ method: "GET", url: "/v1/anime/42/music-requests/latest", headers: { authorization: `Bearer ${bearer}` } });
     expect(latest.json()).toEqual({ request: null });
+  });
+
+  it("requires auth, validates the target theme, and returns the targeted request contract", async () => {
+    expect((await app.inject({
+      method: "POST",
+      url: "/v1/anime/42/themes/11/music-requests",
+      payload: { reason: "REQUEST_FULL_SIZE" },
+    })).statusCode).toBe(401);
+    const bearer = await token();
+    const invalidReason = await app.inject({
+      method: "POST",
+      url: "/v1/anime/42/themes/11/music-requests",
+      headers: { authorization: `Bearer ${bearer}` },
+      payload: { reason: "WRONG" },
+    });
+    expect(invalidReason.statusCode).toBe(400);
+    const invalidTheme = await app.inject({
+      method: "POST",
+      url: "/v1/anime/42/themes/0/music-requests",
+      headers: { authorization: `Bearer ${bearer}` },
+      payload: { reason: "REQUEST_FULL_SIZE" },
+    });
+    expect(invalidTheme.statusCode).toBe(400);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/anime/42/themes/11/music-requests",
+      headers: { authorization: `Bearer ${bearer}` },
+      payload: { reason: "REQUEST_FULL_SIZE" },
+    });
+    expect(response.statusCode).toBe(202);
+    expect(response.headers.location).toBe(`/v1/music-requests/${summary.id}`);
+    expect(response.json()).toEqual({ request: summary, replayed: false, themeId: 11, manualSelectionRequired: false });
+    expect(service.triggerTheme).toHaveBeenCalledWith("stub-nolan", "42", 11, "REQUEST_FULL_SIZE");
+  });
+
+  it("reports a targeted conflict instead of claiming the request was accepted", async () => {
+    service.triggerTheme.mockRejectedValueOnce(new MusicRequestConflictError());
+    const bearer = await token();
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/anime/42/themes/11/music-requests",
+      headers: { authorization: `Bearer ${bearer}` },
+      payload: { reason: "INCORRECT_FULL_SIZE" },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error).toMatchObject({ code: "MUSIC_REQUEST_CONFLICT" });
   });
 });

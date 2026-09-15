@@ -1,6 +1,7 @@
 package com.takeya.animeongaku.data.repository
 
 import com.takeya.animeongaku.data.remote.MusicRequestApi
+import com.takeya.animeongaku.data.remote.ThemeMusicRequestBody
 import com.takeya.animeongaku.data.remote.OngakuMusicRequestStatusDto
 import com.takeya.animeongaku.data.remote.OngakuMusicRequestSummaryDto
 import javax.inject.Inject
@@ -82,6 +83,8 @@ data class MusicRequestStatus(
 }
 
 interface MusicRequestRepository {
+    suspend fun requestTheme(kitsuId: String, themeId: Long, reason: ThemeMusicRequestReason): ThemeMusicRequestResult =
+        error("Song requests are not supported by this repository")
     suspend fun create(kitsuId: String): MusicRequest
     suspend fun request(kitsuId: String, scope: MusicRequestScope): MusicRequest =
         if (scope == MusicRequestScope.FULL_SONGS) create(kitsuId)
@@ -104,6 +107,17 @@ interface MusicRequestRepository {
 class ServerMusicRequestRepository @Inject constructor(
     private val api: MusicRequestApi
 ) : MusicRequestRepository {
+    override suspend fun requestTheme(kitsuId: String, themeId: Long, reason: ThemeMusicRequestReason): ThemeMusicRequestResult {
+        val response = api.requestTheme(kitsuId, themeId, ThemeMusicRequestBody(reason.name))
+        require(response.themeId == themeId) { "Music request returned a different song" }
+        val request = requireNotNull(response.request) { "Music request response was empty" }.toDomain()
+        require(request.kitsuId == kitsuId) { "Music request returned a different anime" }
+        require(reason != ThemeMusicRequestReason.INCORRECT_FULL_SIZE || response.manualSelectionRequired) {
+            "The server did not confirm manual review for the reported song"
+        }
+        return ThemeMusicRequestResult(request, response.manualSelectionRequired, response.replayed)
+    }
+
     override suspend fun create(kitsuId: String): MusicRequest =
         requireNotNull(api.create(kitsuId).request) { "Music request response was empty" }.toDomain()
 
@@ -123,6 +137,14 @@ class ServerMusicRequestRepository @Inject constructor(
 
     override suspend fun status(kitsuId: String): MusicRequestStatus = api.status(kitsuId).toDomain()
 }
+
+enum class ThemeMusicRequestReason { REQUEST_FULL_SIZE, INCORRECT_FULL_SIZE }
+
+data class ThemeMusicRequestResult(
+    val request: MusicRequest,
+    val manualSelectionRequired: Boolean,
+    val replayed: Boolean
+)
 
 fun OngakuMusicRequestSummaryDto.toDomain(): MusicRequest = MusicRequest(
     id = id,

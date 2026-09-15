@@ -1,10 +1,18 @@
 package com.takeya.animeongaku.data.remote
 
 import retrofit2.http.GET
+import retrofit2.http.Body
 import retrofit2.http.POST
 import retrofit2.http.Path
 
 interface MusicRequestApi {
+    @POST("v1/anime/{kitsuId}/themes/{themeId}/music-requests")
+    suspend fun requestTheme(
+        @Path("kitsuId") kitsuId: String,
+        @Path("themeId") themeId: Long,
+        @Body body: ThemeMusicRequestBody
+    ): OngakuThemeMusicRequestEnvelope
+
     @POST("v1/anime/{kitsuId}/music-requests")
     suspend fun create(@Path("kitsuId") kitsuId: String): OngakuMusicRequestEnvelope
 
@@ -23,6 +31,15 @@ interface MusicRequestApi {
     @GET("v1/anime/{kitsuId}/music-requests/status")
     suspend fun status(@Path("kitsuId") kitsuId: String): OngakuMusicRequestStatusDto
 }
+
+data class ThemeMusicRequestBody(val reason: String)
+
+data class OngakuThemeMusicRequestEnvelope(
+    val request: OngakuMusicRequestSummaryDto?,
+    val replayed: Boolean = false,
+    val manualSelectionRequired: Boolean = false,
+    val themeId: Long
+)
 
 data class OngakuMusicRequestEnvelope(
     val request: OngakuMusicRequestSummaryDto?,

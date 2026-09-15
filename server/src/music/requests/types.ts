@@ -8,6 +8,16 @@ export type MusicRequestSource = "DEBUG_USER" | "AUTOMATIC" | "ADMIN_REIMPORT";
 export const MUSIC_REQUEST_SCOPES = ["FULL_SONGS", "EXTRA_MUSIC", "LEGACY_ALL"] as const;
 export type MusicRequestScope = typeof MUSIC_REQUEST_SCOPES[number];
 export type ExplicitMusicRequestScope = Exclude<MusicRequestScope, "LEGACY_ALL">;
+export const MUSIC_REQUEST_REASONS = ["REQUEST_FULL_SIZE", "INCORRECT_FULL_SIZE"] as const;
+export type MusicRequestReason = typeof MUSIC_REQUEST_REASONS[number];
+export type MusicRequestSelectionMode = "automatic" | "review";
+
+export class MusicRequestConflictError extends Error {
+  constructor(message = "Another targeted music request for this anime is already active.") {
+    super(message);
+    this.name = "MusicRequestConflictError";
+  }
+}
 /**
  * The slice of the last-observed AMF manifest that decides whether the poll
  * backoff ladder should reset. Deliberately narrower than the full evidence
@@ -82,7 +92,7 @@ export interface ProviderEvidenceScope {
 }
 
 export interface StoredMusicRequest { id: string; kitsuId: string; animeThemesAnimeId: number; scope: MusicRequestScope; createdAt: Date; updatedAt: Date; completedAt: Date | null; batches: StoredMusicBatch[]; }
-export interface NewMusicRequest { id: string; requestedByUserId: string; kitsuId: string; animeThemesAnimeId: number; source: MusicRequestSource; scope: MusicRequestScope; batches: Array<{ id: string; index: number; body: AmfJobCreate; idempotencyKey: string; items: Array<{ id: string; itemIndex: number; kind: string; number: number | null; themeId: number | null }> }>; }
+export interface NewMusicRequest { id: string; requestedByUserId: string; kitsuId: string; animeThemesAnimeId: number; source: MusicRequestSource; scope: MusicRequestScope; targetThemeId?: number; targetSelectionMode?: MusicRequestSelectionMode; batches: Array<{ id: string; index: number; body: AmfJobCreate; idempotencyKey: string; items: Array<{ id: string; itemIndex: number; kind: string; number: number | null; themeId: number | null }> }>; }
 export type MusicRequestScopeAvailability = Record<ExplicitMusicRequestScope, { eligibleCount: number; availableCount: number }>;
 export interface MusicRequestRepository {
   loadMetadata(kitsuId: string): Promise<(MusicRequestMetadata & { animeThemesAnimeId: number }) | null>;
@@ -114,6 +124,7 @@ export interface MusicRequestSummary {
   counts: Record<"queued" | "searching" | "awaitingOperator" | "downloading" | "processing" | "completed" | "completedWithWarnings" | "failed" | "cancelled", number>;
   requiresOperatorAction: boolean; lastUpdatedAt: string; pollAfterSeconds?: number;
 }
+export interface ThemeMusicRequestResult { request: MusicRequestSummary; replayed: boolean; themeId: number; manualSelectionRequired: boolean; }
 
 export interface MusicRequestScopeStatus {
   scope: ExplicitMusicRequestScope;

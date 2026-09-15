@@ -13,13 +13,23 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionResult
 import com.takeya.animeongaku.MainActivity
 import com.takeya.animeongaku.BuildConfig
 import com.takeya.animeongaku.R
+import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -35,12 +45,18 @@ class MediaPlaybackService : MediaSessionService() {
     @Inject lateinit var nowPlayingManager: NowPlayingManager
     @Inject lateinit var nowPlayingPersistence: NowPlayingPersistence
     @Inject lateinit var mediaControllerManager: MediaControllerManager
+    @Inject lateinit var userPreferencesRepository: UserPreferencesRepository
 
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaSession
     
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val sessionHydrationMutex = Mutex()
+    @Volatile
+    private var latestSystemReaction = CurrentSystemReaction(
+        hasTarget = false,
+        reaction = SystemReaction.NONE
+    )
 
     override fun onCreate() {
         super.onCreate()
@@ -86,7 +102,16 @@ class MediaPlaybackService : MediaSessionService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val callback = object : MediaSession.Callback {
+        val callback = object : SystemReactionMediaSessionCallback(
+            currentTarget = ::captureCurrentReactionTarget,
+            submitReaction = ::submitReaction,
+            currentLayout = {
+                SystemReactionSessionCommands.layout(
+                    latestSystemReaction.reaction,
+                    enabled = latestSystemReaction.hasTarget
+                )
+            }
+        ) {
             override fun onPlaybackResumption(
                 mediaSession: MediaSession,
                 controller: MediaSession.ControllerInfo
@@ -126,7 +151,22 @@ class MediaPlaybackService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, player)
             .setSessionActivity(sessionActivity)
             .setCallback(callback)
+            .setCustomLayout(
+                SystemReactionSessionCommands.layout(
+                    latestSystemReaction.reaction,
+                    enabled = latestSystemReaction.hasTarget
+                )
+            )
             .build()
+
+        scope.launch {
+            observeCurrentSystemReaction().collectLatest { current ->
+                latestSystemReaction = current
+                mediaSession.setCustomLayout(
+                    SystemReactionSessionCommands.layout(current.reaction, enabled = current.hasTarget)
+                )
+            }
+        }
 
         // External controllers such as a car can display metadata before the first Play command.
         // Populate the paused player as soon as the service starts so that metadata and the item
@@ -170,10 +210,88 @@ class MediaPlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         mediaControllerManager.schedulePlaybackStatePersistenceIfNeeded()
+        scope.cancel()
         mediaSession.release()
         player.release()
         super.onDestroy()
     }
+
+    private fun captureCurrentReactionTarget(): SystemReactionTarget? {
+        val entry = nowPlayingManager.state.value.currentEntry ?: return null
+        val target = captureSystemReactionTarget(entry.queueId, entry.item.key)
+        val currentMediaId = player.currentMediaItem?.mediaId ?: return null
+        return target.takeIfMediaIdMatches(currentMediaId)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun observeCurrentSystemReaction(): Flow<CurrentSystemReaction> =
+        nowPlayingManager.state
+            .map { state ->
+                state.currentEntry?.let { entry ->
+                    captureSystemReactionTarget(entry.queueId, entry.item.key)
+                }
+            }
+            .distinctUntilChanged()
+            .flatMapLatest { target ->
+                if (target == null) {
+                    flowOf(CurrentSystemReaction(hasTarget = false, reaction = SystemReaction.NONE))
+                } else {
+                    observeReaction(target.playableKey).map { reaction ->
+                        CurrentSystemReaction(hasTarget = true, reaction = reaction)
+                    }
+                }
+            }
+
+    private fun observeReaction(key: PlayableKey): Flow<SystemReaction> = when (key.kind) {
+        PlayableKind.THEME -> userPreferencesRepository.observePreference(key.id).map { preference ->
+            when {
+                preference?.isLiked == true -> SystemReaction.LIKE
+                preference?.isDisliked == true -> SystemReaction.DISLIKE
+                else -> SystemReaction.NONE
+            }
+        }
+        PlayableKind.SONG -> userPreferencesRepository.observeSongPreference(key.id).map { preference ->
+            when {
+                preference?.isLiked == true -> SystemReaction.LIKE
+                preference?.isDisliked == true -> SystemReaction.DISLIKE
+                else -> SystemReaction.NONE
+            }
+        }
+    }
+
+    private fun submitReaction(
+        target: SystemReactionTarget,
+        reaction: SystemReaction
+    ): ListenableFuture<SessionResult> {
+        val future = SettableFuture.create<SessionResult>()
+        scope.launch {
+            runCatching {
+                when (target.playableKey.kind) {
+                    PlayableKind.THEME -> userPreferencesRepository.setThemeReaction(
+                        themeId = target.playableKey.id,
+                        liked = reaction == SystemReaction.LIKE,
+                        disliked = reaction == SystemReaction.DISLIKE
+                    )
+                    PlayableKind.SONG -> userPreferencesRepository.setSongReaction(
+                        songId = target.playableKey.id,
+                        liked = reaction == SystemReaction.LIKE,
+                        disliked = reaction == SystemReaction.DISLIKE
+                    )
+                }
+            }.onSuccess {
+                future.set(SessionResult(SessionResult.RESULT_SUCCESS))
+            }.onFailure { error ->
+                future.setException(error)
+            }
+        }
+        return future
+    }
+
+    private data class CurrentSystemReaction(
+        val hasTarget: Boolean,
+        val reaction: SystemReaction
+    )
+
 }
 
 internal fun selectSessionHydrationState(

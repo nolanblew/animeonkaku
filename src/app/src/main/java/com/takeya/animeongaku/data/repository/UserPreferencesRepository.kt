@@ -83,6 +83,40 @@ class UserPreferencesRepository @Inject constructor(
             pushPendingPreferenceWriteAndRefresh()
         }
     }
+
+    /**
+     * Applies an explicit, idempotent broad theme reaction for external controllers.
+     * The Android media-session rating API is a desired-state API, so it must not use the
+     * UI toggle methods: a repeated Like command must remain liked and an unrated command
+     * must clear the broad reaction.
+     */
+    suspend fun setThemeReaction(themeId: Long, liked: Boolean, disliked: Boolean) {
+        require(!(liked && disliked)) { "A theme cannot be both liked and disliked" }
+        dislikeMutationMutex.withLock {
+            val current = preferenceDao.getPreference(themeId) ?: UserPreferenceEntity(themeId)
+            val alreadyApplied = when {
+                liked -> current.isLiked && !current.isDisliked &&
+                    !current.isDislikedTvSize && !current.isDislikedFullSize
+                disliked -> current.isDisliked && !current.isLiked &&
+                    !current.isDislikedTvSize && !current.isDislikedFullSize
+                else -> !current.isLiked && !current.isDisliked
+            }
+            if (alreadyApplied) return@withLock
+            val updated = when {
+                liked -> current.withThemeLike(true, System.currentTimeMillis())
+                disliked -> current.withBroadThemeDislike(true, System.currentTimeMillis())
+                else -> current.copy(
+                    isLiked = false,
+                    isDisliked = false,
+                    updatedAt = System.currentTimeMillis(),
+                    deletedAt = null
+                )
+            }
+            preferenceDao.insertOrUpdate(updated)
+            syncEngine.enqueueThemePreference(updated, updated.updatedAt)
+            pushPendingPreferenceWriteAndRefresh()
+        }
+    }
     
     suspend fun setLiked(themeId: Long) {
         val current = preferenceDao.getPreference(themeId) ?: UserPreferenceEntity(themeId)
@@ -165,6 +199,22 @@ class UserPreferencesRepository @Inject constructor(
             updatedAt = System.currentTimeMillis(),
             deletedAt = null
         ))
+    }
+
+    /** Applies an explicit, idempotent related-song reaction for media-session controllers. */
+    suspend fun setSongReaction(songId: Long, liked: Boolean, disliked: Boolean) {
+        require(!(liked && disliked)) { "A song cannot be both liked and disliked" }
+        dislikeMutationMutex.withLock {
+            val current = requireSongPreferenceDao().get(songId) ?: SongPreferenceEntity(songId)
+            if (current.isLiked == liked && current.isDisliked == disliked) return@withLock
+            val updated = current.copy(
+                isLiked = liked,
+                isDisliked = disliked,
+                updatedAt = System.currentTimeMillis(),
+                deletedAt = null
+            )
+            updateSongPreference(updated)
+        }
     }
 
     private suspend fun updateSongPreference(preference: SongPreferenceEntity) {
