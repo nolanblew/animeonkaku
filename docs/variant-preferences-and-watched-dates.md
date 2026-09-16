@@ -4,7 +4,9 @@ Theme reactions apply to the whole theme. A size-only dislike excludes that audi
 
 The saved song preference takes precedence over a playlist's preferred version (including an entry override). An unavailable preferred size falls back to the other allowed audio size, online or from downloaded audio. A disliked size is never an audio fallback.
 
-Playlists expose **Require selected version**. When enabled, a missing or disliked size, or a conflicting saved song preference, skips that theme for playback and downloads. This uses the existing `overrideUserPreference` wire field for compatibility; existing playlists with that flag enabled now use required-version semantics. When disabled, the playlist version is preferred. Song entries remain full audio.
+Playlists expose **Require selected version**. When enabled, automatic playback and downloads require that audio size and skip it when missing or disliked. A conflicting saved audio preference is ignored in favor of the requirement. Explicit playback can override dislikes, and available Video remains selectable when the required audio exists. This uses the existing `overrideUserPreference` wire field for compatibility. When disabled, the playlist version is preferred. Song entries remain full audio.
+
+The [queue playback guide](queue-playback-guide.md) describes Now Playing selections, playlist precedence, Video, Back/repeat, explicit unskip, and restoration on Android and web, plus the Sonos audio policy.
 
 Android reconciles tracked theme downloads when saved preferences or their media descriptors change. It replaces obsolete group membership and deletes a physical file only after its last download-group reference disappears. A size unavailable at the time of a dislike is not requested; arrival of that size can refresh a tracked theme download.
 

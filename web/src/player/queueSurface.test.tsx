@@ -61,6 +61,8 @@ beforeEach(() => {
     setMode: vi.fn(),
     requestFullscreen: vi.fn(),
     skipTo: vi.fn(),
+    replayHistory: vi.fn(),
+    unskipEntry: vi.fn(),
     queue: {
       playNext: vi.fn(),
       addToQueue: vi.fn(),
@@ -140,7 +142,7 @@ describe('accessible full-player queue surface', () => {
     const queue = screen.getByRole('complementary', { name: 'Playback queue' })
 
     fireEvent.click(within(queue).getByRole('button', { name: 'Replay History two' }))
-    expect(state.player.queue.rewindTo).toHaveBeenCalledWith(1)
+    expect(state.player.replayHistory).toHaveBeenCalledWith(1)
 
     const dragHandle = within(queue).getByRole('button', { name: 'Drag Upcoming three to reorder' })
     const targetRow = within(queue).getByRole('button', { name: 'Play Upcoming two' }).closest('[data-queue-id]') as HTMLElement
@@ -167,7 +169,7 @@ describe('accessible full-player queue surface', () => {
     fireEvent.click(within(queue).getByRole('button', { name: 'More actions for Upcoming two in queue' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Play this disliked item' }))
 
-    expect(state.player.queue.unskipEntry).toHaveBeenCalledWith(14)
+    expect(state.player.unskipEntry).toHaveBeenCalledWith(14)
     fireEvent.click(within(queue).getByRole('button', { name: 'More actions for Upcoming one in queue' }))
     expect(screen.queryByRole('menuitem', { name: 'Play this disliked item' })).not.toBeInTheDocument()
   })

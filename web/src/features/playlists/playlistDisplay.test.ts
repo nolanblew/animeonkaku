@@ -80,4 +80,17 @@ describe('playlist display metadata', () => {
     expect(rows.every((row) => row.title === 'Unavailable track' && row.available === false)).toBe(true)
     expect(rows.flatMap((row) => [row.title, row.subtitle]).join(' ')).not.toContain('999')
   })
+
+  it('admits a full-only theme when the selected playlist mode is full size', () => {
+    const library = createEmptyLibrary()
+    library.themesById['11'] = {
+      id: 11, animeThemesAnimeId: 7, kitsuAnimeIds: [], title: 'Full-only', themeType: 'OP', artists: [],
+      audioUrl: '', videoUrl: null, audioState: 'MISSING', durationSeconds: null, fileSize: null,
+      mediaModes: { tvSize: { url: '/stale-tv/11', durationSeconds: null, fileSize: null }, fullSize: { songId: 101, url: '/full/11', durationSeconds: 180, fileSize: null, sourceReleaseId: null }, video: null },
+      updatedAt: 1, deleted: false,
+    }
+
+    const rows = resolvePlaylistDisplayItems(playlist({ defaultMode: 'FULL_SIZE', overrideUserPreference: true, entries: [11] }), library)
+    expect(rows[0]).toEqual(expect.objectContaining({ title: 'OP · Full-only', available: true, hasFullSize: true }))
+  })
 })

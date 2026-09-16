@@ -4,6 +4,7 @@ import {
   desiredCurrentQueueIndex,
   filterQueueEntriesForPlayback,
   isQueueEntryAllowedByPreference,
+  resolveQueueItemPolicy,
   type QueuePreferenceSnapshot,
 } from './preferenceQueue'
 import { QueueStore, type QueueEntry, type QueueItem } from './queue'
@@ -19,6 +20,8 @@ const theme = (id: number, mode: 'TV_SIZE' | 'FULL_SIZE' = 'TV_SIZE'): QueueItem
   itemType: 'THEME',
   themeId: id,
   mode,
+  tvAudioUrl: `/tv/${id}`,
+  fullAudioUrl: `/full/${id}`,
 })
 
 const song = (id: number): QueueItem => ({
@@ -27,11 +30,27 @@ const song = (id: number): QueueItem => ({
   itemType: 'SONG',
   songId: id,
   mode: 'FULL_SIZE',
+  fullAudioUrl: `/song/${id}`,
 })
 
 const entry = (queueId: number, item: QueueItem): QueueEntry => ({ queueId, item })
 
 describe('preference-aware browser playback queue', () => {
+  it('uses the shared policy for desired Full fallback, explicit Video, and manual disliked selection', () => {
+    const dual = theme(1, 'FULL_SIZE')
+    const preferences: QueuePreferenceSnapshot = { themesById: {}, songsById: {} }
+    expect(resolveQueueItemPolicy({ ...dual, tvAudioUrl: '/tv', fullAudioUrl: undefined }, preferences, 'FULL_SIZE')).toMatchObject({ desiredMode: 'FULL_SIZE', actualMode: 'TV_SIZE', reason: 'FALLBACK' })
+    expect(resolveQueueItemPolicy({ ...dual, tvAudioUrl: '/tv', fullAudioUrl: '/full', videoUrl: '/video' }, { themesById: { 1: { preferredMode: 'FULL_SIZE' } }, songsById: {} }, 'VIDEO', undefined, { softMode: null })).toMatchObject({ desiredMode: 'VIDEO', actualMode: 'VIDEO' })
+    expect(resolveQueueItemPolicy({ ...dual, tvAudioUrl: '/tv', fullAudioUrl: '/full' }, { themesById: { 1: { dislikedFullSize: true } }, songsById: {} }, 'TV_SIZE', 'FULL_SIZE')).toMatchObject({ desiredMode: 'FULL_SIZE', actualMode: 'FULL_SIZE' })
+  })
+
+  it('lets a newer manual queue intent suppress an older soft action seed', () => {
+    const item = { ...theme(2), tvAudioUrl: '/tv', fullAudioUrl: '/full', softMode: 'TV_SIZE' as const }
+    const preferences: QueuePreferenceSnapshot = { themesById: {}, songsById: {} }
+    expect(resolveQueueItemPolicy(item, preferences, 'TV_SIZE').actualMode).toBe('TV_SIZE')
+    expect(resolveQueueItemPolicy(item, preferences, 'FULL_SIZE', undefined, { softMode: null }).actualMode).toBe('FULL_SIZE')
+  })
+
   it('excludes broadly disliked themes, mode-scoped dislikes, and disliked songs from automatic playback', () => {
     const entries = [
       entry(1, theme(1)),
@@ -48,7 +67,7 @@ describe('preference-aware browser playback queue', () => {
       songsById: { 4: { disliked: true } },
     }
 
-    expect(filterQueueEntriesForPlayback(entries, preferences).map((value) => value.queueId)).toEqual([3, 5])
+    expect(filterQueueEntriesForPlayback(entries, preferences).map((value) => value.queueId)).toEqual([2, 3, 5])
   })
 
   it('keeps only the explicitly unskipped disliked occurrence, preserving duplicate identities', () => {

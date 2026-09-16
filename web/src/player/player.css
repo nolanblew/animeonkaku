@@ -55,6 +55,8 @@
 .player-view-switch { display: flex; width: max-content; justify-self: center; gap: .2rem; padding: .25rem; border: 1px solid rgba(255,255,255,.12); border-radius: 999px; background: rgba(255,255,255,.045); }
 .player-view-switch button { min-width: 5.5rem; padding: .55rem 1rem; border: 0; border-radius: 999px; background: transparent; color: #9fa5b2; font-weight: 750; cursor: pointer; }
 .player-view-switch button[aria-selected="true"] { background: #f6f6f8; color: #111319; }
+.player-view-switch button[data-disliked="true"]:not([aria-selected="true"]) { color: #858b97; }
+.player-mode-disliked { display: block; margin-top: .15rem; font-size: .65rem; line-height: 1.2; font-weight: 500; }
 .player-view-switch button:disabled { cursor: not-allowed; opacity: .35; }
 .player-now-playing__body { position: relative; display: grid; width: 100%; height: 100%; min-height: 0; grid-column: 1; grid-row: 2; grid-template-columns: minmax(12rem, 1.05fr) minmax(14rem, .85fr); align-items: center; gap: clamp(.8rem, 2.2vw, 2.4rem); max-width: 105rem; margin: 0 auto; overflow: hidden; }
 .player-now-playing__stage { display: grid; min-width: 0; height: 100%; min-height: 0; place-items: center; overflow: hidden; }
@@ -95,6 +97,9 @@
 .player-queue__row { position: relative; display: grid; min-width: 0; grid-template-columns: 1.7rem minmax(0,1fr); align-items: center; border-radius: .6rem; transition: transform .2s cubic-bezier(.2,.78,.22,1), background .16s, box-shadow .16s, opacity .16s; }
 .player-queue__row--upcoming { grid-template-columns: 1.8rem 1.7rem minmax(0,1fr); }
 .player-queue__row--current { background: rgba(71,217,232,.09); box-shadow: inset 2px 0 var(--cyan); }
+.player-queue__row--skipped { opacity: .58; }
+.player-queue__row--skipped .player-queue__title { color: #a4a8b3; }
+.player-queue__status { display: block; padding: 0 .2rem .42rem; color: #9298a5; font-size: .66rem; font-weight: 700; letter-spacing: .02em; }
 .player-queue__content { min-width: 0; }
 .player-queue__primary { display: block; width: 100%; min-width: 0; padding: .6rem .5rem .15rem; border: 0; border-radius: .55rem; background: transparent; color: inherit; text-align: left; }
 button.player-queue__primary { cursor: pointer; }

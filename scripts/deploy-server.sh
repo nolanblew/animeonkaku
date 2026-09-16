@@ -72,9 +72,11 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 server_dir="$repo_root/server"
 web_dir="$repo_root/web"
+shared_dir="$repo_root/shared"
 remote_docker_dir="$remote_docker_root/$app_name"
 remote_server_dir="$remote_docker_dir/server"
 remote_web_dir="$remote_docker_dir/web"
+remote_shared_dir="$remote_docker_dir/shared"
 remote_data_dir="$remote_data_root/$app_name"
 remote_archive="/tmp/$app_name-deploy.tgz"
 
@@ -84,7 +86,7 @@ case $(quote_sh "$remote_docker_dir") in
   $(quote_sh "${remote_docker_root%/}")/*) ;;
   *) echo \"Refusing to deploy outside $remote_docker_root: $remote_docker_dir\" >&2; exit 2 ;;
 esac
-mkdir -p $(quote_sh "$remote_server_dir") $(quote_sh "$remote_web_dir") $(quote_sh "$remote_data_dir/media") $(quote_sh "$remote_data_dir/postgres")
+mkdir -p $(quote_sh "$remote_server_dir") $(quote_sh "$remote_web_dir") $(quote_sh "$remote_shared_dir") $(quote_sh "$remote_data_dir/media") $(quote_sh "$remote_data_dir/postgres")
 if [ -f $(quote_sh "$remote_docker_dir/.env") ] && [ ! -f $(quote_sh "$remote_server_dir/.env") ]; then
   cp $(quote_sh "$remote_docker_dir/.env") $(quote_sh "$remote_server_dir/.env")
 fi
@@ -114,13 +116,14 @@ if command -v rsync >/dev/null 2>&1; then
   fi
   rsync "${rsync_args[@]}" "$server_dir/" "$ssh_target:$remote_server_dir/"
   rsync "${rsync_args[@]}" "$web_dir/" "$ssh_target:$remote_web_dir/"
+  rsync "${rsync_args[@]}" "$shared_dir/" "$ssh_target:$remote_shared_dir/"
 else
   archive_path="${TMPDIR:-/tmp}/$app_name-deploy.tgz"
   tar -czf "$archive_path" \
     --exclude=server/node_modules --exclude=server/dist --exclude=server/test \
     --exclude=server/.env --exclude='server/.env.*' \
     --exclude=web/node_modules --exclude=web/dist --exclude=web/coverage \
-    -C "$repo_root" server web .dockerignore
+    -C "$repo_root" server web shared .dockerignore
   if [ "$dry_run" -eq 1 ]; then
     echo "Dry run: would upload $archive_path to $ssh_target:$remote_archive and extract into $remote_docker_dir"
   else
@@ -128,7 +131,7 @@ else
     ssh "$ssh_target" "
 set -eu
 cd $(quote_sh "$remote_docker_dir")
-rm -rf server/src server/drizzle server/dist web
+rm -rf server/src server/drizzle server/dist web shared
 tar -xzf $(quote_sh "$remote_archive")
 rm -f $(quote_sh "$remote_archive")
 "

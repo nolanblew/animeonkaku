@@ -2,6 +2,7 @@ import { browserAssetUrl } from '../../lib/assets'
 import type { AnimeMusicDto, MusicReleaseDto, MusicTrackDto, NormalizedLibrary, PlaylistDto, PlaylistPlaybackMode } from '../../lib/library'
 import { themePresentation } from '../../lib/themePresentation'
 import { preferredAnimeTitle, type AnimeTitlePreference } from '../../lib/animeTitlePreference'
+import { themePlaybackAvailability } from '../../player/mapping'
 
 export interface PlaylistDisplayItem {
   key: string
@@ -78,7 +79,7 @@ export function resolvePlaylistDisplayItems(
         subtitle: presentation.secondary,
         artworkUrl: browserAssetUrl(anime?.posterUrl ?? anime?.coverUrl) ?? null,
         durationSeconds: theme.durationSeconds,
-        available: theme.audioState === 'READY',
+        available: playlistThemeIsPlayable(theme, item.modeOverride ?? playlist.defaultMode, playlist.overrideUserPreference),
         itemType: item.itemType,
         itemId: item.itemId,
         modeOverride: item.modeOverride,
@@ -111,4 +112,12 @@ export function resolvePlaylistDisplayItems(
 
 function unavailableItem(key: string, itemType: 'THEME' | 'SONG', itemId: number, modeOverride: PlaylistPlaybackMode | null): PlaylistDisplayItem {
   return { key, title: 'Unavailable track', subtitle: 'This item is no longer available in the catalog.', artworkUrl: null, durationSeconds: null, available: false, itemType, itemId, modeOverride, liked: false, disliked: false, hasFullSize: false, hasVideo: false }
+}
+
+function playlistThemeIsPlayable(theme: NormalizedLibrary['themesById'][string], mode: PlaylistPlaybackMode | null | undefined, strict: boolean): boolean {
+  if (!theme) return false
+  const available = themePlaybackAvailability(theme)
+  if (strict && mode === 'FULL_SIZE') return available.FULL_SIZE
+  if (strict && mode === 'TV_SIZE') return available.TV_SIZE
+  return available.TV_SIZE || available.FULL_SIZE
 }

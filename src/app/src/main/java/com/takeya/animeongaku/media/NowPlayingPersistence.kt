@@ -38,6 +38,13 @@ data class PersistedQueueEntry(
     val relationshipType: String? = null,
     val baseMode: String? = null,
     val playlistDefaultMode: String? = null,
+    val overrideUserPreference: Boolean = false,
+    val desiredMode: String? = null,
+    val lastActualMode: String? = null,
+    val manualMode: String? = null,
+    val modeSeedSequence: Long = 0L,
+    val replayRequested: Boolean = false,
+    val isUnskipped: Boolean = false,
     val serverPreferredMode: String? = null,
     val serverPreferenceUpdatedAt: Long = 0L,
     val serverPreferenceLiked: Boolean = false,
@@ -178,7 +185,14 @@ data class PersistedNowPlayingState(
     val queueVersion: Long = 0L,
     val positionMs: Long = 0L,
     val repeatMode: Int = 0,
-    val sessionAudioMode: String? = null
+    val sessionAudioMode: String? = null,
+    /** Queue-local desired mode, including VIDEO. sessionAudioMode is retained for old files. */
+    val queueDesiredMode: String? = null,
+    val queueDesiredModeManual: Boolean = false,
+    val queueActionSequence: Long = 0L,
+    val queueDesiredSequence: Long = 0L,
+    val queueStarted: Boolean = false,
+    val unskippedEntryIds: Set<Long> = emptySet()
 )
 
 data class RestoredQueueState(
@@ -343,9 +357,9 @@ internal fun NowPlayingState.toPersistedState(
     playNextItemIds = playNextEntries.mapNotNull { it.themeOrNull?.id },
     addedToQueueItemIds = addedToQueueEntries.mapNotNull { it.themeOrNull?.id },
     suggestedItemIds = suggestedEntries.mapNotNull { it.themeOrNull?.id },
-    originalQueueEntries = originalQueueEntries.map(QueueEntry::toPersistedEntry),
-    nowPlayingEntries = nowPlayingEntries.map(QueueEntry::toPersistedEntry),
-    historyEntries = historyEntries.map(QueueEntry::toPersistedEntry),
+    originalQueueEntries = originalQueueEntries.map { it.toPersistedEntry(it.queueId in unskippedEntryIds) },
+    nowPlayingEntries = nowPlayingEntries.map { it.toPersistedEntry(it.queueId in unskippedEntryIds) },
+    historyEntries = historyEntries.map { it.toPersistedEntry(it.queueId in unskippedEntryIds) },
     playNextEntryIds = playNextEntryIds,
     addedToQueueEntryIds = addedToQueueEntryIds,
     suggestedEntryIds = suggestedEntryIds,
@@ -358,10 +372,16 @@ internal fun NowPlayingState.toPersistedState(
     repeatMode = repeatMode,
     sessionAudioMode = playbackIntent.sessionOverride
         ?.takeIf(PlaybackMode::isAudioMode)
-        ?.name
+        ?.name,
+    queueDesiredMode = playbackIntent.sessionOverride?.name,
+    queueDesiredModeManual = playbackIntent.manualOverride,
+    queueActionSequence = playbackIntent.actionSequence,
+    queueDesiredSequence = playbackIntent.queueDesiredSequence,
+    queueStarted = playbackIntent.queueStarted,
+    unskippedEntryIds = unskippedEntryIds
 )
 
-private fun QueueEntry.toPersistedEntry(): PersistedQueueEntry = when (val playable = item) {
+private fun QueueEntry.toPersistedEntry(unskipped: Boolean = isUnskipped): PersistedQueueEntry = when (val playable = item) {
     is PlayableItem.Theme -> PersistedQueueEntry(
         queueId = queueId,
         themeId = playable.theme.id,
@@ -370,6 +390,13 @@ private fun QueueEntry.toPersistedEntry(): PersistedQueueEntry = when (val playa
         animeKitsuId = playable.anime?.kitsuId,
         baseMode = baseModePolicy.requestedMode,
         playlistDefaultMode = baseModePolicy.playlistDefault?.name,
+        overrideUserPreference = baseModePolicy.overrideUserPreference,
+        desiredMode = desiredMode?.name,
+        lastActualMode = lastActualMode?.name,
+        manualMode = manualMode?.name,
+        modeSeedSequence = modeSeedSequence,
+        replayRequested = replayRequested,
+        isUnskipped = unskipped,
         serverPreferredMode = playable.serverPreference?.preferredMode,
         serverPreferenceUpdatedAt = playable.serverPreference?.updatedAt ?: 0L,
         serverPreferenceLiked = playable.serverPreference?.isLiked == true,
@@ -391,6 +418,13 @@ private fun QueueEntry.toPersistedEntry(): PersistedQueueEntry = when (val playa
         relationshipType = playable.relationshipType,
         baseMode = baseModePolicy.requestedMode,
         playlistDefaultMode = baseModePolicy.playlistDefault?.name,
+        overrideUserPreference = baseModePolicy.overrideUserPreference,
+        desiredMode = desiredMode?.name,
+        lastActualMode = lastActualMode?.name,
+        manualMode = manualMode?.name,
+        modeSeedSequence = modeSeedSequence,
+        replayRequested = replayRequested,
+        isUnskipped = unskipped,
         songMetadata = playable.song.toPersistedMetadata(),
         releaseMetadata = playable.release?.toPersistedMetadata(),
         animeMetadata = playable.anime?.toPersistedMetadata(),
@@ -461,7 +495,8 @@ internal fun restorePersistedQueueState(
             } ?: ThemeModePolicy.INHERIT,
             playlistDefault = entry.playlistDefaultMode?.let { value ->
                 PlaybackMode.entries.firstOrNull { it.name == value }
-            }?.takeIf { it == PlaybackMode.TV_SIZE || it == PlaybackMode.FULL_SIZE }
+            }?.takeIf { it == PlaybackMode.TV_SIZE || it == PlaybackMode.FULL_SIZE },
+            overrideUserPreference = entry.overrideUserPreference
         )
         val kind = entry.itemType?.uppercase()?.let { value ->
             PlayableKind.entries.firstOrNull { it.name == value }
@@ -510,7 +545,19 @@ internal fun restorePersistedQueueState(
                 )
             }
         } ?: return null
-        return QueueEntry(queueId, item, policy)
+        fun playbackMode(value: String?): PlaybackMode? = value
+            ?.let { raw -> PlaybackMode.entries.firstOrNull { it.name == raw } }
+        return QueueEntry(
+            queueId = queueId,
+            item = item,
+            baseModePolicy = policy,
+            desiredMode = playbackMode(entry.desiredMode),
+            lastActualMode = playbackMode(entry.lastActualMode),
+            manualMode = playbackMode(entry.manualMode),
+            modeSeedSequence = entry.modeSeedSequence,
+            replayRequested = entry.replayRequested,
+            isUnskipped = entry.isUnskipped || entry.queueId in persisted.unskippedEntryIds
+        )
     }
 
     fun mapPersistedEntries(entries: List<PersistedQueueEntry>): List<QueueEntry> =
@@ -610,10 +657,18 @@ internal fun restorePersistedQueueState(
         animeMap = animeMap,
         queueVersion = persisted.queueVersion,
         playbackIntent = PlaybackIntent(
-            sessionOverride = persisted.sessionAudioMode
+            sessionOverride = (persisted.queueDesiredMode ?: persisted.sessionAudioMode)
                 ?.let { value -> PlaybackMode.entries.firstOrNull { it.name == value } }
-                ?.takeIf(PlaybackMode::isAudioMode)
+                ?.takeIf { it != PlaybackMode.RELATED_AUDIO },
+            manualOverride = persisted.queueDesiredModeManual,
+            actionSequence = persisted.queueActionSequence,
+            queueDesiredSequence = persisted.queueDesiredSequence,
+            queueStarted = persisted.queueStarted || nowPlayingEntries.isNotEmpty()
         ),
+        unskippedEntryIds = persisted.unskippedEntryIds +
+            (originalQueueEntries + nowPlayingEntries + historyEntries)
+                .filter { it.isUnskipped }
+                .mapTo(mutableSetOf()) { it.queueId },
         isFullReload = true
     ).withUniqueHistoryEntries()
 }

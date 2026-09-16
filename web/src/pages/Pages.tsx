@@ -8,7 +8,7 @@ import { ReleaseDetailPage } from '../features/releases'
 import { PlaylistDetail, PlaylistFeatureMessage, PlaylistManager, usePlaylist, usePlaylistMutations, usePlaylists } from '../features/playlists'
 import { buildPlaylistSongIndex } from '../features/playlists/playlistDisplay'
 import { SearchPage as AccountSearchPage, SettingsPage as AccountSettingsPage, type MusicSearchTrack } from '../features/accountsearch'
-import { mapSongToQueueItem, mapThemeToQueueItem, NowPlayingView, runPlayerViewTransition, usePlayer, type PlayerContextValue, type PlayerQueueItem } from '../player'
+import { mapSongToQueueItem, mapThemeToQueueItem, NowPlayingView, runPlayerViewTransition, themePlaybackAvailability, usePlayer, type PlayerContextValue, type PlayerQueueItem } from '../player'
 import type { LibraryAnimeDto, LibraryThemeDto, MusicReleaseDto, MusicTrackDto, NormalizedLibrary, PlaylistDto, ThemePrefDto } from '../lib/library'
 import { browserAssetUrl } from '../lib/assets'
 import { artistRouteSlug } from '../lib/navigation'
@@ -308,7 +308,8 @@ function playAnimeCollection(player: PlayerContextValue, library: NormalizedLibr
 }
 
 function isPlayableTheme(theme: LibraryThemeDto): boolean {
-  return Boolean(theme.mediaModes.tvSize?.url || theme.mediaModes.fullSize?.url || theme.mediaModes.video?.url || theme.audioUrl)
+  const available = themePlaybackAvailability(theme)
+  return available.TV_SIZE || available.FULL_SIZE || available.VIDEO
 }
 
 function insertThemeCollection(player: PlayerContextValue, themes: LibraryThemeDto[], position: 'next' | 'append', artworkUrl?: string | null, library?: NormalizedLibrary | null): void {
@@ -338,13 +339,13 @@ function playPlaylist(player: PlayerContextValue, library: NormalizedLibrary, pl
   const playableItems = queueItems.filter((item): item is PlayerQueueItem => item !== null)
   if (playableItems.length === 0) return
   const playableStartIndex = Math.max(0, queueItems.slice(0, boundedSourceIndex + 1).filter((item): item is PlayerQueueItem => item !== null).length - 1)
-  player.playItems(playableItems, { contextLabel: playlist.name, startIndex: playableStartIndex, shuffle })
+  player.playItems(playableItems, { contextLabel: playlist.name, startIndex: playableStartIndex, shuffle, desiredMode: playlist.defaultMode ?? undefined })
 }
 
 function enqueuePlaylistItem(player: PlayerContextValue, library: NormalizedLibrary, playlist: PlaylistDto, index: number, position: 'next' | 'append'): void {
   const item = playlistQueueItems(library, playlist)[index]
   if (!item) return
-  if (!player.currentItem) { player.playItem(item, { contextLabel: playlist.name }); return }
+  if (!player.currentItem) { player.playItem(item, { contextLabel: playlist.name, desiredMode: playlist.defaultMode ?? undefined }); return }
   if (position === 'next') player.queue.playNext([item])
   else player.queue.addToQueue([item])
 }
@@ -353,11 +354,11 @@ function enqueuePlaylistCollection(player: PlayerContextValue, library: Normaliz
   const items = playlistQueueItems(library, playlist).filter((item): item is PlayerQueueItem => item !== null)
   if (items.length === 0) return
   if (position === 'replace') {
-    player.playItems(items, { contextLabel: playlist.name, startIndex: 0, shuffle: false })
+    player.playItems(items, { contextLabel: playlist.name, startIndex: 0, shuffle: false, desiredMode: playlist.defaultMode ?? undefined })
     return
   }
   if (!player.currentItem) {
-    player.playItem(items[0]!, { contextLabel: playlist.name })
+    player.playItem(items[0]!, { contextLabel: playlist.name, desiredMode: playlist.defaultMode ?? undefined })
     if (items.length > 1) player.queue.addToQueue(items.slice(1))
     return
   }

@@ -5,6 +5,8 @@ import type { QueueItem } from './queue'
 export interface PlayerQueueItem extends QueueItem {
   readonly itemType: 'THEME' | 'SONG'
   readonly mode?: PlaybackMode
+  /** Soft per-occurrence action seed; saved theme preference may supersede it. */
+  readonly softMode?: 'TV_SIZE' | 'FULL_SIZE'
   readonly requiredMode?: PlaybackMode
   readonly tvAudioUrl?: string
   readonly fullAudioUrl?: string
@@ -32,7 +34,25 @@ export interface ThemeQueueItemOptions {
   animeTitleRomaji?: string | null
   animeTitleJa?: string | null
   mode?: PlaybackMode
+  softMode?: 'TV_SIZE' | 'FULL_SIZE'
   requiredMode?: PlaybackMode
+}
+
+export interface ThemePlaybackAvailability {
+  readonly TV_SIZE: boolean
+  readonly FULL_SIZE: boolean
+  readonly VIDEO: boolean
+}
+
+/** Uses the API's per-mode URLs as the source of playback availability. */
+export function themePlaybackAvailability(theme: LibraryThemeDto): ThemePlaybackAvailability {
+  return {
+    // MISSING/PENDING describe the server cache, not the upstream media. The
+    // stable server URL remains playable because its first request can fetch it.
+    TV_SIZE: Boolean(theme.mediaModes?.tvSize?.url || theme.audioUrl),
+    FULL_SIZE: Boolean(theme.mediaModes?.fullSize?.url),
+    VIDEO: Boolean(theme.mediaModes?.video?.url || theme.videoUrl),
+  }
 }
 
 /** Converts an API theme into the occurrence payload used by QueueStore. */
@@ -40,9 +60,10 @@ export function mapThemeToQueueItem(theme: LibraryThemeDto, options: ThemeQueueI
   const tv = theme.mediaModes?.tvSize
   const full = theme.mediaModes?.fullSize
   const video = theme.mediaModes?.video
-  const tvAudioUrl = tv?.url || theme.audioUrl || undefined
-  const fullAudioUrl = full?.url || undefined
-  const videoUrl = video?.url || theme.videoUrl || undefined
+  const availability = themePlaybackAvailability(theme)
+  const tvAudioUrl = availability.TV_SIZE ? tv?.url || theme.audioUrl || undefined : undefined
+  const fullAudioUrl = availability.FULL_SIZE ? full?.url || undefined : undefined
+  const videoUrl = availability.VIDEO ? video?.url || theme.videoUrl || undefined : undefined
   const selectedMode = options.mode ?? 'TV_SIZE'
   const audioUrl = selectedMode === 'FULL_SIZE' && fullAudioUrl ? fullAudioUrl : tvAudioUrl
   const artists = theme.artists?.map((artist) => artist.name.trim()).filter(Boolean).join(', ')
@@ -65,6 +86,7 @@ export function mapThemeToQueueItem(theme: LibraryThemeDto, options: ThemeQueueI
     // An absent mode inherits the provider's remembered user default. Playlist
     // projections pass an explicit mode when their policy requires one.
     mode: options.mode,
+    softMode: options.softMode ?? (options.mode === 'TV_SIZE' || options.mode === 'FULL_SIZE' ? options.mode : undefined),
     requiredMode: options.requiredMode,
     tvAudioUrl,
     fullAudioUrl,

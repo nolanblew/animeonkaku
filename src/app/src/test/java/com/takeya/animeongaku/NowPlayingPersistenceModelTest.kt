@@ -521,7 +521,7 @@ class NowPlayingPersistenceModelTest {
     }
 
     @Test
-    fun `typed persistence does not restore Video override`() {
+    fun `typed persistence restores Video override`() {
         val entry = QueueEntry(81, PlayableItem.Theme(theme(1)))
         val persisted = NowPlayingState(
             originalQueueEntries = listOf(entry),
@@ -538,7 +538,7 @@ class NowPlayingPersistenceModelTest {
             animeMap = emptyMap()
         )!!
 
-        assertEquals(null, restored.playbackIntent.sessionOverride)
+        assertEquals(PlaybackMode.VIDEO, restored.playbackIntent.sessionOverride)
     }
 
     private fun theme(id: Long) = ThemeEntity(

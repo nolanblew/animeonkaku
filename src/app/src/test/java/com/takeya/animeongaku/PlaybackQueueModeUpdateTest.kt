@@ -19,6 +19,10 @@ import com.takeya.animeongaku.media.descriptorsAfterStructuralDiff
 import com.takeya.animeongaku.media.resolveForCurrentPlaybackSnapshot
 import com.takeya.animeongaku.media.retainCurrentPlaybackSource
 import com.takeya.animeongaku.media.toPlaybackMediaDescriptor
+import com.takeya.animeongaku.media.entriesWithRecordedReplaySources
+import com.takeya.animeongaku.media.QueueEntry
+import com.takeya.animeongaku.media.PlayableItem
+import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.local.LoudnessProfile
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -104,7 +108,7 @@ class PlaybackQueueModeUpdateTest {
         )
         val player = FakePlaybackItemController(old, currentIndex = 1, playWhenReady = false)
 
-        replaceModeChangedPlaybackItems(player, desired)
+        val replacedCurrent = replaceModeChangedPlaybackItems(player, desired)
 
         assertEquals(listOf("10", "11", "12"), player.items.map { it.mediaId })
         assertEquals(1, player.currentIndex)
@@ -112,6 +116,35 @@ class PlaybackQueueModeUpdateTest {
         assertEquals(listOf(1 to 0L), player.seeks)
         assertFalse(player.playWhenReady)
         assertEquals(1, player.prepareCalls)
+        assertTrue(replacedCurrent)
+    }
+
+    @Test
+    fun `played non-current occurrences retain recorded source before previous or repeat transition`() {
+        val played = QueueEntry(
+            queueId = 10,
+            item = PlayableItem.Theme(theme(10)),
+            desiredMode = PlaybackMode.FULL_SIZE,
+            lastActualMode = PlaybackMode.TV_SIZE
+        )
+        val current = QueueEntry(
+            queueId = 11,
+            item = PlayableItem.Theme(theme(11)),
+            desiredMode = PlaybackMode.FULL_SIZE,
+            lastActualMode = PlaybackMode.FULL_SIZE
+        )
+        val unplayed = QueueEntry(
+            queueId = 12,
+            item = PlayableItem.Theme(theme(12)),
+            desiredMode = PlaybackMode.FULL_SIZE
+        )
+
+        val prepared = entriesWithRecordedReplaySources(listOf(played, current, unplayed), current.queueId)
+
+        assertTrue(prepared[0].replayRequested)
+        assertFalse(prepared[1].replayRequested)
+        assertFalse(prepared[2].replayRequested)
+        assertEquals(PlaybackMode.TV_SIZE, prepared[0].lastActualMode)
     }
 
     @Test
@@ -363,6 +396,18 @@ class PlaybackQueueModeUpdateTest {
         artworkUrl = null,
         albumTitle = null,
         animeTitle = "Anime"
+    )
+
+    private fun theme(id: Long) = ThemeEntity(
+        id = id,
+        animeId = id,
+        title = "Theme $id",
+        artistName = "Artist",
+        audioUrl = "https://server/tv/$id",
+        videoUrl = null,
+        isDownloaded = false,
+        localFilePath = null,
+        themeType = "OP"
     )
 
     private class FakePlaybackItemController(

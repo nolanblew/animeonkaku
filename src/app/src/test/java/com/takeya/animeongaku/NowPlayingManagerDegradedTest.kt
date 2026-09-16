@@ -94,7 +94,7 @@ class NowPlayingManagerDegradedTest {
     }
 
     @Test
-    fun `offline TV file never satisfies Full Size requirement`() {
+    fun `offline TV file remains playable when Full Size is only the queue desire`() {
         val npm = manager(active = false, availableKeys = setOf(MediaKey.themeTv(1)))
         val fullTheme = PlayableItem.Theme(
             theme(1, downloaded = true),
@@ -113,7 +113,7 @@ class NowPlayingManagerDegradedTest {
             initialSessionMode = PlaybackMode.FULL_SIZE
         )
 
-        assertEquals(0, npm.state.value.nowPlayingEntries.size)
+        assertEquals(1, npm.state.value.nowPlayingEntries.size)
     }
 
     @Test

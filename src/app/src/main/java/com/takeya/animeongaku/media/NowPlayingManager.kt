@@ -31,14 +31,25 @@ class NowPlayingManager @Inject constructor(
     private var nextQueueEntryId: Long = 1L
 
     fun restoreState(state: NowPlayingState) {
-        val restoredAudioOverride = state.playbackIntent.sessionOverride
-            ?.takeIf { it == PlaybackMode.TV_SIZE || it == PlaybackMode.FULL_SIZE }
-        val restored = state.withUniqueHistoryEntries().copy(
+        val restoredBase = state.withUniqueHistoryEntries().copy(
             playbackIntent = PlaybackIntent(
                 rememberedAudioMode = playbackPreferences.rememberedAudioMode,
-                sessionOverride = restoredAudioOverride
+                sessionOverride = state.playbackIntent.sessionOverride,
+                manualOverride = state.playbackIntent.manualOverride,
+                actionSequence = state.playbackIntent.actionSequence,
+                queueDesiredSequence = state.playbackIntent.queueDesiredSequence,
+                queueStarted = state.playbackIntent.queueStarted || state.nowPlayingEntries.isNotEmpty()
             )
         )
+        // Persistence records the last actual source even when no explicit replay marker was
+        // pending. The current occurrence must resume that source after process death before any
+        // later preference action invalidates it.
+        val restoredCurrentId = restoredBase.currentEntry?.queueId
+        val restored = restoredCurrentId?.let { queueId ->
+            restoredBase.updateOccurrence(queueId) { entry ->
+                entry.copy(replayRequested = entry.lastActualMode != null)
+            }
+        } ?: restoredBase
         nextQueueEntryId = restored.maxQueueEntryId + 1L
         _state.value = restored.copy(isFullReload = true)
     }
@@ -51,7 +62,7 @@ class NowPlayingManager @Inject constructor(
         if (index < 0 || index >= current.nowPlayingEntries.size) return
         val queueId = current.nowPlayingEntries[index].queueId
         
-        _state.value = current.copy(
+        _state.value = current.updateOccurrence(queueId) { it.copy(isUnskipped = true) }.copy(
             unskippedEntryIds = current.unskippedEntryIds + queueId,
             queueVersion = current.queueVersion + 1,
             isFullReload = true
@@ -97,10 +108,27 @@ class NowPlayingManager @Inject constructor(
         val current = _state.value
         val intent = PlaybackIntent(
             rememberedAudioMode = playbackPreferences.rememberedAudioMode,
-            sessionOverride = mode
+            sessionOverride = mode,
+            manualOverride = true,
+            actionSequence = current.playbackIntent.actionSequence + 1L,
+            queueDesiredSequence = current.playbackIntent.actionSequence + 1L,
+            queueStarted = current.playbackIntent.queueStarted
         )
-        _state.value = current.copy(
+        val currentQueueId = current.currentEntry?.queueId
+        val updated = currentQueueId?.let { queueId ->
+            current.updateOccurrence(queueId) {
+                it.copy(
+                    desiredMode = mode,
+                    manualMode = mode,
+                    modeSeedSequence = intent.actionSequence,
+                    replayRequested = false,
+                    isUnskipped = true
+                )
+            }
+        } ?: current
+        _state.value = updated.copy(
             playbackIntent = intent,
+            unskippedEntryIds = currentQueueId?.let { current.unskippedEntryIds + it } ?: current.unskippedEntryIds,
             queueVersion = current.queueVersion + 1,
             modeSelectionGeneration = current.modeSelectionGeneration + 1,
             isFullReload = false
@@ -109,7 +137,12 @@ class NowPlayingManager @Inject constructor(
 
     fun clearThemeSessionOverride() {
         val current = _state.value
-        val intent = PlaybackIntent(rememberedAudioMode = playbackPreferences.rememberedAudioMode)
+        val intent = PlaybackIntent(
+            rememberedAudioMode = playbackPreferences.rememberedAudioMode,
+            actionSequence = current.playbackIntent.actionSequence,
+            queueDesiredSequence = current.playbackIntent.queueDesiredSequence,
+            queueStarted = current.playbackIntent.queueStarted
+        )
         if (current.playbackIntent == intent) return
         _state.value = current.copy(
             playbackIntent = intent,
@@ -137,7 +170,12 @@ class NowPlayingManager @Inject constructor(
             "One base policy is required per source item"
         }
 
-        val admissionIntent = _state.value.playbackIntent.copy(sessionOverride = initialSessionMode)
+        // A replacement queue starts a fresh device-local mode lifetime. The old global
+        // remembered audio preference is presentation history only and must not seed it.
+        val admissionIntent = PlaybackIntent(
+            rememberedAudioMode = _state.value.playbackIntent.rememberedAudioMode,
+            sessionOverride = initialSessionMode
+        )
         val playableWithSourceIndex = playableItemsWithSourceIndex(
             items = items,
             playbackIntent = admissionIntent
@@ -148,8 +186,29 @@ class NowPlayingManager @Inject constructor(
         val playablePolicies = baseModePolicies?.let { policies ->
             playableWithSourceIndex.map { policies[it.index] }
         }
+        val initialActionSequence = when {
+            initialSessionMode != null -> 1L
+            playablePolicies?.any { it.hasSoftMode() } == true -> 1L
+            else -> 0L
+        }
+        // A playlist default is the queue seed for a replacement queue. Entry-specific mode
+        // overrides still travel on their own occurrences, while later appended entries can
+        // carry a newer soft seed without rewriting this queue intent.
+        val initialQueueMode = initialSessionMode
+            ?: playablePolicies?.mapNotNull { it.playlistDefault }?.firstOrNull()
+        val initialQueueDesiredSequence = initialQueueMode?.let {
+            if (initialSessionMode != null) initialActionSequence else 0L
+        } ?: 0L
         val originalEntries = playable.mapIndexed { index, item ->
-            QueueEntry(nextQueueEntryId++, item, playablePolicies?.get(index) ?: baseModePolicy)
+            val policy = playablePolicies?.get(index) ?: baseModePolicy
+            QueueEntry(
+                queueId = nextQueueEntryId++,
+                item = item,
+                baseModePolicy = policy,
+                modeSeedSequence = initialActionSequence.takeIf {
+                    initialSessionMode == null && policy.hasSoftMode()
+                } ?: 0L
+            )
         }
         val sourceIndexes = playableWithSourceIndex.map { it.index }
         val requestedPlayableStart = sourceIndexes.indexOf(startIndex).takeIf { it >= 0 }
@@ -199,7 +258,10 @@ class NowPlayingManager @Inject constructor(
             animeMap = animeMap,
             playbackIntent = PlaybackIntent(
                 rememberedAudioMode = _state.value.playbackIntent.rememberedAudioMode,
-                sessionOverride = initialSessionMode
+                sessionOverride = initialQueueMode,
+                actionSequence = initialActionSequence,
+                queueDesiredSequence = initialQueueDesiredSequence,
+                queueStarted = true
             ),
             queueVersion = _state.value.queueVersion + 1,
             playRequestGeneration = _state.value.playRequestGeneration + 1,
@@ -232,8 +294,15 @@ class NowPlayingManager @Inject constructor(
             baseModePolicies?.get(index) ?: baseModePolicy
         }
         if (playable.isEmpty()) return
+        val insertionActionSequence = current.playbackIntent.actionSequence + 1L
         val insertedEntries = playable.map { indexed ->
-            QueueEntry(nextQueueEntryId++, indexed.value, baseModePolicies?.get(indexed.index) ?: baseModePolicy)
+            val policy = baseModePolicies?.get(indexed.index) ?: baseModePolicy
+            QueueEntry(
+                queueId = nextQueueEntryId++,
+                item = indexed.value,
+                baseModePolicy = policy,
+                modeSeedSequence = insertionActionSequence.takeIf { policy.hasSoftMode() } ?: 0L
+            )
         }
         if (current.nowPlayingEntries.isEmpty()) {
             _state.value = createStandaloneQueueState(
@@ -257,6 +326,13 @@ class NowPlayingManager @Inject constructor(
             playNextEntryIds = insertedEntries.map { it.queueId } + queueAfterSuggestionRemoval.playNextEntryIds,
             suggestedEntryIds = emptyList(),
             animeMap = queueAfterSuggestionRemoval.animeMap + animeMap,
+            playbackIntent = queueAfterSuggestionRemoval.playbackIntent.copy(
+                actionSequence = if (insertedEntries.any { it.modeSeedSequence > 0L }) {
+                    insertionActionSequence
+                } else {
+                    queueAfterSuggestionRemoval.playbackIntent.actionSequence
+                }
+            ),
             queueVersion = queueAfterSuggestionRemoval.queueVersion + 1,
             isFullReload = false
         )
@@ -293,8 +369,15 @@ class NowPlayingManager @Inject constructor(
             baseModePolicies?.get(index) ?: baseModePolicy
         }
         if (playable.isEmpty()) return
+        val insertionActionSequence = current.playbackIntent.actionSequence + 1L
         val appendedEntries = playable.map { indexed ->
-            QueueEntry(nextQueueEntryId++, indexed.value, baseModePolicies?.get(indexed.index) ?: baseModePolicy)
+            val policy = baseModePolicies?.get(indexed.index) ?: baseModePolicy
+            QueueEntry(
+                queueId = nextQueueEntryId++,
+                item = indexed.value,
+                baseModePolicy = policy,
+                modeSeedSequence = insertionActionSequence.takeIf { policy.hasSoftMode() } ?: 0L
+            )
         }
         if (current.nowPlayingEntries.isEmpty()) {
             _state.value = createStandaloneQueueState(
@@ -315,6 +398,13 @@ class NowPlayingManager @Inject constructor(
             addedToQueueEntryIds = queueAfterSuggestionRemoval.addedToQueueEntryIds + appendedEntries.map { it.queueId },
             suggestedEntryIds = emptyList(),
             animeMap = queueAfterSuggestionRemoval.animeMap + animeMap,
+            playbackIntent = queueAfterSuggestionRemoval.playbackIntent.copy(
+                actionSequence = if (appendedEntries.any { it.modeSeedSequence > 0L }) {
+                    insertionActionSequence
+                } else {
+                    queueAfterSuggestionRemoval.playbackIntent.actionSequence
+                }
+            ),
             queueVersion = queueAfterSuggestionRemoval.queueVersion + 1,
             isFullReload = false
         )
@@ -335,8 +425,8 @@ class NowPlayingManager @Inject constructor(
             val entry = QueueEntry(queueId = 0L, item = indexed.value, baseModePolicy = policyAt(indexed.index))
             val requiredKey = requiredOfflineMediaKey(entry, playbackIntent)
             sessionStateManager.isOnlineEnabled() ||
-                isExactOfflineAvailable(entry, offlineMediaAvailability.snapshot(), playbackIntent) ||
-                (requiredKey?.value?.startsWith("THEME:") == true && !indexed.value.localFilePath.isNullOrBlank())
+                isOfflinePlayable(entry, offlineMediaAvailability.snapshot(), playbackIntent) ||
+                !indexed.value.localFilePath.isNullOrBlank()
         }
 
     /**
@@ -363,7 +453,7 @@ class NowPlayingManager @Inject constructor(
      * Called when the media player transitions to a new track.
      * Updates currentIndex, history, and playedIndices using the queue entry id.
      */
-    fun onTrackChangedByQueueId(queueId: Long) {
+    fun onTrackChangedByQueueId(queueId: Long, replayRecordedMode: Boolean = false) {
         val current = _state.value
         val expectedNextIndex = current.currentIndex + 1
         val newIndex = if (
@@ -398,10 +488,74 @@ class NowPlayingManager @Inject constructor(
             current.historyEntries
         }
 
-        _state.value = current.copy(
+        var updated = current.copy(
             currentIndex = newIndex,
             historyEntries = newHistory,
             playedIndices = current.playedIndices + newIndex
+        )
+        if (replayRecordedMode && updated.findQueueEntry(queueId)?.lastActualMode != null) {
+            updated = updated.updateOccurrence(queueId) { it.copy(replayRequested = true) }
+                .copy(queueVersion = current.queueVersion + 1, isFullReload = false)
+        }
+        _state.value = updated
+    }
+
+    /** Ends the queue-local mode lifetime after the final occurrence has completed. */
+    fun resetQueueModeAfterExhaustion() {
+        val current = _state.value
+        if (current.playbackIntent.sessionOverride == null &&
+            current.nowPlayingEntries.none { it.desiredMode != null || it.manualMode != null }
+        ) return
+        fun reset(entry: QueueEntry) = entry.copy(desiredMode = null, manualMode = null)
+        _state.value = current.copy(
+            originalQueueEntries = current.originalQueueEntries.map(::reset),
+            nowPlayingEntries = current.nowPlayingEntries.map(::reset),
+            historyEntries = current.historyEntries.map(::reset),
+            playbackIntent = PlaybackIntent(
+                rememberedAudioMode = current.playbackIntent.rememberedAudioMode,
+                queueStarted = true
+            ),
+            queueVersion = current.queueVersion + 1,
+            modeSelectionGeneration = current.modeSelectionGeneration + 1,
+            isFullReload = false
+        )
+    }
+
+    /** Records the source selected for one queue occurrence without changing its desired intent. */
+    fun recordActualMode(queueId: Long, actualMode: PlaybackMode?) {
+        if (actualMode == null) return
+        val current = _state.value
+        val occurrence = current.findQueueEntry(queueId) ?: return
+        if (occurrence.lastActualMode == actualMode && !occurrence.replayRequested) return
+        _state.value = current.updateOccurrence(queueId) {
+            // A Back/repeat/row replay pins the recorded source for this occurrence. Keep the
+            // pin after Media3 reports the transition; clearing it here lets the following queue
+            // reconciliation immediately snap back to the queue's desired mode.
+            it.copy(lastActualMode = actualMode)
+        }
+    }
+
+    fun requestOccurrenceReplay(queueId: Long) {
+        val current = _state.value
+        if (current.findQueueEntry(queueId)?.lastActualMode == null) return
+        // Queue reconciliation is keyed by queueVersion. A replay marker without a version
+        // change would be invisible to MediaControllerManager and the old Media3 descriptor
+        // would remain active, so this occurrence must be resolved again before it plays.
+        _state.value = current.updateOccurrence(queueId) { it.copy(replayRequested = true) }
+            .copy(queueVersion = current.queueVersion + 1, isFullReload = false)
+    }
+
+    /** A newly applied dislike invalidates older manual/unskip state for this occurrence. */
+    fun invalidateOccurrenceForPreference(queueId: Long) {
+        val current = _state.value
+        if (current.findQueueEntry(queueId) == null) return
+        _state.value = current.updateOccurrence(queueId) {
+            it.copy(manualMode = null, replayRequested = false, isUnskipped = false)
+        }.copy(
+            unskippedEntryIds = current.unskippedEntryIds - queueId,
+            queueVersion = current.queueVersion + 1,
+            modeSelectionGeneration = current.modeSelectionGeneration + 1,
+            isFullReload = false
         )
     }
 
@@ -425,14 +579,21 @@ class NowPlayingManager @Inject constructor(
         val current = _state.value
         if (index < 0 || index >= current.nowPlayingEntries.size) return
 
+        // A direct queue-row selection is an explicit user action: restore the occurrence's
+        // recorded source and temporarily allow it through preference filtering.
+        val targetQueueId = current.nowPlayingEntries[index].queueId
+        val selected = current.updateOccurrence(targetQueueId) {
+            it.copy(isUnskipped = true, replayRequested = true)
+        }
+
         val newHistory = if (index > current.currentIndex) {
-            current.historyEntries.appendUniqueQueueEntries(current.nowPlayingEntries.subList(current.currentIndex, index))
+            selected.historyEntries.appendUniqueQueueEntries(selected.nowPlayingEntries.subList(selected.currentIndex, index))
         } else if (index < current.currentIndex) {
-            val targetEntry = current.nowPlayingEntries[index]
-            val histIdx = current.historyEntries.indexOfLast { it.queueId == targetEntry.queueId }
-            if (histIdx >= 0) current.historyEntries.subList(0, histIdx) else current.historyEntries
+            val targetEntry = selected.nowPlayingEntries[index]
+            val histIdx = selected.historyEntries.indexOfLast { it.queueId == targetEntry.queueId }
+            if (histIdx >= 0) selected.historyEntries.subList(0, histIdx) else selected.historyEntries
         } else {
-            current.historyEntries
+            selected.historyEntries
         }
 
         // Mark all skipped-over indices as played
@@ -443,7 +604,10 @@ class NowPlayingManager @Inject constructor(
         _state.value = current.copy(
             currentIndex = index,
             historyEntries = newHistory,
+            nowPlayingEntries = selected.nowPlayingEntries,
+            originalQueueEntries = selected.originalQueueEntries,
             playedIndices = current.playedIndices + skippedIndices + index,
+            unskippedEntryIds = current.unskippedEntryIds + targetQueueId,
             queueVersion = current.queueVersion + 1,
             playRequestGeneration = current.playRequestGeneration + 1,
             isFullReload = true
@@ -578,14 +742,16 @@ class NowPlayingManager @Inject constructor(
         val restoredTracks = current.historyEntries.subList(historyIndex, current.historyEntries.size)
         val trimmedHistory = current.historyEntries.subList(0, historyIndex)
 
-        val newNowPlaying = restoredTracks + current.nowPlayingEntries.subList(current.currentIndex, current.nowPlayingEntries.size)
+        val newNowPlaying = (restoredTracks + current.nowPlayingEntries.subList(current.currentIndex, current.nowPlayingEntries.size))
+            .mapIndexed { index, entry ->
+                if (index == 0) entry.copy(replayRequested = true) else entry
+            }
 
         _state.value = current.copy(
             nowPlayingEntries = newNowPlaying,
             currentIndex = 0,
             historyEntries = trimmedHistory,
             playedIndices = setOf(0),
-            unskippedEntryIds = emptySet(),
             queueVersion = current.queueVersion + 1,
             playRequestGeneration = current.playRequestGeneration + 1,
             isFullReload = true
@@ -715,7 +881,9 @@ class NowPlayingManager @Inject constructor(
         entries: List<QueueEntry>,
         animeMap: Map<Long, AnimeEntity>,
         playRequestGeneration: Long
-    ): NowPlayingState = NowPlayingState(
+    ): NowPlayingState {
+        val queueSeed = entries.mapNotNull { it.baseModePolicy.playlistDefault }.firstOrNull()
+        return NowPlayingState(
         originalQueueEntries = entries,
         nowPlayingEntries = entries,
         currentIndex = 0,
@@ -728,25 +896,57 @@ class NowPlayingManager @Inject constructor(
         contextLabel = contextLabel,
         animeMap = animeMap,
         playbackIntent = PlaybackIntent(
-            rememberedAudioMode = _state.value.playbackIntent.rememberedAudioMode
+            rememberedAudioMode = _state.value.playbackIntent.rememberedAudioMode,
+            sessionOverride = queueSeed,
+            actionSequence = entries.maxOfOrNull { it.modeSeedSequence } ?: 0L,
+            queueStarted = true
         ),
         queueVersion = _state.value.queueVersion + 1,
         playRequestGeneration = playRequestGeneration,
         isFullReload = true
-    )
+        )
+    }
 }
 
 @Stable
 data class QueueEntry(
     val queueId: Long,
     val item: PlayableItem,
-    val baseModePolicy: BaseModePolicy = BaseModePolicy.Inherit
+    val baseModePolicy: BaseModePolicy = BaseModePolicy.Inherit,
+    /** Queue-local desired mode. Null means inherit the queue seed or TV default. */
+    val desiredMode: PlaybackMode? = null,
+    /** Last source actually used for this occurrence (independent of duplicate copies). */
+    val lastActualMode: PlaybackMode? = null,
+    /** Explicit selection for this occurrence; it outranks saved and soft preferences. */
+    val manualMode: PlaybackMode? = null,
+    /** Action sequence at which a soft playlist seed was inserted. */
+    val modeSeedSequence: Long = 0L,
+    /** Pins an ordinary Back/repeat/row replay to the recorded actual mode. */
+    val replayRequested: Boolean = false,
+    /** Explicitly restored/unskipped occurrence state. */
+    val isUnskipped: Boolean = false
 ) {
     constructor(
         queueId: Long,
         theme: ThemeEntity,
-        baseModePolicy: BaseModePolicy = BaseModePolicy.Inherit
-    ) : this(queueId, PlayableItem.Theme(theme), baseModePolicy)
+        baseModePolicy: BaseModePolicy = BaseModePolicy.Inherit,
+        desiredMode: PlaybackMode? = null,
+        lastActualMode: PlaybackMode? = null,
+        manualMode: PlaybackMode? = null,
+        modeSeedSequence: Long = 0L,
+        replayRequested: Boolean = false,
+        isUnskipped: Boolean = false
+    ) : this(
+        queueId,
+        PlayableItem.Theme(theme),
+        baseModePolicy,
+        desiredMode,
+        lastActualMode,
+        manualMode,
+        modeSeedSequence,
+        replayRequested,
+        isUnskipped
+    )
 
     val themeOrNull: ThemeEntity?
         get() = (item as? PlayableItem.Theme)?.theme
@@ -841,6 +1041,28 @@ data class NowPlayingState(
 
 internal fun NowPlayingState.withUniqueHistoryEntries(): NowPlayingState =
     copy(historyEntries = historyEntries.distinctBy { it.queueId })
+
+private fun NowPlayingState.findQueueEntry(queueId: Long): QueueEntry? =
+    (originalQueueEntries + nowPlayingEntries + historyEntries).firstOrNull { it.queueId == queueId }
+
+/** Updates every copy of an occurrence so reorder, history, and repeat retain one state object. */
+private fun NowPlayingState.updateOccurrence(
+    queueId: Long,
+    transform: (QueueEntry) -> QueueEntry
+): NowPlayingState = copy(
+    originalQueueEntries = originalQueueEntries.map { entry ->
+        entry.takeIf { it.queueId != queueId } ?: transform(entry)
+    },
+    nowPlayingEntries = nowPlayingEntries.map { entry ->
+        entry.takeIf { it.queueId != queueId } ?: transform(entry)
+    },
+    historyEntries = historyEntries.map { entry ->
+        entry.takeIf { it.queueId != queueId } ?: transform(entry)
+    }
+)
+
+private fun BaseModePolicy.hasSoftMode(): Boolean =
+    entryPolicy != ThemeModePolicy.INHERIT || playlistDefault != null
 
 private fun List<QueueEntry>.appendUniqueQueueEntries(entries: List<QueueEntry>): List<QueueEntry> {
     if (entries.isEmpty()) return this

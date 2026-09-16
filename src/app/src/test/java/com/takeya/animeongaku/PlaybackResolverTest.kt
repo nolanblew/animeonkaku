@@ -4,6 +4,7 @@ import com.takeya.animeongaku.data.local.SongEntity
 import com.takeya.animeongaku.data.local.DownloadItemEntity
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.local.ThemeModeEntity
+import com.takeya.animeongaku.data.local.UserPreferenceEntity
 import com.takeya.animeongaku.media.BaseModePolicy
 import com.takeya.animeongaku.media.LocalMediaFile
 import com.takeya.animeongaku.media.MediaKey
@@ -100,7 +101,9 @@ class PlaybackResolverTest {
                     val expected = when (preferred) {
                         PlaybackMode.TV_SIZE -> if (tvLocal) PlaybackMode.TV_SIZE else PlaybackMode.FULL_SIZE.takeIf { fullLocal }
                         PlaybackMode.FULL_SIZE -> if (fullLocal) PlaybackMode.FULL_SIZE else PlaybackMode.TV_SIZE.takeIf { tvLocal }
-                        PlaybackMode.VIDEO -> if (tvLocal) PlaybackMode.TV_SIZE else PlaybackMode.FULL_SIZE.takeIf { fullLocal }
+                        // Video has one audio fallback target: TV Size. It does not silently
+                        // redirect to Full Size when the TV file is not downloaded.
+                        PlaybackMode.VIDEO -> PlaybackMode.TV_SIZE.takeIf { tvLocal }
                         PlaybackMode.RELATED_AUDIO -> null
                     }
                     assertEquals(
@@ -305,6 +308,48 @@ class PlaybackResolverTest {
         assertEquals(PlaybackMode.VIDEO, fallback.preferredMode)
         assertEquals(PlaybackMode.TV_SIZE, fallback.actualMode)
         assertEquals(PlaybackSource.SERVER_AUDIO, fallback.source)
+    }
+
+    @Test
+    fun `strict Full Video failure falls back to required Full audio`() {
+        val entry = themeEntry(
+            modes(tv = true, full = true, video = true),
+            policy = BaseModePolicy(
+                entryPolicy = ThemeModePolicy.FULL_SIZE,
+                overrideUserPreference = true
+            )
+        )
+
+        val fallback = resolver.resolveVideoFailureFallback(
+            entry = entry,
+            intent = PlaybackIntent(PlaybackMode.TV_SIZE, PlaybackMode.VIDEO),
+            isOnline = true,
+            localMedia = emptyMap()
+        )
+
+        assertEquals(PlaybackMode.VIDEO, fallback.preferredMode)
+        assertEquals(PlaybackMode.FULL_SIZE, fallback.actualMode)
+        assertEquals(PlaybackSource.SERVER_AUDIO, fallback.source)
+    }
+
+    @Test
+    fun `Video fallback reapplies audio dislike after manual Video override`() {
+        val entry = themeEntry(modes(tv = true, full = true, video = true)).copy(
+            desiredMode = PlaybackMode.VIDEO,
+            manualMode = PlaybackMode.VIDEO,
+            isUnskipped = true
+        )
+
+        val fallback = resolver.resolveVideoFailureFallback(
+            entry = entry,
+            intent = PlaybackIntent(PlaybackMode.TV_SIZE, PlaybackMode.VIDEO),
+            isOnline = true,
+            localMedia = emptyMap(),
+            themePreference = UserPreferenceEntity(themeId = 1, isDislikedTvSize = true)
+        )
+
+        assertEquals(PlaybackMode.VIDEO, fallback.preferredMode)
+        assertNull(fallback.actualMode)
     }
 
     @Test

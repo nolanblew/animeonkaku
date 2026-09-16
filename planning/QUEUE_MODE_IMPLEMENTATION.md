@@ -1,0 +1,20 @@
+# Queue mode implementation contract
+
+Approved scope: Android, web, and Sonos on PR #76. This is the implementation contract; publish the user-facing docs after building and verifying.
+
+## State and precedence
+
+- Queue desired mode is device-local and lasts only for this queue. Persist it with queue restoration, including Video; reset on replacement or complete exhaustion. Do not reuse the old global remembered audio preference to seed new queues. Default TV unless the new source specifies a mode.
+- Every queue occurrence has independent stable identity, last actual mode, and unskip state. Reorder/shuffle/history/repeat preserve these; another copy is independent.
+- Automatic first play: strict required audio availability is a gate. The effective Video intent wins over saved audio preferences. Otherwise saved per-theme preferred audio wins over soft queue/playlist intent. Resolve audio TV -> Full -> skip or Full -> TV -> skip, filtering disliked variants. Video -> TV -> skip, except strict Video -> required audio -> skip. Never automatically fall back TO Video.
+- Manual mode selection on the current occurrence wins over saved preferences and can play a disliked available variant. It records the actual mode for this occurrence and changes queue desired mode, not the saved API theme preference. Video cannot be variant-disliked.
+- Soft playlist preferences carry an action sequence on entry insertion/start. Later manual mode selection supersedes earlier soft playlist seeds. A subsequently appended playlist preference applies only to its entries (including when older queue intent was Video); it does not rewrite queue intent. Determine this effective desired mode before applying the Video exception. Saved per-theme audio preference still wins at automatic first play. Playlist without preference inherits queue intent.
+- Strict requirement belongs to each occurrence. Required audio must exist, even if Video exists. Only required audio and available Video are selectable. A disliked required audio is skipped automatically unless explicit Video intent selects Video; manual selection/unskip can override dislikes but cannot override availability or strict type restriction. Conflicting saved preferred audio does not defeat the strict requirement.
+- Ordinary Back/repeat returns to recorded actual type without changing queue intent. If media vanished, resolve an allowed fallback respecting strictness. Unskip remains per occurrence. Explicit queue-row selection restores last actual state despite dislikes and unskips the occurrence.
+- A new dislike of the currently playing audio version immediately tries the other allowed audio version (never Video); if successful record the new actual mode without changing queue desired mode. Otherwise skip and make ordinary Back/repeat skip this occurrence. Explicit row selection can still restore the last actual type and unskip it. A later newly applied dislike must not be masked by an older manual override/unskip.
+- Global dislike skips automatically; explicit row selection/unskip remains allowed. Standalone SONG/OST playback never changes desired theme mode.
+- Sonos has no shared device intent or picker. Use stored theme preference then playlist soft preference then TV, with strict constraints, availability, and dislikes. Keep sandbox configuration unchanged.
+
+## Verification and completion
+
+Exercise queue sequence Full/Full/TV/Full, Video audio preference exception, manual disliked switches, active dislike fallback/skip, strict mixed entries, soft action recency, duplicate occurrence state, Back/repeat vs explicit selection, reorder/unskip, queue restoration/reset, and offline sources. Use matching policy fixtures across Kotlin and TypeScript where practical. Run platform tests/builds and actual browser checks. The user has connected the Android device for physical testing. Preserve and restore its original app and saved state after isolated fixture testing. Document completed behavior under docs and link existing queue specs. Root reviews, commits, pushes, and updates existing non-draft PR #76.

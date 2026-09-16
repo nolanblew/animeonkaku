@@ -19,13 +19,14 @@ describe('theme version policy', () => {
     expect(resolveQueueItemMode({ ...track, fullAudioUrl: undefined }, snapshot, 'TV_SIZE')).toBe('TV_SIZE')
     expect(snapshot.themesById[1]?.preferredMode).toBe('FULL_SIZE')
   })
-  it('required version skips unavailable, conflicting and disliked tracks even after unskip', () => {
+  it('required version ignores conflicting saved mode while enforcing availability and dislikes', () => {
     const required = { ...track, requiredMode: 'TV_SIZE' as const }
-    for (const preference of [{ preferredMode: 'FULL_SIZE' as const }, { dislikedTvSize: true }, { disliked: true }]) {
+    expect(isQueueEntryAllowedByPreference({ queueId: 7, item: required }, prefs({ preferredMode: 'FULL_SIZE' }))).toBe(true)
+    for (const preference of [{ dislikedTvSize: true }, { disliked: true }]) {
       expect(isQueueEntryAllowedByPreference({ queueId: 7, item: required }, prefs(preference))).toBe(false)
     }
     expect(resolveQueueItemMode({ ...required, tvAudioUrl: undefined }, prefs({}), 'FULL_SIZE')).toBeNull()
-    expect(isQueueEntryAllowedByPreference({ queueId: 7, item: required }, prefs({ dislikedTvSize: true }), new Set([7]))).toBe(false)
+    expect(isQueueEntryAllowedByPreference({ queueId: 7, item: required }, prefs({ dislikedTvSize: true }), new Set([7]))).toBe(true)
   })
   it('never treats full audio as TV audio', () => {
     expect(queueItemAudioUrl({ ...track, tvAudioUrl: undefined, audioUrl: '/full' }, 'TV_SIZE')).toBeUndefined()

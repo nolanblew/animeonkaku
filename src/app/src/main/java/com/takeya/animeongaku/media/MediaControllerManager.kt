@@ -59,6 +59,13 @@ import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private fun PlaybackMode.fallbackLabel(): String = when (this) {
+    PlaybackMode.TV_SIZE -> "TV Size"
+    PlaybackMode.FULL_SIZE -> "Full Size"
+    PlaybackMode.VIDEO -> "Video"
+    PlaybackMode.RELATED_AUDIO -> "Related Audio"
+}
+
 private data class SyncedQueueStructure(
     val queueEntryIds: List<Long>,
     val currentQueueId: Long?,
@@ -181,6 +188,12 @@ class MediaControllerManager @Inject constructor(
                     _playbackState.value.errorMessage != null
                 ) _playbackState.value.errorMessage else null
             )
+            if (playbackState == Player.STATE_ENDED &&
+                controller?.repeatMode == Player.REPEAT_MODE_OFF &&
+                controller?.hasNextMediaItem() != true
+            ) {
+                nowPlayingManager.resetQueueModeAfterExhaustion()
+            }
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -189,10 +202,32 @@ class MediaControllerManager @Inject constructor(
             val queueEntryId = mediaItem?.mediaId?.toLongOrNull()
             updatePlaybackModeState(queueEntryId, resolvedItemsByQueueId[queueEntryId])
             if (queueEntryId != null) {
+                val managerStateBeforeTransition = nowPlayingManager.state.value
+                val targetBeforeTransition = managerStateBeforeTransition.nowPlayingEntries
+                    .firstOrNull { it.queueId == queueEntryId }
+                val shouldReplay = (
+                    managerStateBeforeTransition.currentEntry?.queueId != queueEntryId &&
+                        targetBeforeTransition?.lastActualMode != null
+                    ) ||
+                    reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
+                if (shouldReplay) {
+                    nowPlayingManager.onTrackChangedByQueueId(queueEntryId, replayRecordedMode = true)
+                    val winningActualMode = resolvedItemsByQueueId[queueEntryId]?.actualMode
+                    if (winningActualMode != null && winningActualMode != targetBeforeTransition?.lastActualMode) {
+                        // The recorded source can disappear between plays. The descriptor already
+                        // contains the resolver's allowed fallback, so persist what really won
+                        // without clearing the replay pin or changing queue intent.
+                        nowPlayingManager.recordActualMode(queueEntryId, winningActualMode)
+                    }
+                } else {
+                    nowPlayingManager.recordActualMode(
+                        queueEntryId,
+                        resolvedItemsByQueueId[queueEntryId]?.actualMode
+                    )
+                    nowPlayingManager.onTrackChangedByQueueId(queueEntryId)
+                }
                 val entry = nowPlayingManager.state.value.nowPlayingEntries
                     .firstOrNull { it.queueId == queueEntryId }
-
-                nowPlayingManager.onTrackChangedByQueueId(queueEntryId)
                 
                 // Record play count on track start
                 entry?.let { queueEntry ->
@@ -268,7 +303,10 @@ class MediaControllerManager @Inject constructor(
                     state.playbackIntent
                 )
             } ?: return true
-            if (!fallback.isPlayable || fallback.actualMode != PlaybackMode.TV_SIZE) return false
+            val fallbackActualMode = fallback.actualMode
+            if (!fallback.isPlayable || fallbackActualMode == null || fallbackActualMode == PlaybackMode.VIDEO) {
+                return false
+            }
 
             val index = (0 until ctrl.mediaItemCount).firstOrNull { idx ->
                 ctrl.getMediaItemAt(idx).mediaId == queueId.toString()
@@ -288,6 +326,10 @@ class MediaControllerManager @Inject constructor(
             ctrl.prepare()
 
             resolvedItemsByQueueId = resolvedItemsByQueueId + (queueId to fallback)
+            // Replacing a Media3 item with the same queue id does not necessarily emit a
+            // transition. Persist the actual fallback mode explicitly so Back/repeat and a
+            // process restart retain the source that really played.
+            nowPlayingManager.recordActualMode(queueId, fallbackActualMode)
             lastSyncedDescriptors = lastSyncedDescriptors.map { descriptor ->
                 if (descriptor.mediaId == queueId.toString()) {
                     fallback.toPlaybackMediaDescriptor(
@@ -297,12 +339,13 @@ class MediaControllerManager @Inject constructor(
                 } else descriptor
             }
             _playbackState.value = _playbackState.value.copy(
-                errorMessage = "Video unavailable · playing TV Size",
+                errorMessage = "Video unavailable · playing ${fallbackActualMode.fallbackLabel()}",
                 isBuffering = false,
                 preferredMode = PlaybackMode.VIDEO,
-                actualMode = PlaybackMode.TV_SIZE,
+                actualMode = fallbackActualMode,
                 availableModes = fallback.availableModes,
                 retainedIntentReason = fallback.retainedIntentReason,
+                dislikedModes = fallback.dislikedModes,
                 videoSpoiler = fallback.videoSpoiler,
                 videoNsfw = fallback.videoNsfw
             )
@@ -451,24 +494,72 @@ class MediaControllerManager @Inject constructor(
                     // All collectors are scoped to readiness. A reconnect cancels this whole
                     // group before creating one new set, rather than accumulating observers.
                     launch {
+                        var previousPreferences: Map<Long, UserPreferenceEntity> = emptyMap()
+                        var hasPreferenceBaseline = false
                         userPreferencesRepository.observeAllPreferences().collectLatest { preferences ->
-                            cachedThemePreferences = preferences.associateBy { it.themeId }
+                            val nextPreferences = preferences.associateBy { it.themeId }
+                            val previous = if (hasPreferenceBaseline) previousPreferences else nextPreferences
+                            hasPreferenceBaseline = true
+                            previousPreferences = nextPreferences
+                            cachedThemePreferences = nextPreferences
                             resolutionRevision++
                             val ctrl = controller ?: return@collectLatest
                             val npState = nowPlayingManager.state.value
                             if (npState.nowPlayingEntries.isNotEmpty()) {
-                                applyPreferenceQueueFilter(ctrl, npState)
+                                val current = npState.currentEntry
+                                val currentResolved = current?.queueId?.let(resolvedItemsByQueueId::get)
+                                val currentThemeId = current?.themeOrNull?.id
+                                val savedModeChanged = hasPreferenceBaseline && currentThemeId != null &&
+                                    previous[currentThemeId]?.preferredMode !=
+                                    nextPreferences[currentThemeId]?.preferredMode
+                                val newlyDisliked = current != null && currentResolved != null &&
+                                    newlyDislikedThemeOccurrence(
+                                        current,
+                                        currentResolved.actualMode,
+                                        previous[current.themeOrNull?.id],
+                                        nextPreferences[current.themeOrNull?.id]
+                                    )
+                                val invalidateCurrentOccurrence = newlyDisliked || savedModeChanged
+                                if (invalidateCurrentOccurrence && current != null) {
+                                    nowPlayingManager.invalidateOccurrenceForPreference(current.queueId)
+                                }
+                                applyPreferenceQueueFilter(
+                                    ctrl,
+                                    nowPlayingManager.state.value,
+                                    preserveCurrentPlayback = !invalidateCurrentOccurrence
+                                )
                             }
                         }
                     }
                     launch {
+                        var previousDislikedSongIds: Set<Long> = emptySet()
+                        var hasDislikedSongBaseline = false
                         userPreferencesRepository.observeDislikedSongIds().collectLatest { dislikedSongIds ->
-                            cachedDislikedSongIds = dislikedSongIds.toSet()
+                            val nextDislikedSongIds = dislikedSongIds.toSet()
+                            val newlyDislikedSongs = if (hasDislikedSongBaseline) {
+                                nextDislikedSongIds - previousDislikedSongIds
+                            } else {
+                                emptySet()
+                            }
+                            hasDislikedSongBaseline = true
+                            previousDislikedSongIds = nextDislikedSongIds
+                            cachedDislikedSongIds = nextDislikedSongIds
                             resolutionRevision++
                             controller?.let { ctrl ->
                                 val state = nowPlayingManager.state.value
                                 if (state.nowPlayingEntries.isNotEmpty()) {
-                                    applyPreferenceQueueFilter(ctrl, state)
+                                    val current = state.currentEntry
+                                    val newlyDisliked = current?.item?.let { item ->
+                                        item is PlayableItem.RelatedSong && item.song.id in newlyDislikedSongs
+                                    } == true
+                                    if (newlyDisliked) {
+                                        current?.queueId?.let(nowPlayingManager::invalidateOccurrenceForPreference)
+                                    }
+                                    applyPreferenceQueueFilter(
+                                        ctrl,
+                                        nowPlayingManager.state.value,
+                                        preserveCurrentPlayback = !newlyDisliked
+                                    )
                                 }
                             }
                         }
@@ -922,12 +1013,17 @@ class MediaControllerManager @Inject constructor(
                 previousItems = lastSyncedDescriptors,
                 desiredItems = desired.descriptors
             )
-            applyModeItemReplacements(
+            val replacedCurrentMode = applyModeItemReplacements(
                 ctrl = ctrl,
                 desired = desired,
                 postStructuralDescriptors = postStructuralDescriptors,
                 preserveCurrent = retainCurrent
             )
+            if (replacedCurrentMode) {
+                desired.resolved.getOrNull(desiredCurrentIndex)?.let { currentResolved ->
+                    nowPlayingManager.recordActualMode(currentResolved.queueId, currentResolved.actualMode)
+                }
+            }
             if (hasUnconsumedUserPlayRequest) {
                 ctrl.play()
                 lastConsumedPlayRequestGeneration = npState.playRequestGeneration
@@ -1023,11 +1119,15 @@ class MediaControllerManager @Inject constructor(
      * Build the list of [MediaItem]s the controller should hold for [npState], honoring the
      * dislike/unskip filter, and the desired current index within that filtered list.
      */
-    private suspend fun applyPreferenceQueueFilter(ctrl: MediaController, npState: NowPlayingState) {
+    private suspend fun applyPreferenceQueueFilter(
+        ctrl: MediaController,
+        npState: NowPlayingState,
+        preserveCurrentPlayback: Boolean = true
+    ) {
         // The winning queue sync owns the transport decision. A preference and an availability
         // invalidation can race; applying skip only after a successful commit prevents either
         // collector from losing the immediate current-dislike action.
-        forceSyncQueue(ctrl, npState, preserveCurrentPlayback = true)
+        forceSyncQueue(ctrl, npState, preserveCurrentPlayback = preserveCurrentPlayback)
     }
 
     private suspend fun buildDesiredItems(
@@ -1037,11 +1137,15 @@ class MediaControllerManager @Inject constructor(
         val includedEntries = npState.nowPlayingEntries.filterIndexed { idx, entry ->
             shouldIncludeInPlayer(idx, entry, npState)
         }
-        val entriesByQueueId = includedEntries.associateBy { it.queueId }
         val currentQueueId = npState.currentEntry?.queueId
+        // Previous and repeat-all can begin playback before Media3 emits a transition callback.
+        // Keep already-played non-current occurrences on their recorded source so a newer queue
+        // desire cannot rewrite playback history before that callback has a chance to arm replay.
+        val resolutionEntries = entriesWithRecordedReplaySources(includedEntries, currentQueueId)
+        val entriesByQueueId = includedEntries.associateBy { it.queueId }
         val previousCurrent = currentQueueId?.let(resolvedItemsByQueueId::get)
         val resolved = playbackResolutionCoordinator
-            .resolveAll(includedEntries, npState.playbackIntent)
+            .resolveAll(resolutionEntries, npState.playbackIntent)
             .filter { resolved ->
                 if (preserveCurrentPlayback && resolved.queueId == currentQueueId && previousCurrent != null) {
                     true
@@ -1086,7 +1190,7 @@ class MediaControllerManager @Inject constructor(
         desired: DesiredPlaybackQueue,
         postStructuralDescriptors: List<PlaybackMediaDescriptor>,
         preserveCurrent: Boolean = false
-    ) {
+    ): Boolean {
         val desiredMediaById = desired.items.associateBy { it.mediaId }
         val adapter = object : PlaybackItemController {
             override val items = postStructuralDescriptors.toMutableList()
@@ -1109,7 +1213,7 @@ class MediaControllerManager @Inject constructor(
 
             override fun prepare() = ctrl.prepare()
         }
-        replaceModeChangedPlaybackItems(
+        return replaceModeChangedPlaybackItems(
             controller = adapter,
             desiredItems = desired.descriptors,
             preserveCurrent = preserveCurrent
@@ -1189,6 +1293,7 @@ class MediaControllerManager @Inject constructor(
             actualMode = resolved?.actualMode,
             availableModes = resolved?.availableModes.orEmpty(),
             retainedIntentReason = resolved?.retainedIntentReason,
+            dislikedModes = resolved?.dislikedModes.orEmpty(),
             videoSpoiler = resolved?.videoSpoiler ?: false,
             videoNsfw = resolved?.videoNsfw ?: false
         )
@@ -1315,6 +1420,22 @@ internal fun isQueueEntryAllowedByPreference(
     }
 }
 
+internal fun newlyDislikedThemeOccurrence(
+    entry: QueueEntry,
+    actualMode: PlaybackMode?,
+    previous: UserPreferenceEntity?,
+    next: UserPreferenceEntity?
+): Boolean {
+    if (entry.item !is PlayableItem.Theme || next == null) return false
+    val broad = next.isDisliked && previous?.isDisliked != true
+    val variant = when (actualMode) {
+        PlaybackMode.TV_SIZE -> next.isDislikedTvSize && previous?.isDislikedTvSize != true
+        PlaybackMode.FULL_SIZE -> next.isDislikedFullSize && previous?.isDislikedFullSize != true
+        else -> false
+    }
+    return broad || variant
+}
+
 internal enum class PreferenceSkipAction { NONE, SEEK_NEXT, STOP }
 
 /** Returns one transport action for a disliked current occurrence, suppressing duplicate writes. */
@@ -1371,7 +1492,9 @@ data class PlaybackState(
     val availableModes: Set<PlaybackMode> = emptySet(),
     val retainedIntentReason: RetainedIntentReason? = null,
     val videoSpoiler: Boolean = false,
-    val videoNsfw: Boolean = false
+    val videoNsfw: Boolean = false,
+    /** Variant dislikes are exposed for the picker while remaining selectable explicitly. */
+    val dislikedModes: Set<PlaybackMode> = emptySet()
 )
 
 data class MediaControllerConnectionState(
@@ -1394,6 +1517,7 @@ internal fun PlaybackState.withResolvedPlayback(
     actualMode = resolved?.actualMode,
     availableModes = resolved?.availableModes.orEmpty(),
     retainedIntentReason = resolved?.retainedIntentReason,
+    dislikedModes = resolved?.dislikedModes.orEmpty(),
     videoSpoiler = resolved?.videoSpoiler ?: false,
     videoNsfw = resolved?.videoNsfw ?: false
 )
@@ -1404,3 +1528,14 @@ private data class DesiredPlaybackQueue(
     val resolved: List<ResolvedPlaybackItem>,
     val currentIndex: Int
 )
+
+internal fun entriesWithRecordedReplaySources(
+    entries: List<QueueEntry>,
+    currentQueueId: Long?
+): List<QueueEntry> = entries.map { entry ->
+    if (entry.queueId != currentQueueId && entry.lastActualMode != null) {
+        entry.copy(replayRequested = true)
+    } else {
+        entry
+    }
+}

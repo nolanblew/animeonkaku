@@ -6,6 +6,7 @@ COPY server/package.json server/package-lock.json ./
 RUN npm ci
 COPY server/tsconfig.json ./
 COPY server/src ./src
+COPY shared /app/shared
 RUN npm run build && npm prune --omit=dev
 
 FROM node:22-alpine AS web-build
@@ -15,6 +16,7 @@ RUN npm ci
 COPY web/index.html web/tsconfig.json web/vite.config.ts ./
 COPY web/public ./public
 COPY web/src ./src
+COPY shared /app/shared
 RUN npm run build
 
 FROM node:22-alpine
@@ -28,4 +30,4 @@ COPY server/drizzle ./drizzle
 COPY server/package.json ./
 COPY --from=web-build /app/web/dist /app/web
 EXPOSE 8080
-CMD ["node", "dist/index.js"]
+CMD ["node", "dist/server/src/index.js"]
