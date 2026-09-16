@@ -248,7 +248,7 @@ fun PlayerScreen(
                         )
                     )) + if (theme != null && animeEntity != null) buildList {
                         val fullDescriptor = queuedThemeModesById[theme.id]
-                            ?: (item as? PlayableItem.Theme)?.modeDescriptor
+                            ?: (item as? PlayableItem.Theme)?.effectiveModeDescriptor
                         val fullAvailable = !fullDescriptor?.fullSizeUrl.isNullOrBlank()
                         add(ActionSheetAction(
                             if (fullAvailable) "report_full_size" else "request_full_size",
@@ -283,7 +283,7 @@ fun PlayerScreen(
                             ThemeMusicRequestTarget(
                                 animeEntity.kitsuId, theme.id, item.display.title,
                                 queuedThemeModesById[theme.id]?.fullSizeSongId
-                                    ?: (item as? PlayableItem.Theme)?.modeDescriptor?.fullSizeSongId
+                                    ?: (item as? PlayableItem.Theme)?.effectiveModeDescriptor?.fullSizeSongId
                             ),
                             if (key == "report_full_size") ThemeMusicRequestReason.INCORRECT_FULL_SIZE
                             else ThemeMusicRequestReason.REQUEST_FULL_SIZE

@@ -70,6 +70,7 @@ import com.takeya.animeongaku.ui.dynamic.DynamicPreviewScreen
 import com.takeya.animeongaku.ui.dynamic.DynamicSimpleCreatorScreen
 import com.takeya.animeongaku.ui.dynamic.DynamicSortBuilderScreen
 import com.takeya.animeongaku.ui.home.HomeScreen
+import com.takeya.animeongaku.ui.home.TopPicksScreen
 import com.takeya.animeongaku.ui.library.AnimeDetailScreen
 import com.takeya.animeongaku.ui.library.ArtistDetailScreen
 import com.takeya.animeongaku.ui.library.LibraryScreen
@@ -104,6 +105,7 @@ import kotlinx.coroutines.flow.collect
 
 private object Routes {
     const val Home = "home"
+    const val TopPicks = "topPicks"
     const val Search = "search"
     const val Library = "library"
     const val Playlist = "playlist"
@@ -381,7 +383,24 @@ fun AnimeOngakuApp(
                                 launchSingleTop = true
                                 restoreState = true
                             }
+                        },
+                        onOpenTopPicks = { chip ->
+                            navController.navigate("${Routes.TopPicks}?filter=${when (chip) {
+                                "OPs" -> "OP"
+                                "EDs" -> "ED"
+                                else -> "ALL"
+                            }}")
                         }
+                    )
+                }
+                composable(
+                    route = "${Routes.TopPicks}?filter={filter}",
+                    arguments = listOf(navArgument("filter") { type = NavType.StringType; defaultValue = "ALL" })
+                ) { entry ->
+                    TopPicksScreen(
+                        filter = entry.arguments?.getString("filter"),
+                        onBack = { navController.popBackStack() },
+                        onPlayTheme = ::openPlayer
                     )
                 }
                 composable(Routes.Search) {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowDownUp, MoreHorizontal, Play, Search, SlidersHorizontal, UserRound } from 'lucide-react'
+import { ArrowDownUp, MoreHorizontal, Play, Search, Shuffle, SlidersHorizontal, UserRound } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { browserAssetUrl } from '../../lib/assets'
 import { selectActiveAnime, type LibraryThemeDto, type NormalizedLibrary } from '../../lib/library'
@@ -16,6 +16,7 @@ import { filterAndSortAnime, type LibrarySort } from './selectors'
 export interface LibraryCatalogPageProps {
   onPlayAnime?: (anime: ReturnType<typeof selectActiveAnime>[number]) => void
   onPlayTheme?: (theme: LibraryThemeDto, artworkUrl?: string | null) => void
+  onPlayThemes?: (themes: LibraryThemeDto[], shuffle: boolean) => void
   onPlayNext?: (theme: LibraryThemeDto, artworkUrl?: string | null) => void
   onAddToQueue?: (theme: LibraryThemeDto, artworkUrl?: string | null) => void
   onPlayPlaylist?: (playlist: NormalizedLibrary['playlistsById'][string]) => void
@@ -26,7 +27,7 @@ export interface LibraryCatalogPageProps {
 type LibraryTab = 'anime' | 'songs' | 'artists' | 'playlists'
 const PAGE_SIZE = 48
 
-export function LibraryCatalogPage({ onPlayAnime, onPlayTheme, onPlayNext, onAddToQueue, onPlayPlaylist, onPlayNextPlaylist, onAddToQueuePlaylist }: LibraryCatalogPageProps = {}) {
+export function LibraryCatalogPage({ onPlayAnime, onPlayTheme, onPlayThemes, onPlayNext, onAddToQueue, onPlayPlaylist, onPlayNextPlaylist, onAddToQueuePlaylist }: LibraryCatalogPageProps = {}) {
   const animeTitlePreference = useAnimeTitlePreference()
   const query = useLibraryQuery()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -104,7 +105,10 @@ export function LibraryCatalogPage({ onPlayAnime, onPlayTheme, onPlayNext, onAdd
         ? <AnimeLibraryView anime={filteredAnime} library={query.library} search={search} status={status} sort={sort} statuses={statuses} onSearch={setSearch} onStatus={setStatus} onSort={setSort} onPlayAnime={onPlayAnime} />
         : <>
             <LibrarySearch tab={tab} value={search} onChange={setSearch} />
-            {tab === 'songs' && <ThemeLibraryList themes={filteredThemes.slice(0, visibleCount)} library={query.library} onPlayTheme={onPlayTheme} onMore={setSelectedTheme} titlePreference={animeTitlePreference} />}
+            {tab === 'songs' && <>
+              <SongCollectionHeader count={filteredThemes.length} disabled={!onPlayThemes || filteredThemes.length === 0} onPlay={() => onPlayThemes?.(filteredThemes, false)} onShuffle={() => onPlayThemes?.(filteredThemes, true)} />
+              <ThemeLibraryList themes={filteredThemes.slice(0, visibleCount)} library={query.library} onPlayTheme={onPlayTheme} onMore={setSelectedTheme} titlePreference={animeTitlePreference} />
+            </>}
             {tab === 'artists' && <ArtistLibraryView artists={artists} themes={filteredThemes} library={query.library} query={normalizedSearch} selectedArtist={selectedArtist} visibleCount={visibleCount} onSelectArtist={setSelectedArtist} onPlayTheme={onPlayTheme} onMore={setSelectedTheme} titlePreference={animeTitlePreference} />}
             {tab === 'playlists' && <PlaylistLibraryView playlists={playlists} library={query.library} query={normalizedSearch} visibleCount={visibleCount} onPlay={onPlayPlaylist} onPlayNext={onPlayNextPlaylist} onAddToQueue={onAddToQueuePlaylist} />}
             {visibleResultTotal > visibleCount && <button type="button" className="button button--text catalog-load-more" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}>Load more</button>}
@@ -113,6 +117,19 @@ export function LibraryCatalogPage({ onPlayAnime, onPlayTheme, onPlayNext, onAdd
       {selectedTheme && <ThemeActions theme={selectedTheme} library={query.library} onPlayTheme={onPlayTheme} onPlayNext={onPlayNext} onAddToQueue={onAddToQueue} onClose={() => setSelectedTheme(null)} titlePreference={animeTitlePreference} />}
     </section>
   )
+}
+
+function SongCollectionHeader({ count, disabled, onPlay, onShuffle }: { count: number; disabled: boolean; onPlay: () => void; onShuffle: () => void }) {
+  return <section className="catalog-collection-header" aria-labelledby="songs-collection-title">
+    <div>
+      <h2 id="songs-collection-title">All songs</h2>
+      <p>{count.toLocaleString()} {count === 1 ? 'track' : 'tracks'} ready to queue</p>
+    </div>
+    <div className="catalog-collection-header__actions">
+      <button type="button" className="button button--primary" onClick={onPlay} disabled={disabled}><Play size={17} fill="currentColor" />Play</button>
+      <button type="button" className="button button--secondary" onClick={onShuffle} disabled={disabled}><Shuffle size={17} />Shuffle</button>
+    </div>
+  </section>
 }
 
 function parseLibraryTab(value: string | null): LibraryTab {

@@ -11,7 +11,13 @@ vi.mock('../../lib/query', async () => ({
   useLibraryQuery: vi.fn(),
 }))
 
+vi.mock('../../auth/AuthProvider', async () => ({
+  ...await vi.importActual<typeof import('../../auth/AuthProvider')>('../../auth/AuthProvider'),
+  useAuth: vi.fn(),
+}))
+
 import { useLibraryQuery } from '../../lib/query'
+import { useAuth } from '../../auth/AuthProvider'
 import { AnimeDetailPage, HomeCatalogPage, LibraryCatalogPage } from './index'
 
 const library: NormalizedLibrary = {
@@ -83,6 +89,7 @@ function renderWithQuery(ui: React.ReactElement, initialEntries = ['/']) {
 }
 
 beforeEach(() => {
+  vi.mocked(useAuth).mockReturnValue({ status: 'authenticated', user: { kitsuUserId: 'test-user', username: 'tester', displayName: null, avatarUrl: null }, me: null, firstSync: { status: 'ready', mode: null, syncMode: null, isNewUser: false }, reauthentication: { status: 'idle', returnTo: null }, login: vi.fn(), logout: vi.fn(), requireReauthentication: vi.fn(), updateProfile: vi.fn(), uploadAvatar: vi.fn(), removeAvatar: vi.fn(), markInitialSyncReady: vi.fn(), refresh: vi.fn() } as never)
   vi.mocked(useLibraryQuery).mockReturnValue({
     status: 'success',
     isPending: false,
@@ -109,13 +116,18 @@ describe('catalog pages', () => {
       recentlyAdded: [{ kitsuId: 'b', title: 'Bocchi the Rock!', posterUrl: '/bocchi.jpg', updatedAt: 9 }],
       playlists: [{ id: 7, name: 'Morning themes', itemCount: 4, isAuto: false, updatedAt: 10 }],
       nextCursor: null,
+      snapshot: 'snapshot-1',
+      generatedAt: 10,
+      expiresAt: 1_800_010,
+      total: 1,
+      items: [{ key: 'THEME:1', itemType: 'THEME', itemId: 1, reason: 'FAVORITE', artworkUrl: '/a.jpg', anime: { kitsuId: 'a', title: 'Frieren: Beyond Journey’s End', titleEn: 'Frieren: Beyond Journey’s End', titleRomaji: null, titleJa: null, posterUrl: '/a.jpg' }, theme: homeLibrary.themesById['1'], preference: null }],
     })
 
     const onPlayTheme = vi.fn()
     renderWithQuery(<HomeCatalogPage onPlayTheme={onPlayTheme} />)
 
-    expect(await screen.findByRole('heading', { name: 'Recommended' })).toBeInTheDocument()
-    const recommended = screen.getByRole('region', { name: 'Recommended' })
+    expect(await screen.findByRole('heading', { name: 'Top picks' })).toBeInTheDocument()
+    const recommended = screen.getByRole('region', { name: 'Top picks' })
     expect(within(recommended).getAllByText('Frieren: Beyond Journey’s End', { selector: '.home-theme-identity__anime' }).length).toBeGreaterThan(0)
     expect(within(recommended).getAllByText('OP', { selector: '.home-theme-identity__type' }).length).toBeGreaterThan(0)
     expect(within(recommended).getAllByText(/^Opening(?: ·|$)/, { selector: 'small' }).length).toBeGreaterThan(0)
@@ -126,7 +138,7 @@ describe('catalog pages', () => {
     expect(screen.queryByRole('button', { name: 'TV size' })).not.toBeInTheDocument()
     expect(screen.queryByText('Welcome back')).not.toBeInTheDocument()
     expect(screen.queryByText('Your listening space')).not.toBeInTheDocument()
-    await userEvent.click(within(screen.getByRole('region', { name: 'Recommended' })).getByRole('button', { name: 'Play Opening' }))
+    await userEvent.click(within(screen.getByRole('region', { name: 'Top picks' })).getByRole('button', { name: 'Play Opening' }))
     expect(onPlayTheme).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), expect.stringContaining('/a.jpg'))
     await userEvent.click(within(recommended).getByRole('button', { name: 'More actions for Opening' }))
     expect(screen.getByRole('menuitem', { name: 'Go to Composer' })).toBeInTheDocument()
@@ -142,7 +154,7 @@ describe('catalog pages', () => {
     expect(screen.getByText('Morning themes')).toBeInTheDocument()
     expect(screen.getByTestId('playlist-artwork-7').querySelectorAll('img')).toHaveLength(1)
     const headings = screen.getAllByRole('heading').map((heading) => heading.textContent)
-    expect(headings.indexOf('Recommended')).toBeLessThan(headings.indexOf('Top songs'))
+    expect(headings.indexOf('Top picks')).toBeLessThan(headings.indexOf('Top songs'))
     expect(headings.indexOf('Top songs')).toBeLessThan(headings.indexOf('Your playlists'))
     expect(headings.indexOf('Your playlists')).toBeLessThan(headings.indexOf('Currently Watching'))
     expect(apiClient.get).toHaveBeenCalledWith('/v1/home?limit=24', expect.anything())
@@ -180,13 +192,43 @@ describe('catalog pages', () => {
 
   it('switches to bounded playable song and playlist library surfaces', async () => {
     const onPlayTheme = vi.fn()
-    renderWithQuery(<LibraryCatalogPage onPlayTheme={onPlayTheme} />)
+    const onPlayThemes = vi.fn()
+    renderWithQuery(<LibraryCatalogPage onPlayTheme={onPlayTheme} onPlayThemes={onPlayThemes} />)
     await userEvent.click(screen.getByRole('tab', { name: 'Songs' }))
     expect(screen.getByRole('searchbox', { name: 'Filter songs' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'All songs' })).toBeInTheDocument()
+    expect(screen.getByText('3 tracks ready to queue')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
+    expect(onPlayThemes).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ id: 1 }), expect.objectContaining({ id: 2 }), expect.objectContaining({ id: 3 })]), false)
+    await userEvent.click(screen.getByRole('button', { name: 'Shuffle' }))
+    expect(onPlayThemes).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ id: 1 }), expect.objectContaining({ id: 2 }), expect.objectContaining({ id: 3 })]), true)
     await userEvent.click(screen.getAllByRole('button', { name: 'Play Opening' })[0]!)
     expect(onPlayTheme).toHaveBeenCalled()
     await userEvent.click(screen.getByRole('tab', { name: 'Playlists' }))
     expect(screen.getByText('No playlists match this view.')).toBeInTheDocument()
+  })
+
+  it('plays and shuffles the complete Songs collection beyond the visible page', async () => {
+    const themesById = Object.fromEntries(Array.from({ length: 60 }, (_, index) => {
+      const id = index + 1
+      return [String(id), theme(id, 'a', `Song ${id}`)]
+    }))
+    vi.mocked(useLibraryQuery).mockReturnValue({
+      ...({ status: 'success', isPending: false, isError: false, isSuccess: true, error: null } as const),
+      library: { ...library, themesById },
+    } as never)
+    const onPlayThemes = vi.fn()
+    renderWithQuery(<LibraryCatalogPage onPlayThemes={onPlayThemes} />)
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Songs' }))
+    expect(screen.getByText('60 tracks ready to queue')).toBeInTheDocument()
+    expect(screen.getAllByRole('article')).toHaveLength(48)
+    await userEvent.click(screen.getByRole('button', { name: 'Play' }))
+    expect(onPlayThemes).toHaveBeenCalledWith(expect.any(Array), false)
+    expect(onPlayThemes.mock.calls[0]?.[0]).toHaveLength(60)
+    await userEvent.click(screen.getByRole('button', { name: 'Shuffle' }))
+    expect(onPlayThemes.mock.calls[1]?.[0]).toHaveLength(60)
+    expect(onPlayThemes.mock.calls[1]?.[1]).toBe(true)
   })
 
   it('drills into artists, filters playlists, and exposes queue actions for songs', async () => {

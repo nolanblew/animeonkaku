@@ -475,3 +475,56 @@ data class OngakuLocalizedNameDto(
     val romaji: String? = null,
     val japanese: String? = null
 )
+
+data class OngakuTopPicksResponse(
+    val serverTime: Long,
+    val snapshot: String,
+    val generatedAt: Long,
+    val expiresAt: Long,
+    val total: Int,
+    val items: List<OngakuTopPickDto> = emptyList()
+)
+
+/** A server ordered Home item. The nested payload is intentionally self-contained so
+ * the Home screen never has to infer membership from progressively hydrated Room rows. */
+data class OngakuTopPickDto(
+    val key: String,
+    val itemType: String,
+    val itemId: Long,
+    val reason: String,
+    val artworkUrl: String? = null,
+    val anime: OngakuMusicAnimeSummaryDto? = null,
+    val theme: OngakuThemeDto? = null,
+    val track: OngakuMusicTrackDto? = null,
+    val release: OngakuTopPickReleaseDto? = null,
+    /** Theme and song preference fields share this JSON slot; absent fields remain null. */
+    val preference: OngakuTopPickPreferenceDto? = null
+)
+
+data class OngakuTopPickReleaseDto(
+    val id: Long,
+    val title: String,
+    val titleEnglish: String? = null,
+    val titleRomaji: String? = null,
+    val titleJapanese: String? = null,
+    val artistCredit: String = "",
+    val artistNames: List<OngakuLocalizedNameDto> = emptyList(),
+    val relationshipType: String = "",
+    val releaseDate: String? = null,
+    val year: Int? = null,
+    val artworkUrl: String? = null
+)
+
+data class OngakuTopPickPreferenceDto(
+    val themeId: Long? = null,
+    val songId: Long? = null,
+    val liked: Boolean = false,
+    val disliked: Boolean = false,
+    val dislikedTvSize: Boolean = false,
+    val dislikedFullSize: Boolean = false,
+    val preferredMode: String? = null,
+    val playCount: Int = 0,
+    val lastPlayedAt: Long? = null,
+    val updatedAt: Long = 0L,
+    val deleted: Boolean = false
+)

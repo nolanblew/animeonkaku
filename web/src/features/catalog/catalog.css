@@ -48,6 +48,10 @@
 .home-anime-actions__trigger:hover { color: white; }
 .home-anime-actions__menu { right: .4rem; bottom: 2.65rem; }
 .home-top-songs__list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .35rem 1.2rem; }
+.home-top-picks-dialog { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 1rem; background: rgba(5,7,12,.78); }
+.home-top-picks-dialog__panel { width: min(70rem, 100%); max-height: min(92vh, 56rem); overflow: auto; padding: clamp(1rem, 3vw, 1.7rem); border: 1px solid var(--line-strong); border-radius: 1rem; background: var(--canvas); box-shadow: var(--shadow); }
+.home-top-picks-dialog__panel .catalog-section__heading { margin-bottom: 1rem; }
+.home-top-picks-dialog__panel .catalog-section__heading p { margin-bottom: 0; }
 .home-top-song { grid-template-columns: minmax(0, 1fr) auto; padding: .4rem; }
 .home-top-song .media-item__main { grid-template-columns: 2.8rem minmax(0, 1fr); gap: .7rem; }
 .home-top-song:hover { background: rgba(255,255,255,.055); }
@@ -70,6 +74,7 @@
 .catalog-section__heading p:not(.eyebrow) { margin: .35rem 0 0; color: var(--muted); font-size: .86rem; }
 .catalog-section__count { color: var(--cyan); font-size: .8rem; white-space: nowrap; }
 .catalog-section__link, .catalog-back-link { display: inline-flex; align-items: center; gap: .35rem; color: var(--cyan); font-size: .82rem; font-weight: 700; }
+.catalog-section__link { padding: 0; border: 0; background: transparent; font: inherit; cursor: pointer; }
 .catalog-home-grid, .catalog-anime-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 1rem; }
 .catalog-home-grid { grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); }
 .catalog-anime-card { container-type: inline-size; position: relative; min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: .85rem; background: rgba(19, 23, 31, .74); transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease; }
@@ -105,6 +110,12 @@
 .catalog-library-tabs button { flex: 0 0 auto; padding: .55rem .8rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(255,255,255,.035); color: var(--muted); cursor: pointer; }
 .catalog-library-tabs button[aria-selected="true"] { border-color: rgba(71,217,232,.5); background: rgba(71,217,232,.11); color: var(--cyan); }
 .catalog-library-search { padding: .75rem; border: 1px solid var(--line); border-radius: .65rem; background: rgba(18,22,30,.7); }
+.catalog-collection-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .8rem; padding: 1rem 1.1rem; border: 1px solid var(--line); border-radius: .8rem; background: rgba(18,22,30,.7); }
+.catalog-collection-header h2, .catalog-collection-header p { margin: 0; }
+.catalog-collection-header h2 { font-size: 1.1rem; }
+.catalog-collection-header p { margin-top: .25rem; color: var(--muted); font-size: .78rem; }
+.catalog-collection-header__actions { display: flex; flex-wrap: wrap; gap: .55rem; }
+.catalog-collection-header__actions .button { min-height: 2.35rem; padding: .5rem .8rem; }
 .catalog-search, .catalog-select { display: flex; min-width: 0; align-items: center; gap: .55rem; color: var(--muted); }
 .catalog-search { flex: 1; padding-inline: .55rem; }
 .catalog-search input, .catalog-select select { min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); }
@@ -205,6 +216,9 @@
   .catalog-page__header { align-items: flex-start; flex-direction: column; gap: 1.2rem; }
   .catalog-page__stat { align-items: start; }
   .catalog-toolbar { align-items: stretch; flex-wrap: wrap; }
+  .catalog-collection-header { align-items: stretch; flex-direction: column; }
+  .catalog-collection-header__actions { width: 100%; }
+  .catalog-collection-header__actions .button { flex: 1; }
   .catalog-search { flex-basis: 100%; padding-bottom: .4rem; }
   .catalog-select { flex: 1; border-top: 1px solid var(--line); border-left: 0; padding-top: .7rem; }
   .catalog-select + .catalog-select { border-left: 1px solid var(--line); }

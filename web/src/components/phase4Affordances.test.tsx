@@ -11,6 +11,17 @@ vi.mock('../lib/query', async () => ({
   useLibraryQuery: () => ({ library: libraryFixture(), status: 'success', isPending: false, isError: false, isSuccess: true, error: null }),
 }))
 
+vi.mock('../auth/AuthProvider', () => ({
+  useAuth: () => ({
+    status: 'authenticated',
+    user: { kitsuUserId: 'test-user', username: 'tester', displayName: null, avatarUrl: null, kitsuAvatarUrl: null },
+    me: null,
+    firstSync: { status: 'ready', mode: null, syncMode: null, isNewUser: false },
+    reauthentication: { status: 'idle', returnTo: null },
+    logout: vi.fn(() => Promise.resolve()),
+  }),
+}))
+
 import { ResponsiveShell } from './ResponsiveShell'
 import { HomeCatalogPage } from '../features/catalog/HomeCatalogPage'
 import { PlayerProvider, QueueStore } from '../player'
@@ -62,6 +73,18 @@ function homeFixture() {
 function renderHome() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   client.setQueryData(['home'], homeFixture())
+  client.setQueryData(['top-picks', 'test-user', 'ALL:extras'], {
+    serverTime: 1,
+    snapshot: '00000000-0000-4000-8000-000000000001',
+    generatedAt: 1,
+    expiresAt: Date.now() + 1_800_000,
+    total: 1,
+    items: [{
+      key: 'THEME:41', itemType: 'THEME', itemId: 41, reason: 'DISCOVERY', artworkUrl: '/images/anime-9.jpg',
+      anime: { kitsuId: 'anime-9', title: 'Runtime QA Anthology', titleEn: 'Runtime QA Anthology', posterUrl: '/images/anime-9.jpg' },
+      theme: themeFixture(), preference: null,
+    }],
+  })
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter><HomeCatalogPage /></MemoryRouter>
@@ -75,8 +98,8 @@ describe('phase 4 affordance contracts', () => {
   it('opens a real action menu from each Home quick pick overflow control', async () => {
     renderHome()
 
-    const recommended = await screen.findByRole('region', { name: 'Recommended' })
-    const more = within(recommended).getByRole('button', { name: 'More actions for Signal in Violet' })
+    const topPicks = await screen.findByRole('region', { name: 'Top picks' })
+    const more = within(topPicks).getByRole('button', { name: 'More actions for Signal in Violet' })
     await userEvent.click(more)
 
     expect(screen.getByRole('menu', { name: 'Signal in Violet actions' })).toBeInTheDocument()

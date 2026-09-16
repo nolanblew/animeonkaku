@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { apiClient } from '../lib/api'
 
 export const AUTH_QUERY_KEY = ['auth', 'me'] as const
-const ACCOUNT_QUERY_PREFIXES = [['library'], ['playlists'], ['playlist'], ['home'], ['anime'], ['anime-music']] as const
+const ACCOUNT_QUERY_PREFIXES = [['library'], ['playlists'], ['playlist'], ['home'], ['top-picks'], ['anime'], ['anime-music']] as const
 
 export interface AuthProfile {
   displayName: string | null
