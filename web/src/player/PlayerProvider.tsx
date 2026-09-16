@@ -30,12 +30,11 @@ import { VideoSafetyDialog } from './VideoSafetyDialog'
 import type { LibraryThemeDto, MusicTrackDto } from '../lib/library'
 import {
   emptyQueuePreferenceSnapshot,
-  resolveQueueItemMode,
+  resolveQueueItemPolicy,
   isQueueEntryAllowedByPreference,
   type QueuePreferenceSnapshot,
 } from './preferenceQueue'
 import { loadPersistedQueue, savePersistedQueue } from './queuePersistence'
-import { loadRememberedAudioMode, saveRememberedAudioMode } from './playbackPreferences'
 
 export interface AnimeTitleCatalogEntry {
   readonly title?: string | null
@@ -48,6 +47,7 @@ export interface PlayerState {
   readonly queueState: QueueState
   readonly currentEntry?: QueueEntry
   readonly currentItem?: QueueItem
+  readonly desiredMode: PlaybackMode
   readonly mode: PlaybackMode
   readonly isPlaying: boolean
   readonly isLoading: boolean
@@ -58,6 +58,7 @@ export interface PlayerState {
   readonly tvSizeAvailable: boolean
   readonly fullSizeAvailable: boolean
   readonly videoAvailable: boolean
+  readonly dislikedModes: readonly PlaybackMode[]
   readonly activeSourceUrl?: string
 }
 
@@ -92,6 +93,7 @@ export interface PlayerContextValue extends PlayerState {
   cycleRepeat(): RepeatMode
   setRepeat(mode: RepeatMode): void
   skipTo(index: number): void
+  replayHistory(historyIndex: number): void
   isQueueEntryEligible(queueId: number): boolean
   unskipEntry(queueId: number): void
   requestFullscreen(): Promise<void>
@@ -130,14 +132,12 @@ export function PlayerProvider({
   animeTitleCatalog,
 }: PlayerProviderProps) {
   const animeTitlePreference = useAnimeTitlePreference()
-  const rememberedAudioMode = persistenceUserId ? loadRememberedAudioMode(persistenceUserId) : undefined
-  const initialPlaybackMode = initialMode ?? rememberedAudioMode ?? 'TV_SIZE'
-  const explicitInitialAudioMode = initialMode === 'TV_SIZE' || initialMode === 'FULL_SIZE' ? initialMode : undefined
   const queue = useMemo(() => providedQueue ?? store ?? new QueueStore(
     persistenceUserId ? loadPersistedQueue(persistenceUserId) : undefined,
   ), [providedQueue, persistenceUserId, store])
   const subscribe = useMemo(() => queue.subscribe.bind(queue), [queue])
   const queueState = useSyncExternalStore(subscribe, () => queue.state, () => queue.state)
+  const initialPlaybackMode = initialMode ?? queueState.desiredMode ?? 'TV_SIZE'
   const ownedMediaCache = useMemo(() => mediaCache ?? createBrowserMediaCache(persistenceUserId), [mediaCache, persistenceUserId])
   const audioRef = useRef<HTMLAudioElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -146,8 +146,7 @@ export function PlayerProvider({
   const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null)
   const [videoConfirmation, setVideoConfirmation] = useState<VideoConfirmationRequest | null>(null)
   const confirmedVideoKeysRef = useRef(new Set<string>())
-  const preferredModeRef = useRef<PlaybackMode>(initialPlaybackMode)
-  const manualModeRef = useRef<{ queueId: number; mode: PlaybackMode } | null>(null)
+  const videoFallbackRef = useRef<{ queueId: number; mode: PlaybackMode } | null>(null)
   const modeRef = useRef<PlaybackMode>(initialPlaybackMode)
   const activeMediaRef = useRef<HTMLMediaElement | null>(null)
   const mediaSessionRef = useRef<BrowserMediaSession | null>(null)
@@ -186,12 +185,28 @@ export function PlayerProvider({
 
   const currentEntry = currentQueueEntry(queueState)
   const currentItem = currentEntry?.item
-  const manualMode = manualModeRef.current?.queueId === currentEntry?.queueId ? manualModeRef.current?.mode : undefined
-  const resolvedPlaybackMode = currentItem ? resolveQueueItemMode(currentItem, preferenceSnapshot, preferredModeRef.current, manualMode) : null
-  const currentAllowed = !currentEntry || isQueueEntryAllowedByPreference(currentEntry, preferenceSnapshot, new Set(queueState.unskippedEntryIds))
-  const tvSizeAvailable = Boolean(currentItem && queueItemAudioUrl(currentItem, 'TV_SIZE'))
-  const fullSizeAvailable = Boolean(currentItem && queueItemAudioUrl(currentItem, 'FULL_SIZE'))
-  const videoAvailable = Boolean(currentItem && queueItemVideoUrl(currentItem))
+  const currentThemePreference = currentItem && (currentItem as PlayerQueueItem).itemType === 'THEME'
+    ? preferenceSnapshot.themesById[String((currentItem as PlayerQueueItem).themeId)]
+    : undefined
+  const dislikedModes = [
+    currentThemePreference?.dislikedTvSize ? 'TV_SIZE' as const : undefined,
+    currentThemePreference?.dislikedFullSize ? 'FULL_SIZE' as const : undefined,
+  ].filter((candidate): candidate is 'TV_SIZE' | 'FULL_SIZE' => candidate !== undefined)
+  const videoFallbackCandidate = videoFallbackRef.current?.queueId === currentEntry?.queueId ? videoFallbackRef.current : undefined
+  const currentUnskipped = Boolean(currentEntry && (currentEntry.unskipped || queueState.unskippedEntryIds.includes(currentEntry.queueId)))
+  const manualMode = currentEntry?.manualMode
+  const replayMode = currentEntry?.replayRequested ? currentEntry.lastActualMode : undefined
+  const currentPolicy = currentItem
+    ? videoFallbackCandidate
+      ? resolveQueueItemPolicy(currentItem, preferenceSnapshot, videoFallbackCandidate.mode, undefined, { allowDisliked: currentUnskipped, softMode: null })
+      : resolveQueueItemPolicy(currentItem, preferenceSnapshot, queueState.desiredMode ?? 'TV_SIZE', manualMode, { allowDisliked: currentUnskipped, replayMode })
+    : undefined
+  const resolvedPlaybackMode = currentPolicy?.actualMode ?? null
+  const currentAllowed = !currentEntry || currentPolicy?.actualMode !== null
+  const requiredMode = currentItem && (currentItem as PlayerQueueItem).requiredMode
+  const tvSizeAvailable = Boolean(currentItem && queueItemAudioUrl(currentItem, 'TV_SIZE') && (!requiredMode || requiredMode === 'TV_SIZE'))
+  const fullSizeAvailable = Boolean(currentItem && queueItemAudioUrl(currentItem, 'FULL_SIZE') && (!requiredMode || requiredMode === 'FULL_SIZE'))
+  const videoAvailable = Boolean(currentItem && queueItemVideoUrl(currentItem) && (!requiredMode || queueItemAudioUrl(currentItem, requiredMode) || requiredMode === 'VIDEO'))
   const activeSource = currentItem
     ? mode === 'VIDEO' ? queueItemVideoUrl(currentItem) : queueItemAudioUrl(currentItem, mode)
     : undefined
@@ -224,8 +239,8 @@ export function PlayerProvider({
   }, [videoConfirmation])
 
   useEffect(() => {
-    queue.setPreferenceSnapshot(preferenceSnapshot)
-  }, [preferenceSnapshot, queue])
+    queue.setPreferenceSnapshot(preferenceSnapshot, preferencesReady)
+  }, [preferenceSnapshot, preferencesReady, queue])
 
   useEffect(() => {
     const hydrated = hydrateQueueAnimeTitles(queue.state, animeTitleCatalog)
@@ -236,11 +251,6 @@ export function PlayerProvider({
     if (!persistenceUserId) return
     savePersistedQueue(persistenceUserId, queueState)
   }, [persistenceUserId, queueState])
-
-  useEffect(() => {
-    if (!persistenceUserId || !explicitInitialAudioMode) return
-    saveRememberedAudioMode(persistenceUserId, explicitInitialAudioMode)
-  }, [explicitInitialAudioMode, persistenceUserId])
 
   const updatePosition = useCallback((media?: HTMLMediaElement | null) => {
     const active = media ?? activeMediaRef.current
@@ -294,8 +304,9 @@ export function PlayerProvider({
       setError('Full-size audio is not available for this theme.')
       return
     }
-    if (currentEntry && !isQueueEntryAllowedByPreference(currentEntry, preferenceSnapshot, new Set(queueState.unskippedEntryIds), nextMode)) {
-      setError('This playback size is disliked. Unskip this track to play it.')
+    const selection = resolveQueueItemPolicy(item, preferenceSnapshot, queueState.desiredMode ?? 'TV_SIZE', nextMode, { allowDisliked: true })
+    if (selection.actualMode !== nextMode) {
+      setError(selection.reason === 'REQUIRED_UNAVAILABLE' ? 'The required playback size is not available for this track.' : 'This playback size is not available for this track.')
       return
     }
     const fromMode = modeRef.current
@@ -308,15 +319,12 @@ export function PlayerProvider({
       time: modeStartTime(fromMode, nextMode, oldTime, queueItemDurationMs(item, nextMode) ? queueItemDurationMs(item, nextMode)! / 1000 : undefined),
       queueId: currentEntry.queueId,
     }
-    preferredModeRef.current = nextMode
-    manualModeRef.current = { queueId: currentEntry!.queueId, mode: nextMode }
     modeRef.current = nextMode
     setModeState(nextMode)
-    if (persistenceUserId && (nextMode === 'TV_SIZE' || nextMode === 'FULL_SIZE')) {
-      saveRememberedAudioMode(persistenceUserId, nextMode)
-    }
+    if (currentItem && (currentItem as PlayerQueueItem).itemType !== 'SONG') queue.selectMode(currentEntry.queueId, nextMode)
+    if (currentEntry) queue.recordActualMode(currentEntry.queueId, nextMode)
     setError(null)
-  }, [currentEntry, currentTime, isPlaying, persistenceUserId, preferenceSnapshot, queueState.unskippedEntryIds])
+  }, [currentEntry, currentItem, currentTime, isPlaying, preferenceSnapshot, queue, queueState.desiredMode])
 
   const setMode = useCallback((nextMode: PlaybackMode) => {
     const item = currentEntry?.item
@@ -334,7 +342,6 @@ export function PlayerProvider({
   const requestAutoplayFor = useCallback((nextMode?: PlaybackMode, autoPlay = true) => {
     shouldAutoplayRef.current = autoPlay
     if (nextMode) {
-      preferredModeRef.current = nextMode
       modeRef.current = nextMode
       setModeState(nextMode)
     }
@@ -345,11 +352,13 @@ export function PlayerProvider({
     const requestedIndex = Number.isFinite(options.startIndex) ? Math.trunc(options.startIndex!) : 0
     const startIndex = Math.max(0, Math.min(items.length - 1, requestedIndex))
     const selected = items[startIndex]!
-    const requestedMode = options.mode ?? (selected as PlayerQueueItem).mode
+    const selectedPlayerItem = selected as PlayerQueueItem
+    const requestedMode = options.mode ?? selectedPlayerItem.mode
+    const desiredMode = options.desiredMode ?? (selectedPlayerItem.itemType === 'THEME' ? requestedMode : undefined)
     const { mode: _mode, autoPlay, ...queueOptions } = options
     const start = () => {
-      requestAutoplayFor(requestedMode, autoPlay !== false)
-      queue.play(items, { ...queueOptions, startIndex })
+      queue.play(items, { ...queueOptions, startIndex, desiredMode })
+      requestAutoplayFor(desiredMode ?? 'TV_SIZE', autoPlay !== false)
     }
     if (requestedMode === 'VIDEO' && videoWarningFor(selected)) {
       requestVideoConfirmation(selected, start)
@@ -376,6 +385,7 @@ export function PlayerProvider({
     const before = queueState.currentIndex
     const nextIndex = queue.next()
     if (nextIndex === null) {
+      queue.setDesiredMode(undefined)
       shouldAutoplayRef.current = false
       pause()
       setIsEnded(true)
@@ -400,16 +410,27 @@ export function PlayerProvider({
       return
     }
     if (queueState.historyEntries.length > 0) {
-      shouldAutoplayRef.current = true
-      queue.rewindTo(queueState.historyEntries.length - 1)
-      return
+      const historyIndex = queue.previousHistoryIndex()
+      const entry = historyIndex === null ? undefined : queueState.historyEntries[historyIndex]
+      if (entry && historyIndex !== null) {
+        shouldAutoplayRef.current = true
+        queue.rewindTo(historyIndex, false)
+        return
+      }
     }
     if (media) {
       media.currentTime = 0
       setCurrentTime(0)
       await play()
     }
-  }, [play, queue, queueState.historyEntries.length])
+  }, [play, queue, queueState.historyEntries])
+
+  const replayHistory = useCallback((historyIndex: number) => {
+    const entry = queueState.historyEntries[historyIndex]
+    if (!entry) return
+    shouldAutoplayRef.current = true
+    queue.rewindTo(historyIndex, true)
+  }, [queue, queueState.historyEntries])
 
   const seek = useCallback((seconds: number) => {
     if (!Number.isFinite(seconds)) return
@@ -443,6 +464,7 @@ export function PlayerProvider({
     onLoadedMetadata: (event) => {
       const target = event.currentTarget as HTMLMediaElement
       if (target !== activeMediaRef.current) return
+      if (currentEntry) queue.recordActualMode(currentEntry.queueId, modeRef.current)
       const pending = pendingSeekRef.current
       const targetDuration = finiteMediaNumber(target.duration)
       if (pending && pending.queueId === currentEntry?.queueId && pending.to === modeRef.current) {
@@ -511,8 +533,11 @@ export function PlayerProvider({
       sourceKeyRef.current = ''
       setIsPlaying(false)
       setIsLoading(false)
-      const nextIndex = allowed ? null : queue.next()
-      if (nextIndex === null) setError('No allowed version is available for this track.')
+      const nextIndex = queue.next()
+      if (nextIndex === null) {
+        queue.setDesiredMode(undefined)
+        setError('No allowed version is available for this track.')
+      }
       else shouldAutoplayRef.current = isPlayingRef.current || shouldAutoplayRef.current
       return
     }
@@ -520,14 +545,22 @@ export function PlayerProvider({
     const warning = item && nextMode === 'VIDEO' ? videoWarningFor(item) : undefined
     if (warning && !confirmedVideoKeysRef.current.has(warning.key)) {
       if (videoConfirmation?.key !== warning.key) {
-        const fallbackMode = fallbackAudioMode(item!)
+        const fallbackMode = resolveQueueItemPolicy(item!, preferenceSnapshot, 'TV_SIZE', undefined, { allowDisliked: currentUnskipped, softMode: null }).actualMode
         setVideoConfirmation({
           ...warning,
           onConfirm: () => undefined,
           onCancel: () => {
-            preferredModeRef.current = fallbackMode
-            modeRef.current = fallbackMode
-            setModeState(fallbackMode)
+            if (currentEntry && fallbackMode && fallbackMode !== 'VIDEO') {
+              videoFallbackRef.current = { queueId: currentEntry.queueId, mode: fallbackMode }
+              queue.recordActualMode(currentEntry.queueId, fallbackMode)
+            } else if (!fallbackMode) {
+              const nextIndex = queue.next()
+              if (nextIndex === null) queue.setDesiredMode(undefined)
+              setError('No allowed audio version is available for this track.')
+              return
+            }
+            modeRef.current = fallbackMode ?? 'TV_SIZE'
+            setModeState(fallbackMode ?? 'TV_SIZE')
           },
         })
       }
@@ -615,7 +648,7 @@ export function PlayerProvider({
       if (objectUrl && typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(objectUrl)
       if (cachedObjectUrlRef.current === objectUrl) cachedObjectUrlRef.current = null
     }
-  }, [activeSourceUrl, api, currentEntry?.queueId, currentItem, currentEntry, mode, ownedMediaCache, reportPlaybackFailure, videoConfirmation?.key, mode === 'VIDEO' ? videoElement : null, resolvedPlaybackMode, currentAllowed, queue, preferencesReady])
+  }, [activeSourceUrl, api, currentEntry?.queueId, currentItem, currentUnskipped, mode, ownedMediaCache, preferenceSnapshot, reportPlaybackFailure, videoConfirmation?.key, mode === 'VIDEO' ? videoElement : null, resolvedPlaybackMode, currentAllowed, queue, preferencesReady])
 
   useEffect(() => {
     if (!isPlaying) return undefined
@@ -632,9 +665,9 @@ export function PlayerProvider({
       .map((url) => resolveAudioUrl(url, api))
     const nextAudioUrls = queueState.nowPlayingEntries
       .slice(queueState.currentIndex + 1, queueState.currentIndex + 4)
-      .filter((entry) => isQueueEntryAllowedByPreference(entry, preferenceSnapshot))
+      .filter((entry) => isQueueEntryAllowedByPreference(entry, preferenceSnapshot, new Set(queueState.unskippedEntryIds)))
       .map((entry) => {
-        const selected = resolveQueueItemMode(entry.item, preferenceSnapshot, preferredModeRef.current)
+        const selected = resolveQueueItemPolicy(entry.item, preferenceSnapshot, queueState.desiredMode ?? 'TV_SIZE', undefined, { allowDisliked: entry.unskipped === true || queueState.unskippedEntryIds.includes(entry.queueId) }).actualMode
         return selected && selected !== 'VIDEO' ? queueItemAudioUrl(entry.item, selected) : undefined
       })
       .filter((url): url is string => Boolean(url?.trim()))
@@ -686,12 +719,14 @@ export function PlayerProvider({
 
   const isQueueEntryEligible = useCallback((queueId: number): boolean => {
     const entry = queueState.nowPlayingEntries.find((candidate) => candidate.queueId === queueId)
-    return Boolean(entry && isQueueEntryAllowedByPreference(
-      entry,
-      preferenceSnapshot,
-      new Set(queueState.unskippedEntryIds),
-    ))
-  }, [preferenceSnapshot, queueState.nowPlayingEntries, queueState.unskippedEntryIds])
+    if (!entry) return false
+    const unskipped = entry.unskipped === true || queueState.unskippedEntryIds.includes(entry.queueId)
+    return resolveQueueItemPolicy(entry.item, preferenceSnapshot, queueState.desiredMode ?? 'TV_SIZE', entry.manualMode, { allowDisliked: unskipped }).actualMode !== null
+  }, [preferenceSnapshot, queueState.desiredMode, queueState.nowPlayingEntries, queueState.unskippedEntryIds])
+
+  const unskipEntry = useCallback((queueId: number) => {
+    queue.unskipEntry(queueId)
+  }, [queue])
 
   const value = useMemo<PlayerContextValue>(() => ({
     queue,
@@ -699,6 +734,7 @@ export function PlayerProvider({
     queueState,
     currentEntry,
     currentItem,
+    desiredMode: queueState.desiredMode ?? 'TV_SIZE',
     mode,
     isPlaying,
     isLoading,
@@ -709,6 +745,7 @@ export function PlayerProvider({
     tvSizeAvailable,
     fullSizeAvailable,
     videoAvailable,
+    dislikedModes,
     activeSourceUrl,
     audioElement,
     videoElement,
@@ -728,11 +765,18 @@ export function PlayerProvider({
     setShuffle: (shuffled) => { queue.setShuffled(shuffled) },
     cycleRepeat: () => queue.cycleRepeatMode(),
     setRepeat: (repeat) => { queue.setRepeatMode(repeat) },
-    skipTo: (index) => { requestAutoplayFor(); queue.skipTo(index) },
+    skipTo: (index) => {
+      const entry = queueState.nowPlayingEntries[index]
+      if (!entry) return
+      queue.requestReplay(entry.queueId, true)
+      requestAutoplayFor()
+      queue.skipTo(index)
+    },
+    replayHistory,
     isQueueEntryEligible,
-    unskipEntry: (queueId) => { queue.unskipEntry(queueId) },
+    unskipEntry,
     requestFullscreen,
-  }), [activeSourceUrl, audioElement, currentEntry, currentItem, duration, error, fullSizeAvailable, isEnded, isLoading, isPlaying, isQueueEntryEligible, mode, next, pause, play, playItem, playItems, playSong, playTheme, previous, queue, queueState, requestAutoplayFor, requestFullscreen, seek, setMode, togglePlay, tvSizeAvailable, videoAvailable, videoElement])
+  }), [activeSourceUrl, audioElement, currentEntry, currentItem, dislikedModes, duration, error, fullSizeAvailable, isEnded, isLoading, isPlaying, isQueueEntryEligible, mode, next, pause, play, playItem, playItems, playSong, playTheme, previous, queue, queueState, replayHistory, requestAutoplayFor, requestFullscreen, seek, setMode, togglePlay, tvSizeAvailable, unskipEntry, videoAvailable, videoElement])
 
   return (
     <PlayerContext.Provider value={value}>
@@ -881,10 +925,6 @@ function videoWarningFor(item: QueueItem): Omit<VideoConfirmationRequest, 'onCon
     spoiler,
     nsfw,
   }
-}
-
-function fallbackAudioMode(item: QueueItem): PlaybackMode {
-  return queueItemAudioUrl(item, 'TV_SIZE') ? 'TV_SIZE' : 'FULL_SIZE'
 }
 
 function clearMediaCache(cache: ManagedMediaCache | undefined): void {

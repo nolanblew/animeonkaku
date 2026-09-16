@@ -61,6 +61,12 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks())
 
 describe('browser playback preferences and loudness', () => {
+  it('keeps an uncached TV-size server URL playable while the cache is missing', () => {
+    const mapped = mapThemeToQueueItem(theme({ audioState: 'MISSING' }))
+
+    expect(mapped.tvAudioUrl).toBe('/v1/media/audio/41')
+  })
+
   it('carries each ready audio mode loudness profile through queue mapping', () => {
     const tvLoudness = { integratedLufs: -15, truePeakDbtp: -1, loudnessRangeLu: 5, gainDb: -6, policyVersion: 1, state: 'READY' as const }
     const fullLoudness = { integratedLufs: -11, truePeakDbtp: -1, loudnessRangeLu: 7, gainDb: -3, policyVersion: 1, state: 'READY' as const }
@@ -102,7 +108,7 @@ describe('browser playback preferences and loudness', () => {
     expect(audio.volume).toBeLessThanOrEqual(1)
   })
 
-  it('remembers the selected audio mode for this browser user across player remounts', () => {
+  it('does not seed an existing queue from a provider-only initial mode', () => {
     const store = new QueueStore()
     store.play([mapThemeToQueueItem(theme({
       mediaModes: {
@@ -113,14 +119,14 @@ describe('browser playback preferences and loudness', () => {
     }))])
 
     const first = renderPlayer(store, { persistenceUserId: 'phase4-preferences', initialMode: 'FULL_SIZE' })
-    expect(screen.getByTestId('playback-mode')).toHaveTextContent('FULL_SIZE')
+    expect(screen.getByTestId('playback-mode')).toHaveTextContent('TV_SIZE')
     first.unmount()
 
     renderPlayer(store, { persistenceUserId: 'phase4-preferences' })
-    expect(screen.getByTestId('playback-mode')).toHaveTextContent('FULL_SIZE')
+    expect(screen.getByTestId('playback-mode')).toHaveTextContent('TV_SIZE')
   })
 
-  it('keeps Video as a session mode and does not replace the remembered audio default', () => {
+  it('persists Video as the desired mode for the active restored queue', () => {
     const store = new QueueStore()
     store.play([mapThemeToQueueItem(theme({
       mediaModes: {
@@ -136,7 +142,7 @@ describe('browser playback preferences and loudness', () => {
     first.unmount()
 
     renderPlayer(store, { persistenceUserId: 'phase4-video-preferences' })
-    expect(screen.getByTestId('playback-mode')).toHaveTextContent('FULL_SIZE')
+    expect(screen.getByTestId('playback-mode')).toHaveTextContent('VIDEO')
   })
 
   it('falls back to TV size and returns to the preferred full size on a later track', async () => {
@@ -150,7 +156,7 @@ describe('browser playback preferences and loudness', () => {
     }))
     const tvOnly = mapThemeToQueueItem(theme({ id: 42 }))
     const store = new QueueStore()
-    store.play([withFull(41), tvOnly, withFull(43)])
+    store.play([withFull(41), tvOnly, withFull(43)], { desiredMode: 'FULL_SIZE' })
     renderPlayer(store, { initialMode: 'FULL_SIZE' })
 
     expect(screen.getByTestId('playback-mode')).toHaveTextContent('FULL_SIZE')

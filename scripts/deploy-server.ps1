@@ -49,9 +49,11 @@ function ConvertTo-RemoteShellScript([string]$Script) {
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $serverDir = Join-Path $repoRoot "server"
 $webDir = Join-Path $repoRoot "web"
+$sharedDir = Join-Path $repoRoot "shared"
 $remoteDockerDir = "$RemoteDockerRoot/$AppName"
 $remoteServerDir = "$remoteDockerDir/server"
 $remoteWebDir = "$remoteDockerDir/web"
+$remoteSharedDir = "$remoteDockerDir/shared"
 $remoteDataDir = "$RemoteDataRoot/$AppName"
 $remoteDataDirForCompose = if ($remoteDataDir.StartsWith("/")) { Quote-Sh $remoteDataDir } else { "`$HOME/$(Quote-Sh $remoteDataDir)" }
 $remoteArchive = "/tmp/$AppName-deploy.tgz"
@@ -72,7 +74,7 @@ case $(Quote-Sh $remoteDockerDir) in
   $(Quote-Sh $RemoteDockerRoot.TrimEnd("/"))/*) ;;
   *) echo "Refusing to deploy outside $(Quote-Sh $RemoteDockerRoot): $(Quote-Sh $remoteDockerDir)" >&2; exit 2 ;;
 esac
-mkdir -p $(Quote-Sh $remoteServerDir) $(Quote-Sh $remoteWebDir) $(Quote-Sh "$remoteDataDir/media") $(Quote-Sh "$remoteDataDir/postgres")
+mkdir -p $(Quote-Sh $remoteServerDir) $(Quote-Sh $remoteWebDir) $(Quote-Sh $remoteSharedDir) $(Quote-Sh "$remoteDataDir/media") $(Quote-Sh "$remoteDataDir/postgres")
 if [ -f $(Quote-Sh "$remoteDockerDir/.env") ] && [ ! -f $(Quote-Sh "$remoteServerDir/.env") ]; then
   cp $(Quote-Sh "$remoteDockerDir/.env") $(Quote-Sh "$remoteServerDir/.env")
 fi
@@ -103,13 +105,14 @@ if ($rsync) {
     }
     Invoke-Logged $rsync.Source ($rsyncArgs + @("$serverDir/", "${SshTarget}:$remoteServerDir/"))
     Invoke-Logged $rsync.Source ($rsyncArgs + @("$webDir/", "${SshTarget}:$remoteWebDir/"))
+    Invoke-Logged $rsync.Source ($rsyncArgs + @("$sharedDir/", "${SshTarget}:$remoteSharedDir/"))
 } else {
     $tarCommand = Resolve-RequiredCommand "tar" @("$env:WINDIR\System32\tar.exe")
     $archivePath = Join-Path ([System.IO.Path]::GetTempPath()) "$AppName-deploy.tgz"
     if (Test-Path -LiteralPath $archivePath) {
         Remove-Item -LiteralPath $archivePath -Force
     }
-    $tarInputs = @("server", "web", ".dockerignore")
+    $tarInputs = @("server", "web", "shared", ".dockerignore")
     $tarExcludes = @(
         "--exclude=server/node_modules",
         "--exclude=server/dist",
@@ -128,7 +131,7 @@ if ($rsync) {
         $extractCommand = @"
 set -eu
 cd $(Quote-Sh $remoteDockerDir)
-rm -rf server/src server/drizzle server/dist web
+rm -rf server/src server/drizzle server/dist web shared
 tar -xzf $(Quote-Sh $remoteArchive)
 rm -f $(Quote-Sh $remoteArchive)
 "@

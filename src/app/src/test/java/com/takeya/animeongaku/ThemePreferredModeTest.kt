@@ -75,10 +75,11 @@ class ThemePreferredModeTest {
         )
 
         assertEquals(PlaybackMode.TV_SIZE, overridden.preferredMode)
-        assertEquals(null, overridden.actualMode)
-        assertEquals(PlaybackMode.FULL_SIZE, disliked.preferredMode)
+        assertEquals(PlaybackMode.TV_SIZE, overridden.actualMode)
+        assertEquals(PlaybackMode.TV_SIZE, disliked.preferredMode)
         assertEquals(null, disliked.actualMode)
-        assertTrue(PlaybackMode.TV_SIZE !in disliked.availableModes)
+        // Disliked variants remain visible in the picker for explicit selection.
+        assertTrue(PlaybackMode.TV_SIZE in disliked.availableModes)
     }
 
     @Test
@@ -141,16 +142,16 @@ class ThemePreferredModeTest {
             themePreference = UserPreferenceEntity(themeId = 1, isDislikedTvSize = true)
         )
 
-        assertEquals(PlaybackMode.TV_SIZE, fullDisliked.preferredMode)
+        assertEquals(PlaybackMode.FULL_SIZE, fullDisliked.preferredMode)
         assertEquals(PlaybackMode.TV_SIZE, fullDisliked.actualMode)
-        assertTrue(PlaybackMode.FULL_SIZE !in fullDisliked.availableModes)
-        assertEquals(PlaybackMode.FULL_SIZE, tvDisliked.preferredMode)
+        assertTrue(PlaybackMode.FULL_SIZE in fullDisliked.availableModes)
+        assertEquals(PlaybackMode.TV_SIZE, tvDisliked.preferredMode)
         assertEquals(PlaybackMode.FULL_SIZE, tvDisliked.actualMode)
-        assertTrue(PlaybackMode.TV_SIZE !in tvDisliked.availableModes)
+        assertTrue(PlaybackMode.TV_SIZE in tvDisliked.availableModes)
     }
 
     @Test
-    fun `video failure falls back to Full when TV is specifically disliked`() {
+    fun `video failure skips when its only TV fallback is disliked`() {
         val fallback = resolver.resolveVideoFailureFallback(
             entry = themeEntry(queueId = 74),
             intent = PlaybackIntent(sessionOverride = PlaybackMode.VIDEO),
@@ -160,7 +161,7 @@ class ThemePreferredModeTest {
         )
 
         assertEquals(PlaybackMode.VIDEO, fallback.preferredMode)
-        assertEquals(PlaybackMode.FULL_SIZE, fallback.actualMode)
+        assertEquals(null, fallback.actualMode)
     }
 
     @Test

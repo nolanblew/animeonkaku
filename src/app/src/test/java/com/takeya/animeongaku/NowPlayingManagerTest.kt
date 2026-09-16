@@ -561,6 +561,38 @@ class NowPlayingManagerTest {
         assertEquals(listOf(1L, 2L), state.history.map { it.id })
     }
 
+    @Test
+    fun `replay transition updates index and pins recorded mode in one versioned state`() {
+        manager.play("ctx", listOf(theme(1), theme(2)))
+        val firstId = manager.state.value.currentEntry!!.queueId
+        manager.recordActualMode(firstId, PlaybackMode.TV_SIZE)
+        manager.onTrackChangedByThemeId(2L)
+        val versionBeforeReplay = manager.state.value.queueVersion
+
+        manager.onTrackChangedByQueueId(firstId, replayRecordedMode = true)
+
+        val state = manager.state.value
+        assertEquals(firstId, state.currentEntry?.queueId)
+        assertEquals(PlaybackMode.TV_SIZE, state.currentEntry?.lastActualMode)
+        assertTrue(state.currentEntry?.replayRequested == true)
+        assertEquals(versionBeforeReplay + 1, state.queueVersion)
+    }
+
+    @Test
+    fun `replay fallback records winning available mode without clearing replay pin`() {
+        manager.play("ctx", listOf(theme(1), theme(2)))
+        val firstId = manager.state.value.currentEntry!!.queueId
+        manager.recordActualMode(firstId, PlaybackMode.TV_SIZE)
+        manager.onTrackChangedByThemeId(2L)
+
+        manager.onTrackChangedByQueueId(firstId, replayRecordedMode = true)
+        manager.recordActualMode(firstId, PlaybackMode.FULL_SIZE)
+
+        val replayed = manager.state.value.currentEntry
+        assertEquals(PlaybackMode.FULL_SIZE, replayed?.lastActualMode)
+        assertTrue(replayed?.replayRequested == true)
+    }
+
     // ─── skipTo() ─────────────────────────────────────────────────────────
 
     @Test

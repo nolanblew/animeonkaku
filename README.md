@@ -276,6 +276,10 @@ The workflow decodes the keystore to `src/release.keystore`, sets `KEYSTORE_FILE
 
 It can also bump `versionCode` and `versionName`, commit that version bump, tag the release, and attach the generated APK/AAB artifacts.
 
+## Documentation
+
+Playback behavior is documented in the [queue playback guide](docs/queue-playback-guide.md), including version selection, dislikes, playlist requirements, and queue restoration.
+
 ## Notes for a Second Development PC
 
 - Clone the repo and build debug packages normally with `.\gradlew.bat assembleDebug`.

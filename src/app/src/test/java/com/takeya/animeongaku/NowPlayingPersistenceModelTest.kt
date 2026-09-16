@@ -1,8 +1,12 @@
 package com.takeya.animeongaku
 
+import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.LoudnessProfile
 import com.takeya.animeongaku.data.local.MusicReleaseEntity
 import com.takeya.animeongaku.data.local.SongEntity
 import com.takeya.animeongaku.data.local.ThemeEntity
+import com.takeya.animeongaku.data.local.ThemeModeEntity
+import com.takeya.animeongaku.data.local.UserPreferenceEntity
 import com.takeya.animeongaku.media.PersistedNowPlayingState
 import com.takeya.animeongaku.media.PersistedQueueEntry
 import com.takeya.animeongaku.media.PlayableItem
@@ -12,6 +16,9 @@ import com.takeya.animeongaku.media.PlaybackIntent
 import com.takeya.animeongaku.media.QueueEntry
 import com.takeya.animeongaku.media.restorePersistedQueueState
 import com.takeya.animeongaku.media.toPersistedState
+import com.takeya.animeongaku.media.withLatestMediaMetadata
+import com.takeya.animeongaku.media.matchesOwner
+import com.takeya.animeongaku.media.newestActivePreference
 import com.takeya.animeongaku.media.BaseModePolicy
 import com.takeya.animeongaku.media.PlaybackMode
 import com.takeya.animeongaku.media.ThemeModePolicy
@@ -20,6 +27,317 @@ import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 class NowPlayingPersistenceModelTest {
+    @Test
+    fun `newer local tombstone beats older live snapshot preference`() {
+        val snapshot = UserPreferenceEntity(1, isLiked = true, updatedAt = 10)
+        val tombstone = UserPreferenceEntity(1, updatedAt = 20, deletedAt = 20)
+
+        assertEquals(null, newestActivePreference(tombstone, snapshot))
+        assertEquals(snapshot, newestActivePreference(tombstone.copy(updatedAt = 5, deletedAt = 5), snapshot))
+    }
+
+    @Test
+    fun `persisted owner scope accepts matching server and account only`() {
+        val state = PersistedNowPlayingState(
+            ownerKitsuUserId = "user-1",
+            ownerServerBaseUrl = "https://server.example/"
+        )
+
+        assertEquals(true, state.matchesOwner("user-1" to "https://server.example"))
+        assertEquals(false, state.matchesOwner("user-2" to "https://server.example"))
+        assertEquals(false, state.matchesOwner("user-1" to "https://other.example"))
+        assertEquals(false, state.matchesOwner(null))
+    }
+
+    @Test
+    fun `legacy ownerless state remains eligible for Room-only restoration`() {
+        val legacy = PersistedNowPlayingState(
+            nowPlayingEntries = listOf(PersistedQueueEntry(queueId = 1, itemType = "THEME", itemId = 1))
+        )
+
+        assertEquals(true, legacy.matchesOwner("new-user" to "https://new.example"))
+        val restored = restorePersistedQueueState(
+            legacy,
+            themes = mapOf(1L to theme(1)),
+            songs = emptyMap(),
+            releases = emptyMap(),
+            animeByKitsuId = emptyMap(),
+            animeMap = emptyMap()
+        )
+        assertNotNull(restored)
+    }
+
+    @Test
+    fun `legacy ownerless state ignores self-contained API fallback`() {
+        val metadataOnly = NowPlayingState(
+            originalQueueEntries = listOf(QueueEntry(1, PlayableItem.Theme(theme(1)))),
+            nowPlayingEntries = listOf(QueueEntry(1, PlayableItem.Theme(theme(1))))
+        ).toPersistedState(0, 0)
+
+        val restored = restorePersistedQueueState(
+            metadataOnly, emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap()
+        )
+
+        assertEquals(null, restored)
+    }
+
+    @Test
+    fun `API-only theme survives persistence before Room sync`() {
+        val anime = AnimeEntity(
+            kitsuId = "anime-7",
+            animeThemesId = 700,
+            title = "Anime Seven",
+            thumbnailUrl = "https://server/poster-small.jpg",
+            coverUrl = "https://server/poster.jpg",
+            syncedAt = 0
+        )
+        val descriptor = ThemeModeEntity(
+            themeId = 7,
+            tvSizeUrl = "https://server/theme/7",
+            fullSizeSongId = 70,
+            fullSizeUrl = "https://server/song/70",
+            fullSizeLoudness = LoudnessProfile(gainDb = -4.5, state = "READY")
+        )
+        val entry = QueueEntry(
+            queueId = 71,
+            item = PlayableItem.Theme(
+                theme = theme(7).copy(title = "API title"),
+                anime = anime,
+                remoteModeDescriptor = descriptor,
+                serverPreference = UserPreferenceEntity(
+                    themeId = 7,
+                    isLiked = true,
+                    isDislikedFullSize = false,
+                    preferredMode = "FULL_SIZE",
+                    updatedAt = 99
+                )
+            )
+        )
+        val persisted = NowPlayingState(
+            originalQueueEntries = listOf(entry),
+            nowPlayingEntries = listOf(entry)
+        ).toPersistedState(0, 0).scoped()
+
+        val restored = restorePersistedQueueState(
+            persisted, emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap()
+        )!!
+        val item = restored.currentEntry!!.item as PlayableItem.Theme
+
+        assertEquals(71L, restored.currentEntry!!.queueId)
+        assertEquals("API title", item.theme.title)
+        assertEquals("Anime Seven", item.anime?.title)
+        assertEquals(70L, item.effectiveModeDescriptor?.fullSizeSongId)
+        assertEquals(-4.5, item.effectiveModeDescriptor?.fullSizeLoudness?.gainDb)
+        assertEquals("FULL_SIZE", item.serverPreference?.preferredMode)
+        assertEquals(true, item.serverPreference?.isLiked)
+    }
+
+    @Test
+    fun `API-only song and release survive persistence with duplicate queue identity`() {
+        val song = SongEntity(
+            id = 10,
+            title = "API song",
+            artistCredit = "API artist",
+            audioUrl = "https://server/song/10",
+            loudness = LoudnessProfile(gainDb = -3.0, state = "READY")
+        )
+        val release = MusicReleaseEntity(20, "API album", "API artist", artworkUrl = "https://server/album.jpg")
+        val anime = AnimeEntity("anime-10", null, "API anime", thumbnailUrl = null, coverUrl = "https://server/anime.jpg", syncedAt = 0)
+        val entries = listOf(101L, 102L).map { queueId ->
+            QueueEntry(queueId, PlayableItem.RelatedSong(song, release, anime, "soundtrack"))
+        }
+        val persisted = NowPlayingState(
+            originalQueueEntries = entries,
+            nowPlayingEntries = entries,
+            currentIndex = 1
+        ).toPersistedState(0, 0).scoped()
+
+        val restored = restorePersistedQueueState(
+            persisted, emptyMap(), emptyMap(), emptyMap(), emptyMap(), emptyMap()
+        )!!
+
+        assertEquals(listOf(101L, 102L), restored.nowPlayingEntries.map { it.queueId })
+        val item = restored.currentEntry!!.item as PlayableItem.RelatedSong
+        assertEquals("API song", item.song.title)
+        assertEquals(-3.0, item.song.loudness?.gainDb)
+        assertEquals("API album", item.release?.title)
+        assertEquals("API anime", item.anime?.title)
+    }
+
+    @Test
+    fun `newer Room entities override persisted API fallback while remote mode remains available`() {
+        val oldTheme = theme(8).copy(title = "old")
+        val oldMode = ThemeModeEntity(8, "old-tv", fullSizeSongId = 80, fullSizeUrl = "old-full")
+        val entry = QueueEntry(81, PlayableItem.Theme(oldTheme, remoteModeDescriptor = oldMode))
+        val persisted = NowPlayingState(
+            originalQueueEntries = listOf(entry),
+            nowPlayingEntries = listOf(entry)
+        ).toPersistedState(0, 0).scoped()
+        val newTheme = oldTheme.copy(title = "new")
+        val newMode = oldMode.copy(tvSizeUrl = "new-tv", fullSizeUrl = "new-full")
+
+        val restored = restorePersistedQueueState(
+            persisted,
+            themes = mapOf(8L to newTheme),
+            songs = emptyMap(),
+            releases = emptyMap(),
+            animeByKitsuId = emptyMap(),
+            animeMap = emptyMap(),
+            themeModes = mapOf(8L to newMode)
+        )!!
+        val item = restored.currentEntry!!.item as PlayableItem.Theme
+
+        assertEquals("new", item.theme.title)
+        assertEquals("new-full", item.effectiveModeDescriptor?.fullSizeUrl)
+        assertEquals("old-full", item.remoteModeDescriptor?.fullSizeUrl)
+    }
+
+    @Test
+    fun `fresh API descriptor survives stale Room hydration until Room actually changes`() {
+        val staleRoom = ThemeModeEntity(12, "stale-tv", fullSizeSongId = null, fullSizeUrl = null)
+        val liveApi = ThemeModeEntity(12, "api-tv", fullSizeSongId = 120, fullSizeUrl = "api-full")
+        val entry = QueueEntry(
+            121,
+            PlayableItem.Theme(
+                theme = theme(12),
+                modeDescriptor = staleRoom,
+                remoteModeDescriptor = liveApi,
+                roomModeDescriptorBaseline = staleRoom
+            )
+        )
+        val persisted = NowPlayingState(
+            originalQueueEntries = listOf(entry),
+            nowPlayingEntries = listOf(entry)
+        ).toPersistedState(0, 0).scoped()
+        val restored = restorePersistedQueueState(
+            persisted,
+            themes = mapOf(12L to theme(12)),
+            songs = emptyMap(),
+            releases = emptyMap(),
+            animeByKitsuId = emptyMap(),
+            animeMap = emptyMap(),
+            themeModes = mapOf(12L to staleRoom)
+        )!!
+
+        val afterSameRoom = restored.currentEntry!!.withLatestMediaMetadata(
+            mapOf(12L to staleRoom),
+            emptyMap()
+        )
+        assertEquals("api-full", (afterSameRoom.item as PlayableItem.Theme).effectiveModeDescriptor?.fullSizeUrl)
+
+        val newerRoom = staleRoom.copy(tvSizeUrl = "new-tv", fullSizeSongId = 121, fullSizeUrl = "new-full")
+        val afterRoomChange = afterSameRoom.withLatestMediaMetadata(mapOf(12L to newerRoom), emptyMap())
+        assertEquals("new-full", (afterRoomChange.item as PlayableItem.Theme).effectiveModeDescriptor?.fullSizeUrl)
+    }
+
+    @Test
+    fun `newer local preference replaces every persisted recommendation reaction`() {
+        val entry = QueueEntry(
+            91,
+            PlayableItem.Theme(
+                theme(9),
+                serverPreference = UserPreferenceEntity(
+                    themeId = 9,
+                    isLiked = true,
+                    isDislikedFullSize = true,
+                    preferredMode = "TV_SIZE",
+                    updatedAt = 10
+                )
+            )
+        )
+        val persisted = NowPlayingState(
+            originalQueueEntries = listOf(entry),
+            nowPlayingEntries = listOf(entry)
+        ).toPersistedState(0, 0).scoped()
+        val local = UserPreferenceEntity(
+            themeId = 9,
+            isLiked = false,
+            isDisliked = true,
+            isDislikedTvSize = true,
+            preferredMode = "FULL_SIZE",
+            updatedAt = 20
+        )
+
+        val restored = restorePersistedQueueState(
+            persisted,
+            themes = mapOf(9L to theme(9)),
+            songs = emptyMap(),
+            releases = emptyMap(),
+            animeByKitsuId = emptyMap(),
+            animeMap = emptyMap(),
+            localPreferences = mapOf(9L to local)
+        )!!
+        val preference = (restored.currentEntry!!.item as PlayableItem.Theme).serverPreference
+
+        assertEquals(local, preference)
+    }
+
+    @Test
+    fun `newer local deletion prevents persisted recommendation preference resurrection`() {
+        val entry = QueueEntry(
+            92,
+            PlayableItem.Theme(
+                theme(9),
+                serverPreference = UserPreferenceEntity(9, preferredMode = "FULL_SIZE", updatedAt = 10)
+            )
+        )
+        val persisted = NowPlayingState(
+            originalQueueEntries = listOf(entry),
+            nowPlayingEntries = listOf(entry)
+        ).toPersistedState(0, 0).scoped()
+        val deleted = UserPreferenceEntity(9, updatedAt = 20, deletedAt = 20)
+
+        val restored = restorePersistedQueueState(
+            persisted,
+            themes = mapOf(9L to theme(9)),
+            songs = emptyMap(),
+            releases = emptyMap(),
+            animeByKitsuId = emptyMap(),
+            animeMap = emptyMap(),
+            localPreferences = mapOf(9L to deleted)
+        )!!
+
+        assertEquals(null, (restored.currentEntry!!.item as PlayableItem.Theme).serverPreference)
+    }
+
+    @Test
+    fun `typed persistence retains full-only recommendation preference`() {
+        val persisted = PersistedNowPlayingState(
+            ownerKitsuUserId = "user-1",
+            ownerServerBaseUrl = "https://server.example",
+            nowPlayingEntries = listOf(
+                PersistedQueueEntry(
+                    queueId = 17,
+                    itemType = "THEME",
+                    itemId = 7,
+                    serverPreferredMode = "FULL_SIZE",
+                    serverPreferenceUpdatedAt = 42L,
+                    serverPreferenceDislikedTvSize = true,
+                    serverPreferencePresent = true
+                )
+            )
+        )
+        val restored = restorePersistedQueueState(
+            persisted = persisted,
+            themes = mapOf(7L to theme(7)),
+            songs = emptyMap(),
+            releases = emptyMap(),
+            animeByKitsuId = emptyMap(),
+            animeMap = emptyMap(),
+            themeModes = mapOf(7L to ThemeModeEntity(
+                themeId = 7,
+                tvSizeUrl = "",
+                fullSizeSongId = 70,
+                fullSizeUrl = "https://server/song/70"
+            ))
+        )!!
+
+        val item = restored.currentEntry!!.item as PlayableItem.Theme
+        assertEquals("FULL_SIZE", item.serverPreference?.preferredMode)
+        assertEquals(true, item.serverPreference?.isDislikedTvSize)
+        assertEquals(70L, item.effectiveModeDescriptor?.fullSizeSongId)
+    }
+
     @Test
     fun `typed queue round trip restores song context and queue ids`() {
         val theme = theme(1)
@@ -203,7 +521,7 @@ class NowPlayingPersistenceModelTest {
     }
 
     @Test
-    fun `typed persistence does not restore Video override`() {
+    fun `typed persistence restores Video override`() {
         val entry = QueueEntry(81, PlayableItem.Theme(theme(1)))
         val persisted = NowPlayingState(
             originalQueueEntries = listOf(entry),
@@ -220,7 +538,7 @@ class NowPlayingPersistenceModelTest {
             animeMap = emptyMap()
         )!!
 
-        assertEquals(null, restored.playbackIntent.sessionOverride)
+        assertEquals(PlaybackMode.VIDEO, restored.playbackIntent.sessionOverride)
     }
 
     private fun theme(id: Long) = ThemeEntity(
@@ -232,5 +550,10 @@ class NowPlayingPersistenceModelTest {
         videoUrl = null,
         isDownloaded = false,
         localFilePath = null
+    )
+
+    private fun PersistedNowPlayingState.scoped() = copy(
+        ownerKitsuUserId = "user-1",
+        ownerServerBaseUrl = "https://server.example"
     )
 }

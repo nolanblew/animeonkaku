@@ -44,7 +44,9 @@ class PlaybackSessionStateTest {
         manager.selectThemeMode(PlaybackMode.FULL_SIZE)
 
         val after = manager.state.value
-        assertEquals(before.playbackIntent, after.playbackIntent)
+        assertEquals(before.playbackIntent.sessionOverride, after.playbackIntent.sessionOverride)
+        assertEquals(before.playbackIntent.queueStarted, after.playbackIntent.queueStarted)
+        assertEquals(before.playbackIntent.actionSequence + 1L, after.playbackIntent.actionSequence)
         assertEquals(before.modeSelectionGeneration + 1, after.modeSelectionGeneration)
         assertEquals(before.queueVersion + 1, after.queueVersion)
         assertEquals(before.nowPlayingEntries.map { it.queueId }, after.nowPlayingEntries.map { it.queueId })
@@ -99,7 +101,7 @@ class PlaybackSessionStateTest {
     }
 
     @Test
-    fun `authoritative selection resolves Full immediately and after reconstruction`() {
+    fun `authoritative selection resolves Full immediately while a replacement queue starts at TV`() {
         val storage = FakeSharedPreferences()
         val firstPreferences = PlaybackPreferences(storage)
         val firstManager = newManager(firstPreferences)
@@ -136,7 +138,7 @@ class PlaybackSessionStateTest {
         assertEquals(PlaybackMode.FULL_SIZE, restartedManager.state.value.playbackIntent.rememberedAudioMode)
         assertNull(restartedManager.state.value.playbackIntent.sessionOverride)
         assertEquals(
-            PlaybackMode.FULL_SIZE,
+            PlaybackMode.TV_SIZE,
             PlaybackResolver().resolve(
                 restartedManager.state.value.currentEntry!!,
                 restartedManager.state.value.playbackIntent,
@@ -166,7 +168,7 @@ class PlaybackSessionStateTest {
     }
 
     @Test
-    fun `restoring queue clears Video override`() {
+    fun `restoring queue preserves Video override`() {
         manager.playItems("Restored", listOf(PlayableItem.Theme(theme(1))))
         val persistedState = manager.state.value.copy(
             playbackIntent = PlaybackIntent(sessionOverride = PlaybackMode.VIDEO)
@@ -174,7 +176,7 @@ class PlaybackSessionStateTest {
 
         manager.restoreState(persistedState)
 
-        assertNull(manager.state.value.playbackIntent.sessionOverride)
+        assertEquals(PlaybackMode.VIDEO, manager.state.value.playbackIntent.sessionOverride)
     }
 
     @Test

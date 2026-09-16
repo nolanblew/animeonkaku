@@ -298,7 +298,7 @@ describe('page-to-player wiring', () => {
     expect(captures.player.playItems).toHaveBeenCalledWith([
       expect.objectContaining({ themeId: 11, mode: 'FULL_SIZE' }),
       expect.objectContaining({ songId: 90 }),
-    ], { contextLabel: 'Mixed modes', startIndex: 0, shuffle: true })
+    ], { contextLabel: 'Mixed modes', startIndex: 0, shuffle: true, desiredMode: 'FULL_SIZE' })
 
     const withUnavailableBeforeSelection = {
       ...playlist,
@@ -314,7 +314,7 @@ describe('page-to-player wiring', () => {
       expect.objectContaining({ themeId: 11 }),
       expect.objectContaining({ themeId: 12 }),
       expect.objectContaining({ songId: 90 }),
-    ], { contextLabel: 'Mixed modes', startIndex: 2, shuffle: false })
+    ], { contextLabel: 'Mixed modes', startIndex: 2, shuffle: false, desiredMode: 'FULL_SIZE' })
     captures.playlistDetailProps.onPlayNextItem(playlist, 0)
     captures.playlistDetailProps.onAddToQueueItem(playlist, 1)
     expect(captures.player.queue.playNext).toHaveBeenCalledWith([expect.objectContaining({ themeId: 11 })])
@@ -323,11 +323,11 @@ describe('page-to-player wiring', () => {
     captures.playlistDetailProps.onPlayNext(playlist)
     captures.playlistDetailProps.onAddToQueue(playlist)
     captures.playlistDetailProps.onReplaceQueue(playlist)
-    expect(captures.player.playItems).toHaveBeenLastCalledWith(expect.arrayContaining([expect.objectContaining({ themeId: 11 }), expect.objectContaining({ songId: 90 })]), { contextLabel: 'Mixed modes', startIndex: 0, shuffle: false })
+    expect(captures.player.playItems).toHaveBeenLastCalledWith(expect.arrayContaining([expect.objectContaining({ themeId: 11 }), expect.objectContaining({ songId: 90 })]), { contextLabel: 'Mixed modes', startIndex: 0, shuffle: false, desiredMode: 'FULL_SIZE' })
 
     captures.player.currentItem = null
     captures.playlistDetailProps.onPlayNextItem(playlist, 0)
-    expect(captures.player.playItem).toHaveBeenCalledWith(expect.objectContaining({ themeId: 11 }), { contextLabel: 'Mixed modes' })
+    expect(captures.player.playItem).toHaveBeenCalledWith(expect.objectContaining({ themeId: 11 }), { contextLabel: 'Mixed modes', desiredMode: 'FULL_SIZE' })
     captures.playlistDetailProps.onAddToQueue(playlist)
     expect(captures.player.queue.addToQueue).toHaveBeenLastCalledWith([expect.objectContaining({ songId: 90 })])
     captures.playlistDetailProps.onPlayNext({ ...playlist, items: [{ entryId: 1, itemType: 'THEME', itemId: 999, modeOverride: null }] })
@@ -344,7 +344,7 @@ describe('page-to-player wiring', () => {
     renderPath(<PlaylistsPage />)
     expect(captures.playlistManagerProps.state).toBe('ready')
     captures.playlistManagerProps.onPlay(legacy, false)
-    expect(captures.player.playItems).toHaveBeenCalledWith([expect.objectContaining({ themeId: 11, mode: 'FULL_SIZE' })], { contextLabel: 'Mixed modes', startIndex: 0, shuffle: false })
+    expect(captures.player.playItems).toHaveBeenCalledWith([expect.objectContaining({ themeId: 11, mode: 'FULL_SIZE' })], { contextLabel: 'Mixed modes', startIndex: 0, shuffle: false, desiredMode: 'FULL_SIZE' })
   })
 })
 

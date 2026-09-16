@@ -85,7 +85,7 @@ describe('live variant preferences', () => {
     expect(store.currentEntry!.item.id).toBe('next')
   })
 
-  it('skips a required version that conflicts with the saved preference before assigning a media source', async () => {
+  it('keeps a strict required version despite a conflicting saved preference', async () => {
     vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => undefined)
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined)
     const store = new QueueStore()
@@ -94,8 +94,27 @@ describe('live variant preferences', () => {
       item({ id: 'next', audioUrl: '/tv/2' }),
     ])
     renderPlayer(store, { preferenceSnapshot: { themesById: { 1: { preferredMode: 'FULL_SIZE' } }, songsById: {} } })
-    await waitFor(() => expect(screen.getByTestId('player-audio')).toHaveAttribute('src', '/api/tv/2'))
-    expect(store.currentEntry!.item.id).toBe('next')
+    await waitFor(() => expect(screen.getByTestId('player-audio')).toHaveAttribute('src', '/api/tv/1'))
+    expect(store.currentEntry!.item.id).toBe('theme-1')
+  })
+
+  it('applies a newer saved preference after a manual selection without changing queue intent', async () => {
+    vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => undefined)
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined)
+    const store = new QueueStore()
+    store.play([item({ itemType: 'THEME', themeId: 1, tvAudioUrl: '/tv/1', fullAudioUrl: '/full/1' })], { desiredMode: 'TV_SIZE' })
+    const queueId = store.currentEntry!.queueId
+    store.selectMode(queueId, 'FULL_SIZE')
+    const view = (preferredMode?: 'TV_SIZE' | 'FULL_SIZE') => <PlayerProvider queueStore={store} preferenceSnapshot={{ themesById: { 1: { preferredMode } }, songsById: {} }}><Harness /></PlayerProvider>
+    const rendered = render(view())
+    await waitFor(() => expect(screen.getByTestId('player-audio')).toHaveAttribute('src', '/api/full/1'))
+    expect(store.state.desiredMode).toBe('FULL_SIZE')
+
+    rendered.rerender(view('TV_SIZE'))
+
+    await waitFor(() => expect(screen.getByTestId('player-audio')).toHaveAttribute('src', '/api/tv/1'))
+    expect(store.currentEntry?.manualMode).toBeUndefined()
+    expect(store.state.desiredMode).toBe('FULL_SIZE')
   })
 })
 
@@ -386,7 +405,7 @@ describe('PlayerProvider', () => {
 })
 
 describe('media cache reconciliation', () => {
-  it('prefetches only the resolved allowed version and omits required conflicts', async () => {
+  it('prefetches only the resolved allowed versions and honors strict requirements', async () => {
     const reconcile = vi.fn(() => Promise.resolve())
     const cache = { reconcile } as unknown as ManagedMediaCache
     const store = new QueueStore()
@@ -395,7 +414,7 @@ describe('media cache reconciliation', () => {
       item({ id: 3, itemType: 'THEME', themeId: 3, mode: 'TV_SIZE', requiredMode: 'TV_SIZE', tvAudioUrl: '/tv/3', fullAudioUrl: '/full/3' }),
     ])
     renderPlayer(store, { mediaCache: cache, preferenceSnapshot: { themesById: { 2: { dislikedTvSize: true }, 3: { preferredMode: 'FULL_SIZE' } }, songsById: {} } })
-    await waitFor(() => expect(reconcile).toHaveBeenCalledWith(expect.objectContaining({ nextAudioUrls: ['/api/full/2'] })))
+    await waitFor(() => expect(reconcile).toHaveBeenCalledWith(expect.objectContaining({ nextAudioUrls: ['/api/full/2', '/api/tv/3'] })))
   })
   it('passes exactly the next three audio URLs and never a video URL', async () => {
     const reconcile = vi.fn(() => Promise.resolve())

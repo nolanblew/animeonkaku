@@ -193,12 +193,12 @@ class DownloadMediaResolutionTest {
     }
 
     @Test
-    fun `required playlist skips conflicting preferences and dislikes`() {
+    fun `required playlist ignores conflicting saved mode but respects dislikes`() {
         val entry = PlaylistEntryEntity(7, 10, 0, 100, "THEME", 10, null)
         val mode = ThemeModeEntity(10, "/tv/10", fullSizeSongId = 90, fullSizeUrl = "/songs/90")
 
         assertEquals(
-            emptyList<DownloadMediaSpec>(),
+            listOf(DownloadMediaSpec.themeTv(10, "/tv/10")),
             resolvePlaylistDownloadMedia(
                 entries = listOf(entry),
                 playlistDefaultMode = "TV_SIZE",

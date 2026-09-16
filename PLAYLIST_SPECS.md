@@ -2,6 +2,8 @@
 
 This file is the short reference for how dynamic playlists are expected to behave in Anime Ongaku.
 
+Playback version preferences and **Require selected version** follow the [queue playback guide](docs/queue-playback-guide.md). Requirements travel with individual queue occurrences, including songs inserted with Play Next or Add to Queue.
+
 ## Goal
 
 Users can create filter-based playlists that populate from their synced library data and theme metadata.

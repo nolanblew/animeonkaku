@@ -1,0 +1,184 @@
+[
+  {
+    "name": "strict Video intent requires required audio availability",
+    "input": {
+      "queueDesiredMode": "VIDEO",
+      "requiredAudioMode": "FULL_SIZE",
+      "available": { "TV_SIZE": true, "FULL_SIZE": false, "VIDEO": true }
+    },
+    "expected": { "desiredMode": "VIDEO", "actualMode": null, "reason": "REQUIRED_UNAVAILABLE" }
+  },
+  {
+    "name": "manual selection may play a disliked available variant",
+    "input": {
+      "queueDesiredMode": "TV_SIZE",
+      "manualMode": "FULL_SIZE",
+      "dislikedFullSize": true,
+      "available": { "TV_SIZE": true, "FULL_SIZE": true, "VIDEO": false }
+    },
+    "expected": { "desiredMode": "FULL_SIZE", "actualMode": "FULL_SIZE", "reason": "SELECTED" }
+  },
+  {
+    "name": "explicit Video intent wins over stored audio preference",
+    "input": {
+      "queueDesiredMode": "VIDEO",
+      "savedPreferredAudioMode": "FULL_SIZE",
+      "available": { "TV_SIZE": true, "FULL_SIZE": true, "VIDEO": true }
+    },
+    "expected": { "desiredMode": "VIDEO", "actualMode": "VIDEO", "reason": "SELECTED" }
+  },
+  {
+    "name": "later soft Full occurrence supersedes older queue Video intent",
+    "input": {
+      "queueDesiredMode": "VIDEO",
+      "softMode": "FULL_SIZE",
+      "available": { "TV_SIZE": true, "FULL_SIZE": true, "VIDEO": true }
+    },
+    "expected": { "desiredMode": "FULL_SIZE", "actualMode": "FULL_SIZE", "reason": "SELECTED" }
+  },
+  {
+    "name": "stored audio preference wins after later soft mode supersedes queue Video",
+    "input": {
+      "queueDesiredMode": "VIDEO",
+      "savedPreferredAudioMode": "TV_SIZE",
+      "softMode": "FULL_SIZE",
+      "available": { "TV_SIZE": true, "FULL_SIZE": true, "VIDEO": true }
+    },
+    "expected": { "desiredMode": "TV_SIZE", "actualMode": "TV_SIZE", "reason": "SELECTED" }
+  },
+  {
+    "name": "stored theme preference wins over soft playlist seed",
+    "input": {
+      "queueDesiredMode": "TV_SIZE",
+      "savedPreferredAudioMode": "FULL_SIZE",
+      "softMode": "TV_SIZE",
+      "available": { "TV_SIZE": true, "FULL_SIZE": true, "VIDEO": false }
+    },
+    "expected": { "desiredMode": "FULL_SIZE", "actualMode": "FULL_SIZE", "reason": "SELECTED" }
+  },
+  {
+    "name": "TV desired falls back to Full when TV is missing",
+    "input": {
+      "queueDesiredMode": "TV_SIZE",
+      "available": { "TV_SIZE": false, "FULL_SIZE": true, "VIDEO": false }
+    },
+    "expected": { "desiredMode": "TV_SIZE", "actualMode": "FULL_SIZE", "reason": "FALLBACK" }
+  },
+  {
+    "name": "Full desired falls back to TV when Full is missing",
+    "input": {
+      "queueDesiredMode": "FULL_SIZE",
+      "available": { "TV_SIZE": true, "FULL_SIZE": false, "VIDEO": false }
+    },
+    "expected": { "desiredMode": "FULL_SIZE", "actualMode": "TV_SIZE", "reason": "FALLBACK" }
+  },
+  {
+    "name": "audio intent never falls back to available Video",
+    "input": {
+      "queueDesiredMode": "FULL_SIZE",
+      "available": { "TV_SIZE": false, "FULL_SIZE": false, "VIDEO": true }
+    },
+    "expected": { "desiredMode": "FULL_SIZE", "actualMode": null, "reason": "NO_ALLOWED_MODE" }
+  },
+  {
+    "name": "TV dislike falls back to Full",
+    "input": {
+      "queueDesiredMode": "TV_SIZE",
+      "dislikedTvSize": true,
+      "available": { "TV_SIZE": true, "FULL_SIZE": true, "VIDEO": false }
+    },
+    "expected": { "desiredMode": "TV_SIZE", "actualMode": "FULL_SIZE", "reason": "FALLBACK" }
+  },
+  {
+    "name": "Full dislike falls back to TV",
+    "input": {
+      "queueDesiredMode": "FULL_SIZE",
+      "dislikedFullSize": true,
+      "available": { "TV_SIZE": true, "FULL_SIZE": true, "VIDEO": false }
+    },
+    "expected": { "desiredMode": "FULL_SIZE", "actualMode": "TV_SIZE", "reason": "FALLBACK" }
+  },
+  {
+    "name": "both audio variants disliked skips",
+    "input": {
+      "queueDesiredMode": "TV_SIZE",
+      "dislikedTvSize": true,
+      "dislikedFullSize": true,
+      "available": { "TV_SIZE": true, "FULL_SIZE": true, "VIDEO": false }
+    },
+    "expected": { "desiredMode": "TV_SIZE", "actualMode": null, "reason": "NO_ALLOWED_MODE" }
+  },
+  {
+    "name": "strict required audio ignores conflicting saved and soft audio",
+    "input": {
+      "queueDesiredMode": "FULL_SIZE",
+      "savedPreferredAudioMode": "FULL_SIZE",
+      "softMode": "FULL_SIZE",
+      "requiredAudioMode": "TV_SIZE",
+      "available": { "TV_SIZE": true, "FULL_SIZE": true, "VIDEO": false }
+    },
+    "expected": { "desiredMode": "FULL_SIZE", "actualMode": "TV_SIZE", "reason": "FALLBACK" }
+  },
+  {
+    "name": "manual audio outside strict type is rejected",
+    "input": {
+      "manualMode": "FULL_SIZE",
+      "requiredAudioMode": "TV_SIZE",
+      "available": { "TV_SIZE": true, "FULL_SIZE": true, "VIDEO": false }
+    },
+    "expected": { "desiredMode": "FULL_SIZE", "actualMode": null, "reason": "STRICT_MODE_REJECTED" }
+  },
+  {
+    "name": "strict disliked required audio skips automatically",
+    "input": {
+      "requiredAudioMode": "FULL_SIZE",
+      "dislikedFullSize": true,
+      "available": { "TV_SIZE": true, "FULL_SIZE": true, "VIDEO": false }
+    },
+    "expected": { "desiredMode": "TV_SIZE", "actualMode": null, "reason": "NO_ALLOWED_MODE" }
+  },
+  {
+    "name": "global dislike skips automatic playback",
+    "input": {
+      "globallyDisliked": true,
+      "available": { "TV_SIZE": true, "FULL_SIZE": true, "VIDEO": true }
+    },
+    "expected": { "desiredMode": "TV_SIZE", "actualMode": null, "reason": "GLOBAL_DISLIKE" }
+  },
+  {
+    "name": "explicit unskip may override global dislike",
+    "input": {
+      "globallyDisliked": true,
+      "allowDisliked": true,
+      "queueDesiredMode": "FULL_SIZE",
+      "available": { "TV_SIZE": true, "FULL_SIZE": true, "VIDEO": false }
+    },
+    "expected": { "desiredMode": "FULL_SIZE", "actualMode": "FULL_SIZE", "reason": "SELECTED" }
+  },
+  {
+    "name": "Video remains selected despite TV variant dislike",
+    "input": {
+      "queueDesiredMode": "VIDEO",
+      "dislikedTvSize": true,
+      "available": { "TV_SIZE": true, "FULL_SIZE": true, "VIDEO": true }
+    },
+    "expected": { "desiredMode": "VIDEO", "actualMode": "VIDEO", "reason": "SELECTED" }
+  },
+  {
+    "name": "missing Video with disliked TV skips even when Full is available",
+    "input": {
+      "queueDesiredMode": "VIDEO",
+      "dislikedTvSize": true,
+      "available": { "TV_SIZE": true, "FULL_SIZE": true, "VIDEO": false }
+    },
+    "expected": { "desiredMode": "VIDEO", "actualMode": null, "reason": "NO_ALLOWED_MODE" }
+  },
+  {
+    "name": "missing Video falls back to allowed TV only",
+    "input": {
+      "queueDesiredMode": "VIDEO",
+      "available": { "TV_SIZE": true, "FULL_SIZE": true, "VIDEO": false }
+    },
+    "expected": { "desiredMode": "VIDEO", "actualMode": "TV_SIZE", "reason": "FALLBACK" }
+  }
+]

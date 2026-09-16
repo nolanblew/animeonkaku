@@ -9,10 +9,12 @@
 
 import {
   emptyQueuePreferenceSnapshot,
-  isQueueItemAllowedByPreference,
+  isQueueEntryAllowedByPreference,
+  queueEntryDislikeFingerprint,
   nextEligibleQueueIndex,
   type QueuePreferenceSnapshot,
 } from './preferenceQueue'
+import type { PlaybackMode } from '../media/modeSwitch'
 
 export type QueueItemId = number | string
 export type QueueEntryId = number
@@ -34,6 +36,16 @@ export interface QueueItem {
 export interface QueueEntry {
   readonly queueId: QueueEntryId
   readonly item: QueueItem
+  /** Last resolved playback type for this queue occurrence. */
+  readonly lastActualMode?: PlaybackMode
+  /** Current occurrence-only manual selection. */
+  readonly manualMode?: PlaybackMode
+  /** One-shot request to replay [lastActualMode] on Back/repeat. */
+  readonly replayRequested?: boolean
+  /** Explicit per-occurrence dislike override, independent of duplicate copies. */
+  readonly unskipped?: boolean
+  /** Dislike state when the manual/unskip exception was granted. */
+  readonly preferenceBaseline?: string
 }
 
 export interface QueueState {
@@ -54,6 +66,8 @@ export interface QueueState {
   readonly unskippedEntryIds: readonly QueueEntryId[]
   /** Internal monotonic allocator. It is persisted in the snapshot so restores cannot reuse ids. */
   readonly nextQueueEntryId: QueueEntryId
+  /** Device-local intent for this queue. It is reset when a new context replaces it. */
+  readonly desiredMode?: PlaybackMode
 }
 
 export interface PlayOptions {
@@ -63,6 +77,8 @@ export interface PlayOptions {
   readonly suggestedFrom?: number
   /** Injectable for deterministic tests and a future seeded queue preference. */
   readonly random?: () => number
+  /** Device-local desired mode for the replacement queue. */
+  readonly desiredMode?: PlaybackMode
 }
 
 export interface QueueStoreOptions {
@@ -85,7 +101,13 @@ export type QueueAction =
   | { readonly type: 'toggleShuffle'; readonly random?: () => number }
   | { readonly type: 'setRepeatMode'; readonly mode: RepeatMode }
   | { readonly type: 'cycleRepeatMode' }
-  | { readonly type: 'unskipEntry'; readonly queueId: QueueEntryId }
+  | { readonly type: 'unskipEntry'; readonly queueId: QueueEntryId; readonly preferenceBaseline?: string }
+  | { readonly type: 'selectMode'; readonly queueId: QueueEntryId; readonly mode: PlaybackMode; readonly preferenceBaseline: string }
+  | { readonly type: 'requestReplay'; readonly queueId: QueueEntryId; readonly explicit: boolean; readonly preferenceBaseline?: string }
+  | { readonly type: 'recordActualMode'; readonly queueId: QueueEntryId; readonly mode: PlaybackMode }
+  | { readonly type: 'setDesiredMode'; readonly mode?: PlaybackMode; readonly clearSoftModes?: boolean }
+  | { readonly type: 'invalidatePreferenceOverrides'; readonly queueIds: readonly QueueEntryId[] }
+  | { readonly type: 'applySavedPreferenceChanges'; readonly themeIds: readonly string[] }
   | { readonly type: 'clear' }
   | { readonly type: 'restore'; readonly state: QueueState }
 
@@ -109,6 +131,7 @@ export function createInitialQueueState(): QueueState {
     repeatMode: 'off',
     unskippedEntryIds: emptyEntryIds,
     nextQueueEntryId: 1,
+    desiredMode: undefined,
   }
 }
 
@@ -200,10 +223,114 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
             : 'off',
       }
     case 'unskipEntry': {
-      if (!state.nowPlayingEntries.some((entry) => entry.queueId === action.queueId) || state.unskippedEntryIds.includes(action.queueId)) return state
+      if (!state.nowPlayingEntries.some((entry) => entry.queueId === action.queueId)) return state
+      const unskipped = updateEntry(state, action.queueId, (entry) => (
+        entry.unskipped && entry.preferenceBaseline === action.preferenceBaseline
+          ? entry
+          : { ...entry, unskipped: true, preferenceBaseline: action.preferenceBaseline ?? entry.preferenceBaseline }
+      ))
+      if (unskipped === state && state.unskippedEntryIds.includes(action.queueId)) return state
+      return {
+        ...unskipped,
+        unskippedEntryIds: appendUniqueIds(state.unskippedEntryIds, [action.queueId]),
+        queueVersion: state.queueVersion + 1,
+      }
+    }
+    case 'selectMode': {
+      const cleared = clearSoftModes(state)
+      const selected = updateEntry(cleared, action.queueId, (entry) => ({
+        ...entry,
+        manualMode: action.mode,
+        unskipped: true,
+        preferenceBaseline: action.preferenceBaseline,
+      }))
+      if (selected === state) return state
+      return {
+        ...selected,
+        desiredMode: action.mode,
+        unskippedEntryIds: appendUniqueIds(cleared.unskippedEntryIds, [action.queueId]),
+        queueVersion: cleared.queueVersion + 1,
+      }
+    }
+    case 'requestReplay': {
+      const replay = updateEntry(state, action.queueId, (entry) => ({
+        ...entry,
+        replayRequested: entry.lastActualMode != null,
+        ...(action.explicit ? { unskipped: true, preferenceBaseline: action.preferenceBaseline } : {}),
+      }))
+      if (replay === state) return state
+      return {
+        ...replay,
+        unskippedEntryIds: action.explicit
+          ? appendUniqueIds(state.unskippedEntryIds, [action.queueId])
+          : state.unskippedEntryIds,
+        queueVersion: state.queueVersion + 1,
+      }
+    }
+    case 'recordActualMode': {
+      const updated = updateEntry(state, action.queueId, (entry) => (
+        entry.lastActualMode === action.mode ? entry : { ...entry, lastActualMode: action.mode }
+      ))
+      return updated === state ? state : { ...updated, queueVersion: state.queueVersion + 1 }
+    }
+    case 'setDesiredMode': {
+      const cleared = action.clearSoftModes ? clearSoftModes(state) : state
+      if (cleared.desiredMode === action.mode && cleared === state) return state
+      return { ...cleared, desiredMode: action.mode, queueVersion: state.queueVersion + 1 }
+    }
+    case 'invalidatePreferenceOverrides': {
+      if (action.queueIds.length === 0) return state
+      const queueIds = new Set(action.queueIds)
+      const clearEntry = (entry: QueueEntry): QueueEntry => {
+        if (!queueIds.has(entry.queueId) || (!entry.unskipped && entry.manualMode == null)) return entry
+        const { unskipped: _unskipped, manualMode: _manualMode, preferenceBaseline: _baseline, ...rest } = entry
+        return rest
+      }
+      const nowPlayingEntries = state.nowPlayingEntries.map(clearEntry)
+      const originalQueueEntries = state.originalQueueEntries.map(clearEntry)
+      const historyEntries = state.historyEntries.map(clearEntry)
+      const unskippedEntryIds = state.unskippedEntryIds.filter((id) => !queueIds.has(id))
+      const changed = [...state.nowPlayingEntries, ...state.originalQueueEntries, ...state.historyEntries]
+        .some((entry) => queueIds.has(entry.queueId) && (entry.unskipped || entry.manualMode != null))
+      if (!changed && unskippedEntryIds.length === state.unskippedEntryIds.length) return state
       return {
         ...state,
-        unskippedEntryIds: [...state.unskippedEntryIds, action.queueId],
+        originalQueueEntries,
+        nowPlayingEntries,
+        historyEntries,
+        unskippedEntryIds,
+        queueVersion: state.queueVersion + 1,
+      }
+    }
+    case 'applySavedPreferenceChanges': {
+      if (action.themeIds.length === 0) return state
+      const themeIds = new Set(action.themeIds)
+      const affectedIds = uniqueEntries([
+        ...state.originalQueueEntries,
+        ...state.nowPlayingEntries,
+        ...state.historyEntries,
+      ]).filter((entry) => {
+        const themeId = entry.item.itemType === 'THEME' ? entry.item.themeId : undefined
+        return themeId != null && themeIds.has(String(themeId))
+      }).map((entry) => entry.queueId)
+      if (affectedIds.length === 0) return state
+      const affected = new Set(affectedIds)
+      const clearEntry = (entry: QueueEntry): QueueEntry => {
+        if (!affected.has(entry.queueId) || (entry.manualMode == null && !entry.replayRequested)) return entry
+        const { manualMode: _manual, replayRequested: _replay, ...rest } = entry
+        return rest
+      }
+      const nowPlayingEntries = state.nowPlayingEntries.map(clearEntry)
+      const originalQueueEntries = state.originalQueueEntries.map(clearEntry)
+      const historyEntries = state.historyEntries.map(clearEntry)
+      const changed = [...state.nowPlayingEntries, ...state.originalQueueEntries, ...state.historyEntries]
+        .some((entry) => affected.has(entry.queueId) && (entry.manualMode != null || entry.replayRequested))
+      if (!changed) return state
+      return {
+        ...state,
+        nowPlayingEntries,
+        originalQueueEntries,
+        historyEntries,
         queueVersion: state.queueVersion + 1,
       }
     }
@@ -214,6 +341,7 @@ export function queueReducer(state: QueueState, action: QueueAction): QueueState
         queueVersion: state.queueVersion + 1,
         playRequestGeneration: state.playRequestGeneration + 1,
         repeatMode: state.repeatMode,
+        desiredMode: undefined,
       }
     case 'restore':
       return restoreState(action.state)
@@ -259,6 +387,7 @@ function playContext(state: QueueState, action: Extract<QueueAction, { type: 'pl
     queueVersion: state.queueVersion + 1,
     playRequestGeneration: state.playRequestGeneration + 1,
     nextQueueEntryId: nextId,
+    desiredMode: action.desiredMode,
   }
 }
 
@@ -323,6 +452,7 @@ function standaloneQueue(state: QueueState, entries: readonly QueueEntry[], next
     queueVersion: state.queueVersion + 1,
     playRequestGeneration: state.playRequestGeneration + 1,
     nextQueueEntryId: nextId,
+    desiredMode: undefined,
   }
 }
 
@@ -377,7 +507,7 @@ function transitionToIndex(
   }
 
   const nextId = state.nowPlayingEntries[nextIndex].queueId
-  return {
+  const transitioned: QueueState = {
     ...state,
     currentIndex: nextIndex,
     historyEntries,
@@ -387,6 +517,10 @@ function transitionToIndex(
       ? state.playRequestGeneration + 1
       : state.playRequestGeneration,
   }
+  const previousQueueId = state.nowPlayingEntries[currentIndex]?.queueId
+  return previousQueueId === undefined || previousQueueId === nextId
+    ? transitioned
+    : updateEntry(transitioned, previousQueueId, (entry) => entry.replayRequested ? { ...entry, replayRequested: false } : entry)
 }
 
 function moveEntry(state: QueueState, fromQueueId: QueueEntryId, toQueueId: QueueEntryId): QueueState {
@@ -442,11 +576,16 @@ function rewindTo(state: QueueState, historyIndex: number): QueueState {
   const restored = state.historyEntries.slice(historyIndex)
   const tail = state.nowPlayingEntries.slice(state.currentIndex)
   const nowPlaying = [...restored, ...tail]
+  const replayQueueId = nowPlaying[0].queueId
+  const clearOtherReplay = (entries: readonly QueueEntry[]) => entries.map((entry) => (
+    entry.queueId !== replayQueueId && entry.replayRequested ? { ...entry, replayRequested: false } : entry
+  ))
   return {
     ...state,
-    nowPlayingEntries: nowPlaying,
+    originalQueueEntries: clearOtherReplay(state.originalQueueEntries),
+    nowPlayingEntries: clearOtherReplay(nowPlaying),
     currentIndex: 0,
-    historyEntries: state.historyEntries.slice(0, historyIndex),
+    historyEntries: clearOtherReplay(state.historyEntries.slice(0, historyIndex)),
     playedEntryIds: [nowPlaying[0].queueId],
     suggestedEntryIds: emptyEntryIds,
     queueVersion: state.queueVersion + 1,
@@ -549,7 +688,14 @@ function restoreState(snapshot: QueueState): QueueState {
   const currentIndex = normalized.entries.length === 0
     ? 0
     : clampIndex(snapshot.currentIndex, normalized.entries.length)
-  return {
+  const restoredUnskippedIds = appendUniqueIds(
+    [],
+    [
+      ...(snapshot.unskippedEntryIds ?? []),
+      ...allEntries.filter((entry) => entry.unskipped).map((entry) => entry.queueId),
+    ].filter((id) => validIds.has(id)),
+  )
+  const restored: QueueState = {
     ...snapshot,
     originalQueueEntries: original.entries,
     nowPlayingEntries: normalized.entries,
@@ -558,9 +704,45 @@ function restoreState(snapshot: QueueState): QueueState {
     addedToQueueEntryIds: snapshot.addedToQueueEntryIds.filter((id) => validIds.has(id)),
     suggestedEntryIds: snapshot.suggestedEntryIds.filter((id) => validIds.has(id)),
     playedEntryIds: appendUniqueIds([], snapshot.playedEntryIds.filter((id) => validIds.has(id))),
-    unskippedEntryIds: appendUniqueIds([], (snapshot.unskippedEntryIds ?? []).filter((id) => validIds.has(id))),
+    unskippedEntryIds: restoredUnskippedIds,
     currentIndex,
     nextQueueEntryId: history.nextId,
+    desiredMode: isPlaybackMode(snapshot.desiredMode) ? snapshot.desiredMode : undefined,
+  }
+  const current = restored.nowPlayingEntries[currentIndex]
+  return current?.lastActualMode
+    ? updateEntry(restored, current.queueId, (entry) => entry.replayRequested ? entry : { ...entry, replayRequested: true })
+    : restored
+}
+
+function updateEntry(state: QueueState, queueId: QueueEntryId, update: (entry: QueueEntry) => QueueEntry): QueueState {
+  let changed = false
+  const updateEntries = (entries: readonly QueueEntry[]): readonly QueueEntry[] => entries.map((entry) => {
+    if (entry.queueId !== queueId) return entry
+    const next = update(entry)
+    changed ||= next !== entry
+    return next
+  })
+  const originalQueueEntries = updateEntries(state.originalQueueEntries)
+  const nowPlayingEntries = updateEntries(state.nowPlayingEntries)
+  const historyEntries = updateEntries(state.historyEntries)
+  return changed ? { ...state, originalQueueEntries, nowPlayingEntries, historyEntries } : state
+}
+
+function clearSoftModes(state: QueueState): QueueState {
+  const clear = (entry: QueueEntry): QueueEntry => {
+    if (!('softMode' in entry.item) && !('mode' in entry.item)) return entry
+    const item = { ...entry.item }
+    delete item.softMode
+    delete item.mode
+    return { ...entry, item }
+  }
+  const clearEntries = (entries: readonly QueueEntry[]): readonly QueueEntry[] => entries.map(clear)
+  return {
+    ...state,
+    originalQueueEntries: clearEntries(state.originalQueueEntries),
+    nowPlayingEntries: clearEntries(state.nowPlayingEntries),
+    historyEntries: clearEntries(state.historyEntries),
   }
 }
 
@@ -660,6 +842,10 @@ function isValidIndex(state: QueueState, index: number): boolean {
   return Number.isInteger(index) && index >= 0 && index < state.nowPlayingEntries.length
 }
 
+function isPlaybackMode(value: unknown): value is PlaybackMode {
+  return value === 'TV_SIZE' || value === 'FULL_SIZE' || value === 'VIDEO'
+}
+
 function clampIndex(index: number, length: number): number {
   if (length <= 0) return 0
   return Math.max(0, Math.min(length - 1, Math.trunc(index)))
@@ -676,6 +862,7 @@ export class QueueStore {
   private readonly listeners = new Set<QueueListener>()
   private readonly random: () => number
   private preferenceSnapshot: QueuePreferenceSnapshot = emptyQueuePreferenceSnapshot
+  private preferencesReady = false
 
   constructor(initialState?: QueueState | QueueStoreOptions, options: QueueStoreOptions = {}) {
     if (initialState && 'nowPlayingEntries' in initialState) {
@@ -720,24 +907,109 @@ export class QueueStore {
     return next
   }
 
-  /** Updates the synchronized preference projection used for new queue entries and automatic next. */
-  setPreferenceSnapshot(snapshot: QueuePreferenceSnapshot | undefined): void {
-    this.preferenceSnapshot = snapshot ?? emptyQueuePreferenceSnapshot
+  /** Updates synchronized preferences and invalidates only exceptions older than a new relevant dislike. */
+  setPreferenceSnapshot(snapshot: QueuePreferenceSnapshot | undefined, ready = true): void {
+    const previous = this.preferenceSnapshot
+    const next = snapshot ?? emptyQueuePreferenceSnapshot
+    const previouslyReady = this.preferencesReady
+    this.preferenceSnapshot = next
+    if (!ready) return
+    this.preferencesReady = true
+    if (previouslyReady) {
+      const themeIds = new Set([...Object.keys(previous.themesById), ...Object.keys(next.themesById)])
+      const changedPreferredModes = [...themeIds].filter((themeId) =>
+        (previous.themesById[themeId]?.preferredMode ?? null) !== (next.themesById[themeId]?.preferredMode ?? null),
+      )
+      if (changedPreferredModes.length > 0) this.dispatch({ type: 'applySavedPreferenceChanges', themeIds: changedPreferredModes })
+    }
+    const all = uniqueEntries([
+      ...this.currentState.originalQueueEntries,
+      ...this.currentState.nowPlayingEntries,
+      ...this.currentState.historyEntries,
+    ])
+    const missingBaseline = all.filter((entry) => (entry.unskipped || entry.manualMode != null) && entry.preferenceBaseline == null)
+    let baselineChanged = false
+    for (const entry of missingBaseline) {
+      const baseline = queueEntryDislikeFingerprint(entry, this.preferenceSnapshot, entry.manualMode ?? entry.lastActualMode)
+      const updated = updateEntry(this.currentState, entry.queueId, (candidate) => ({ ...candidate, preferenceBaseline: baseline }))
+      if (updated !== this.currentState) {
+        this.currentState = updated
+        baselineChanged = true
+      }
+    }
+    const invalid = all
+      .filter((entry) => (entry.unskipped || entry.manualMode != null) && entry.preferenceBaseline != null)
+      .filter((entry) => newlyDislikedFingerprint(
+        entry.preferenceBaseline!,
+        queueEntryDislikeFingerprint(entry, this.preferenceSnapshot, entry.manualMode ?? entry.lastActualMode),
+      ))
+      .map((entry) => entry.queueId)
+    const invalidSet = new Set(invalid)
+    for (const entry of all) {
+      if (invalidSet.has(entry.queueId) || (!entry.unskipped && entry.manualMode == null) || entry.preferenceBaseline == null) continue
+      const nextBaseline = queueEntryDislikeFingerprint(entry, this.preferenceSnapshot, entry.manualMode ?? entry.lastActualMode)
+      if (nextBaseline === entry.preferenceBaseline) continue
+      const updated = updateEntry(this.currentState, entry.queueId, (candidate) => ({ ...candidate, preferenceBaseline: nextBaseline }))
+      if (updated !== this.currentState) {
+        this.currentState = updated
+        baselineChanged = true
+      }
+    }
+    if (invalid.length > 0) {
+      this.dispatch({ type: 'invalidatePreferenceOverrides', queueIds: invalid })
+    } else if (baselineChanged) {
+      this.currentState = { ...this.currentState, queueVersion: this.currentState.queueVersion + 1 }
+      for (const listener of this.listeners) listener(this.currentState)
+    }
   }
 
   /** Allows one explicitly selected queue occurrence to play for the current session. */
   unskipEntry(queueId: QueueEntryId): QueueState {
-    return this.dispatch({ type: 'unskipEntry', queueId })
+    const entry = this.currentState.nowPlayingEntries.find((candidate) => candidate.queueId === queueId)
+    return this.dispatch({
+      type: 'unskipEntry',
+      queueId,
+      preferenceBaseline: entry ? queueEntryDislikeFingerprint(entry, this.preferenceSnapshot) : undefined,
+    })
+  }
+
+  selectMode(queueId: QueueEntryId, mode: PlaybackMode): QueueState {
+    const entry = this.currentState.nowPlayingEntries.find((candidate) => candidate.queueId === queueId)
+    if (!entry) return this.currentState
+    return this.dispatch({
+      type: 'selectMode',
+      queueId,
+      mode,
+      preferenceBaseline: queueEntryDislikeFingerprint(entry, this.preferenceSnapshot, mode),
+    })
+  }
+
+  requestReplay(queueId: QueueEntryId, explicit = false): QueueState {
+    const entry = this.currentState.nowPlayingEntries.find((candidate) => candidate.queueId === queueId)
+      ?? this.currentState.historyEntries.find((candidate) => candidate.queueId === queueId)
+    if (!entry) return this.currentState
+    return this.dispatch({
+      type: 'requestReplay',
+      queueId,
+      explicit,
+      preferenceBaseline: explicit
+        ? queueEntryDislikeFingerprint(entry, this.preferenceSnapshot, entry.lastActualMode)
+        : undefined,
+    })
   }
 
   play(items: readonly QueueItem[], options: PlayOptions = {}): QueueState {
     if (items.length === 0) return this.currentState
     const requestedIndex = clampIndex(options.startIndex ?? 0, items.length)
-    const selected = items[requestedIndex]
-    const selectedIsDisliked = selected !== undefined && !isQueueItemAllowedByPreference(selected, this.preferenceSnapshot)
-    const next = this.dispatch({ type: 'play', items, ...options, startIndex: requestedIndex, random: options.random ?? this.random })
-    if (selectedIsDisliked && this.currentEntry) return this.unskipEntry(this.currentEntry.queueId)
-    return next
+    return this.dispatch({ type: 'play', items, ...options, startIndex: requestedIndex, random: options.random ?? this.random })
+  }
+
+  recordActualMode(queueId: QueueEntryId, mode: PlaybackMode): QueueState {
+    return this.dispatch({ type: 'recordActualMode', queueId, mode })
+  }
+
+  setDesiredMode(mode?: PlaybackMode, clearSoftModes = false): QueueState {
+    return this.dispatch({ type: 'setDesiredMode', mode, clearSoftModes })
   }
 
   playNext(items: readonly QueueItem[]): QueueState {
@@ -757,8 +1029,6 @@ export class QueueStore {
   }
 
   skipTo(index: number): QueueState {
-    const entry = this.currentState.nowPlayingEntries[index]
-    if (entry && !isQueueItemAllowedByPreference(entry.item, this.preferenceSnapshot)) this.unskipEntry(entry.queueId)
     return this.dispatch({ type: 'skipTo', index })
   }
 
@@ -770,8 +1040,16 @@ export class QueueStore {
       this.currentState.repeatMode,
       this.preferenceSnapshot,
       new Set(this.currentState.unskippedEntryIds),
+      this.currentState.desiredMode ?? 'TV_SIZE',
     )
-    if (nextIndex !== null && nextIndex !== this.currentState.currentIndex) {
+    if (nextIndex !== null && nextIndex === this.currentState.currentIndex && this.currentState.repeatMode === 'one') {
+      const entry = this.currentState.nowPlayingEntries[nextIndex]
+      if (entry) this.requestReplay(entry.queueId, false)
+    } else if (nextIndex !== null && nextIndex !== this.currentState.currentIndex) {
+      const target = this.currentState.nowPlayingEntries[nextIndex]
+      if (target?.lastActualMode && this.currentState.playedEntryIds.includes(target.queueId)) {
+        this.requestReplay(target.queueId, false)
+      }
       this.dispatch({ type: 'advanceTo', index: nextIndex })
     }
     return nextIndex
@@ -789,8 +1067,24 @@ export class QueueStore {
     return this.dispatch({ type: 'moveToPlayNext', queueId })
   }
 
-  rewindTo(historyIndex: number): QueueState {
+  rewindTo(historyIndex: number, explicit = false): QueueState {
+    const entry = this.currentState.historyEntries[historyIndex]
+    if (entry) this.requestReplay(entry.queueId, explicit)
     return this.dispatch({ type: 'rewindTo', historyIndex })
+  }
+
+  previousHistoryIndex(): number | null {
+    for (let index = this.currentState.historyEntries.length - 1; index >= 0; index -= 1) {
+      const entry = this.currentState.historyEntries[index]
+      if (isQueueEntryAllowedByPreference(
+        { ...entry, replayRequested: true },
+        this.preferenceSnapshot,
+        new Set(this.currentState.unskippedEntryIds),
+        undefined,
+        this.currentState.desiredMode ?? 'TV_SIZE',
+      )) return index
+    }
+    return null
   }
 
   setShuffled(shuffled: boolean): QueueState {
@@ -816,4 +1110,10 @@ export class QueueStore {
   restore(state: QueueState): QueueState {
     return this.dispatch({ type: 'restore', state })
   }
+}
+
+function newlyDislikedFingerprint(previous: string, next: string): boolean {
+  const previousBits = previous.split(':').slice(1)
+  const nextBits = next.split(':').slice(1)
+  return nextBits.some((bit, index) => bit === '1' && previousBits[index] !== '1')
 }

@@ -31,6 +31,7 @@ data class PlayerModeUiState(
     val options: List<PlaybackMode> = emptyList(),
     val preferredMode: PlaybackMode? = null,
     val actualMode: PlaybackMode? = null,
+    val dislikedModes: Set<PlaybackMode> = emptySet(),
     val retainedIntentText: String? = null,
     val videoContentWarning: VideoContentWarning? = null
 ) {
@@ -100,6 +101,7 @@ fun derivePlayerModeUiState(
         options = options,
         preferredMode = preferred,
         actualMode = actual,
+        dislikedModes = playbackState.dislikedModes.intersect(options.toSet()),
         retainedIntentText = retainedText,
         videoContentWarning = warning
     )

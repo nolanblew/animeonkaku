@@ -1,5 +1,7 @@
 # Now Playing Queue — Detailed Specification
 
+The current cross-platform version-selection contract is in the [queue playback guide](docs/queue-playback-guide.md). It covers queue-local preferences, per-occurrence replay memory, strict playlist requirements, dislikes, and restoration. The historical design below describes queue interactions; its theme-only state sketch is superseded by the current `QueueEntry` model.
+
 > Referenced from `PLAN.md` Phase 13. This document captures all acceptance criteria
 > for the YouTube-Music-style "Now Playing" queue system.
 
@@ -16,13 +18,13 @@ of it is loaded into the **Now Playing Queue**, which the media player actually 
 
 | Field | Type | Description |
 |---|---|---|
-| `originalQueue` | `List<ThemeEntity>` | The unshuffled context playlist (immutable snapshot at play time) |
-| `nowPlaying` | `List<ThemeEntity>` | The active playback order (may be shuffled, may have injected items) |
+| `originalQueueEntries` | `List<QueueEntry>` | The unshuffled order, with distinct identity for every occurrence |
+| `nowPlayingEntries` | `List<QueueEntry>` | The active playback order (may be shuffled, may have injected items) |
 | `currentIndex` | `Int` | Index into `nowPlaying` of the currently playing track |
 | `playNextStack` | `List<ThemeEntity>` | LIFO stack of "Play Next" items inserted after current track |
 | `isShuffled` | `Boolean` | Whether shuffle mode is active |
 | `contextLabel` | `String` | Display label, e.g. "Naruto", "Kitsu Library", "Quick Picks" |
-| `history` | `List<ThemeEntity>` | Tracks that have already been played (for "scroll up" in Up Next) |
+| `historyEntries` | `List<QueueEntry>` | Played occurrences with their actual version and unskip memory |
 
 ---
 

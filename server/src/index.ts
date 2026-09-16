@@ -5,6 +5,7 @@ import { buildApp } from "./app.js";
 import { PgAdminDashboardService } from "./admin/service.js";
 import { AnimeThemesClient } from "./animethemes/client.js";
 import { DrizzleClientApiService } from "./api/drizzleClientApiService.js";
+import { DrizzleTopPicksService } from "./api/topPicksService.js";
 import { ArtistCatalogService } from "./api/artistCatalogService.js";
 import { DrizzleMediaApiRepository } from "./api/drizzleMediaApiRepository.js";
 import { JobSyncApiService } from "./api/jobSyncApiService.js";
@@ -323,6 +324,10 @@ const clientApi = new DrizzleClientApiService(
   config.MUSIC_CATALOG_ENABLED,
   config.LOUDNESS_PLAYBACK_GAIN_ENABLED,
 );
+const topPicksService = new DrizzleTopPicksService(db, {
+  musicCatalogEnabled: config.MUSIC_CATALOG_ENABLED,
+  loudnessPlaybackGainEnabled: config.LOUDNESS_PLAYBACK_GAIN_ENABLED,
+});
 const sonosPublicOrigin = config.SONOS_PUBLIC_ORIGIN ?? config.WEB_PUBLIC_ORIGIN;
 const loginSyncIntervalMs = config.SYNC_INTERVAL_MINUTES * 60_000;
 const deviceActivitySync = new DeviceActivitySyncTrigger({
@@ -342,6 +347,7 @@ const app = buildApp({
     ...(config.WEB_PUBLIC_ORIGIN ? { publicOrigin: config.WEB_PUBLIC_ORIGIN } : {}),
   },
   webLive: { hub: liveHub, home: browserHomeService },
+  topPicks: topPicksService,
   ...(config.WEB_DIST_PATH ? { web: { distPath: config.WEB_DIST_PATH } } : {}),
   health: {
     pingDb: async () => {

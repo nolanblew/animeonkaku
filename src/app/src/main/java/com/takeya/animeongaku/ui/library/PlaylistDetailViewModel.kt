@@ -331,9 +331,9 @@ class PlaylistDetailViewModel @Inject constructor(
     private fun contextLabel(): String = playlist.value?.name ?: "Playlist"
 
     fun playTheme(themeId: Long) {
-        val list = tracks.value.map { it.theme }
-        val idx = list.indexOfFirst { it.id == themeId }.coerceAtLeast(0)
-        nowPlayingManager.play(contextLabel(), list, idx, animeMap = buildAnimeMap())
+        items.value.firstOrNull { it.theme?.id == themeId }?.let { row ->
+            playEntry(row.entry.entryId)
+        }
     }
 
     fun playAll() {

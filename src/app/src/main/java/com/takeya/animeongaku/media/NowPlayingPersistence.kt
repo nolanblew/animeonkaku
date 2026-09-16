@@ -6,6 +6,7 @@ import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import com.takeya.animeongaku.data.local.AnimeDao
 import com.takeya.animeongaku.data.local.AnimeEntity
+import com.takeya.animeongaku.data.local.LoudnessProfile
 import com.takeya.animeongaku.data.local.MusicCatalogDao
 import com.takeya.animeongaku.data.local.MusicReleaseEntity
 import com.takeya.animeongaku.data.local.SongEntity
@@ -13,6 +14,10 @@ import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.local.ThemeModeDao
 import com.takeya.animeongaku.data.local.ThemeModeEntity
+import com.takeya.animeongaku.data.local.UserPreferenceEntity
+import com.takeya.animeongaku.data.local.UserPreferenceDao
+import com.takeya.animeongaku.data.auth.ServerTokenStore
+import com.takeya.animeongaku.data.server.ServerSettingsStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -32,11 +37,134 @@ data class PersistedQueueEntry(
     val animeKitsuId: String? = null,
     val relationshipType: String? = null,
     val baseMode: String? = null,
-    val playlistDefaultMode: String? = null
+    val playlistDefaultMode: String? = null,
+    val overrideUserPreference: Boolean = false,
+    val desiredMode: String? = null,
+    val lastActualMode: String? = null,
+    val manualMode: String? = null,
+    val modeSeedSequence: Long = 0L,
+    val replayRequested: Boolean = false,
+    val isUnskipped: Boolean = false,
+    val serverPreferredMode: String? = null,
+    val serverPreferenceUpdatedAt: Long = 0L,
+    val serverPreferenceLiked: Boolean = false,
+    val serverPreferenceDisliked: Boolean = false,
+    val serverPreferenceDislikedTvSize: Boolean = false,
+    val serverPreferenceDislikedFullSize: Boolean = false,
+    val serverPreferencePresent: Boolean = false,
+    val themeMetadata: PersistedThemeMetadata? = null,
+    val songMetadata: PersistedSongMetadata? = null,
+    val releaseMetadata: PersistedReleaseMetadata? = null,
+    val animeMetadata: PersistedAnimeMetadata? = null,
+    val modeMetadata: PersistedThemeModeMetadata? = null,
+    val roomModeBaselineMetadata: PersistedThemeModeMetadata? = null,
+    val localFilePath: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class PersistedThemeMetadata(
+    val id: Long,
+    val animeId: Long? = null,
+    val title: String,
+    val artistName: String? = null,
+    val audioUrl: String,
+    val videoUrl: String? = null,
+    val isDownloaded: Boolean = false,
+    val localFilePath: String? = null,
+    val themeType: String? = null,
+    val source: String = ThemeEntity.SOURCE_KITSU
+)
+
+@JsonClass(generateAdapter = true)
+data class PersistedLoudnessMetadata(
+    val integratedLufs: Double? = null,
+    val truePeakDbtp: Double? = null,
+    val loudnessRangeLu: Double? = null,
+    val gainDb: Double? = null,
+    val policyVersion: Int? = null,
+    val state: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class PersistedSongMetadata(
+    val id: Long,
+    val title: String,
+    val artistCredit: String,
+    val durationSeconds: Int? = null,
+    val audioUrl: String,
+    val fileSize: Long? = null,
+    val titleEnglish: String? = null,
+    val titleRomaji: String? = null,
+    val titleJapanese: String? = null,
+    val artistNamesJson: String = "[]",
+    val loudness: PersistedLoudnessMetadata? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class PersistedReleaseMetadata(
+    val id: Long,
+    val title: String,
+    val artistCredit: String,
+    val releaseDate: String? = null,
+    val year: Int? = null,
+    val artworkUrl: String? = null,
+    val titleEnglish: String? = null,
+    val titleRomaji: String? = null,
+    val titleJapanese: String? = null,
+    val artistNamesJson: String = "[]"
+)
+
+@JsonClass(generateAdapter = true)
+data class PersistedAnimeMetadata(
+    val kitsuId: String,
+    val animeThemesId: Long? = null,
+    val title: String? = null,
+    val titleEn: String? = null,
+    val titleRomaji: String? = null,
+    val titleJa: String? = null,
+    val thumbnailUrl: String? = null,
+    val thumbnailUrlLarge: String? = null,
+    val coverUrl: String? = null,
+    val coverUrlLarge: String? = null,
+    val syncedAt: Long = 0L,
+    val isManuallyAdded: Boolean = false,
+    val watchingStatus: String? = null,
+    val subtype: String? = null,
+    val startDate: String? = null,
+    val endDate: String? = null,
+    val episodeCount: Int? = null,
+    val ageRating: String? = null,
+    val averageRating: Double? = null,
+    val userRating: Double? = null,
+    val libraryUpdatedAt: Long? = null,
+    val watchedAt: Long? = null,
+    val slug: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class PersistedThemeModeMetadata(
+    val themeId: Long,
+    val tvSizeUrl: String,
+    val tvSizeDurationSeconds: Int? = null,
+    val tvSizeFileSize: Long? = null,
+    val fullSizeSongId: Long? = null,
+    val fullSizeUrl: String? = null,
+    val fullSizeDurationSeconds: Int? = null,
+    val fullSizeFileSize: Long? = null,
+    val fullSizeSourceReleaseId: Long? = null,
+    val videoUrl: String? = null,
+    val videoMimeType: String? = null,
+    val videoSpoiler: Boolean = false,
+    val videoNsfw: Boolean = false,
+    val videoEntryVersion: Int? = null,
+    val tvSizeLoudness: PersistedLoudnessMetadata? = null,
+    val fullSizeLoudness: PersistedLoudnessMetadata? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class PersistedNowPlayingState(
+    val ownerKitsuUserId: String? = null,
+    val ownerServerBaseUrl: String? = null,
     val originalQueueIds: List<Long> = emptyList(),
     val nowPlayingIds: List<Long> = emptyList(),
     val currentIndex: Int = 0,
@@ -57,7 +185,14 @@ data class PersistedNowPlayingState(
     val queueVersion: Long = 0L,
     val positionMs: Long = 0L,
     val repeatMode: Int = 0,
-    val sessionAudioMode: String? = null
+    val sessionAudioMode: String? = null,
+    /** Queue-local desired mode, including VIDEO. sessionAudioMode is retained for old files. */
+    val queueDesiredMode: String? = null,
+    val queueDesiredModeManual: Boolean = false,
+    val queueActionSequence: Long = 0L,
+    val queueDesiredSequence: Long = 0L,
+    val queueStarted: Boolean = false,
+    val unskippedEntryIds: Set<Long> = emptySet()
 )
 
 data class RestoredQueueState(
@@ -73,14 +208,21 @@ class NowPlayingPersistence @Inject constructor(
     private val themeDao: ThemeDao,
     private val animeDao: AnimeDao,
     private val musicCatalogDao: MusicCatalogDao,
-    private val themeModeDao: ThemeModeDao
+    private val themeModeDao: ThemeModeDao,
+    private val userPreferenceDao: UserPreferenceDao,
+    private val tokenStore: ServerTokenStore,
+    private val serverSettingsStore: ServerSettingsStore
 ) {
     private val file = File(context.filesDir, "now_playing_state.json")
     private val adapter = moshi.adapter(PersistedNowPlayingState::class.java)
     private val mutex = Mutex()
 
     suspend fun save(state: NowPlayingState, positionMs: Long, repeatMode: Int): Boolean = withContext(Dispatchers.IO) {
-        val persisted = state.toPersistedState(positionMs, repeatMode)
+        val owner = currentOwner()
+        val persisted = state.toPersistedState(positionMs, repeatMode).copy(
+            ownerKitsuUserId = owner?.first,
+            ownerServerBaseUrl = owner?.second
+        )
 
         try {
             val json = adapter.toJson(persisted)
@@ -104,6 +246,7 @@ class NowPlayingPersistence @Inject constructor(
                 file.readText()
             }
             val persisted = adapter.fromJson(json) ?: return@withContext null
+            if (!persisted.matchesOwner(currentOwner())) return@withContext null
 
             val allThemeIds = buildSet {
                 addAll(persisted.originalQueueIds)
@@ -133,6 +276,10 @@ class NowPlayingPersistence @Inject constructor(
             val themeModes = if (themes.isEmpty()) emptyMap() else {
                 themeModeDao.getByThemeIds(themes.keys.toList()).associateBy { it.themeId }
             }
+            val localPreferences = if (allThemeIds.isEmpty()) emptyMap() else {
+                userPreferenceDao.getPreferencesByIdsIncludingDeleted(allThemeIds)
+                    .associateBy { it.themeId }
+            }
             val songs = if (allSongIds.isEmpty()) emptyMap() else {
                 musicCatalogDao.getSongs(allSongIds).associateBy { it.id }
             }
@@ -148,6 +295,7 @@ class NowPlayingPersistence @Inject constructor(
             val animeByKitsuId = if (allKitsuIds.isEmpty()) emptyMap() else {
                 animeDao.getByKitsuIds(allKitsuIds).associateBy { it.kitsuId }
             }
+            if (!persisted.matchesOwner(currentOwner())) return@withContext null
 
             val restoredState = restorePersistedQueueState(
                 persisted,
@@ -156,7 +304,8 @@ class NowPlayingPersistence @Inject constructor(
                 releases,
                 animeByKitsuId,
                 animeMap,
-                themeModes
+                themeModes,
+                localPreferences
             ) ?: return@withContext null
 
             Log.d("NowPlayingPersistence", "Restored queue state, size: ${restoredState.nowPlayingEntries.size}")
@@ -178,7 +327,24 @@ class NowPlayingPersistence @Inject constructor(
             false
         }
     }
+
+    private fun currentOwner(): Pair<String, String>? = tokenStore.currentSession()?.kitsuUserId?.let { userId ->
+        userId to normalizeServerOwner(serverSettingsStore.serverBaseUrl)
+    }
 }
+
+internal fun normalizeServerOwner(value: String?): String = value.orEmpty().trim().trimEnd('/')
+
+internal fun PersistedNowPlayingState.matchesOwner(owner: Pair<String, String>?): Boolean =
+    if (ownerKitsuUserId == null && ownerServerBaseUrl == null) {
+        true
+    } else {
+        owner != null && ownerKitsuUserId == owner.first &&
+            normalizeServerOwner(ownerServerBaseUrl) == normalizeServerOwner(owner.second)
+    }
+
+private fun PersistedNowPlayingState.hasOwnerScope(): Boolean =
+    ownerKitsuUserId != null && ownerServerBaseUrl != null
 
 internal fun NowPlayingState.toPersistedState(
     positionMs: Long,
@@ -191,9 +357,9 @@ internal fun NowPlayingState.toPersistedState(
     playNextItemIds = playNextEntries.mapNotNull { it.themeOrNull?.id },
     addedToQueueItemIds = addedToQueueEntries.mapNotNull { it.themeOrNull?.id },
     suggestedItemIds = suggestedEntries.mapNotNull { it.themeOrNull?.id },
-    originalQueueEntries = originalQueueEntries.map(QueueEntry::toPersistedEntry),
-    nowPlayingEntries = nowPlayingEntries.map(QueueEntry::toPersistedEntry),
-    historyEntries = historyEntries.map(QueueEntry::toPersistedEntry),
+    originalQueueEntries = originalQueueEntries.map { it.toPersistedEntry(it.queueId in unskippedEntryIds) },
+    nowPlayingEntries = nowPlayingEntries.map { it.toPersistedEntry(it.queueId in unskippedEntryIds) },
+    historyEntries = historyEntries.map { it.toPersistedEntry(it.queueId in unskippedEntryIds) },
     playNextEntryIds = playNextEntryIds,
     addedToQueueEntryIds = addedToQueueEntryIds,
     suggestedEntryIds = suggestedEntryIds,
@@ -206,10 +372,16 @@ internal fun NowPlayingState.toPersistedState(
     repeatMode = repeatMode,
     sessionAudioMode = playbackIntent.sessionOverride
         ?.takeIf(PlaybackMode::isAudioMode)
-        ?.name
+        ?.name,
+    queueDesiredMode = playbackIntent.sessionOverride?.name,
+    queueDesiredModeManual = playbackIntent.manualOverride,
+    queueActionSequence = playbackIntent.actionSequence,
+    queueDesiredSequence = playbackIntent.queueDesiredSequence,
+    queueStarted = playbackIntent.queueStarted,
+    unskippedEntryIds = unskippedEntryIds
 )
 
-private fun QueueEntry.toPersistedEntry(): PersistedQueueEntry = when (val playable = item) {
+private fun QueueEntry.toPersistedEntry(unskipped: Boolean = isUnskipped): PersistedQueueEntry = when (val playable = item) {
     is PlayableItem.Theme -> PersistedQueueEntry(
         queueId = queueId,
         themeId = playable.theme.id,
@@ -217,7 +389,25 @@ private fun QueueEntry.toPersistedEntry(): PersistedQueueEntry = when (val playa
         itemId = playable.theme.id,
         animeKitsuId = playable.anime?.kitsuId,
         baseMode = baseModePolicy.requestedMode,
-        playlistDefaultMode = baseModePolicy.playlistDefault?.name
+        playlistDefaultMode = baseModePolicy.playlistDefault?.name,
+        overrideUserPreference = baseModePolicy.overrideUserPreference,
+        desiredMode = desiredMode?.name,
+        lastActualMode = lastActualMode?.name,
+        manualMode = manualMode?.name,
+        modeSeedSequence = modeSeedSequence,
+        replayRequested = replayRequested,
+        isUnskipped = unskipped,
+        serverPreferredMode = playable.serverPreference?.preferredMode,
+        serverPreferenceUpdatedAt = playable.serverPreference?.updatedAt ?: 0L,
+        serverPreferenceLiked = playable.serverPreference?.isLiked == true,
+        serverPreferenceDisliked = playable.serverPreference?.isDisliked == true,
+        serverPreferenceDislikedTvSize = playable.serverPreference?.isDislikedTvSize == true,
+        serverPreferenceDislikedFullSize = playable.serverPreference?.isDislikedFullSize == true,
+        serverPreferencePresent = playable.serverPreference != null,
+        themeMetadata = playable.theme.toPersistedMetadata(),
+        animeMetadata = playable.anime?.toPersistedMetadata(),
+        modeMetadata = (playable.remoteModeDescriptor ?: playable.modeDescriptor)?.toPersistedMetadata(),
+        roomModeBaselineMetadata = playable.roomModeDescriptorBaseline?.toPersistedMetadata()
     )
     is PlayableItem.RelatedSong -> PersistedQueueEntry(
         queueId = queueId,
@@ -227,9 +417,52 @@ private fun QueueEntry.toPersistedEntry(): PersistedQueueEntry = when (val playa
         animeKitsuId = playable.anime?.kitsuId,
         relationshipType = playable.relationshipType,
         baseMode = baseModePolicy.requestedMode,
-        playlistDefaultMode = baseModePolicy.playlistDefault?.name
+        playlistDefaultMode = baseModePolicy.playlistDefault?.name,
+        overrideUserPreference = baseModePolicy.overrideUserPreference,
+        desiredMode = desiredMode?.name,
+        lastActualMode = lastActualMode?.name,
+        manualMode = manualMode?.name,
+        modeSeedSequence = modeSeedSequence,
+        replayRequested = replayRequested,
+        isUnskipped = unskipped,
+        songMetadata = playable.song.toPersistedMetadata(),
+        releaseMetadata = playable.release?.toPersistedMetadata(),
+        animeMetadata = playable.anime?.toPersistedMetadata(),
+        localFilePath = playable.localFilePath
     )
 }
+
+private fun ThemeEntity.toPersistedMetadata() = PersistedThemeMetadata(
+    id, animeId, title, artistName, audioUrl, videoUrl, isDownloaded, localFilePath, themeType, source
+)
+
+private fun SongEntity.toPersistedMetadata() = PersistedSongMetadata(
+    id, title, artistCredit, durationSeconds, audioUrl, fileSize,
+    titleEnglish, titleRomaji, titleJapanese, artistNamesJson, loudness?.toPersistedMetadata()
+)
+
+private fun MusicReleaseEntity.toPersistedMetadata() = PersistedReleaseMetadata(
+    id, title, artistCredit, releaseDate, year, artworkUrl,
+    titleEnglish, titleRomaji, titleJapanese, artistNamesJson
+)
+
+private fun AnimeEntity.toPersistedMetadata() = PersistedAnimeMetadata(
+    kitsuId, animeThemesId, title, titleEn, titleRomaji, titleJa,
+    thumbnailUrl, thumbnailUrlLarge, coverUrl, coverUrlLarge, syncedAt,
+    isManuallyAdded, watchingStatus, subtype, startDate, endDate, episodeCount,
+    ageRating, averageRating, userRating, libraryUpdatedAt, watchedAt, slug
+)
+
+private fun ThemeModeEntity.toPersistedMetadata() = PersistedThemeModeMetadata(
+    themeId, tvSizeUrl, tvSizeDurationSeconds, tvSizeFileSize, fullSizeSongId,
+    fullSizeUrl, fullSizeDurationSeconds, fullSizeFileSize, fullSizeSourceReleaseId,
+    videoUrl, videoMimeType, videoSpoiler, videoNsfw, videoEntryVersion,
+    tvSizeLoudness?.toPersistedMetadata(), fullSizeLoudness?.toPersistedMetadata()
+)
+
+private fun LoudnessProfile.toPersistedMetadata() = PersistedLoudnessMetadata(
+    integratedLufs, truePeakDbtp, loudnessRangeLu, gainDb, policyVersion, state
+)
 
 private fun PersistedNowPlayingState.allEntries(): List<PersistedQueueEntry> =
     originalQueueEntries + nowPlayingEntries + historyEntries
@@ -245,8 +478,10 @@ internal fun restorePersistedQueueState(
     releases: Map<Long, MusicReleaseEntity>,
     animeByKitsuId: Map<String, AnimeEntity>,
     animeMap: Map<Long, AnimeEntity>,
-    themeModes: Map<Long, ThemeModeEntity> = emptyMap()
+    themeModes: Map<Long, ThemeModeEntity> = emptyMap(),
+    localPreferences: Map<Long, UserPreferenceEntity> = emptyMap()
 ): NowPlayingState? {
+    val allowPersistedMetadata = persisted.hasOwnerScope()
     var nextFallbackQueueId = persisted.allEntries().maxOfOrNull { it.queueId }
         ?.coerceAtLeast(0L)
         ?.plus(1L)
@@ -260,31 +495,69 @@ internal fun restorePersistedQueueState(
             } ?: ThemeModePolicy.INHERIT,
             playlistDefault = entry.playlistDefaultMode?.let { value ->
                 PlaybackMode.entries.firstOrNull { it.name == value }
-            }?.takeIf { it == PlaybackMode.TV_SIZE || it == PlaybackMode.FULL_SIZE }
+            }?.takeIf { it == PlaybackMode.TV_SIZE || it == PlaybackMode.FULL_SIZE },
+            overrideUserPreference = entry.overrideUserPreference
         )
         val kind = entry.itemType?.uppercase()?.let { value ->
             PlayableKind.entries.firstOrNull { it.name == value }
         } ?: PlayableKind.THEME
         val itemId = entry.itemId ?: entry.themeId.takeIf { it > 0 } ?: return null
+        val persistedPreference = (allowPersistedMetadata && entry.serverPreferencePresent).takeIf { it }?.let {
+            UserPreferenceEntity(
+                themeId = itemId,
+                isLiked = entry.serverPreferenceLiked,
+                isDisliked = entry.serverPreferenceDisliked,
+                isDislikedTvSize = entry.serverPreferenceDislikedTvSize,
+                isDislikedFullSize = entry.serverPreferenceDislikedFullSize,
+                preferredMode = entry.serverPreferredMode,
+                updatedAt = entry.serverPreferenceUpdatedAt
+            )
+        }
+        val localPreference = localPreferences[itemId]
+        val effectivePreference = when {
+            localPreference == null -> persistedPreference
+            persistedPreference == null || localPreference.updatedAt >= persistedPreference.updatedAt ->
+                localPreference.takeUnless { it.deletedAt != null }
+            else -> persistedPreference
+        }
         val item = when (kind) {
-            PlayableKind.THEME -> themes[itemId]?.let { theme ->
+            PlayableKind.THEME -> (themes[itemId] ?: entry.themeMetadata?.takeIf { allowPersistedMetadata }?.toEntity())?.let { theme ->
                 PlayableItem.Theme(
                     theme = theme,
                     anime = entry.animeKitsuId?.let(animeByKitsuId::get)
-                        ?: theme.animeId?.let(animeMap::get),
-                    modeDescriptor = themeModes[theme.id]
+                        ?: theme.animeId?.let(animeMap::get)
+                        ?: entry.animeMetadata?.takeIf { allowPersistedMetadata }?.toEntity(),
+                    modeDescriptor = themeModes[theme.id],
+                    remoteModeDescriptor = entry.modeMetadata?.takeIf { allowPersistedMetadata }?.toEntity(),
+                    roomModeDescriptorBaseline = entry.roomModeBaselineMetadata?.takeIf { allowPersistedMetadata }?.toEntity(),
+                    serverPreference = effectivePreference
                 )
             }
-            PlayableKind.SONG -> songs[itemId]?.let { song ->
+            PlayableKind.SONG -> (songs[itemId] ?: entry.songMetadata?.takeIf { allowPersistedMetadata }?.toEntity())?.let { song ->
                 PlayableItem.RelatedSong(
                     song = song,
-                    release = entry.releaseId?.let(releases::get),
-                    anime = entry.animeKitsuId?.let(animeByKitsuId::get),
-                    relationshipType = entry.relationshipType
+                    release = entry.releaseId?.let(releases::get)
+                        ?: entry.releaseMetadata?.takeIf { allowPersistedMetadata }?.toEntity(),
+                    anime = entry.animeKitsuId?.let(animeByKitsuId::get)
+                        ?: entry.animeMetadata?.takeIf { allowPersistedMetadata }?.toEntity(),
+                    relationshipType = entry.relationshipType,
+                    localFilePath = entry.localFilePath.takeIf { allowPersistedMetadata }
                 )
             }
         } ?: return null
-        return QueueEntry(queueId, item, policy)
+        fun playbackMode(value: String?): PlaybackMode? = value
+            ?.let { raw -> PlaybackMode.entries.firstOrNull { it.name == raw } }
+        return QueueEntry(
+            queueId = queueId,
+            item = item,
+            baseModePolicy = policy,
+            desiredMode = playbackMode(entry.desiredMode),
+            lastActualMode = playbackMode(entry.lastActualMode),
+            manualMode = playbackMode(entry.manualMode),
+            modeSeedSequence = entry.modeSeedSequence,
+            replayRequested = entry.replayRequested,
+            isUnskipped = entry.isUnskipped || entry.queueId in persisted.unskippedEntryIds
+        )
     }
 
     fun mapPersistedEntries(entries: List<PersistedQueueEntry>): List<QueueEntry> =
@@ -384,13 +657,53 @@ internal fun restorePersistedQueueState(
         animeMap = animeMap,
         queueVersion = persisted.queueVersion,
         playbackIntent = PlaybackIntent(
-            sessionOverride = persisted.sessionAudioMode
+            sessionOverride = (persisted.queueDesiredMode ?: persisted.sessionAudioMode)
                 ?.let { value -> PlaybackMode.entries.firstOrNull { it.name == value } }
-                ?.takeIf(PlaybackMode::isAudioMode)
+                ?.takeIf { it != PlaybackMode.RELATED_AUDIO },
+            manualOverride = persisted.queueDesiredModeManual,
+            actionSequence = persisted.queueActionSequence,
+            queueDesiredSequence = persisted.queueDesiredSequence,
+            queueStarted = persisted.queueStarted || nowPlayingEntries.isNotEmpty()
         ),
+        unskippedEntryIds = persisted.unskippedEntryIds +
+            (originalQueueEntries + nowPlayingEntries + historyEntries)
+                .filter { it.isUnskipped }
+                .mapTo(mutableSetOf()) { it.queueId },
         isFullReload = true
     ).withUniqueHistoryEntries()
 }
+
+private fun PersistedThemeMetadata.toEntity() = ThemeEntity(
+    id, animeId, title, artistName, audioUrl, videoUrl, isDownloaded, localFilePath, themeType, source
+)
+
+private fun PersistedSongMetadata.toEntity() = SongEntity(
+    id, title, artistCredit, durationSeconds, audioUrl, fileSize,
+    titleEnglish, titleRomaji, titleJapanese, artistNamesJson, loudness?.toEntity()
+)
+
+private fun PersistedReleaseMetadata.toEntity() = MusicReleaseEntity(
+    id, title, artistCredit, releaseDate, year, artworkUrl,
+    titleEnglish, titleRomaji, titleJapanese, artistNamesJson
+)
+
+private fun PersistedAnimeMetadata.toEntity() = AnimeEntity(
+    kitsuId, animeThemesId, title, titleEn, titleRomaji, titleJa,
+    thumbnailUrl, thumbnailUrlLarge, coverUrl, coverUrlLarge, syncedAt,
+    isManuallyAdded, watchingStatus, subtype, startDate, endDate, episodeCount,
+    ageRating, averageRating, userRating, libraryUpdatedAt, watchedAt, slug
+)
+
+private fun PersistedThemeModeMetadata.toEntity() = ThemeModeEntity(
+    themeId, tvSizeUrl, tvSizeDurationSeconds, tvSizeFileSize, fullSizeSongId,
+    fullSizeUrl, fullSizeDurationSeconds, fullSizeFileSize, fullSizeSourceReleaseId,
+    videoUrl, videoMimeType, videoSpoiler, videoNsfw, videoEntryVersion,
+    tvSizeLoudness?.toEntity(), fullSizeLoudness?.toEntity()
+)
+
+private fun PersistedLoudnessMetadata.toEntity() = LoudnessProfile(
+    integratedLufs, truePeakDbtp, loudnessRangeLu, gainDb, policyVersion, state
+)
 
 private fun PlaybackMode.isAudioMode(): Boolean =
     this == PlaybackMode.TV_SIZE || this == PlaybackMode.FULL_SIZE

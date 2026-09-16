@@ -62,6 +62,7 @@ Schema changes: edit `src/db/schema.ts`, then `npm run db:generate` (never edit 
 | `DELETE /v1/auth/devices/:id` | bearer | revoke another device session |
 | `GET`/`HEAD /v1/media/audio/:themeId` | bearer | stream stable audio URLs for player clients |
 | `POST /v1/media/audio/:themeId/request` | bearer | prioritize server-side audio warming for downloads |
+| `GET /v1/home/top-picks` | bearer/cookie under `/api` | stable, server-ranked Home recommendations shared by Android and web |
 | `POST /v1/anime/:kitsuId/themes/:themeId/music-requests` | bearer | `{reason: "REQUEST_FULL_SIZE"}` queues one OP/ED full song, or `{reason: "INCORRECT_FULL_SIZE"}` queues one review request using raw theme identity |
 
 The theme-scoped music request returns `{request, replayed, themeId,
@@ -73,6 +74,19 @@ media. A completed request may be submitted again.
 With `KITSU_AUTH_MODE=stub` (compose default), any non-empty credentials log in and the user id is `stub-<username>`. Set `KITSU_AUTH_MODE=real` to use Kitsu OAuth; the public Kitsu client id/secret default from `../.planning/02-external-apis.md` are already in `.env.example`.
 
 Errors use the envelope `{ "error": { "code": "...", "message": "..." } }`. Full API spec: [`../.planning/04-api-spec.md`](../.planning/04-api-spec.md).
+
+`GET /v1/home/top-picks?limit=6&includeExtras=false&filter=ALL` returns an
+opaque `snapshot` plus `generatedAt`, `expiresAt`, `total`, and a self-contained
+`items` array. `filter` is `ALL`, `OP`, or `ED`; disabling extras limits the
+collection to openings and endings. Each item is a `THEME` or `SONG` with a
+stable key, recommendation reason, playable catalog DTO, preference data, and
+anime/artwork context. Reuse the snapshot for See all or Play with
+`limit=60&snapshot=...` and explicitly repeat `includeExtras` and `filter`.
+The six-item Home result is the prefix of that same 30-minute order. An expired
+token returns `410 TOP_PICKS_SNAPSHOT_EXPIRED`; clients should fetch a fresh
+preview and replace the visible collection coherently. A scope mismatch returns
+`400 TOP_PICKS_SNAPSHOT_SCOPE_MISMATCH`. If an item becomes deleted, disliked,
+or unplayable after generation, it is omitted without replacement for safety.
 
 The browser-only API is namespaced under `/api`: `GET /api/v1/home` provides
 the bounded home projection and `GET /api/v1/library/live` provides

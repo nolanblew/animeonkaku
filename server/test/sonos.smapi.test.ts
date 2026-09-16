@@ -15,7 +15,13 @@ const creds = (token: string) => `<credentials xmlns="${NS}"><loginToken><token>
 class SonosApi {
   users: string[] = [];
   fullSize = true;
+  audioState: "READY" | "MISSING" = "READY";
   tvMimeType = "application/ogg";
+  playlistStrict = false;
+  themeDisliked = false;
+  dislikedTvSize = false;
+  dislikedFullSize = false;
+  songDisliked = false;
   preferenceRevision = 1;
   playlistItems: PlaylistItemDto[] = [
     { entryId: 1, itemType: "THEME", itemId: 100, modeOverride: "FULL_SIZE" },
@@ -31,7 +37,7 @@ class SonosApi {
     }], themes: [{
       id: 100, animeThemesAnimeId: 7, kitsuAnimeIds: ["42"], title: "Opening & <One>", themeType: "OP1",
       artists: [{ name: "Artist & Friends", asCharacter: null, alias: null }], audioUrl: "/v1/media/audio/100",
-      videoUrl: null, audioState: "READY", durationSeconds: 90, fileSize: 10, mediaModes: {
+      videoUrl: null, audioState: this.audioState, durationSeconds: 90, fileSize: 10, mediaModes: {
         tvSize: { url: "/v1/media/audio/100", durationSeconds: 90, fileSize: 10, mimeType: this.tvMimeType },
         fullSize: this.fullSize ? { songId: 200, url: "/v1/media/songs/200/audio", durationSeconds: 240, fileSize: 20, sourceReleaseId: 3, mimeType: "audio/flac" } : null,
         video: null,
@@ -41,13 +47,16 @@ class SonosApi {
   async listPlaylists(userId: string) {
     this.users.push(userId);
     return [{ id: 9, name: "Favorites & More", entries: [100, 100], defaultMode: "TV_SIZE" as const,
-      overrideUserPreference: false, items: this.playlistItems, isAuto: false, isDynamic: false, autoUpdate: false, updatedAt: 11, deleted: false,
+      overrideUserPreference: this.playlistStrict, items: this.playlistItems, isAuto: false, isDynamic: false, autoUpdate: false, updatedAt: 11, deleted: false,
       dynamicSpecJson: null, dynamicSortJson: null }];
   }
-  async getThemePrefs(userId: string) { this.users.push(userId); return [{ themeId: 100, liked: true, disliked: false,
-    dislikedTvSize: false, dislikedFullSize: false, preferredMode: "FULL_SIZE" as const, playCount: 0,
+  async getThemePrefs(userId: string) { this.users.push(userId); return [{ themeId: 100, liked: true, disliked: this.themeDisliked,
+    dislikedTvSize: this.dislikedTvSize, dislikedFullSize: this.dislikedFullSize, preferredMode: "FULL_SIZE" as const, playCount: 0,
     lastPlayedAt: null, updatedAt: this.preferenceRevision, deleted: false }]; }
-  async getSongPrefs(userId: string) { this.users.push(userId); return []; }
+  async getSongPrefs(userId: string) { this.users.push(userId); return this.songDisliked ? [{
+    songId: 200, liked: false, disliked: true, playCount: 0, lastPlayedAt: null,
+    updatedAt: 1, deleted: false,
+  }] : []; }
   async getMusicCatalog(userId: string) {
     this.users.push(userId);
     return [{ anime: { kitsuId: "42", title: "A & B <Final>", titleEn: "A & B <Final>", posterUrl: null }, releases: [{
@@ -248,6 +257,50 @@ describe("Sonos sandbox SMAPI", () => {
     const uri = await soap("getMediaURI", "<id>theme:100</id>", token);
     expect(uri.body).toContain("https://ongaku.takeya.ninja/v1/media/sonos/themes/100.mp3");
   });
+  it("keeps a full-only theme browseable and playable", async () => {
+    api.audioState = "MISSING";
+    const { token } = await link();
+    const anime = await soap("getMetadata", "<id>anime:42</id><index>0</index><count>10</count>", token);
+    expect(anime.body).toContain("<id>theme:100</id>");
+    const uri = await soap("getMediaURI", "<id>theme:100</id>", token);
+    expect(uri.statusCode).toBe(200);
+    expect(uri.body).toContain("/v1/media/sonos/songs/200.mp3");
+    expect(uri.body).not.toContain("/v1/media/sonos/themes/100.mp3");
+  });
+  it("applies global and variant dislikes to browse and URI resolution", async () => {
+    api.dislikedFullSize = true;
+    const { token } = await link();
+    const tvUri = await soap("getMediaURI", "<id>theme:100</id>", token);
+    expect(tvUri.body).toContain("/v1/media/sonos/themes/100.mp3");
+
+    api.themeDisliked = true;
+    const anime = await soap("getMetadata", "<id>anime:42</id><index>0</index><count>10</count>", token);
+    expect(anime.body).not.toContain("<id>theme:100</id>");
+    const rejected = await soap("getMediaURI", "<id>theme:100</id>", token);
+    expect(rejected.statusCode).toBe(500);
+    expect(rejected.body).toContain("Client.ItemNotFound");
+  });
+  it("rechecks a qualified playlist occurrence after a preference change", async () => {
+    const { token } = await link();
+    const playlist = await soap("getMetadata", "<id>playlist:9</id><index>0</index><count>10</count>", token);
+    expect(playlist.body).toContain("<id>theme:100:FULL_SIZE:1</id>");
+
+    api.themeDisliked = true;
+    api.preferenceRevision += 1;
+    const rejected = await soap("getMediaURI", "<id>theme:100:FULL_SIZE:1</id>", token);
+    expect(rejected.statusCode).toBe(500);
+    expect(rejected.body).toContain("Client.ItemNotFound");
+  });
+  it("applies song dislikes to playlists search and URI resolution", async () => {
+    api.playlistItems = [{ entryId: 7, itemType: "SONG", itemId: 200, modeOverride: null }];
+    api.songDisliked = true;
+    const { token } = await link();
+    const playlist = await soap("getMetadata", "<id>playlist:9</id><index>0</index><count>10</count>", token);
+    expect(playlist.body).not.toContain("<id>song:200:7</id>");
+    const search = await soap("search", "<id>tracks</id><term>Full Opening</term><index>0</index><count>10</count>", token);
+    expect(search.body).toContain("<total>0</total>");
+    expect((await soap("getMediaURI", "<id>song:200:7</id>", token)).statusCode).toBe(500);
+  });
   it("returns track-shaped extended metadata and album-shaped collection metadata", async () => {
     const { token } = await link();
     const track = await soap("getExtendedMetadata", "<id>theme:100</id>", token);
@@ -324,18 +377,33 @@ describe("Sonos sandbox SMAPI", () => {
     expect(legacy.body).toContain("https://ongaku.takeya.ninja/v1/media/sonos/songs/200.mp3");
   });
 
-  it("does not fall back from an unavailable qualified Full Size theme", async () => {
+  it("re-resolves a soft qualified Full Size occurrence when Full becomes unavailable", async () => {
     api.fullSize = false;
     const { token } = await link();
     const metadata = await soap("getMediaMetadata", "<id>theme:100:FULL_SIZE:1</id>", token);
-    expect(metadata.statusCode).toBe(500);
-    expect(metadata.body).toContain("Client.ItemNotFound");
-    expect(metadata.body).not.toContain("<duration>90</duration>");
+    expect(metadata.statusCode).toBe(200);
+    expect(metadata.body).toContain("<duration>90</duration>");
 
+    const uri = await soap("getMediaURI", "<id>theme:100:FULL_SIZE:1</id>", token);
+    expect(uri.statusCode).toBe(200);
+    expect(uri.body).toContain("/v1/media/sonos/themes/100.mp3");
+  });
+  it("does not fall back from a strict required Full Size occurrence", async () => {
+    api.playlistStrict = true;
+    api.fullSize = false;
+    const { token } = await link();
+    const playlist = await soap("getMetadata", "<id>playlist:9</id><index>0</index><count>10</count>", token);
+    expect(playlist.body).not.toContain("<id>theme:100:FULL_SIZE:1</id>");
     const uri = await soap("getMediaURI", "<id>theme:100:FULL_SIZE:1</id>", token);
     expect(uri.statusCode).toBe(500);
     expect(uri.body).toContain("Client.ItemNotFound");
-    expect(uri.body).not.toContain("/v1/media/sonos/themes/100.mp3");
+  });
+  it("strict playlist requirement wins over a conflicting stored theme preference", async () => {
+    api.playlistStrict = true;
+    const { token } = await link();
+    const playlist = await soap("getMetadata", "<id>playlist:9</id><index>0</index><count>10</count>", token);
+    expect(playlist.body).toContain("<id>theme:100:FULL_SIZE:1</id>");
+    expect(playlist.body).toContain("<id>theme:100:TV_SIZE:2</id>");
   });
   it("does not block playlist browsing while cover images are being generated", async () => {
     artworkFetch.mockImplementationOnce(async () => {

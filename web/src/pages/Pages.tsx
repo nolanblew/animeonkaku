@@ -8,12 +8,13 @@ import { ReleaseDetailPage } from '../features/releases'
 import { PlaylistDetail, PlaylistFeatureMessage, PlaylistManager, usePlaylist, usePlaylistMutations, usePlaylists } from '../features/playlists'
 import { buildPlaylistSongIndex } from '../features/playlists/playlistDisplay'
 import { SearchPage as AccountSearchPage, SettingsPage as AccountSettingsPage, type MusicSearchTrack } from '../features/accountsearch'
-import { mapSongToQueueItem, mapThemeToQueueItem, NowPlayingView, runPlayerViewTransition, usePlayer, type PlayerContextValue, type PlayerQueueItem } from '../player'
-import type { LibraryAnimeDto, LibraryThemeDto, MusicReleaseDto, MusicTrackDto, NormalizedLibrary, PlaylistDto } from '../lib/library'
+import { mapSongToQueueItem, mapThemeToQueueItem, NowPlayingView, runPlayerViewTransition, themePlaybackAvailability, usePlayer, type PlayerContextValue, type PlayerQueueItem } from '../player'
+import type { LibraryAnimeDto, LibraryThemeDto, MusicReleaseDto, MusicTrackDto, NormalizedLibrary, PlaylistDto, ThemePrefDto } from '../lib/library'
 import { browserAssetUrl } from '../lib/assets'
 import { artistRouteSlug } from '../lib/navigation'
 import { useLibraryQuery } from '../lib/query'
 import { compareThemesByType } from '../lib/themePresentation'
+import type { BrowserTopPick } from '../features/catalog/types'
 
 export function HomePage() {
   const player = usePlayer()
@@ -21,6 +22,8 @@ export function HomePage() {
   return <HomeCatalogPage
     onPlayTheme={(theme, artworkUrl) => player.playTheme(theme, themeQueueOptions(theme, library, artworkUrl))}
     onPlayAll={(themes, artworkUrl) => playThemeCollection(player, themes, 0, false, artworkUrl, library)}
+    onPlayTopPick={(pick) => playTopPick(player, pick, library)}
+    onPlayTopPicks={(picks) => playTopPicks(player, picks, library)}
     onPlayNext={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'next', artworkUrl, library)}
     onAddToQueue={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'append', artworkUrl, library)}
     onPlayPlaylist={library ? (playlist) => playPlaylist(player, library, playlist, false) : undefined}
@@ -32,7 +35,62 @@ export function HomePage() {
 export function LibraryPage() {
   const player = usePlayer()
   const library = useLibraryQuery().library
-  return <LibraryCatalogPage onPlayAnime={library ? (anime) => playAnimeCollection(player, library, anime) : undefined} onPlayTheme={(theme, artworkUrl) => player.playTheme(theme, themeQueueOptions(theme, library, artworkUrl))} onPlayNext={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'next', artworkUrl, library)} onAddToQueue={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'append', artworkUrl, library)} onPlayPlaylist={library ? (playlist) => playPlaylist(player, library, playlist, false) : undefined} onPlayNextPlaylist={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'next') : undefined} onAddToQueuePlaylist={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'append') : undefined} />
+  return <LibraryCatalogPage onPlayAnime={library ? (anime) => playAnimeCollection(player, library, anime) : undefined} onPlayTheme={(theme, artworkUrl) => player.playTheme(theme, themeQueueOptions(theme, library, artworkUrl))} onPlayThemes={library ? (themes, shuffle) => playThemeCollection(player, themes, 0, shuffle, undefined, library) : undefined} onPlayNext={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'next', artworkUrl, library)} onAddToQueue={(theme, artworkUrl) => insertThemeCollection(player, [theme], 'append', artworkUrl, library)} onPlayPlaylist={library ? (playlist) => playPlaylist(player, library, playlist, false) : undefined} onPlayNextPlaylist={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'next') : undefined} onAddToQueuePlaylist={library ? (playlist) => enqueuePlaylistCollection(player, library, playlist, 'append') : undefined} />
+}
+
+function playTopPick(player: PlayerContextValue, pick: BrowserTopPick, library: NormalizedLibrary | null): void {
+  const item = topPickQueueItem(pick, library)
+  if (item) player.playItem(item, { contextLabel: 'Top picks' })
+}
+
+function playTopPicks(player: PlayerContextValue, picks: BrowserTopPick[], library: NormalizedLibrary | null): void {
+  const items = picks.map((pick) => topPickQueueItem(pick, library)).filter((item): item is PlayerQueueItem => item !== null)
+  if (items.length > 0) player.playItems(items, { contextLabel: 'Top picks', startIndex: 0, shuffle: false })
+}
+
+export function topPickQueueItem(pick: BrowserTopPick, library: NormalizedLibrary | null): PlayerQueueItem | null {
+  const anime = pick.anime ?? (pick.itemType === 'THEME'
+    ? pick.theme.kitsuAnimeIds.map((id) => library?.animeById[id]).find((entry) => entry && !entry.deleted) ?? null
+    : null)
+  const artworkUrl = resolveBrowserAsset(pick.artworkUrl) ?? resolveBrowserAsset(anime?.posterUrl)
+  if (pick.itemType === 'THEME') {
+    if (!isPlayableTheme(pick.theme)) return null
+    const localPreference = library?.prefsByThemeId[String(pick.theme.id)]
+    const preference = localPreference && !localPreference.deleted
+      && localPreference.updatedAt >= (pick.preference?.updatedAt ?? 0)
+      ? localPreference : pick.preference
+    if (preference?.disliked) return null
+    // Top picks only promises ready audio. A stable endpoint URL can exist for
+    // missing TV audio, so it must not win over the ready full-size variant.
+    const theme = pick.theme.audioState === 'READY' ? pick.theme : {
+      ...pick.theme,
+      audioUrl: '',
+      mediaModes: { ...pick.theme.mediaModes, tvSize: { ...pick.theme.mediaModes.tvSize, url: '' } },
+    }
+    const mode = topPickThemeMode(theme, preference)
+    if (mode === null) return null
+    return mapThemeToQueueItem(theme, {
+      artworkUrl,
+      animeId: anime?.kitsuId ?? pick.theme.kitsuAnimeIds[0],
+      mode,
+      ...animeTitleQueueOptions(anime),
+    })
+  }
+  if (!pick.track.audioUrl) return null
+  return mapSongToQueueItem(pick.track, { artworkUrl, animeId: anime?.kitsuId })
+}
+
+function topPickThemeMode(theme: LibraryThemeDto, preference: ThemePrefDto | null): 'TV_SIZE' | 'FULL_SIZE' | undefined | null {
+  const hasTv = Boolean(theme.mediaModes.tvSize?.url || theme.audioUrl)
+  const hasFull = Boolean(theme.mediaModes.fullSize?.url)
+  const tvAllowed = hasTv && !preference?.dislikedTvSize
+  const fullAllowed = hasFull && !preference?.dislikedFullSize
+  if (preference?.preferredMode === 'FULL_SIZE' && fullAllowed) return 'FULL_SIZE'
+  if (preference?.preferredMode === 'TV_SIZE' && tvAllowed) return 'TV_SIZE'
+  if (!tvAllowed && fullAllowed) return 'FULL_SIZE'
+  if (tvAllowed && !fullAllowed) return 'TV_SIZE'
+  if (preference && !tvAllowed && !fullAllowed) return null
+  return undefined
 }
 
 export function SearchPage() {
@@ -250,7 +308,8 @@ function playAnimeCollection(player: PlayerContextValue, library: NormalizedLibr
 }
 
 function isPlayableTheme(theme: LibraryThemeDto): boolean {
-  return Boolean(theme.mediaModes.tvSize?.url || theme.mediaModes.fullSize?.url || theme.mediaModes.video?.url || theme.audioUrl)
+  const available = themePlaybackAvailability(theme)
+  return available.TV_SIZE || available.FULL_SIZE || available.VIDEO
 }
 
 function insertThemeCollection(player: PlayerContextValue, themes: LibraryThemeDto[], position: 'next' | 'append', artworkUrl?: string | null, library?: NormalizedLibrary | null): void {
@@ -280,13 +339,13 @@ function playPlaylist(player: PlayerContextValue, library: NormalizedLibrary, pl
   const playableItems = queueItems.filter((item): item is PlayerQueueItem => item !== null)
   if (playableItems.length === 0) return
   const playableStartIndex = Math.max(0, queueItems.slice(0, boundedSourceIndex + 1).filter((item): item is PlayerQueueItem => item !== null).length - 1)
-  player.playItems(playableItems, { contextLabel: playlist.name, startIndex: playableStartIndex, shuffle })
+  player.playItems(playableItems, { contextLabel: playlist.name, startIndex: playableStartIndex, shuffle, desiredMode: playlist.defaultMode ?? undefined })
 }
 
 function enqueuePlaylistItem(player: PlayerContextValue, library: NormalizedLibrary, playlist: PlaylistDto, index: number, position: 'next' | 'append'): void {
   const item = playlistQueueItems(library, playlist)[index]
   if (!item) return
-  if (!player.currentItem) { player.playItem(item, { contextLabel: playlist.name }); return }
+  if (!player.currentItem) { player.playItem(item, { contextLabel: playlist.name, desiredMode: playlist.defaultMode ?? undefined }); return }
   if (position === 'next') player.queue.playNext([item])
   else player.queue.addToQueue([item])
 }
@@ -295,11 +354,11 @@ function enqueuePlaylistCollection(player: PlayerContextValue, library: Normaliz
   const items = playlistQueueItems(library, playlist).filter((item): item is PlayerQueueItem => item !== null)
   if (items.length === 0) return
   if (position === 'replace') {
-    player.playItems(items, { contextLabel: playlist.name, startIndex: 0, shuffle: false })
+    player.playItems(items, { contextLabel: playlist.name, startIndex: 0, shuffle: false, desiredMode: playlist.defaultMode ?? undefined })
     return
   }
   if (!player.currentItem) {
-    player.playItem(items[0]!, { contextLabel: playlist.name })
+    player.playItem(items[0]!, { contextLabel: playlist.name, desiredMode: playlist.defaultMode ?? undefined })
     if (items.length > 1) player.queue.addToQueue(items.slice(1))
     return
   }

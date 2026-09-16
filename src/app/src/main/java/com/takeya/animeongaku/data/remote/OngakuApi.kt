@@ -90,4 +90,12 @@ interface OngakuApi {
 
     @GET("v1/sync/status")
     suspend fun syncStatus(): OngakuSyncStatusResponse
+
+    @GET("v1/home/top-picks")
+    suspend fun topPicks(
+        @Query("limit") limit: Int,
+        @Query("includeExtras") includeExtras: Boolean,
+        @Query("filter") filter: String,
+        @Query("snapshot") snapshot: String? = null
+    ): Response<OngakuTopPicksResponse>
 }

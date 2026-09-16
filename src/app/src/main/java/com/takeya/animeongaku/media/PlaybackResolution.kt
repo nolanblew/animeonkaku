@@ -22,7 +22,15 @@ enum class ThemeModePolicy { INHERIT, TV_SIZE, FULL_SIZE }
 
 data class PlaybackIntent(
     val rememberedAudioMode: PlaybackMode = PlaybackMode.TV_SIZE,
-    val sessionOverride: PlaybackMode? = null
+    val sessionOverride: PlaybackMode? = null,
+    /** Distinguishes a later manual action from a source-provided queue seed. */
+    val manualOverride: Boolean = false,
+    /** Monotonic queue-local action sequence used to age soft playlist seeds. */
+    val actionSequence: Long = 0L,
+    /** Sequence at which the queue-level desired mode was seeded or manually changed. */
+    val queueDesiredSequence: Long = 0L,
+    /** True once a queue has been created; false keeps direct resolver calls backwards compatible. */
+    val queueStarted: Boolean = false
 ) {
     init {
         require(rememberedAudioMode == PlaybackMode.TV_SIZE || rememberedAudioMode == PlaybackMode.FULL_SIZE) {
@@ -52,7 +60,9 @@ enum class PlaybackSource { LOCAL, SERVER_AUDIO, DIRECT_VIDEO }
 
 enum class RetainedIntentReason {
     PREFERRED_MODE_UNAVAILABLE,
-    EXACT_OFFLINE_MEDIA_MISSING
+    EXACT_OFFLINE_MEDIA_MISSING,
+    REQUIRED_UNAVAILABLE,
+    STRICT_MODE_REJECTED
 }
 
 data class ResolvedPlaybackItem(
@@ -65,6 +75,7 @@ data class ResolvedPlaybackItem(
     val source: PlaybackSource?,
     val availableModes: Set<PlaybackMode>,
     val retainedIntentReason: RetainedIntentReason?,
+    val dislikedModes: Set<PlaybackMode> = emptySet(),
     val title: String,
     val artist: String?,
     val animeOrRelease: String?,
@@ -130,18 +141,31 @@ class PlaybackResolver @Inject constructor() {
         if (entry.item !is PlayableItem.Theme || preferred.preferredMode != PlaybackMode.VIDEO) {
             return preferred
         }
+        // Video failure is an audio-only fallback. Preserve dislike flags, but remove the saved
+        // audio preference so it cannot redirect this explicit Video intent to Full before the
+        // required TV (or strict required) fallback is considered.
         val audioCandidate = resolve(
-            entry,
-            intent.copy(sessionOverride = PlaybackMode.TV_SIZE),
+            entry.copy(
+                // The fallback is a new automatic audio admission. A manual Video/unskip
+                // exemption must not carry over and allow a disliked audio variant through.
+                desiredMode = null,
+                manualMode = null,
+                replayRequested = false,
+                isUnskipped = false,
+            ),
+            intent.copy(sessionOverride = PlaybackMode.TV_SIZE, manualOverride = false),
             isOnline,
             localMedia,
-            themePreference = themePreference,
+            themePreference = themePreference?.copy(preferredMode = null),
             cachedServerMedia = cachedServerMedia,
         )
-        return if (audioCandidate.actualMode in setOf(PlaybackMode.TV_SIZE, PlaybackMode.FULL_SIZE)) {
+        val requiredMode = entry.baseModePolicy.requiredMode()
+        val acceptedAudioMode = requiredMode ?: PlaybackMode.TV_SIZE
+        return if (audioCandidate.actualMode == acceptedAudioMode) {
             audioCandidate.copy(
                 preferredMode = PlaybackMode.VIDEO,
-                retainedIntentReason = RetainedIntentReason.PREFERRED_MODE_UNAVAILABLE
+                retainedIntentReason = audioCandidate.retainedIntentReason
+                    ?: RetainedIntentReason.PREFERRED_MODE_UNAVAILABLE
             )
         } else {
             audioCandidate.copy(
@@ -150,7 +174,8 @@ class PlaybackResolver @Inject constructor() {
                 uri = null,
                 mediaKey = null,
                 source = null,
-                retainedIntentReason = RetainedIntentReason.PREFERRED_MODE_UNAVAILABLE
+                retainedIntentReason = audioCandidate.retainedIntentReason
+                    ?: RetainedIntentReason.PREFERRED_MODE_UNAVAILABLE
             )
         }
     }
@@ -165,29 +190,51 @@ class PlaybackResolver @Inject constructor() {
         themePreference: UserPreferenceEntity?,
         cachedServerMedia: Set<MediaKey>,
     ): ResolvedPlaybackItem {
-        val descriptor = item.modeDescriptor
+        val descriptor = item.effectiveModeDescriptor
         require(preferredThemeMode == null || preferredThemeMode == PlaybackMode.TV_SIZE || preferredThemeMode == PlaybackMode.FULL_SIZE)
         val storedPreferredMode = when (themePreference?.preferredMode) {
             "TV_SIZE" -> PlaybackMode.TV_SIZE
             "FULL_SIZE" -> PlaybackMode.FULL_SIZE
             else -> preferredThemeMode
         }
-        val requiredMode = entry.baseModePolicy.takeIf { it.overrideUserPreference }
-            ?.resolvePreferred(intent.copy(sessionOverride = null))
-        val requested = if (requiredMode != null) {
-            requiredMode
-        } else if (intent.sessionOverride == PlaybackMode.VIDEO) {
-            PlaybackMode.VIDEO
-        } else {
-            storedPreferredMode ?: entry.baseModePolicy.resolvePreferred(intent)
+        val requiredMode = entry.baseModePolicy.requiredMode()
+        val softMode = entry.baseModePolicy.softMode()
+        val queueDesiredMode = entry.desiredMode ?: intent.sessionOverride ?:
+            if (intent.queueStarted) PlaybackMode.TV_SIZE else intent.rememberedAudioMode
+        val softSeedIsNewer = softMode != null && entry.modeSeedSequence > intent.queueDesiredSequence
+        val activeSoftMode = softMode.takeIf { softSeedIsNewer }?.takeUnless {
+            intent.manualOverride && entry.modeSeedSequence < intent.actionSequence
+        } ?: softMode.takeUnless {
+            intent.manualOverride && entry.modeSeedSequence < intent.actionSequence
         }
-        val tvAllowed = themePreference?.isDislikedTvSize != true
-        val fullAllowed = themePreference?.isDislikedFullSize != true
-        val preferred = when (requested) {
-            PlaybackMode.TV_SIZE -> if (tvAllowed) PlaybackMode.TV_SIZE else PlaybackMode.FULL_SIZE
-            PlaybackMode.FULL_SIZE -> if (fullAllowed) PlaybackMode.FULL_SIZE else PlaybackMode.TV_SIZE
-            else -> requested
+        // Resolver calls made outside a live queue retain the historical remembered-audio
+        // default, while manager-created queues always start at TV unless the source supplied
+        // a queue/playlist seed. A playlist policy on a direct entry is itself that source seed.
+        val effectiveQueueMode = when {
+            softSeedIsNewer -> activeSoftMode
+            !intent.queueStarted -> if (entry.desiredMode != null || intent.sessionOverride != null) {
+                queueDesiredMode
+            } else {
+                activeSoftMode ?: intent.rememberedAudioMode
+            }
+            else -> queueDesiredMode
         }
+        val requested = when {
+            entry.manualMode != null -> entry.manualMode
+            // A queue-level Video request is explicit until a newer soft entry seed replaces it.
+            effectiveQueueMode == PlaybackMode.VIDEO -> PlaybackMode.VIDEO
+            requiredMode != null -> requiredMode
+            storedPreferredMode != null -> storedPreferredMode
+            else -> effectiveQueueMode
+        }
+        val desiredMode = requested ?: PlaybackMode.TV_SIZE
+        val tvDisliked = themePreference?.isDislikedTvSize == true
+        val fullDisliked = themePreference?.isDislikedFullSize == true
+        val dislikedModes = buildSet {
+            if (tvDisliked) add(PlaybackMode.TV_SIZE)
+            if (fullDisliked) add(PlaybackMode.FULL_SIZE)
+        }
+        val allowDisliked = entry.manualMode != null || entry.isUnskipped
         val tvKey = MediaKey.themeTv(item.theme.id)
         val fullKey = descriptor?.fullSizeSongId?.let(MediaKey::songAudio)
         val tvUrl = if (descriptor != null) {
@@ -201,49 +248,57 @@ class PlaybackResolver @Inject constructor() {
         fun hasLocal(key: MediaKey?): Boolean = key != null && localMedia[key]?.filePath?.isNotBlank() == true
         fun hasCachedServerMedia(key: MediaKey?, url: String?): Boolean =
             key != null && url != null && key in cachedServerMedia
-        val availableModes = buildSet {
-            if (tvAllowed && (hasLocal(tvKey) || hasCachedServerMedia(tvKey, tvUrl) || (isOnline && tvUrl != null))) {
+        val physicalModes = buildSet {
+            if (hasLocal(tvKey) || hasCachedServerMedia(tvKey, tvUrl) || (isOnline && tvUrl != null)) {
                 add(PlaybackMode.TV_SIZE)
             }
-            if (fullAllowed && (hasLocal(fullKey) || hasCachedServerMedia(fullKey, fullUrl) || (isOnline && fullUrl != null))) {
+            if (hasLocal(fullKey) || hasCachedServerMedia(fullKey, fullUrl) || (isOnline && fullUrl != null)) {
                 add(PlaybackMode.FULL_SIZE)
             }
             if (isOnline && videoUrl != null) add(PlaybackMode.VIDEO)
         }
-
-        val candidate = if (!isOnline) {
-            when {
-                preferred in availableModes && preferred != PlaybackMode.VIDEO -> preferred
-                PlaybackMode.TV_SIZE in availableModes -> PlaybackMode.TV_SIZE
-                PlaybackMode.FULL_SIZE in availableModes -> PlaybackMode.FULL_SIZE
-                else -> null
+        // `availableModes` is the picker surface: a disliked physical variant remains visible
+        // so the user can explicitly choose it. Automatic playback uses `allowedModes` below,
+        // which applies the dislike filter unless this occurrence was explicitly unskipped.
+        val availableModes = if (requiredMode != null) {
+            buildSet {
+                if (requiredMode in physicalModes) add(requiredMode)
+                if (PlaybackMode.VIDEO in physicalModes && requiredMode in physicalModes) {
+                    add(PlaybackMode.VIDEO)
+                }
             }
         } else {
-            when (preferred) {
-                PlaybackMode.TV_SIZE -> when {
-                    PlaybackMode.TV_SIZE in availableModes -> PlaybackMode.TV_SIZE
-                    PlaybackMode.FULL_SIZE in availableModes -> PlaybackMode.FULL_SIZE
-                    else -> null
-                }
-                PlaybackMode.FULL_SIZE -> when {
-                    PlaybackMode.FULL_SIZE in availableModes -> PlaybackMode.FULL_SIZE
-                    PlaybackMode.TV_SIZE in availableModes -> PlaybackMode.TV_SIZE
-                    else -> null
-                }
-                PlaybackMode.VIDEO -> when {
-                    PlaybackMode.VIDEO in availableModes -> PlaybackMode.VIDEO
-                    PlaybackMode.TV_SIZE in availableModes -> PlaybackMode.TV_SIZE
-                    else -> null
-                }
-                PlaybackMode.RELATED_AUDIO -> null
+            physicalModes
+        }
+
+        val audioOrder = when (desiredMode) {
+            PlaybackMode.FULL_SIZE -> listOf(PlaybackMode.FULL_SIZE, PlaybackMode.TV_SIZE)
+            else -> listOf(PlaybackMode.TV_SIZE, PlaybackMode.FULL_SIZE)
+        }
+        val allowedModes = if (allowDisliked) availableModes else availableModes - dislikedModes
+        val manualViolatesStrict = requiredMode != null && entry.manualMode != null &&
+            entry.manualMode != requiredMode && entry.manualMode != PlaybackMode.VIDEO
+        val recordedSelection = entry.lastActualMode?.takeIf {
+            (entry.replayRequested || entry.isUnskipped) && entry.manualMode == null && it in allowedModes
+        }
+        val candidate = when {
+            manualViolatesStrict -> null
+            // A strict occurrence cannot be satisfied by a Video-only descriptor. Keep this gate
+            // ahead of replay so an old recorded Video/source cannot bypass the requirement.
+            requiredMode != null && requiredMode !in physicalModes -> null
+            recordedSelection != null -> recordedSelection
+            desiredMode == PlaybackMode.VIDEO -> when {
+                PlaybackMode.VIDEO in allowedModes -> PlaybackMode.VIDEO
+                requiredMode != null -> requiredMode.takeIf { it in allowedModes }
+                PlaybackMode.TV_SIZE in allowedModes -> PlaybackMode.TV_SIZE
+                else -> null
             }
+            else -> audioOrder.firstOrNull { it in allowedModes }
         }
 
         // A required playlist version is a constraint, never permission to ignore the user.
-        val required = requiredMode
         val actual = candidate.takeUnless {
-            required != null && (candidate != required ||
-                (storedPreferredMode != null && storedPreferredMode != required))
+            requiredMode != null && it != requiredMode && it != PlaybackMode.VIDEO
         }
 
         val actualKey = when (actual) {
@@ -270,21 +325,24 @@ class PlaybackResolver @Inject constructor() {
             else -> null
         }
         val retainedReason = when {
+            manualViolatesStrict -> RetainedIntentReason.STRICT_MODE_REJECTED
+            requiredMode != null && requiredMode !in physicalModes -> RetainedIntentReason.REQUIRED_UNAVAILABLE
             !isOnline && actual == null -> RetainedIntentReason.EXACT_OFFLINE_MEDIA_MISSING
-            actual != preferred -> RetainedIntentReason.PREFERRED_MODE_UNAVAILABLE
+            actual != desiredMode -> RetainedIntentReason.PREFERRED_MODE_UNAVAILABLE
             else -> null
         }
 
         return ResolvedPlaybackItem(
             queueId = entry.queueId,
             playableKey = item.key,
-            preferredMode = preferred,
+            preferredMode = desiredMode,
             actualMode = actual,
             uri = uri,
             mediaKey = actualKey,
             source = source,
             availableModes = availableModes,
             retainedIntentReason = retainedReason,
+            dislikedModes = dislikedModes,
             title = item.display.title,
             artist = item.display.artist,
             animeOrRelease = item.display.animeTitle ?: item.display.album,
@@ -339,12 +397,23 @@ class PlaybackResolver @Inject constructor() {
     }
 }
 
-private fun BaseModePolicy.resolvePreferred(intent: PlaybackIntent): PlaybackMode =
-    intent.sessionOverride ?: when (entryPolicy) {
-        ThemeModePolicy.TV_SIZE -> PlaybackMode.TV_SIZE
-        ThemeModePolicy.FULL_SIZE -> PlaybackMode.FULL_SIZE
-        ThemeModePolicy.INHERIT -> playlistDefault ?: intent.rememberedAudioMode
+private fun BaseModePolicy.requiredMode(): PlaybackMode? =
+    takeIf { overrideUserPreference }?.let { policy ->
+        when (policy.entryPolicy) {
+            ThemeModePolicy.TV_SIZE -> PlaybackMode.TV_SIZE
+            ThemeModePolicy.FULL_SIZE -> PlaybackMode.FULL_SIZE
+            ThemeModePolicy.INHERIT -> playlistDefault
+        }
     }
+
+private fun BaseModePolicy.softMode(): PlaybackMode? = when (entryPolicy) {
+    ThemeModePolicy.TV_SIZE -> PlaybackMode.TV_SIZE
+    ThemeModePolicy.FULL_SIZE -> PlaybackMode.FULL_SIZE
+    ThemeModePolicy.INHERIT -> playlistDefault
+}
+
+private fun BaseModePolicy.resolvePreferred(intent: PlaybackIntent): PlaybackMode =
+    intent.sessionOverride ?: softMode() ?: PlaybackMode.TV_SIZE
 
 private fun String.toLocalUri(): String = when {
     contains("://") -> this
@@ -429,7 +498,6 @@ class PlaybackResolutionCoordinator @Inject constructor(
             }
             val preferredModesByThemeId = if (themeIds.isEmpty()) emptyMap() else {
                 userPreferenceDao.getPreferencesByIdsIncludingDeleted(themeIds)
-                    .filter { it.deletedAt == null }
                     .associateBy(UserPreferenceEntity::themeId)
             }
             val songsById = if (songIds.isEmpty()) emptyMap() else {
@@ -452,24 +520,42 @@ class PlaybackResolutionCoordinator @Inject constructor(
             val isOnline = serverReachabilityMonitor.isReachable.value
             hydratedEntries.map { hydratedEntry ->
                 val keys = hydratedEntry.possibleMediaKeys()
+                val themeItem = hydratedEntry.item as? PlayableItem.Theme
+                val localPreference = themeItem?.theme?.id?.let(preferredModesByThemeId::get)
+                val snapshotPreference = themeItem?.serverPreference
+                val effectivePreference = newestActivePreference(localPreference, snapshotPreference)
                 ResolutionSnapshot(
                     entry = hydratedEntry,
                     isOnline = isOnline,
                     localMedia = localMedia.filterKeys { it in keys },
-                    preferredThemeMode = (hydratedEntry.item as? PlayableItem.Theme)
-                        ?.theme?.id?.let(preferredModesByThemeId::get)?.preferredMode?.let { mode ->
+                    preferredThemeMode = effectivePreference
+                        ?.preferredMode
+                        ?.takeIf { it == "TV_SIZE" || it == "FULL_SIZE" }
+                        ?.let { mode ->
                             when (mode) {
                                 "TV_SIZE" -> PlaybackMode.TV_SIZE
                                 "FULL_SIZE" -> PlaybackMode.FULL_SIZE
                                 else -> null
                             }
                         },
-                    themePreference = (hydratedEntry.item as? PlayableItem.Theme)
-                        ?.theme?.id?.let(preferredModesByThemeId::get),
+                    themePreference = effectivePreference,
                     cachedServerMedia = cachedServerMedia.filterTo(linkedSetOf()) { it in keys },
                 )
             }
         }
+}
+
+internal fun newestActivePreference(
+    localPreference: UserPreferenceEntity?,
+    snapshotPreference: UserPreferenceEntity?
+): UserPreferenceEntity? {
+    val newest = when {
+        snapshotPreference == null -> localPreference
+        localPreference == null -> snapshotPreference
+        snapshotPreference.updatedAt > localPreference.updatedAt -> snapshotPreference
+        else -> localPreference
+    }
+    return newest?.takeUnless { it.deletedAt != null }
 }
 
 private data class ResolutionSnapshot(
@@ -508,7 +594,7 @@ internal fun completedLocalMedia(downloads: List<DownloadItemEntity>): Map<Media
 internal fun QueueEntry.possibleMediaKeys(): Set<MediaKey> = when (val playable = item) {
     is PlayableItem.Theme -> buildSet {
         add(MediaKey.themeTv(playable.theme.id))
-        playable.modeDescriptor?.fullSizeSongId?.let { add(MediaKey.songAudio(it)) }
+        playable.effectiveModeDescriptor?.fullSizeSongId?.let { add(MediaKey.songAudio(it)) }
     }
     is PlayableItem.RelatedSong -> setOf(MediaKey.songAudio(playable.song.id))
 }
@@ -516,7 +602,7 @@ internal fun QueueEntry.possibleMediaKeys(): Set<MediaKey> = when (val playable 
 internal fun QueueEntry.serverAudioCandidates(activeServerBaseUrl: String?): Map<MediaKey, String> =
     when (val playable = item) {
         is PlayableItem.Theme -> buildMap {
-            val descriptor = playable.modeDescriptor
+            val descriptor = playable.effectiveModeDescriptor
             val tvUrl = descriptor?.tvSizeUrl?.takeIf(String::isNotBlank)
                 ?: playable.theme.audioUrl.takeIf(String::isNotBlank)
             tvUrl?.let { put(MediaKey.themeTv(playable.theme.id), rewriteServerMediaUrl(it, activeServerBaseUrl)) }

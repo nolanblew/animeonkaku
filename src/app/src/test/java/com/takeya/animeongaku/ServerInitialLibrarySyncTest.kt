@@ -225,4 +225,5 @@ private class StatusScriptOngakuApi(
     override suspend fun updatePlaylistSpec(id: Long, spec: Any): OngakuPlaylistResponse = error("unused")
     override suspend fun deletePlaylist(id: Long, opTs: Long?): Response<Unit> = Response.success(Unit)
     override suspend fun requestAudio(themeId: Long): OngakuAudioRequestResponse = error("unused")
+    override suspend fun topPicks(limit: Int, includeExtras: Boolean, filter: String, snapshot: String?): Response<com.takeya.animeongaku.data.remote.OngakuTopPicksResponse> = error("unused")
 }

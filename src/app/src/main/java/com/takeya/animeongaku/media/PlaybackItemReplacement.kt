@@ -80,8 +80,8 @@ internal fun replaceModeChangedPlaybackItems(
     controller: PlaybackItemController,
     desiredItems: List<PlaybackMediaDescriptor>,
     preserveCurrent: Boolean = false
-) {
-    if (controller.items.map { it.mediaId } != desiredItems.map { it.mediaId }) return
+): Boolean {
+    if (controller.items.map { it.mediaId } != desiredItems.map { it.mediaId }) return false
     val currentIndex = controller.currentIndex
     val oldCurrent = controller.items.getOrNull(currentIndex)
     val wasPlayWhenReady = controller.playWhenReady
@@ -112,6 +112,7 @@ internal fun replaceModeChangedPlaybackItems(
         controller.playWhenReady = wasPlayWhenReady
         controller.prepare()
     }
+    return currentIndex in replaceNow
 }
 
 /**

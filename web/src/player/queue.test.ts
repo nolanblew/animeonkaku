@@ -365,4 +365,29 @@ describe('QueueStore', () => {
     store.setRepeatMode('all')
     expect(store.next()).toBe(0)
   })
+
+  it('persists queue intent and occurrence playback state independently', () => {
+    const store = new QueueStore()
+    store.play([song(1), song(1)], { desiredMode: 'FULL_SIZE' })
+    const first = store.state.nowPlayingEntries[0]!
+    const second = store.state.nowPlayingEntries[1]!
+
+    store.recordActualMode(first.queueId, 'TV_SIZE')
+    store.unskipEntry(second.queueId)
+
+    expect(store.state.desiredMode).toBe('FULL_SIZE')
+    expect(store.state.nowPlayingEntries.find((entry) => entry.queueId === first.queueId)?.lastActualMode).toBe('TV_SIZE')
+    expect(store.state.nowPlayingEntries.find((entry) => entry.queueId === second.queueId)?.unskipped).toBe(true)
+
+    const restored = new QueueStore(store.state)
+    expect(restored.state.desiredMode).toBe('FULL_SIZE')
+    expect(restored.state.nowPlayingEntries.find((entry) => entry.queueId === first.queueId)?.lastActualMode).toBe('TV_SIZE')
+    expect(restored.state.nowPlayingEntries.find((entry) => entry.queueId === second.queueId)?.unskipped).toBe(true)
+
+    restored.play([song(3)])
+    expect(restored.state.desiredMode).toBeUndefined()
+    restored.setDesiredMode('VIDEO')
+    restored.clear()
+    expect(restored.state.desiredMode).toBeUndefined()
+  })
 })

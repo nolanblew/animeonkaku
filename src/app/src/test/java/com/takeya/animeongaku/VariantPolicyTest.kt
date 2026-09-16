@@ -26,7 +26,10 @@ class VariantPolicyTest {
                         (it != "FULL_SIZE" || fullAvailable) &&
                             !(it == "TV_SIZE" && pref.isDislikedTvSize) && !(it == "FULL_SIZE" && pref.isDislikedFullSize)
                     }
-                    val expected = allowed.takeUnless { required && (allowed != playlistMode || (saved != null && saved != playlistMode)) }
+                    val requiredAvailable = (playlistMode != "FULL_SIZE" || fullAvailable) &&
+                        !(playlistMode == "TV_SIZE" && pref.isDislikedTvSize) &&
+                        !(playlistMode == "FULL_SIZE" && pref.isDislikedFullSize)
+                    val expected = if (required) playlistMode.takeIf { requiredAvailable } else allowed
                     val playback = resolver.resolve(entry, PlaybackIntent(), true, emptyMap(), themePreference = pref)
                     val download = resolveThemeDownloadMedia(1, "/tv", mode, null, preference = pref,
                         fallbackMode = playlistMode, overrideUserPreference = required)

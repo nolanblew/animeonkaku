@@ -170,9 +170,25 @@ fun PlayerModeChip(
                 }
                 state.options.forEach { mode ->
                     val isSelected = mode == state.actualMode
+                    val isDisliked = mode in state.dislikedModes
                     val modeLabel = mode.displayLabel()
                     DropdownMenuItem(
-                        text = { Text(modeLabel) },
+                        text = {
+                            Column {
+                                Text(
+                                    modeLabel,
+                                    color = if (isDisliked) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                                        else MaterialTheme.colorScheme.onSurface
+                                )
+                                if (isDisliked) {
+                                    Text(
+                                        "Disliked",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        },
                         onClick = {
                             menuOpen = false
                             onModeSelected(mode)
@@ -188,6 +204,7 @@ fun PlayerModeChip(
                             role = Role.RadioButton
                             selected = isSelected
                             contentDescription = "$modeLabel playback mode"
+                            if (isDisliked) stateDescription = "Disliked; select to play anyway"
                         }
                     )
                 }

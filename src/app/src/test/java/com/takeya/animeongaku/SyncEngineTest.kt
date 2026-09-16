@@ -447,4 +447,5 @@ private class SyncRecordingOngakuApi(
     override suspend fun requestAudio(themeId: Long): OngakuAudioRequestResponse = error("unused")
     override suspend fun startSync(request: OngakuSyncRequest): OngakuSyncQueuedResponse = error("unused")
     override suspend fun syncStatus(): OngakuSyncStatusResponse = error("unused")
+    override suspend fun topPicks(limit: Int, includeExtras: Boolean, filter: String, snapshot: String?): Response<com.takeya.animeongaku.data.remote.OngakuTopPicksResponse> = error("unused")
 }

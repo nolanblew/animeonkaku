@@ -80,7 +80,8 @@ internal fun resolveThemeDownloadMedia(
         ?: fallbackTvUrl.takeIf(String::isNotBlank)
     val full = resolveThemeFullSizeDownload(descriptor, canonicalSongUrl, canonicalSongLoudness)
     if (preference?.isDisliked == true) return null
-    if (overrideUserPreference && preference?.preferredMode != null && preference.preferredMode != fallbackMode) return null
+    // A strict playlist entry requires its own mode. A conflicting saved preference is ignored;
+    // it must not make an otherwise available required download disappear.
     val preferredMode = if (overrideUserPreference) fallbackMode else preference?.preferredMode ?: fallbackMode
     val tvAllowed = preference?.isDislikedTvSize != true
     val fullAllowed = preference?.isDislikedFullSize != true
