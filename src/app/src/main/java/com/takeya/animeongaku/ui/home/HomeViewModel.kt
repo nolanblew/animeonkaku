@@ -11,9 +11,11 @@ import com.takeya.animeongaku.data.local.ThemeDao
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.local.ThemeModeDao
 import com.takeya.animeongaku.data.local.ThemeModeEntity
-import com.takeya.animeongaku.data.local.SongPreferenceEntity
 import com.takeya.animeongaku.data.repository.MusicCatalogRepository
 import com.takeya.animeongaku.data.repository.RelatedTrack
+import com.takeya.animeongaku.data.repository.HomeTopPicksQuery
+import com.takeya.animeongaku.data.repository.HomeTopPicksRepository
+import com.takeya.animeongaku.data.repository.HomeTopPicksSnapshot
 import com.takeya.animeongaku.data.repository.ServerPlaylistWriter
 import com.takeya.animeongaku.data.repository.PlaylistWriteItem
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
@@ -31,6 +33,10 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -41,70 +47,11 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 
 data class HomeQuickPick(
     val item: PlayableItem,
-    val relatedTrack: RelatedTrack? = null
+    val relatedTrack: RelatedTrack? = null,
+    val reason: String? = null
 ) {
     val stableKey: String = "${item.key.kind}:${item.key.id}"
 }
-
-internal fun eligibleHomeRelatedTracks(
-    tracks: List<RelatedTrack>,
-    preferences: List<SongPreferenceEntity>,
-    showOstsOnHome: Boolean,
-    fullSizeSongIds: Set<Long>
-): List<RelatedTrack> {
-    val activePreferences = preferences.filter { it.deletedAt == null }.associateBy { it.songId }
-    return tracks.asSequence()
-        .filter { it.song.audioUrl.isNotBlank() }
-        .filterNot { it.song.id in fullSizeSongIds }
-        .filter { track ->
-            val preference = activePreferences[track.song.id]
-            !preference?.isDisliked.orFalse() && if (track.relationshipType == "SOUNDTRACK") {
-                showOstsOnHome
-            } else {
-                preference?.isLiked == true
-            }
-        }
-        .distinctBy { it.song.id }
-        .toList()
-}
-
-private fun Boolean?.orFalse(): Boolean = this == true
-
-internal fun assembleHomeQuickPicks(
-    themes: List<PlayableItem.Theme>,
-    relatedTracks: List<RelatedTrack>,
-    likedThemeIds: Set<Long>,
-    selectedChip: String? = null,
-    limit: Int = 6
-): List<HomeQuickPick> {
-    val themePicks = themes.sortedByDescending { it.theme.id in likedThemeIds }.map { HomeQuickPick(it) }
-    val relatedPicks = relatedTracks.takeIf { selectedChip == null }.orEmpty().map { track ->
-        HomeQuickPick(
-            PlayableItem.RelatedSong(
-                song = track.song,
-                release = track.release,
-                anime = track.asAnimeEntity(),
-                relationshipType = track.relationshipType
-            ),
-            track
-        )
-    }
-    val mixed = ArrayList<HomeQuickPick>(limit)
-    var themeIndex = 0
-    var relatedIndex = 0
-    while (mixed.size < limit && (themeIndex < themePicks.size || relatedIndex < relatedPicks.size)) {
-        if (themeIndex < themePicks.size) mixed += themePicks[themeIndex++]
-        if (mixed.size < limit && relatedIndex < relatedPicks.size) mixed += relatedPicks[relatedIndex++]
-    }
-    return mixed
-}
-
-internal fun filterHomeThemes(themes: List<ThemeEntity>, selectedChip: String?): List<ThemeEntity> =
-    when (selectedChip) {
-        "OPs" -> themes.filter { it.themeType?.trim()?.startsWith("OP", ignoreCase = true) == true }
-        "EDs" -> themes.filter { it.themeType?.trim()?.startsWith("ED", ignoreCase = true) == true }
-        else -> themes
-    }
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -119,6 +66,7 @@ class HomeViewModel @Inject constructor(
     private val serverPlaylistWriter: ServerPlaylistWriter,
     private val userPreferencesRepository: UserPreferencesRepository,
     musicCatalogRepository: MusicCatalogRepository,
+    private val homeTopPicksRepository: HomeTopPicksRepository,
     playbackPreferences: PlaybackPreferences,
     connectivityMonitor: ConnectivityMonitor
 ) : ViewModel() {
@@ -148,10 +96,6 @@ class HomeViewModel @Inject constructor(
     private val _selectedChip = MutableStateFlow<String?>(null)
     val selectedChip: StateFlow<String?> = _selectedChip.asStateFlow()
 
-    val themes: StateFlow<List<ThemeEntity>> = combine(allThemes, _selectedChip) { themes, chip ->
-        filterHomeThemes(themes, chip)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
     val themeModesById: StateFlow<Map<Long, ThemeModeEntity>> = allThemes
         .flatMapLatest { list ->
             val ids = list.map { it.id }
@@ -160,51 +104,85 @@ class HomeViewModel @Inject constructor(
         .map { modes -> modes.associateBy { it.themeId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
-    // Shuffle once per themes emission so the order is stable across liked/download state changes
-    private val shuffledThemes: StateFlow<List<ThemeEntity>> = themes
-        .map { it.shuffled() }
+    private val _topPicksResponse = MutableStateFlow<HomeTopPicksSnapshot?>(null)
+    val quickPicks: StateFlow<List<HomeQuickPick>> = _topPicksResponse
+        .map { snapshot -> snapshot?.items?.take(6)?.map { item -> HomeQuickPick(item.item, item.relatedTrack, item.reason) }.orEmpty() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val topPicks: StateFlow<List<HomeQuickPick>> = quickPicks
+    private val _topPicksError = MutableStateFlow<String?>(null)
+    val topPicksError: StateFlow<String?> = _topPicksError.asStateFlow()
+    private val _topPicksLoading = MutableStateFlow(false)
+    val topPicksLoading: StateFlow<Boolean> = _topPicksLoading.asStateFlow()
 
-    private val eligibleRelatedTracks = combine(
-        musicCatalogRepository.observeHomeTracks(),
-        userPreferencesRepository.observeSongPreferences(),
+    private val topPicksQuery: StateFlow<HomeTopPicksQuery> = combine(
         playbackPreferences.showOstsOnHomeFlow,
-        themeModesById
-    ) { tracks, preferences, showOsts, modes ->
-        eligibleHomeRelatedTracks(
-            tracks,
-            preferences,
-            showOsts,
-            modes.values.mapNotNull { it.fullSizeSongId }.toSet()
+        _selectedChip
+    ) { includeExtras, chip ->
+        HomeTopPicksQuery(
+            includeExtras = includeExtras,
+            filter = when (chip) {
+                "OPs" -> "OP"
+                "EDs" -> "ED"
+                else -> "ALL"
+            }
         )
-    }
+    }.distinctUntilChanged().stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        HomeTopPicksQuery(playbackPreferences.showOstsOnHome, "ALL")
+    )
 
-    private val chipAwareRelatedTracks = combine(eligibleRelatedTracks, _selectedChip) { related, chip ->
-        related to chip
-    }
-
-    val quickPicks: StateFlow<List<HomeQuickPick>> = combine(
-        shuffledThemes,
-        userPreferencesRepository.observeLikedThemeIds(),
-        anime,
-        themeModesById,
-        chipAwareRelatedTracks
-    ) { themeList, likedIds, animeList, modes, relatedAndChip ->
-        val (related, chip) = relatedAndChip
-        val animeById = animeList.mapNotNull { owner -> owner.animeThemesId?.let { it to owner } }.toMap()
-        val themeItems = themeList.map { theme ->
-            PlayableItem.Theme(theme, theme.animeId?.let(animeById::get), modes[theme.id])
+    init {
+        viewModelScope.launch {
+            topPicksQuery.collectLatest { query ->
+                _topPicksResponse.value = null
+                refreshTopPicks(query)
+            }
         }
-        assembleHomeQuickPicks(themeItems, related, likedIds.toSet(), selectedChip = chip)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        viewModelScope.launch {
+            allThemes
+                .map { it.isNotEmpty() }
+                .distinctUntilChanged()
+                .filter { it }
+                .collectLatest {
+                    if (_topPicksResponse.value?.items.isNullOrEmpty()) {
+                        _topPicksLoading.first { isLoading -> !isLoading }
+                    }
+                    if (_topPicksResponse.value?.items.isNullOrEmpty()) {
+                        val query = topPicksQuery.value
+                        refreshTopPicks(query)
+                    }
+                }
+        }
+    }
 
-    val topSongs: StateFlow<List<ThemeEntity>> = combine(shuffledThemes, userPreferencesRepository.observeLikedThemeIds()) { list, likedIds ->
-        list.sortedByDescending { if (it.id in likedIds) 1 else 0 }
-            .take(10)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private suspend fun refreshTopPicks(query: HomeTopPicksQuery) {
+        _topPicksLoading.value = true
+        _topPicksError.value = null
+        try {
+            val cached = homeTopPicksRepository.cachedPreview(query)
+            if (topPicksQuery.value != query) return
+            if (cached != null) _topPicksResponse.value = cached
+
+            val refreshed = homeTopPicksRepository.refreshPreview(query)
+            if (topPicksQuery.value != query) return
+            if (refreshed != null) {
+                _topPicksResponse.value = refreshed
+            } else if (cached == null) {
+                _topPicksError.value = "Top picks could not be loaded. Try again when you're online."
+            }
+        } finally {
+            if (topPicksQuery.value == query) _topPicksLoading.value = false
+        }
+    }
 
     fun selectChip(chip: String?) {
         _selectedChip.value = if (_selectedChip.value == chip) null else chip
+    }
+
+    fun retryTopPicks() {
+        val query = topPicksQuery.value
+        viewModelScope.launch { refreshTopPicks(query) }
     }
 
     private fun buildAnimeMap(): Map<Long, AnimeEntity> {
@@ -219,9 +197,31 @@ class HomeViewModel @Inject constructor(
         nowPlayingManager.playItems("Quick Picks", picks.map { it.item }, idx)
     }
 
-    fun playAllQuickPicks() {
-        val picks = quickPicks.value
-        if (picks.isNotEmpty()) nowPlayingManager.playItems("Quick Picks", picks.map { it.item })
+    fun playTopPicks(onReady: () -> Unit = {}, onError: () -> Unit = {}) {
+        viewModelScope.launch {
+            val query = topPicksQuery.value
+            _topPicksLoading.value = true
+            _topPicksError.value = null
+            val snapshot = homeTopPicksRepository.full(query)
+            _topPicksLoading.value = false
+            if (topPicksQuery.value != query) return@launch
+            if (snapshot == null) {
+                _topPicksError.value = "Top picks could not be loaded. Try again when you're online."
+                onError()
+                return@launch
+            }
+            val expected = minOf(snapshot.response.total, 60)
+            if (snapshot.items.size < expected) {
+                _topPicksError.value = "Top picks are still loading. Try again in a moment."
+                onError()
+                return@launch
+            }
+            _topPicksResponse.value = snapshot
+            if (snapshot.items.isNotEmpty()) {
+                nowPlayingManager.playItems("Top Picks", snapshot.items.map { it.item })
+                onReady()
+            }
+        }
     }
 
     fun playNext(item: PlayableItem) = nowPlayingManager.playNextItems(listOf(item))
@@ -229,12 +229,6 @@ class HomeViewModel @Inject constructor(
     fun addToQueue(item: PlayableItem) = nowPlayingManager.addPlayableItems(listOf(item))
 
     fun replaceQueue(item: PlayableItem) = nowPlayingManager.playItems("Now Playing", listOf(item))
-
-    fun playFromTopSongs(themeId: Long) {
-        val songs = topSongs.value
-        val idx = songs.indexOfFirst { it.id == themeId }.coerceAtLeast(0)
-        nowPlayingManager.play("Top Songs", songs, idx, animeMap = buildAnimeMap())
-    }
 
     fun requestPlayVideo(themeId: Long): BrowseVideoStartRequest? {
         val theme = allThemes.value.firstOrNull { it.id == themeId } ?: return null

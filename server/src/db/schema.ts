@@ -51,6 +51,8 @@ export type AnimeMusicBatchState =
   | "COMPLETED" | "COMPLETED_WITH_WARNINGS" | "FAILED" | "CANCELLED";
 export type AnimeMusicImportState = "PENDING" | "IMPORTING" | "READY" | "ATTENTION";
 export type MusicSearchMode = "MANUAL" | "FAVORITES" | "PLAYLISTS" | "EVERYTHING";
+export type TopPicksFilter = "ALL" | "OP" | "ED";
+export type TopPickReason = "FAVORITE" | "MOST_PLAYED" | "DISCOVERY";
 
 // ===== identity =====
 
@@ -663,6 +665,23 @@ export const playEvents = pgTable("play_events", {
   unique("play_events_user_client_event_unique").on(t.userId, t.clientEventId),
   index("play_events_user_played_at_idx").on(t.userId, t.playedAt),
   index("play_events_item_idx").on(t.itemType, t.itemId),
+]);
+
+/** A short-lived recommendation order shared by Home preview and collection playback. */
+export const topPickSnapshots = pgTable("top_pick_snapshots", {
+  token: text("token").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.kitsuUserId, { onDelete: "cascade" }),
+  includeExtras: boolean("include_extras").notNull(),
+  filter: text("filter").$type<TopPicksFilter>().notNull(),
+  bucketStartedAt: timestamp("bucket_started_at", { withTimezone: true }).notNull(),
+  items: jsonb("items").$type<Array<{ itemType: CatalogItemType; itemId: number; reason: TopPickReason }>>().notNull().default([]),
+  generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  unique("top_pick_snapshots_scope_bucket_unique").on(t.userId, t.includeExtras, t.filter, t.bucketStartedAt),
+  index("top_pick_snapshots_expiry_idx").on(t.expiresAt),
 ]);
 
 // ===== media =====

@@ -128,7 +128,7 @@ fun SettingsScreen(
             SettingsToggleRow(
                 icon = Icons.Rounded.Home,
                 title = "Show OSTs on Home",
-                subtitle = "Include soundtrack songs in Quick picks.",
+                subtitle = "Include soundtrack songs and extra tracks in Top picks.",
                 checked = showOstsOnHome,
                 onCheckedChange = viewModel::setShowOstsOnHome
             )

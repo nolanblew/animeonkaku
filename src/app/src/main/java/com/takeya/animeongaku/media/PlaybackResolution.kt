@@ -165,7 +165,7 @@ class PlaybackResolver @Inject constructor() {
         themePreference: UserPreferenceEntity?,
         cachedServerMedia: Set<MediaKey>,
     ): ResolvedPlaybackItem {
-        val descriptor = item.modeDescriptor
+        val descriptor = item.effectiveModeDescriptor
         require(preferredThemeMode == null || preferredThemeMode == PlaybackMode.TV_SIZE || preferredThemeMode == PlaybackMode.FULL_SIZE)
         val storedPreferredMode = when (themePreference?.preferredMode) {
             "TV_SIZE" -> PlaybackMode.TV_SIZE
@@ -429,7 +429,6 @@ class PlaybackResolutionCoordinator @Inject constructor(
             }
             val preferredModesByThemeId = if (themeIds.isEmpty()) emptyMap() else {
                 userPreferenceDao.getPreferencesByIdsIncludingDeleted(themeIds)
-                    .filter { it.deletedAt == null }
                     .associateBy(UserPreferenceEntity::themeId)
             }
             val songsById = if (songIds.isEmpty()) emptyMap() else {
@@ -452,24 +451,42 @@ class PlaybackResolutionCoordinator @Inject constructor(
             val isOnline = serverReachabilityMonitor.isReachable.value
             hydratedEntries.map { hydratedEntry ->
                 val keys = hydratedEntry.possibleMediaKeys()
+                val themeItem = hydratedEntry.item as? PlayableItem.Theme
+                val localPreference = themeItem?.theme?.id?.let(preferredModesByThemeId::get)
+                val snapshotPreference = themeItem?.serverPreference
+                val effectivePreference = newestActivePreference(localPreference, snapshotPreference)
                 ResolutionSnapshot(
                     entry = hydratedEntry,
                     isOnline = isOnline,
                     localMedia = localMedia.filterKeys { it in keys },
-                    preferredThemeMode = (hydratedEntry.item as? PlayableItem.Theme)
-                        ?.theme?.id?.let(preferredModesByThemeId::get)?.preferredMode?.let { mode ->
+                    preferredThemeMode = effectivePreference
+                        ?.preferredMode
+                        ?.takeIf { it == "TV_SIZE" || it == "FULL_SIZE" }
+                        ?.let { mode ->
                             when (mode) {
                                 "TV_SIZE" -> PlaybackMode.TV_SIZE
                                 "FULL_SIZE" -> PlaybackMode.FULL_SIZE
                                 else -> null
                             }
                         },
-                    themePreference = (hydratedEntry.item as? PlayableItem.Theme)
-                        ?.theme?.id?.let(preferredModesByThemeId::get),
+                    themePreference = effectivePreference,
                     cachedServerMedia = cachedServerMedia.filterTo(linkedSetOf()) { it in keys },
                 )
             }
         }
+}
+
+internal fun newestActivePreference(
+    localPreference: UserPreferenceEntity?,
+    snapshotPreference: UserPreferenceEntity?
+): UserPreferenceEntity? {
+    val newest = when {
+        snapshotPreference == null -> localPreference
+        localPreference == null -> snapshotPreference
+        snapshotPreference.updatedAt > localPreference.updatedAt -> snapshotPreference
+        else -> localPreference
+    }
+    return newest?.takeUnless { it.deletedAt != null }
 }
 
 private data class ResolutionSnapshot(
@@ -508,7 +525,7 @@ internal fun completedLocalMedia(downloads: List<DownloadItemEntity>): Map<Media
 internal fun QueueEntry.possibleMediaKeys(): Set<MediaKey> = when (val playable = item) {
     is PlayableItem.Theme -> buildSet {
         add(MediaKey.themeTv(playable.theme.id))
-        playable.modeDescriptor?.fullSizeSongId?.let { add(MediaKey.songAudio(it)) }
+        playable.effectiveModeDescriptor?.fullSizeSongId?.let { add(MediaKey.songAudio(it)) }
     }
     is PlayableItem.RelatedSong -> setOf(MediaKey.songAudio(playable.song.id))
 }
@@ -516,7 +533,7 @@ internal fun QueueEntry.possibleMediaKeys(): Set<MediaKey> = when (val playable 
 internal fun QueueEntry.serverAudioCandidates(activeServerBaseUrl: String?): Map<MediaKey, String> =
     when (val playable = item) {
         is PlayableItem.Theme -> buildMap {
-            val descriptor = playable.modeDescriptor
+            val descriptor = playable.effectiveModeDescriptor
             val tvUrl = descriptor?.tvSizeUrl?.takeIf(String::isNotBlank)
                 ?: playable.theme.audioUrl.takeIf(String::isNotBlank)
             tvUrl?.let { put(MediaKey.themeTv(playable.theme.id), rewriteServerMediaUrl(it, activeServerBaseUrl)) }

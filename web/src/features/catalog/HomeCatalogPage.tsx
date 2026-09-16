@@ -1,11 +1,12 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, MoreHorizontal, Play } from 'lucide-react'
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useRovingMenu } from '../../components/focusScope'
+import { useAccessibleFocusScope, useRovingMenu } from '../../components/focusScope'
 import { ViewportMenu } from '../../components/ViewportMenu'
 import { MediaListItem } from '../../components/MediaPresentation'
-import { apiClient } from '../../lib/api'
+import { useAuth } from '../../auth/AuthProvider'
+import { ApiError, apiClient } from '../../lib/api'
 import { browserAssetUrl } from '../../lib/assets'
 import { artistRouteSlug } from '../../lib/navigation'
 import { readShowOstsOnHome, subscribeToHomePreference } from '../../lib/homePreference'
@@ -17,13 +18,15 @@ import { TrackActionMenu, useLibraryActions } from '../libraryactions'
 import { playlistArtworkUrls } from '../playlists'
 import { CatalogError, CatalogLoading } from './CatalogError'
 import { CatalogPlaylistCard } from './CatalogPlaylistCard'
-import type { BrowserHomeResponse, BrowserHomeTopSongSummary } from './types'
+import type { BrowserHomeResponse, BrowserHomeTopSongSummary, BrowserTopPick, BrowserTopPicksResponse } from './types'
 
 type HomeFilter = 'ALL' | 'OP' | 'ED'
 
 export interface HomeCatalogPageProps {
   onPlayTheme?: (theme: LibraryThemeDto, artworkUrl?: string | null) => void
   onPlayAll?: (themes: LibraryThemeDto[], artworkUrl?: string | null) => void
+  onPlayTopPick?: (pick: BrowserTopPick) => void
+  onPlayTopPicks?: (picks: BrowserTopPick[]) => void
   onPlayNext?: (theme: LibraryThemeDto, artworkUrl?: string | null) => void
   onAddToQueue?: (theme: LibraryThemeDto, artworkUrl?: string | null) => void
   onPlayPlaylist?: (playlist: NormalizedLibrary['playlistsById'][string]) => void
@@ -37,8 +40,9 @@ const filters: Array<{ value: HomeFilter; label: string }> = [
   { value: 'ED', label: 'Endings' },
 ]
 
-export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQueue, onPlayPlaylist, onPlayNextPlaylist, onAddToQueuePlaylist }: HomeCatalogPageProps) {
+export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayTopPick, onPlayTopPicks, onPlayNext, onAddToQueue, onPlayPlaylist, onPlayNextPlaylist, onAddToQueuePlaylist }: HomeCatalogPageProps) {
   const navigate = useNavigate()
+  const auth = useAuth()
   const home = useQuery<BrowserHomeResponse>({
     queryKey: ['home'],
     queryFn: ({ signal }) => apiClient.get<BrowserHomeResponse>('/v1/home?limit=24', { signal }),
@@ -49,14 +53,115 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
   const [activeFilter, setActiveFilter] = useState<HomeFilter>('ALL')
   const showOstsOnHome = useSyncExternalStore(subscribeToHomePreference, readShowOstsOnHome, () => true)
   const animeTitlePreference = useAnimeTitlePreference()
+  const queryClient = useQueryClient()
+  const topPicksScope = `${activeFilter}:${showOstsOnHome ? 'extras' : 'themes'}`
+  const topPicksQuery = useQuery<BrowserTopPicksResponse>({
+    queryKey: ['top-picks', auth.user?.kitsuUserId ?? 'anonymous', topPicksScope],
+    queryFn: ({ signal }) => apiClient.get<BrowserTopPicksResponse>(topPicksPath(6, activeFilter, showOstsOnHome), { signal }),
+    enabled: auth.status === 'authenticated',
+    staleTime: 30 * 60_000,
+    retry: 1,
+  })
+  const libraryThemeCount = libraryQuery.library ? Object.values(libraryQuery.library.themesById).filter((theme) => !theme.deleted).length : 0
+  const emptyRetryKey = `${topPicksScope}:${libraryQuery.library?.cursor ?? 'none'}:${libraryThemeCount}`
+  const emptyRetryKeyRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (auth.status !== 'authenticated' || libraryThemeCount === 0 || topPicksQuery.data?.items?.length !== 0 || emptyRetryKeyRef.current === emptyRetryKey) return
+    emptyRetryKeyRef.current = emptyRetryKey
+    void topPicksQuery.refetch()
+  }, [auth.status, emptyRetryKey, libraryThemeCount, topPicksQuery.data?.items?.length, topPicksQuery.refetch])
+  const [previewOverride, setPreviewOverride] = useState<BrowserTopPicksResponse | null>(null)
+  const [fullTopPicks, setFullTopPicks] = useState<BrowserTopPicksResponse | null>(null)
+  const [fullTopPicksScope, setFullTopPicksScope] = useState<string | null>(null)
+  const [fullTopPicksSnapshot, setFullTopPicksSnapshot] = useState<string | null>(null)
+  const [showAllTopPicks, setShowAllTopPicks] = useState(false)
+  const [fullTopPicksLoading, setFullTopPicksLoading] = useState(false)
+  const [fullTopPicksError, setFullTopPicksError] = useState<unknown>(null)
+  const fullTopPicksGeneration = useRef(0)
+  const fullTopPicksAbort = useRef<AbortController | null>(null)
+  const seeAllTopPicksRef = useRef<HTMLButtonElement>(null)
+  const closeTopPicksDialogRef = useRef<HTMLButtonElement>(null)
+  const topPicksDialogRef = useAccessibleFocusScope<HTMLDivElement>({
+    active: showAllTopPicks,
+    onEscape: () => setShowAllTopPicks(false),
+    restoreFocusRef: seeAllTopPicksRef,
+    initialFocusRef: closeTopPicksDialogRef,
+  })
+  useEffect(() => {
+    fullTopPicksGeneration.current += 1
+    fullTopPicksAbort.current?.abort()
+    fullTopPicksAbort.current = null
+    setFullTopPicksLoading(false)
+    setPreviewOverride(null)
+    setFullTopPicks(null)
+    setFullTopPicksScope(null)
+    setFullTopPicksSnapshot(null)
+    setShowAllTopPicks(false)
+    setFullTopPicksError(null)
+    return () => {
+      fullTopPicksGeneration.current += 1
+      fullTopPicksAbort.current?.abort()
+      fullTopPicksAbort.current = null
+    }
+  }, [activeFilter, auth.user?.kitsuUserId, showOstsOnHome])
+
+  const loadFullTopPicks = useCallback(async (playAfterLoad = false) => {
+    const preview = previewOverride ?? topPicksQuery.data
+    if (!preview || fullTopPicksLoading) return
+    const fullIsReusable = fullTopPicksScope === topPicksScope
+      && fullTopPicksSnapshot === preview.snapshot
+      && fullTopPicks
+      && fullTopPicks.expiresAt > Date.now()
+    if (fullIsReusable) {
+      if (!playAfterLoad) setShowAllTopPicks(true)
+      if (playAfterLoad) onPlayTopPicks?.(fullTopPicks.items)
+      return
+    }
+    if (!playAfterLoad) setShowAllTopPicks(true)
+    const generation = ++fullTopPicksGeneration.current
+    fullTopPicksAbort.current?.abort()
+    const controller = new AbortController()
+    fullTopPicksAbort.current = controller
+    setFullTopPicksLoading(true)
+    setFullTopPicksError(null)
+    try {
+      let response: BrowserTopPicksResponse
+      try {
+        response = await apiClient.get<BrowserTopPicksResponse>(topPicksPath(60, activeFilter, showOstsOnHome, preview.snapshot), { signal: controller.signal })
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 410) throw error
+        const latestPreview = await apiClient.get<BrowserTopPicksResponse>(topPicksPath(6, activeFilter, showOstsOnHome), { signal: controller.signal })
+        if (generation !== fullTopPicksGeneration.current) return
+        setPreviewOverride(latestPreview)
+        queryClient.setQueryData(['top-picks', auth.user?.kitsuUserId ?? 'anonymous', topPicksScope], latestPreview)
+        response = await apiClient.get<BrowserTopPicksResponse>(topPicksPath(60, activeFilter, showOstsOnHome, latestPreview.snapshot), { signal: controller.signal })
+      }
+      if (generation !== fullTopPicksGeneration.current) return
+      setFullTopPicks(response)
+      setFullTopPicksScope(topPicksScope)
+      setFullTopPicksSnapshot(response.snapshot)
+      if (playAfterLoad) onPlayTopPicks?.(response.items)
+    } catch (error) {
+      if (generation !== fullTopPicksGeneration.current || controller.signal.aborted) return
+      setFullTopPicksError(error)
+    } finally {
+      if (generation === fullTopPicksGeneration.current) {
+        setFullTopPicksLoading(false)
+        if (fullTopPicksAbort.current === controller) fullTopPicksAbort.current = null
+      }
+    }
+  }, [activeFilter, auth.user?.kitsuUserId, fullTopPicks, fullTopPicksLoading, fullTopPicksScope, fullTopPicksSnapshot, onPlayTopPicks, previewOverride, queryClient, showOstsOnHome, topPicksQuery.data, topPicksScope])
 
   if (home.isPending) return <CatalogLoading label="Loading your home" />
   if (home.isError || !home.data) return <CatalogError title="Home unavailable" error={home.error} onRetry={() => void home.refetch()} />
   const data = home.data
   const library = libraryQuery.library
-  const quickPicks = selectQuickPicks(data, library, activeFilter, showOstsOnHome, animeTitlePreference)
+  const previewTopPicks = previewOverride ?? topPicksQuery.data
+  const topPicks = previewTopPicks
+  const expandedTopPicks = fullTopPicksScope === topPicksScope && fullTopPicks ? fullTopPicks : null
+  const topPickItems = Array.isArray(topPicks?.items) ? topPicks.items : []
   const topSongs = selectTopSongs(data, library, showOstsOnHome, animeTitlePreference)
-  const heroArtwork = quickPicks[0]?.artworkUrl ?? browserAssetUrl(data.continueWatching[0]?.posterUrl)
+  const heroArtwork = topPickItems[0]?.artworkUrl ?? browserAssetUrl(data.continueWatching[0]?.posterUrl)
   const currentlyWatchingPlaylist = data.playlists.find((playlist) => playlist.name.trim().toLowerCase() === 'currently watching')
 
   return (
@@ -75,36 +180,36 @@ export function HomeCatalogPage({ onPlayTheme, onPlayAll, onPlayNext, onAddToQue
         </div>
       </header>
 
-      <section className="catalog-section home-quick-picks" aria-labelledby="quick-picks-title">
-        <div className="catalog-section__heading"><div><p className="eyebrow">Picked for you</p><h2 id="quick-picks-title">Recommended</h2><p>Start with a theme from the anime in your library.</p></div><div className="catalog-section__actions"><button type="button" className="button button--text" onClick={() => onPlayAll?.(quickPicks.map(({ theme }) => theme), quickPicks[0]?.artworkUrl)} disabled={!onPlayAll || quickPicks.length === 0}>Play all</button><Link to="/library?tab=songs" className="catalog-section__link">See all <ArrowRight size={15} /></Link></div></div>
-        {quickPicks.length === 0
-          ? <p className="catalog-empty">No tracks match this filter yet.</p>
-          : <div className="home-quick-picks__grid">{quickPicks.map(({ theme, animeTitle, artworkUrl }) => {
-            const presentation = themePresentation({ animeTitle, themeType: theme.themeType, songTitle: theme.title, artist: theme.artists.map((artist) => artist.name).join(', ') })
-            const destination = themeDestinations(theme, library)
-            return <MediaListItem element="article" className="home-quick-pick" key={theme.id}
-              artwork={<button type="button" className="home-quick-pick__play" onClick={() => onPlayTheme?.(theme, artworkUrl)} disabled={!onPlayTheme || !isPlayable(theme)} aria-label={`Play ${theme.title}`}>
-                {artworkUrl ? <img src={artworkUrl} alt="" /> : <span aria-hidden="true">AO</span>}<span className="home-quick-pick__play-icon"><Play size={18} fill="currentColor" /></span>
-              </button>}
-              title={<HomeThemeIdentity animeTitle={animeTitle} presentation={presentation} />}
-              subtitle={presentation.secondary}
-              actions={<TrackActionMenu
-                item={{ itemType: 'THEME', itemId: theme.id, title: theme.title }}
-                menuOnly
-                liked={library?.prefsByThemeId[String(theme.id)]?.liked}
-                disliked={library?.prefsByThemeId[String(theme.id)]?.disliked}
-                preferredMode={library?.prefsByThemeId[String(theme.id)]?.preferredMode}
-                hasFullSize={Boolean(theme.mediaModes.fullSize)}
-                onPlayNext={onPlayNext ? () => onPlayNext(theme, artworkUrl) : undefined}
-                onAddToQueue={onAddToQueue ? () => onAddToQueue(theme, artworkUrl) : undefined}
-                onGoToArtist={destination.artistSlug ? () => navigate(`/artist/${encodeURIComponent(destination.artistSlug!)}`) : undefined}
-                artistName={destination.artistName}
-                onGoToAnime={destination.animeId ? () => navigate(`/anime/${encodeURIComponent(destination.animeId!)}`) : undefined}
-                animeName={destination.animeName}
-              />}
-            />
-          })}</div>}
+      <section className="catalog-section home-quick-picks" aria-labelledby="top-picks-title">
+        <div className="catalog-section__heading"><div><p className="eyebrow">Picked for you</p><h2 id="top-picks-title">Top picks</h2><p>Favorites, most-played themes, and a few discoveries from your library.</p></div><div className="catalog-section__actions">
+          <button type="button" className="button button--primary" onClick={() => void loadFullTopPicks(true)} disabled={!topPicks || fullTopPicksLoading || !onPlayTopPicks}>Play</button>
+          <button ref={seeAllTopPicksRef} type="button" className="catalog-section__link" onClick={() => void loadFullTopPicks(false)} disabled={!topPicks || fullTopPicksLoading} aria-expanded={showAllTopPicks}>See all <ArrowRight size={15} /></button>
+        </div></div>
+        {topPicksQuery.isPending && !topPicks
+          ? <p className="catalog-empty">Loading your top picks…</p>
+          : !topPicks
+            ? <p className="catalog-empty">Top picks are unavailable right now. <button type="button" className="button button--text" onClick={() => void topPicksQuery.refetch()}>Try again</button></p>
+            : topPickItems.length === 0
+              ? <p className="catalog-empty">No tracks match this filter yet.</p>
+              : <div className="home-quick-picks__grid">{topPickItems.map((pick) => <HomeTopPickCard key={pick.key} pick={pick} library={library} animeTitlePreference={animeTitlePreference} onPlay={onPlayTopPick} onPlayTheme={onPlayTheme} onPlayNext={onPlayNext} onAddToQueue={onAddToQueue} navigate={navigate} />)}</div>}
+        {fullTopPicksLoading && <p className="catalog-inline-status">Loading the full top picks set…</p>}
+        {Boolean(fullTopPicksError) && !fullTopPicksLoading && !showAllTopPicks && <p className="catalog-empty">Could not load the full top picks set. <button type="button" className="button button--text" onClick={() => void loadFullTopPicks(false)}>Try again</button></p>}
       </section>
+
+      {showAllTopPicks && <section ref={topPicksDialogRef} className="home-top-picks-dialog" role="dialog" aria-modal="true" aria-labelledby="top-picks-dialog-title" onPointerDown={(event) => { if (event.target === event.currentTarget) event.preventDefault() }}>
+        <div className="home-top-picks-dialog__panel">
+          <header className="catalog-section__heading">
+            <div><p className="eyebrow">Expanded collection</p><h2 id="top-picks-dialog-title">Top picks</h2><p>{expandedTopPicks?.total ?? 0} tracks selected for you.</p></div>
+            <div className="catalog-section__actions">
+              <button type="button" className="button button--primary" onClick={() => void loadFullTopPicks(true)} disabled={fullTopPicksLoading || !onPlayTopPicks || !expandedTopPicks}>Play</button>
+              <button ref={closeTopPicksDialogRef} type="button" className="button button--text" onClick={() => setShowAllTopPicks(false)}>Back to preview</button>
+            </div>
+          </header>
+          {fullTopPicksLoading && <p className="catalog-empty">Loading the full top picks set…</p>}
+          {Boolean(fullTopPicksError) && !fullTopPicksLoading && <p className="catalog-empty">Could not load the full top picks set. <button type="button" className="button button--text" onClick={() => void loadFullTopPicks(false)}>Try again</button></p>}
+          {expandedTopPicks && !fullTopPicksLoading && <div className="home-quick-picks__grid">{expandedTopPicks.items.map((pick) => <HomeTopPickCard key={pick.key} pick={pick} library={library} animeTitlePreference={animeTitlePreference} onPlay={onPlayTopPick} onPlayTheme={onPlayTheme} onPlayNext={onPlayNext} onAddToQueue={onAddToQueue} navigate={navigate} />)}</div>}
+        </div>
+      </section>}
 
       <section className="catalog-section home-top-songs" aria-labelledby="top-songs-title">
         <div className="catalog-section__heading"><div><p className="eyebrow">Most played from your library</p><h2 id="top-songs-title">Top songs</h2><p>Keep your most-loved themes close at hand.</p></div><Link to="/library?tab=songs" className="catalog-section__link">See all <ArrowRight size={15} /></Link></div>
@@ -174,11 +279,66 @@ function HomeThemeIdentity({ animeTitle, presentation }: { animeTitle?: string |
   </span>
 }
 
+function HomeTopPickCard({ pick, library, animeTitlePreference, onPlay, onPlayTheme, onPlayNext, onAddToQueue, navigate }: {
+  pick: BrowserTopPick
+  library: NormalizedLibrary | null
+  animeTitlePreference: AnimeTitlePreference
+  onPlay?: (pick: BrowserTopPick) => void
+  onPlayTheme?: HomeCatalogPageProps['onPlayTheme']
+  onPlayNext?: HomeCatalogPageProps['onPlayNext']
+  onAddToQueue?: HomeCatalogPageProps['onAddToQueue']
+  navigate: (to: string) => void
+}) {
+  const animeTitle = preferredAnimeTitle(pick.anime, animeTitlePreference) || pick.anime?.title || null
+  const isTheme = pick.itemType === 'THEME'
+  const title = isTheme ? pick.theme.title : pick.track.title
+  const artist = isTheme
+    ? pick.theme.artists.map((entry) => entry.name).filter(Boolean).join(', ')
+    : pick.track.artistCredit
+  const themeType = isTheme ? pick.theme.themeType : pick.release.relationshipType
+  const presentation = themePresentation({ animeTitle, themeType, songTitle: title, artist })
+  const artworkUrl = browserAssetUrl(pick.artworkUrl) ?? browserAssetUrl(pick.anime?.posterUrl)
+  const playable = isTheme ? isPlayable(pick.theme) : Boolean(pick.track.audioUrl)
+  const theme = isTheme ? pick.theme : undefined
+  const destination = theme ? themeDestinations(theme, library) : null
+  const preference = pick.itemType === 'THEME' ? (pick.preference ?? library?.prefsByThemeId[String(pick.theme.id)]) : undefined
+  const safeDestination = destination ?? { artistSlug: null, artistName: null, animeId: null, animeName: null }
+  const play = onPlay ? () => onPlay(pick) : theme && onPlayTheme ? () => onPlayTheme(theme, artworkUrl) : undefined
+
+  return <MediaListItem element="article" className="home-quick-pick"
+    artwork={<button type="button" className="home-quick-pick__play" onClick={play} disabled={!play || !playable} aria-label={`Play ${title}`}>
+      {artworkUrl ? <img src={artworkUrl} alt="" /> : <span aria-hidden="true">AO</span>}<span className="home-quick-pick__play-icon"><Play size={18} fill="currentColor" /></span>
+    </button>}
+    title={<HomeThemeIdentity animeTitle={animeTitle} presentation={presentation} />}
+    subtitle={presentation.secondary}
+    actions={theme && <TrackActionMenu
+      item={{ itemType: 'THEME', itemId: theme.id, title: theme.title }}
+      menuOnly
+      liked={preference?.liked}
+      disliked={preference?.disliked}
+      preferredMode={preference && 'preferredMode' in preference ? preference.preferredMode : undefined}
+      hasFullSize={Boolean(theme.mediaModes.fullSize)}
+      onPlayNext={onPlayNext ? () => onPlayNext(theme, artworkUrl) : undefined}
+      onAddToQueue={onAddToQueue ? () => onAddToQueue(theme, artworkUrl) : undefined}
+      onGoToArtist={safeDestination.artistSlug ? () => navigate(`/artist/${encodeURIComponent(safeDestination.artistSlug!)}`) : undefined}
+      artistName={safeDestination.artistName}
+      onGoToAnime={safeDestination.animeId ? () => navigate(`/anime/${encodeURIComponent(safeDestination.animeId!)}`) : undefined}
+      animeName={safeDestination.animeName}
+    />}
+  />
+}
+
 function themeDestinations(theme: LibraryThemeDto, library: NormalizedLibrary | null | undefined) {
   const artistName = theme.artists.find((artist) => artist.name.trim())?.name.trim() || null
   const artistSlug = artistRouteSlug(artistName)
   const anime = theme.kitsuAnimeIds.map((id) => library?.animeById[id]).find((entry) => entry && !entry.deleted)
   return { artistName, artistSlug, animeId: anime?.kitsuId ?? null, animeName: anime?.titleEn || anime?.title || null }
+}
+
+function topPicksPath(limit: number, filter: HomeFilter, includeExtras: boolean, snapshot?: string): string {
+  const params = new URLSearchParams({ limit: String(limit), includeExtras: String(includeExtras), filter })
+  if (snapshot) params.set('snapshot', snapshot)
+  return `/v1/home/top-picks?${params.toString()}`
 }
 
 function HomeAnimeCard({ anime, libraryAnime, themes, playlistId, onPlayAll }: {
@@ -231,21 +391,6 @@ function HomeAnimeCard({ anime, libraryAnime, themes, playlistId, onPlayAll }: {
       <button type="button" role="menuitem" className="track-actions__danger" onClick={remove}>{confirmingRemoval ? 'Confirm remove from library' : 'Remove from library'}</button>
     </ViewportMenu>
   </article>
-}
-
-function selectQuickPicks(data: BrowserHomeResponse, library: NormalizedLibrary | null, filter: HomeFilter, showOstsOnHome = true, titlePreference: AnimeTitlePreference = 'ENGLISH') {
-  if (!library) return []
-  const priority = new Map(data.continueWatching.map((anime, index) => [anime.kitsuId, index]))
-  return Object.values(library.themesById)
-    .filter((theme) => !theme.deleted && theme.kitsuAnimeIds.some((id) => priority.has(id)))
-    .filter((theme) => showOstsOnHome || !isSoundtrackTheme(theme))
-    .filter((theme) => filter === 'ALL' || (theme.themeType ?? '').toUpperCase().startsWith(filter))
-    .sort((left, right) => Math.min(...left.kitsuAnimeIds.map((id) => priority.get(id) ?? 999)) - Math.min(...right.kitsuAnimeIds.map((id) => priority.get(id) ?? 999)) || left.id - right.id)
-    .slice(0, 6)
-    .map((theme) => {
-      const anime = theme.kitsuAnimeIds.map((id) => library.animeById[id]).find(Boolean)
-      return { theme, animeTitle: preferredAnimeTitle(anime, titlePreference) || 'Anime Ongaku', artworkUrl: themeArtworkFor(theme, library) }
-    })
 }
 
 interface HomeTopSong {

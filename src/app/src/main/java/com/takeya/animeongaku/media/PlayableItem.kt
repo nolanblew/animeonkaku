@@ -6,6 +6,7 @@ import com.takeya.animeongaku.data.local.MusicReleaseEntity
 import com.takeya.animeongaku.data.local.SongEntity
 import com.takeya.animeongaku.data.local.ThemeEntity
 import com.takeya.animeongaku.data.local.ThemeModeEntity
+import com.takeya.animeongaku.data.local.UserPreferenceEntity
 
 enum class PlayableKind { THEME, SONG }
 
@@ -62,8 +63,18 @@ sealed interface PlayableItem {
     data class Theme(
         val theme: ThemeEntity,
         override val anime: AnimeEntity? = null,
-        val modeDescriptor: ThemeModeEntity? = null
+        val modeDescriptor: ThemeModeEntity? = null,
+        val serverPreference: UserPreferenceEntity? = null,
+        /** Descriptor supplied by a recommendation snapshot until Room catches up. */
+        val remoteModeDescriptor: ThemeModeEntity? = null,
+        /** Room value observed with the live snapshot; a different later value supersedes it. */
+        val roomModeDescriptorBaseline: ThemeModeEntity? = null
     ) : PlayableItem {
+        val effectiveModeDescriptor: ThemeModeEntity?
+            get() = when {
+                remoteModeDescriptor != null && modeDescriptor == roomModeDescriptorBaseline -> remoteModeDescriptor
+                else -> modeDescriptor ?: remoteModeDescriptor
+            }
         override val key = PlayableKey(PlayableKind.THEME, theme.id)
         override val display = PlayableDisplayMetadata(
             title = theme.title,

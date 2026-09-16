@@ -92,6 +92,7 @@ export function invalidateCategories(categories: readonly LiveChangeCategory[], 
   if (categories.includes('library') || categories.includes('playlist')) {
     void client.invalidateQueries({ queryKey: LIBRARY_QUERY_KEY })
     void client.invalidateQueries({ queryKey: ['home'] })
+    void client.invalidateQueries({ queryKey: ['top-picks'] })
   }
   if (categories.includes('playlist')) {
     void client.invalidateQueries({ queryKey: ['playlists'] })

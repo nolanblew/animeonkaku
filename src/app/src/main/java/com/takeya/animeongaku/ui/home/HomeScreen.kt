@@ -23,6 +23,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -71,12 +73,13 @@ fun HomeScreen(
     onOpenAnime: (String) -> Unit = {},
     onOpenArtist: (String) -> Unit = {},
     onNavigateToLibrary: (String) -> Unit = {},
+    onOpenTopPicks: (String?) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
-    val themes by viewModel.themes.collectAsStateWithLifecycle()
     val anime by viewModel.anime.collectAsStateWithLifecycle()
     val quickPicks by viewModel.quickPicks.collectAsStateWithLifecycle()
-    val topSongs by viewModel.topSongs.collectAsStateWithLifecycle()
+    val topPicksError by viewModel.topPicksError.collectAsStateWithLifecycle()
+    val topPicksLoading by viewModel.topPicksLoading.collectAsStateWithLifecycle()
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
     val selectedChip by viewModel.selectedChip.collectAsStateWithLifecycle()
@@ -262,22 +265,39 @@ fun HomeScreen(
 
             item(span = { GridItemSpan(maxLineSpan) }) {
                 SectionHeader(
-                    title = "Quick picks", 
-                    action = "Play all",
-                    onActionClick = {
-                        if (quickPicks.isNotEmpty()) {
-                            viewModel.playAllQuickPicks()
-                            onPlayTheme()
-                        }
+                    title = "Top picks",
+                    action = "See all",
+                    onActionClick = { onOpenTopPicks(selectedChip) },
+                    secondaryAction = "Play",
+                    onSecondaryActionClick = {
+                        if (!topPicksLoading) viewModel.playTopPicks(onReady = onPlayTheme)
                     }
                 )
             }
 
-            if (quickPicks.isEmpty()) {
+            if (quickPicks.isEmpty() && topPicksLoading) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    EmptyDataCard(
+                    CircularProgressIndicator(color = Mist100)
+                }
+            } else if (quickPicks.isEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    topPicksError?.let { error ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                error,
+                                color = Mist200,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Button(onClick = viewModel::retryTopPicks) { Text("Retry") }
+                        }
+                    } ?: EmptyDataCard(
                         if (anime.isEmpty()) {
-                            "Sync your library to see quick picks."
+                            "Sync your library to see top picks."
                         } else {
                             "No music is ready yet. Try syncing again later."
                         }
@@ -329,37 +349,21 @@ fun HomeScreen(
                 }
             }
 
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                SectionHeader(
-                    title = "Top songs", 
-                    action = "See all",
-                    onActionClick = { onNavigateToLibrary("songs") }
-                )
-            }
-
-            if (topSongs.isEmpty()) {
+            if (quickPicks.isNotEmpty()) topPicksError?.let { error ->
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    EmptyDataCard(
-                        if (anime.isEmpty()) {
-                            "Sync your library to see top songs."
-                        } else {
-                            "No themes mapped yet. Try syncing again later."
-                        }
-                    )
-                }
-            } else {
-                items(topSongs, key = { "ts-${it.id}" }) { theme ->
-                    val animeEntry = animeByThemesId[theme.animeId]
-                    val imageUrls = remember(animeEntry) { animeEntry?.primaryArtworkUrls() ?: emptyList() }
-                    QuickPickRow(
-                        item = PlayableItem.Theme(theme, animeEntry, themeModesById[theme.id]),
-                        imageUrls = imageUrls,
-                        onPlay = {
-                            viewModel.playFromTopSongs(theme.id)
-                            onPlayTheme()
-                        },
-                        onMoreOptions = { sheetTheme = theme }
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            error,
+                            color = Mist200,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(onClick = viewModel::retryTopPicks) { Text("Retry") }
+                    }
                 }
             }
 
@@ -406,28 +410,52 @@ private fun ChipRow(
 }
 
 @Composable
-private fun SectionHeader(title: String, action: String, onActionClick: () -> Unit = {}) {
+private fun SectionHeader(
+    title: String,
+    action: String,
+    onActionClick: () -> Unit = {},
+    secondaryAction: String? = null,
+    onSecondaryActionClick: () -> Unit = onActionClick
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.Bottom
     ) {
         Text(text = title, style = MaterialTheme.typography.titleLarge, color = Mist100)
-        Text(
-            text = action, 
-            style = MaterialTheme.typography.labelMedium, 
-            color = Mist200,
-            modifier = Modifier
-                .clip(RoundedCornerShape(4.dp))
-                .clickable { onActionClick() }
-                .padding(4.dp)
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = action,
+                style = MaterialTheme.typography.labelMedium,
+                color = Mist200,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable { onActionClick() }
+                    .padding(4.dp)
+            )
+            secondaryAction?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Mist200,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable { onSecondaryActionClick() }
+                        .padding(4.dp)
+                )
+            }
+        }
     }
 }
 
 
 @Composable
-private fun QuickPickRow(item: PlayableItem, imageUrls: List<String> = emptyList(), onPlay: () -> Unit, onMoreOptions: () -> Unit = {}) {
+internal fun QuickPickRow(
+    item: PlayableItem,
+    imageUrls: List<String> = emptyList(),
+    onPlay: () -> Unit,
+    onMoreOptions: (() -> Unit)? = null
+) {
     val (primaryText, secondaryText) = when (item) {
         is PlayableItem.Theme -> item.theme.displayInfo(item.anime).let { info ->
             info.primaryText to info.secondaryText
@@ -478,8 +506,10 @@ private fun QuickPickRow(item: PlayableItem, imageUrls: List<String> = emptyList
                 color = Mist200
             )
         }
-        IconButton(onClick = onMoreOptions, modifier = Modifier.size(36.dp)) {
-            Icon(Icons.Rounded.MoreVert, contentDescription = "More options", tint = Mist200, modifier = Modifier.size(20.dp))
+        onMoreOptions?.let { onMoreOptions ->
+            IconButton(onClick = onMoreOptions, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Rounded.MoreVert, contentDescription = "More options", tint = Mist200, modifier = Modifier.size(20.dp))
+            }
         }
     }
 }

@@ -50,10 +50,18 @@ internal fun requiredOfflineMediaKey(
             ThemeModePolicy.TV_SIZE -> PlaybackMode.TV_SIZE
             ThemeModePolicy.FULL_SIZE -> PlaybackMode.FULL_SIZE
             ThemeModePolicy.INHERIT ->
-                entry.baseModePolicy.playlistDefault ?: playbackIntent.rememberedAudioMode
+                entry.baseModePolicy.playlistDefault
+                    ?: item.serverPreference?.preferredMode?.let { mode ->
+                        when (mode) {
+                            "TV_SIZE" -> PlaybackMode.TV_SIZE
+                            "FULL_SIZE" -> PlaybackMode.FULL_SIZE
+                            else -> null
+                        }
+                    }
+                    ?: playbackIntent.rememberedAudioMode
         }
         val fullRequired = preferredMode == PlaybackMode.FULL_SIZE
-        if (fullRequired) item.modeDescriptor?.fullSizeSongId?.let(MediaKey::songAudio)
+        if (fullRequired) item.effectiveModeDescriptor?.fullSizeSongId?.let(MediaKey::songAudio)
         else MediaKey.themeTv(item.theme.id)
     }
 }

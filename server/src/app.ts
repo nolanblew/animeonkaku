@@ -7,6 +7,8 @@ import {
 import { registerAuthRoutes } from "./api/authRoutes.js";
 import { registerAdminRoutes, type AdminDashboardApi, type MusicSearchSettingsApi } from "./admin/routes.js";
 import { registerClientRoutes, type ClientApiService } from "./api/clientRoutes.js";
+import { registerTopPicksRoutes } from "./api/topPicksRoutes.js";
+import type { TopPicksService } from "./api/topPicksService.js";
 import { ApiError, errorEnvelope } from "./api/errors.js";
 import { registerHealthRoutes, type HealthDeps } from "./api/healthRoutes.js";
 import { registerMediaRoutes, type MediaStreamingService } from "./api/mediaRoutes.js";
@@ -39,6 +41,7 @@ export interface AppDeps {
   health: HealthDeps;
   jobs?: JobAdminService;
   clientApi?: ClientApiService;
+  topPicks?: TopPicksService;
   mediaApi?: MediaStreamingService;
   syncApi?: SyncApiService;
   proxyApi?: ProxyApiService;
@@ -183,6 +186,7 @@ function registerApiRoutes(app: FastifyInstance, deps: AppDeps, webPrefix: boole
   if (deps.clientApi) {
     registerClientRoutes(app, deps.authService, deps.clientApi, { publisher: publishLiveChange });
   }
+  if (deps.topPicks) registerTopPicksRoutes(app, deps.authService, deps.topPicks);
   if (deps.mediaApi) {
     registerMediaRoutes(app, deps.authService, deps.mediaApi);
   }
