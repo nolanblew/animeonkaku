@@ -227,7 +227,8 @@ internal fun selectPreferredApkAsset(assets: List<GitHubReleaseAssetDto>): GitHu
     return assets
         .filter { asset ->
             val name = asset.name.orEmpty().lowercase()
-            name.endsWith(".apk") || asset.contentType == APK_MIME_TYPE
+            (name.endsWith(".apk") || asset.contentType == APK_MIME_TYPE) &&
+                asset.browserDownloadUrl?.let(::isTrustedReleaseApkUrl) == true
         }
         .sortedWith(
             compareByDescending<GitHubReleaseAssetDto> { it.name.orEmpty().contains("release", ignoreCase = true) }

@@ -7,11 +7,11 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.takeya.animeongaku.R
+import com.takeya.animeongaku.MainActivity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -38,12 +38,7 @@ class AppUpdateNotifier @Inject constructor(
         if (!shouldNotifyUpdate(prefs.getString(KEY_LAST_NOTIFIED_TAG, null), update.versionTag)) return false
 
         createChannel()
-        val releaseIntent = PendingIntent.getActivity(
-            context,
-            update.versionTag.hashCode(),
-            Intent(Intent.ACTION_VIEW, Uri.parse(update.releasePageUrl)),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val releaseIntent = openAppIntent(update.versionTag.hashCode())
         val downloadIntent = PendingIntent.getBroadcast(
             context,
             update.versionTag.hashCode(),
@@ -78,6 +73,77 @@ class AppUpdateNotifier @Inject constructor(
         notificationManager.cancel(UPDATE_NOTIFICATION_ID)
     }
 
+    fun notifyUpdateDownloaded() {
+        if (!canPostNotifications()) return
+        createChannel()
+        val installIntent = PendingIntent.getActivity(
+            context,
+            2043,
+            Intent(context, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                putExtra(AppUpdateInstaller.EXTRA_INSTALL_UPDATE, true)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        notificationManager.notify(
+            UPDATE_NOTIFICATION_ID,
+            NotificationCompat.Builder(context, UPDATE_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle("Anime Ongaku update downloaded")
+                .setContentText("The update is ready to install.")
+                .setContentIntent(openAppIntent(2044, forceInstall = true))
+                .addAction(0, "Install", installIntent)
+                .setAutoCancel(true)
+                .setOnlyAlertOnce(true)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .build()
+        )
+    }
+
+    fun notifyInstallPermissionRequired() {
+        if (!canPostNotifications()) return
+        createChannel()
+        notificationManager.notify(
+            UPDATE_NOTIFICATION_ID,
+            NotificationCompat.Builder(context, UPDATE_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle("Allow Anime Ongaku to install updates")
+                .setContentText("Open Anime Ongaku to continue the update.")
+                .setContentIntent(openAppIntent(2045, forceInstall = true))
+                .setAutoCancel(true)
+                .setOnlyAlertOnce(true)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .build()
+        )
+    }
+
+    fun notifyInstallFailed(message: String) {
+        if (!canPostNotifications()) return
+        createChannel()
+        val retryIntent = PendingIntent.getActivity(
+            context,
+            2046,
+            Intent(context, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                putExtra(AppUpdateInstaller.EXTRA_INSTALL_UPDATE, true)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        notificationManager.notify(
+            UPDATE_NOTIFICATION_ID,
+            NotificationCompat.Builder(context, UPDATE_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle("Anime Ongaku update needs attention")
+                .setContentText(message)
+                .setContentIntent(openAppIntent(2047, forceInstall = true))
+                .addAction(0, "Try again", retryIntent)
+                .setAutoCancel(true)
+                .setOnlyAlertOnce(true)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .build()
+        )
+    }
+
     fun needsNotificationPermissionRequest(): Boolean =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
@@ -102,4 +168,14 @@ class AppUpdateNotifier @Inject constructor(
             }
         )
     }
+
+    private fun openAppIntent(requestCode: Int, forceInstall: Boolean = false): PendingIntent = PendingIntent.getActivity(
+        context,
+        requestCode,
+        Intent(context, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            if (forceInstall) putExtra(AppUpdateInstaller.EXTRA_INSTALL_UPDATE, true)
+        },
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
 }

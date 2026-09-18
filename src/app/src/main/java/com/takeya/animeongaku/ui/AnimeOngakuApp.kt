@@ -169,6 +169,7 @@ fun AnimeOngakuApp(
         AdaptiveLayoutPolicy.forWidth(configuration.screenWidthDp)
     }
     val updateState by appUpdateViewModel.state.collectAsStateWithLifecycle()
+    val updateDownloadState by appUpdateViewModel.downloadState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
     var savedPlayerState by rememberSaveable { mutableStateOf(AdaptivePlayerState.Collapsed.name) }
@@ -518,6 +519,7 @@ fun AnimeOngakuApp(
                         updaterEnabled = updateState.enabled,
                         isCheckingForUpdates = updateState.isChecking,
                         availableUpdate = updateState.availableUpdate,
+                        downloadState = updateDownloadState,
                         onCheckForUpdates = { appUpdateViewModel.checkForUpdates(openWhenAvailable = true) },
                         onDownloadUpdate = { appUpdateViewModel.openAvailableUpdate() },
                         onOpenReleasePage = { appUpdateViewModel.openReleasePage() },

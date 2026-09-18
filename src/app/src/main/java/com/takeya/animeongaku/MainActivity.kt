@@ -27,6 +27,8 @@ import kotlinx.coroutines.Job
 import javax.inject.Inject
 import com.takeya.animeongaku.updater.AppUpdateViewModel
 import com.takeya.animeongaku.updater.AppUpdateNotifier
+import com.takeya.animeongaku.updater.AppUpdateForegroundState
+import com.takeya.animeongaku.updater.AppUpdateInstaller
 
 internal fun activeRefreshIntervalMs(): Long = 10 * 60 * 1_000L
 
@@ -45,6 +47,7 @@ class MainActivity : ComponentActivity() {
     private var periodicSyncJob: Job? = null
     private var handledInitialServerStart = false
     private var isForeground = false
+    private var explicitUpdateInstallRequested = false
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
@@ -53,6 +56,7 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         pendingNavigateTo.value = intent?.getStringExtra("navigate_to")
+        explicitUpdateInstallRequested = consumeExplicitUpdateInstallIntent(intent)
         enableEdgeToEdge()
 
         if (serverSettingsStore.isConfigured && sessionStateManager.isOnlineEnabled()) {
@@ -79,6 +83,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        AppUpdateForegroundState.isForeground = true
         if (BuildConfig.UPDATER_ENABLED && appUpdateNotifier.needsNotificationPermissionRequest()) {
             appUpdateNotifier.markNotificationPermissionRequested()
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -87,8 +92,24 @@ class MainActivity : ComponentActivity() {
         updateForegroundServerWork(sessionStateManager.state.value)
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (explicitUpdateInstallRequested) {
+            explicitUpdateInstallRequested = false
+            appUpdateViewModel.installDownloadedUpdate()
+        } else {
+            appUpdateViewModel.onResume()
+        }
+    }
+
+    override fun onPause() {
+        appUpdateViewModel.onPause()
+        super.onPause()
+    }
+
     override fun onStop() {
         super.onStop()
+        AppUpdateForegroundState.isForeground = false
         isForeground = false
         stopActiveRefreshLoop()
     }
@@ -99,6 +120,22 @@ class MainActivity : ComponentActivity() {
         if (navigateTo != null) {
             pendingNavigateTo.value = navigateTo
         }
+        if (consumeExplicitUpdateInstallIntent(intent)) {
+            explicitUpdateInstallRequested = true
+            if (AppUpdateForegroundState.isForeground) {
+                explicitUpdateInstallRequested = false
+                appUpdateViewModel.installDownloadedUpdate()
+            }
+        }
+    }
+
+    private fun consumeExplicitUpdateInstallIntent(intent: Intent?): Boolean {
+        if (intent?.getBooleanExtra(AppUpdateInstaller.EXTRA_INSTALL_UPDATE, false) != true) {
+            return false
+        }
+        intent.removeExtra(AppUpdateInstaller.EXTRA_INSTALL_UPDATE)
+        setIntent(intent)
+        return true
     }
 
     private fun requestServerPullIfStale(minIntervalMs: Long) {
