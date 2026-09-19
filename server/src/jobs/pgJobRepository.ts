@@ -20,6 +20,23 @@ interface JobRow {
 export class PgJobRepository implements JobRepository {
   constructor(private readonly pool: pg.Pool) {}
 
+  async markKitsuFullRefreshPending(dedupeKey: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE jobs
+       SET payload = payload || '{"catalogRefreshPending":true}'::jsonb,
+           updated_at = now()
+       WHERE dedupe_key = $1
+         AND state = 'RUNNING'
+         AND (
+           type = 'KITSU_DELTA_SYNC'
+           OR (type = 'KITSU_FULL_SYNC' AND COALESCE(payload->>'reconcileOnly', 'false') = 'true')
+         )
+       RETURNING id`,
+      [dedupeKey],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async enqueue(input: EnqueueJobInput): Promise<JobRecord> {
     const result = await this.pool.query<JobRow>(
       `
@@ -39,7 +56,22 @@ export class PgJobRepository implements JobRepository {
                   THEN LEAST(jobs.priority, EXCLUDED.priority)
                 ELSE EXCLUDED.priority
               END,
-              payload = EXCLUDED.payload,
+              payload = CASE
+                -- A periodic reconcile must never downgrade an explicit
+                -- full/catalog refresh already waiting under the same key.
+                WHEN jobs.dedupe_key LIKE 'KITSU_SYNC:%'
+                  AND jobs.state IN ('QUEUED', 'FAILED')
+                  AND jobs.type = 'KITSU_FULL_SYNC'
+                  AND (
+                    EXCLUDED.type = 'KITSU_DELTA_SYNC'
+                    OR (
+                      COALESCE(jobs.payload->>'reconcileOnly', 'false') = 'false'
+                      AND COALESCE(EXCLUDED.payload->>'reconcileOnly', 'false') = 'true'
+                    )
+                  )
+                  THEN jobs.payload
+                ELSE EXCLUDED.payload
+              END,
               max_attempts = EXCLUDED.max_attempts,
               attempts = 0,
               progress = '{}'::jsonb,
@@ -99,7 +131,48 @@ export class PgJobRepository implements JobRepository {
   }
 
   async complete(id: number): Promise<void> {
-    await this.pool.query("UPDATE jobs SET state = 'DONE', updated_at = now() WHERE id = $1", [id]);
+    await this.pool.query(
+      `UPDATE jobs
+       SET state = CASE
+             WHEN state = 'RUNNING' AND type IN ('KITSU_FULL_SYNC', 'KITSU_DELTA_SYNC')
+               AND COALESCE(payload->>'catalogRefreshPending', 'false') = 'true'
+               THEN 'QUEUED'
+             ELSE 'DONE'
+           END,
+           type = CASE
+             WHEN state = 'RUNNING' AND type IN ('KITSU_FULL_SYNC', 'KITSU_DELTA_SYNC')
+               AND COALESCE(payload->>'catalogRefreshPending', 'false') = 'true'
+               THEN 'KITSU_FULL_SYNC'
+             ELSE type
+           END,
+           payload = CASE
+             WHEN state = 'RUNNING' AND type IN ('KITSU_FULL_SYNC', 'KITSU_DELTA_SYNC')
+               AND COALESCE(payload->>'catalogRefreshPending', 'false') = 'true'
+               THEN payload - 'reconcileOnly' - 'catalogRefreshPending'
+             ELSE payload
+           END,
+           progress = CASE
+             WHEN state = 'RUNNING' AND type IN ('KITSU_FULL_SYNC', 'KITSU_DELTA_SYNC')
+               AND COALESCE(payload->>'catalogRefreshPending', 'false') = 'true'
+               THEN '{}'::jsonb
+             ELSE progress
+           END,
+           attempts = CASE
+             WHEN state = 'RUNNING' AND type IN ('KITSU_FULL_SYNC', 'KITSU_DELTA_SYNC')
+               AND COALESCE(payload->>'catalogRefreshPending', 'false') = 'true'
+               THEN 0
+             ELSE attempts
+           END,
+           next_run_at = CASE
+             WHEN state = 'RUNNING' AND type IN ('KITSU_FULL_SYNC', 'KITSU_DELTA_SYNC')
+               AND COALESCE(payload->>'catalogRefreshPending', 'false') = 'true'
+               THEN now()
+             ELSE next_run_at
+           END,
+           updated_at = now()
+       WHERE id = $1`,
+      [id],
+    );
   }
 
   async fail(id: number, input: RetryJobInput): Promise<JobRecord | null> {

@@ -30,7 +30,7 @@ import type { KitsuAnimeEntry, KitsuGenre } from "../kitsu/types.js";
 import { CANONICAL_AUDIO, IMAGE_VARIANT } from "../media/types.js";
 import { DrizzleDynamicPlaylistEvaluator } from "../playlists/dynamicPlaylistEvaluator.js";
 import { DrizzleAutoPlaylistRefresher } from "./autoPlaylistRefresher.js";
-import type { KitsuCatalogRecord, SyncRepository, SyncUserAuth } from "./types.js";
+import type { KitsuCatalogRecord, LibraryEntrySyncState, SyncRepository, SyncUserAuth } from "./types.js";
 
 export class DrizzleSyncRepository implements SyncRepository {
   private readonly autoPlaylistRefresher: DrizzleAutoPlaylistRefresher;
@@ -136,6 +136,24 @@ export class DrizzleSyncRepository implements SyncRepository {
           },
         });
     }
+  }
+
+  async getLibraryEntrySyncStates(userId: string, kitsuIds: string[]): Promise<LibraryEntrySyncState[]> {
+    const ids = uniqueStrings(kitsuIds);
+    if (ids.length === 0) return [];
+    return this.db
+      .select({
+        kitsuId: libraryEntries.kitsuId,
+        watchingStatus: libraryEntries.watchingStatus,
+        userRating: libraryEntries.userRating,
+        libraryUpdatedAt: libraryEntries.libraryUpdatedAt,
+        watchedAt: libraryEntries.watchedAt,
+        deletedAt: libraryEntries.deletedAt,
+        catalogDeletedAt: kitsuAnime.deletedAt,
+      })
+      .from(libraryEntries)
+      .innerJoin(kitsuAnime, eq(libraryEntries.kitsuId, kitsuAnime.kitsuId))
+      .where(and(eq(libraryEntries.userId, userId), inArray(libraryEntries.kitsuId, ids)));
   }
 
   async tombstoneMissingLibraryEntries(userId: string, activeKitsuIds: string[]): Promise<void> {

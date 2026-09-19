@@ -147,7 +147,33 @@ describe("S4 sync job handlers", () => {
 });
 
 describe("SyncScheduler", () => {
-  it("enqueues weekly full syncs for active users and runs daily/weekly maintenance", async () => {
+  it("runs the periodic reconciliation once immediately when started", async () => {
+    const queue = new JobQueue(new FakeJobRepository());
+    let listCalls = 0;
+    const scheduler = new SyncScheduler({
+      queue,
+      repo: {
+        listActiveUserIds: async () => {
+          listCalls += 1;
+          return ["u1"];
+        },
+      },
+      pipeline: {
+        scanOrphanFiles: async () => [],
+        requeueFailedMedia: async () => 0,
+      },
+      mediaRoot: "C:/media",
+    });
+
+    scheduler.start();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    scheduler.stop();
+
+    expect(listCalls).toBe(1);
+    expect((await queue.list("QUEUED")).map((item) => item.payload.userId)).toEqual(["u1"]);
+  });
+
+  it("enqueues periodic reconciliations for active users and runs daily/weekly maintenance", async () => {
     const queue = new JobQueue(new FakeJobRepository());
     const calls: string[] = [];
     const scheduler = new SyncScheduler({
@@ -182,7 +208,7 @@ describe("SyncScheduler", () => {
     expect(calls).toEqual(["orphan", "failed"]);
   });
 
-  it("deactivates inactive users before scheduling weekly full syncs", async () => {
+  it("deactivates inactive users before scheduling periodic reconciliations", async () => {
     const time = new FakeTime(new Date("2026-07-02T12:00:00.000Z").getTime());
     const queue = new JobQueue(new FakeJobRepository(() => new Date(time.now())), {
       now: () => new Date(time.now()),

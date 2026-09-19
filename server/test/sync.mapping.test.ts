@@ -39,6 +39,7 @@ class FakeMappingRepo {
   mappings = new Map<string, number>();
   mappingBatches: Array<Array<[string, number]>> = [];
   unmatched: string[] = [];
+  autoPlaylistRefreshes: string[] = [];
 
   constructor(records: KitsuCatalogRecord[]) {
     for (const record of records) this.catalog.set(record.kitsuId, record);
@@ -60,6 +61,10 @@ class FakeMappingRepo {
 
   async markAnimeUnmatched(kitsuIds: string[]) {
     this.unmatched.push(...kitsuIds);
+  }
+
+  async refreshAutoPlaylists(userId: string) {
+    this.autoPlaylistRefreshes.push(userId);
   }
 }
 
@@ -376,6 +381,44 @@ describe("LibrarySyncPipeline theme mapping", () => {
       [["3", 3], ["4", 4]],
     ]);
     expect(repo.mappings).toEqual(new Map([["1", 1], ["2", 2], ["3", 3], ["4", 4]]));
+  });
+
+  it("refreshes user playlists after a mapped batch before yielding", async () => {
+    const repo = new FakeMappingRepo([catalog("1", "A"), catalog("2", "B")]);
+    const queue = new JobQueue(new FakeJobRepository());
+    const pipeline = new LibrarySyncPipeline({
+      repo: repo as never,
+      kitsu: {} as never,
+      animeThemes: {
+        fetchByKitsuIds: async (ids: string[]) =>
+          lookup(
+            Object.fromEntries(ids.map((id) => [id, Number(id)])),
+            ids.map((id) => theme({ animeId: Number(id), themeId: Number(id) * 10 })),
+          ),
+      },
+      queue,
+      mappingBatchSize: 1,
+    });
+    await queue.enqueue({
+      type: "MAP_THEMES",
+      priority: JobPriority.NORMAL,
+      payload: { kitsuIds: ["1", "2"], userId: "u1" },
+      dedupeKey: "MAP_THEMES:u1:1,2",
+    });
+    const job = (await queue.claimNext())!;
+    // Force the first batch to checkpoint. The refresh must already have run
+    // before the continuation is handed back to the queue.
+    await queue.enqueue({
+      type: "FETCH_AUDIO",
+      priority: JobPriority.URGENT,
+      payload: { themeId: 999 },
+      dedupeKey: "FETCH_AUDIO:999",
+    });
+
+    await pipeline.runMapThemes({ kitsuIds: ["1", "2"], userId: "u1", job });
+
+    expect(repo.autoPlaylistRefreshes).toEqual(["u1"]);
+    expect((await queue.list("QUEUED")).some((queued) => queued.type === "MAP_THEMES")).toBe(true);
   });
 });
 

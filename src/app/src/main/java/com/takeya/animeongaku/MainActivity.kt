@@ -30,7 +30,10 @@ import com.takeya.animeongaku.updater.AppUpdateNotifier
 import com.takeya.animeongaku.updater.AppUpdateForegroundState
 import com.takeya.animeongaku.updater.AppUpdateInstaller
 
-internal fun activeRefreshIntervalMs(): Long = 10 * 60 * 1_000L
+internal fun activeRefreshIntervalMs(): Long = 60 * 1_000L
+
+/** A resumed foreground session should immediately check the server for completed imports. */
+internal fun warmResumePullIntervalMs(): Long = 0L
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -150,7 +153,7 @@ class MainActivity : ComponentActivity() {
         if (!isForeground) return
         if (serverSettingsStore.isConfigured && state is SessionState.Active) {
             if (handledInitialServerStart) {
-                requestServerPullIfStale(WARM_RESUME_PULL_INTERVAL_MS)
+                requestServerPullIfStale(warmResumePullIntervalMs())
             } else {
                 handledInitialServerStart = true
             }
@@ -165,7 +168,7 @@ class MainActivity : ComponentActivity() {
     private fun startActiveRefreshLoop() {
         if (periodicSyncJob != null) return
         // Active-refresh loop: while the app is foregrounded, pull server
-        // changes every ten minutes so anything the server adds in the background
+        // changes every minute so anything the server adds in the background
         // (new mappings, confirmed themes) shows up in the UI via Room flows
         // without a manual refresh. Each pull is a cheap cursor-based delta,
         // and hitting the API also arms the server's own device-activity
@@ -188,7 +191,6 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         const val COLD_START_PULL_INTERVAL_MS = 5 * 60 * 1000L
-        const val WARM_RESUME_PULL_INTERVAL_MS = 60 * 60 * 1000L
     }
 }
 

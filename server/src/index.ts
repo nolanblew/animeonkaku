@@ -205,6 +205,12 @@ const syncPipeline = new LibrarySyncPipeline({
   kitsuAuth: kitsuAuthClient,
   animeThemes: animeThemesBackgroundClient,
   queue: jobQueue,
+  onLibraryChanged: async (_userId) => {
+    // Import-triggered scans should run alongside normal mapping work instead
+    // of waiting behind a large maintenance backlog. The scan itself remains
+    // coalesced and only selects missing eligible full-song themes.
+    await musicSearchPolicy.enqueueImportReconciliation();
+  },
 });
 const artistCatalogService = new ArtistCatalogService(
   db,

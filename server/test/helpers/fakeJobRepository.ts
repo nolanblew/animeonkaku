@@ -12,6 +12,21 @@ export class FakeJobRepository implements JobRepository {
 
   constructor(private readonly now: () => Date = () => new Date()) {}
 
+  async markKitsuFullRefreshPending(dedupeKey: string): Promise<boolean> {
+    const job = [...this.jobs.values()].find(
+      (candidate) =>
+        candidate.dedupeKey === dedupeKey &&
+        candidate.state === "RUNNING" &&
+        (candidate.type === "KITSU_DELTA_SYNC" ||
+          (candidate.type === "KITSU_FULL_SYNC" && candidate.payload.reconcileOnly === true)),
+    );
+    if (job) {
+      job.payload = { ...job.payload, catalogRefreshPending: true };
+      job.updatedAt = this.now();
+    }
+    return job !== undefined;
+  }
+
   async enqueue(input: EnqueueJobInput): Promise<JobRecord> {
     const existing = input.dedupeKey
       ? [...this.jobs.values()].find((job) => job.dedupeKey === input.dedupeKey)
@@ -23,6 +38,12 @@ export class FakeJobRepository implements JobRepository {
         existing.state === "DONE" ||
         existing.state === "CANCELLED")
     ) {
+      const preservesExplicitKitsuFull =
+        existing.dedupeKey?.startsWith("KITSU_SYNC:") === true &&
+        (existing.state === "QUEUED" || existing.state === "FAILED") &&
+        existing.type === "KITSU_FULL_SYNC" &&
+        (input.type === "KITSU_DELTA_SYNC" ||
+          (existing.payload.reconcileOnly !== true && input.payload.reconcileOnly === true));
       const nextType = nextJobType(existing, input.type);
       const nextPriority =
         existing.state === "QUEUED" || existing.state === "FAILED"
@@ -31,7 +52,7 @@ export class FakeJobRepository implements JobRepository {
       existing.state = "QUEUED";
       existing.type = nextType;
       existing.priority = nextPriority;
-      existing.payload = input.payload;
+      existing.payload = preservesExplicitKitsuFull ? existing.payload : input.payload;
       existing.progress = {};
       existing.attempts = 0;
       existing.lastError = null;
@@ -81,7 +102,20 @@ export class FakeJobRepository implements JobRepository {
   async complete(id: number): Promise<void> {
     const job = this.jobs.get(id);
     if (job) {
-      job.state = "DONE";
+      if (
+        (job.type === "KITSU_FULL_SYNC" || job.type === "KITSU_DELTA_SYNC") &&
+        job.payload.catalogRefreshPending === true
+      ) {
+        job.state = "QUEUED";
+        job.type = "KITSU_FULL_SYNC";
+        const { reconcileOnly: _reconcileOnly, catalogRefreshPending: _pending, ...refreshPayload } = job.payload;
+        job.payload = refreshPayload;
+        job.progress = {};
+        job.attempts = 0;
+        job.nextRunAt = this.now();
+      } else {
+        job.state = "DONE";
+      }
       job.updatedAt = this.now();
     }
   }

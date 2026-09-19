@@ -65,6 +65,8 @@ export interface RetryJobInput {
 
 export interface JobRepository {
   enqueue(input: EnqueueJobInput): Promise<JobRecord>;
+  /** Preserve an explicit Kitsu full refresh requested while a periodic full is running. */
+  markKitsuFullRefreshPending?(dedupeKey: string): Promise<boolean>;
   /** Find a durable job by dedupe key without changing its state. */
   findByDedupeKey?(dedupeKey: string): Promise<JobRecord | null>;
   /** Claim the next runnable job; `maxPriority` limits the claim to jobs at that priority or better (lower). */

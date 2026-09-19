@@ -70,7 +70,7 @@ services:
       MEDIA_ROOT: /data/media
       KITSU_CLIENT_ID: ${KITSU_CLIENT_ID}
       KITSU_CLIENT_SECRET: ${KITSU_CLIENT_SECRET}
-      SYNC_INTERVAL_MINUTES: "360"          # per-user background Kitsu sync
+      SYNC_INTERVAL_MINUTES: "10"            # authoritative per-user Kitsu reconciliation
       AUDIO_BACKFILL_DELAY_SECONDS: "8"     # politeness pacing for backfill
     volumes:
       - media:/data/media
@@ -107,8 +107,8 @@ Single Node process, three logical components (all in-process async — download
 
 1. **HTTP API** (doc 04) — auth, library/catalog reads, playlist + prefs writes, media streaming, sync triggers, job-queue status.
 2. **Job worker** — one async loop consuming the priority job queue (doc 06): metadata fetches, audio/image downloads, with rate limiting + retry/backoff + preemption by on-demand requests.
-3. **Scheduler** — `setInterval` tickers:
-   - every `SYNC_INTERVAL_MINUTES` (default 6h): enqueue `KITSU_DELTA_SYNC` per active user (replaces the phone's 5min/60min/2h foreground-only checks with something strictly better).
+3. **Scheduler** — an immediate reconciliation plus `setInterval` tickers:
+   - every `SYNC_INTERVAL_MINUTES` (default 10m): enqueue an authoritative `KITSU_FULL_SYNC` reconciliation per active user. It tombstones removals while skipping unchanged catalog mapping work; a weekly full refresh retains the original catalog refresh behavior.
    - after every sync: enqueue `AUDIO_BACKFILL` scan (missing binaries → queue).
    - daily: auto-playlist refresh, stale-job cleanup, orphan-file scan.
 

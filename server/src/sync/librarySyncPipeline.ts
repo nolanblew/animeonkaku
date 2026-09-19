@@ -41,36 +41,60 @@ export class LibrarySyncPipeline {
     const accessToken = await this.accessTokenForSync(input.userId, input.job.id, user);
     if (!accessToken) return;
 
+    // Anchor the status watermark at the beginning of the upstream read. Any
+    // Kitsu edit made while the pages are being fetched then remains newer
+    // than this value and is picked up by the next delta/reconciliation.
+    const syncStartedAt = this.now();
     await this.updateProgress(input.job.id, { phase: "SYNCING_LIBRARY" });
-    const entries = input.full
-      ? await this.deps.kitsu.getLibraryEntries(input.userId, { accessToken })
+    const fetchedEntries = input.full
+      ? await this.deps.kitsu.getLibraryEntries(input.userId, { accessToken, requireComplete: true })
       : await this.deps.kitsu.getLibraryEntriesUpdatedSince(
           input.userId,
           (user.lastStatusSyncAt ?? new Date(0)).toISOString(),
           accessToken,
         );
+    // Full scans are authoritative for tombstones, but only entries changed
+    // since the previous status watermark need catalog/library upserts. This
+    // keeps a ten-minute reconciliation cheap for large libraries.
+    const entries = input.full && input.reconcileOnly
+      ? await this.entriesChangedSince(input.userId, fetchedEntries, user.lastStatusSyncAt)
+      : fetchedEntries;
 
     await this.deps.repo.upsertKitsuAnime(entries);
     await this.deps.repo.upsertLibraryEntries(input.userId, entries);
     if (input.full) {
       await this.deps.repo.tombstoneMissingLibraryEntries(
         input.userId,
-        entries.map((entry) => entry.id),
+        fetchedEntries.map((entry) => entry.id),
       );
     }
 
-    await this.upsertGenres(entries);
-    await this.enqueueFollowUps(input.userId, entries);
+    // A full reconciliation is intentionally frequent so removals are
+    // tombstoned promptly.  Re-running AnimeThemes mapping and category
+    // requests for every unchanged library entry would turn that freshness
+    // check into expensive background churn, so only unmapped/new catalog
+    // rows receive those follow-ups.
+    const catalogWorkEntries = await this.entriesNeedingCatalogWork(entries, input.reconcileOnly === true);
+    await this.upsertGenres(catalogWorkEntries);
+    await this.enqueueFollowUps(input.userId, catalogWorkEntries, input.reconcileOnly === true && entries.length > 0);
     await this.deps.repo.refreshAutoPlaylists?.(input.userId);
+    // Automatic full-song policy eligibility is broader than theme mapping:
+    // an already-mapped anime can become eligible after a library add/status
+    // change, so notify the policy reconciler for every changed library row.
+    // Mapping emits a second notification after new themes are persisted.
+    if (entries.length > 0) {
+      await this.deps.onLibraryChanged?.(input.userId).catch(() => undefined);
+    }
 
     const completedAt = this.now();
     await this.deps.repo.updateUserSyncTimestamps(input.userId, {
       lastSyncAt: completedAt,
-      lastStatusSyncAt: completedAt,
+      lastStatusSyncAt: syncStartedAt,
     });
     await this.updateProgress(input.job.id, {
       phase: "DONE",
-      total: entries.length,
+      total: fetchedEntries.length,
+      updated: entries.length,
       completedAt: completedAt.getTime(),
     });
   }
@@ -98,6 +122,14 @@ export class LibrarySyncPipeline {
       const batchThemes: AnimeThemeEntry[] = [];
       await this.mapBatch(batch, catalog, batchMapped, batchThemes);
       await this.flushMappings(batchThemes, batchMapped);
+      // A library sync queues this mapping work before the first refresh can
+      // run. Refresh after each persisted mapping batch so newly mapped anime
+      // become visible to auto and dynamic playlists immediately, even when a
+      // long mapping job yields before its final batch. The queued refresh at
+      // the end remains a recovery path for adapters where this hook is absent.
+      if (input.userId && batchMapped.size > 0) {
+        await this.deps.repo.refreshAutoPlaylists?.(input.userId);
+      }
       for (const [kitsuId, animeThemesId] of batchMapped) {
         allMapped.set(kitsuId, animeThemesId);
       }
@@ -128,6 +160,14 @@ export class LibrarySyncPipeline {
         });
         return;
       }
+    }
+
+    // Wait until the final mapping continuation has persisted every batch
+    // before triggering the automatic music scan. Playlist materialization is
+    // still refreshed per batch above, while the policy sees the complete
+    // mapped library and cannot run between two yielded mapping jobs.
+    if (input.userId && allMapped.size > 0) {
+      await this.deps.onLibraryChanged?.(input.userId).catch(() => undefined);
     }
 
     const unmatched = kitsuIds.filter((id) => !allMapped.has(id));
@@ -244,7 +284,60 @@ export class LibrarySyncPipeline {
     }
   }
 
-  private async enqueueFollowUps(userId: string, entries: KitsuAnimeEntry[]): Promise<void> {
+  private async entriesChangedSince(
+    userId: string,
+    entries: KitsuAnimeEntry[],
+    since: Date | null,
+  ): Promise<KitsuAnimeEntry[]> {
+    if (!since) return entries;
+    const cutoff = since.getTime();
+    if (!this.deps.repo.getLibraryEntrySyncStates) {
+      return entries.filter((entry) => {
+        if (!entry.libraryUpdatedAt) return true;
+        const updatedAt = Date.parse(entry.libraryUpdatedAt);
+        return !Number.isFinite(updatedAt) || updatedAt > cutoff;
+      });
+    }
+    const states = await this.deps.repo.getLibraryEntrySyncStates(userId, entries.map((entry) => entry.id));
+    const statesById = new Map(states?.map((state) => [state.kitsuId, state]));
+    return entries.filter((entry) => {
+      const state = statesById.get(entry.id);
+      // A missing local row, tombstone, or deleted catalog row must be
+      // repaired even when Kitsu's updatedAt predates the watermark.
+      if (!state || state.deletedAt || state.catalogDeletedAt) return true;
+      if (state.watchingStatus !== entry.watchingStatus || !sameNumber(state.userRating, entry.userRating)) return true;
+      if (!sameDate(state.libraryUpdatedAt, entry.libraryUpdatedAt)) return true;
+      if (!sameDate(state.watchedAt, entry.watchedAt)) return true;
+      if (!entry.libraryUpdatedAt) return true;
+      const updatedAt = Date.parse(entry.libraryUpdatedAt);
+      return !Number.isFinite(updatedAt) || updatedAt > cutoff;
+    });
+  }
+
+  private async entriesNeedingCatalogWork(
+    entries: KitsuAnimeEntry[],
+    reconcileOnly: boolean,
+  ): Promise<KitsuAnimeEntry[]> {
+    if (!reconcileOnly || entries.length === 0 || !this.deps.repo.getKitsuAnimeForMapping) return entries;
+
+    const uniqueEntries = entries.filter(
+      (entry, index) => entries.findIndex((candidate) => candidate.id === entry.id) === index,
+    );
+    const records = await this.deps.repo.getKitsuAnimeForMapping(uniqueEntries.map((entry) => entry.id));
+    const recordsById = new Map(records.map((record) => [record.kitsuId, record]));
+    return uniqueEntries.filter((entry) => {
+      const record = recordsById.get(entry.id);
+      // A missing row should be retried defensively.  MAPPED rows already
+      // have their AnimeThemes catalog; every other state may need mapping.
+      return record?.mappingState !== "MAPPED" || record.animethemesAnimeId === null;
+    });
+  }
+
+  private async enqueueFollowUps(
+    userId: string,
+    entries: KitsuAnimeEntry[],
+    enqueueBackfill: boolean,
+  ): Promise<void> {
     const kitsuIds = unique(entries.map((entry) => entry.id));
     if (kitsuIds.length > 0) {
       await this.deps.queue.enqueue({
@@ -252,6 +345,14 @@ export class LibrarySyncPipeline {
         priority: JobPriority.NORMAL,
         payload: { kitsuIds, userId },
         dedupeKey: `MAP_THEMES:${userId}:${kitsuIds.join(",")}`,
+      });
+    }
+    if (enqueueBackfill) {
+      await this.deps.queue.enqueue({
+        type: "BACKFILL_SCAN",
+        priority: JobPriority.MAINTENANCE,
+        payload: { userId },
+        dedupeKey: `BACKFILL_SCAN:${userId}`,
       });
     }
     await this.deps.queue.enqueue({
@@ -400,6 +501,16 @@ export class LibrarySyncPipeline {
 
 function unique(items: string[]): string[] {
   return [...new Set(items.filter((item) => item.length > 0))];
+}
+
+function sameNumber(actual: number | null, expected: number | null): boolean {
+  return actual === expected || (actual === null && expected === null);
+}
+
+function sameDate(actual: Date | null, expected: string | null | undefined): boolean {
+  if (actual === null) return expected === null || expected === undefined;
+  const expectedMs = expected ? Date.parse(expected) : null;
+  return expectedMs !== null && Number.isFinite(expectedMs) && actual.getTime() === expectedMs;
 }
 
 function emptyLookup(): AnimeThemesLookupResult {

@@ -2,9 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import { MusicSearchPolicyService, type MusicSearchMode } from "../src/music/settings/service.js";
 
 function fixture(mode: MusicSearchMode = "MANUAL") {
+  let currentMode = mode;
   const repo = {
-    getMode: vi.fn().mockResolvedValue({ mode, updatedAt: new Date("2026-07-27T12:00:00Z") }),
-    setMode: vi.fn().mockImplementation(async (next: MusicSearchMode) => ({ mode: next, updatedAt: new Date("2026-07-27T12:00:00Z") })),
+    getMode: vi.fn().mockImplementation(async () => ({ mode: currentMode, updatedAt: new Date("2026-07-27T12:00:00Z") })),
+    setMode: vi.fn().mockImplementation(async (next: MusicSearchMode) => {
+      currentMode = next;
+      return { mode: next, updatedAt: new Date("2026-07-27T12:00:00Z") };
+    }),
     listEligibleAnime: vi.fn().mockResolvedValue([
       { userId: "user-1", kitsuId: "101" },
       { userId: "user-1", kitsuId: "202" },

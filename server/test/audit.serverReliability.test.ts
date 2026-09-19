@@ -120,7 +120,7 @@ describe("server reliability audit regressions", () => {
       expect(onError).toHaveBeenCalledWith(expect.any(Error), "periodic sync");
       expect(queued.enqueue).toHaveBeenCalledWith(expect.objectContaining({
         type: "KITSU_FULL_SYNC",
-        payload: { userId: "listener" },
+        payload: { userId: "listener", reconcileOnly: true },
       }));
     } finally {
       scheduler.stop();
