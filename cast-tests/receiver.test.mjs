@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nextTrack, playbackView } from '../web/public/cast/model.mjs';
+import { nextTrack, playbackView, formatTime } from '../web/public/cast/model.mjs';
 
 const items = [{ itemId: 1, media: { contentId: 'same' } }, { itemId: 2, media: { contentId: 'same' } }];
 test('up next uses queue occurrence identity, including duplicate songs', () => {
@@ -20,4 +20,10 @@ test('unknown duration and invalid time never produce invalid progress', () => {
   assert.equal(playbackView(10, NaN, 'BUFFERING', null).progress, 0);
   assert.equal(playbackView(-2, 90, 'PLAYING', null).progress, 0);
   assert.equal(playbackView(100, 90, 'PLAYING', null).progress, 1);
+});
+test('time labels remain readable before metadata arrives and for long tracks', () => {
+  assert.equal(formatTime(NaN), '0:00');
+  assert.equal(formatTime(-3), '0:00');
+  assert.equal(formatTime(75.9), '1:15');
+  assert.equal(formatTime(3601), '60:01');
 });

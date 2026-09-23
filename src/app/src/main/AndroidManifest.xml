@@ -20,6 +20,9 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="false"
         android:theme="@style/Theme.App.Starting">
+        <meta-data
+            android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+            android:value="com.takeya.animeongaku.media.cast.OngakuCastOptionsProvider" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

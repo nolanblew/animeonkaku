@@ -7,6 +7,9 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
 import androidx.media3.common.C
+import androidx.media3.common.DeviceInfo
+import com.takeya.animeongaku.media.cast.castAudioPath
+import com.takeya.animeongaku.media.cast.shouldRecordPlaybackStart
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -141,6 +144,7 @@ class MediaControllerManager @Inject constructor(
     private var cachedDislikedSongIds: Set<Long> = emptySet()
     /** Guards duplicate preference/invalidation emissions before Media3 reports the transition. */
     private var pendingPreferenceSkipQueueId: Long? = null
+    private var lastTransitionQueueId: Long? = null
     private val artworkPreloadAheadCount = 3
 
     /**
@@ -200,6 +204,12 @@ class MediaControllerManager @Inject constructor(
             controller ?: return
             markPlaybackStateDirty()
             val queueEntryId = mediaItem?.mediaId?.toLongOrNull()
+            val recordStart = shouldRecordPlaybackStart(
+                remote = controller?.deviceInfo?.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE,
+                sameOccurrence = queueEntryId != null && queueEntryId == lastTransitionQueueId,
+                playlistReplacement = reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED
+            )
+            if (queueEntryId != null) lastTransitionQueueId = queueEntryId
             updatePlaybackModeState(queueEntryId, resolvedItemsByQueueId[queueEntryId])
             if (queueEntryId != null) {
                 val managerStateBeforeTransition = nowPlayingManager.state.value
@@ -230,7 +240,7 @@ class MediaControllerManager @Inject constructor(
                     .firstOrNull { it.queueId == queueEntryId }
                 
                 // Record play count on track start
-                entry?.let { queueEntry ->
+                entry?.takeIf { recordStart }?.let { queueEntry ->
                     scope.launch { recordPlay(queueEntry, resolvedItemsByQueueId[queueEntryId]) }
                 }
             }
@@ -631,6 +641,9 @@ class MediaControllerManager @Inject constructor(
     }
 
     private suspend fun preloadArtworkForPlaybackWindow(ctrl: MediaController, npState: NowPlayingState) {
+        // Cast loads artworkUri itself; replacing remote items to inject Bluetooth bitmaps would
+        // cause asynchronous queue edits and unnecessary reloads on the receiver.
+        if (ctrl.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) return
         val entries = buildList {
             npState.currentEntry?.let(::add)
             addAll(npState.upcomingEntries.take(artworkPreloadAheadCount))
@@ -872,6 +885,8 @@ class MediaControllerManager @Inject constructor(
         ctrl: MediaController,
         npState: NowPlayingState
     ): Boolean {
+        // Cast queue edits are asynchronous; index-based multi-operation diffs can race.
+        if (ctrl.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) return false
         val previous = lastSyncedQueueStructure ?: return false
         // A shuffle must not cancel an in-flight preference/availability refresh and
         // then mark its stale resolved items as current.
@@ -973,6 +988,15 @@ class MediaControllerManager @Inject constructor(
             return
         }
 
+        if (ctrl.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE &&
+            desired.items.any { castAudioPath(it.mediaMetadata.extras?.getString(PlaybackMediaExtras.MEDIA_KEY)) == null }) {
+            ctrl.pause()
+            _playbackState.value = _playbackState.value.copy(
+                errorMessage = "Casting supports audio queues. Choose TV Size or Full Size, or disconnect Cast to play video."
+            )
+            return
+        }
+
         // MediaItem tags are intentionally not a UI/state boundary: Media3 does not transport
         // arbitrary tags through MediaController/MediaSession bundle restoration. Publish the
         // resolver-owned metadata by stable queue occurrence identity before controller IPC.
@@ -992,7 +1016,24 @@ class MediaControllerManager @Inject constructor(
             consumedGeneration = lastConsumedPlayRequestGeneration,
         )
 
-        if (controllerCurrentId == null || controllerCurrentId != expectedCurrentId) {
+        if (ctrl.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) {
+            val previousCurrent = lastSyncedDescriptors.firstOrNull { it.mediaId == expectedCurrentId }
+            val nextCurrent = desired.descriptors.getOrNull(desiredCurrentIndex)
+            val sameSource = controllerCurrentId == expectedCurrentId &&
+                (retainCurrent || previousCurrent?.uri == nextCurrent?.uri)
+            if (ctrl.mediaIds() != desiredIds || lastSyncedDescriptors != desired.descriptors || controllerCurrentId != expectedCurrentId) {
+                val position = if (sameSource) ctrl.currentPosition else 0L
+                val play = ctrl.playWhenReady || queueSyncPlayRequested || hasUnconsumedUserPlayRequest
+                // A single queue load avoids stale Cast indices and keeps duplicate occurrence IDs.
+                ctrl.setMediaItems(desiredItems, desiredCurrentIndex, position)
+                ctrl.playWhenReady = play
+                ctrl.prepare()
+            } else if (hasUnconsumedUserPlayRequest || queueSyncPlayRequested) {
+                ctrl.play()
+            }
+            queueSyncPlayRequested = false
+            lastConsumedPlayRequestGeneration = npState.playRequestGeneration
+        } else if (controllerCurrentId == null || controllerCurrentId != expectedCurrentId) {
             // Current track needs to change (play new context, skipTo, rewindTo, fresh connect).
             // One batched IPC replaces the whole queue and seeks to the new current track.
             ctrl.setMediaItems(desiredItems, desiredCurrentIndex, C.TIME_UNSET)
