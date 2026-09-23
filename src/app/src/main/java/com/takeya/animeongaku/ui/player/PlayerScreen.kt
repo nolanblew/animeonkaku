@@ -434,18 +434,20 @@ fun PlayerScreen(
             }
         }
 
-        Box(modifier = Modifier.layoutId("topBar").fillMaxWidth()) {
-            IconButton(onClick = onCollapse, modifier = Modifier.align(Alignment.CenterStart)) {
+        Row(modifier = Modifier.layoutId("topBar").fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onCollapse) {
                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Collapse player", tint = Rose500)
             }
             Text(
                 text = "Now Playing",
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                 color = Mist100,
                 maxLines = 1,
-                modifier = Modifier.align(Alignment.Center)
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
-            Row(modifier = Modifier.align(Alignment.CenterEnd)) {
+            Row {
+                CastButton()
                 if (onRequestFullscreen != null) {
                     IconButton(onClick = onRequestFullscreen, modifier = Modifier.size(40.dp)) {
                         Icon(Icons.Rounded.Fullscreen, "Expand player full screen", tint = Rose500)

@@ -49,6 +49,10 @@ val localProperties = Properties().apply {
     }
 }
 val defaultOngakuServerBaseUrl = "https://ongaku.takeya.ninja/"
+val castReceiverAppId = providers.environmentVariable("ONGAKU_CAST_APP_ID").orNull
+    ?: providers.gradleProperty("ongakuCastAppId").orNull
+    ?: localProperties.getProperty("ongaku.castAppId")
+    ?: "CC1AD845" // Google's Default Media Receiver; set an ID for our custom TV screen.
 val ongakuServerBaseUrl = providers.environmentVariable("ONGAKU_SERVER_BASE_URL")
     .orNull
     ?.trim()
@@ -81,6 +85,7 @@ android {
         buildConfigField("String", "DISPLAY_VERSION", "\"1.2.8\"")
         buildConfigField("boolean", "UPDATER_ENABLED", "false")
         buildConfigField("String", "ONGAKU_SERVER_BASE_URL", ongakuServerBaseUrl.toBuildConfigStringLiteral())
+        buildConfigField("String", "CAST_RECEIVER_APP_ID", castReceiverAppId.trim().toBuildConfigStringLiteral())
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -166,6 +171,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.cast)
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.datasource)
