@@ -1,7 +1,7 @@
 import type { JobHandler, JobRecord } from "../jobs/types.js";
 
 interface SyncPipelineHandlers {
-  runKitsuSync(input: { userId: string; full: boolean; job: JobRecord }): Promise<void>;
+  runKitsuSync(input: { userId: string; full: boolean; reconcileOnly?: boolean; job: JobRecord }): Promise<void>;
   runMapThemes(input: { kitsuIds: string[]; userId?: string; job: JobRecord }): Promise<void>;
   runBackfillScan(input: { userId?: string; job: JobRecord }): Promise<void>;
   runAutoPlaylistRefresh(input: { userId: string; job: JobRecord }): Promise<void>;
@@ -23,7 +23,7 @@ export function createSyncJobHandlers(pipeline: SyncPipelineHandlers, options: S
   return {
     KITSU_FULL_SYNC: async (payload, job) => {
       const userId = requiredString(payload.userId, "userId");
-      await pipeline.runKitsuSync({ userId, full: true, job });
+      await pipeline.runKitsuSync({ userId, full: true, ...(payload.reconcileOnly === true ? { reconcileOnly: true } : {}), job });
       options.onUserChanges?.(userId, ["library"]);
     },
     KITSU_DELTA_SYNC: async (payload, job) => {

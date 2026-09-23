@@ -177,6 +177,40 @@ describe("KitsuClient.getLibraryEntries", () => {
 
     expect(entries.map((entry) => entry.id)).toEqual(["1"]);
   });
+
+  it("rejects an incomplete full reconciliation page before callers can tombstone missing rows", async () => {
+    const page1 = JSON.stringify({
+      data: [libraryEntry("1"), libraryEntry("2")],
+      included: [includedAnime("1", "A"), includedAnime("2", "B")],
+      meta: { count: 3 },
+    });
+    const emptyPage = JSON.stringify({ data: [], included: [], meta: { count: 3 } });
+    const { client } = makeClient([
+      { match: "page%5Boffset%5D=0", response: { status: 200, body: page1 } },
+      { match: "page%5Boffset%5D=2", response: { status: 200, body: emptyPage } },
+    ], 2);
+
+    await expect(client.getLibraryEntries("123", { requireComplete: true })).rejects.toThrow(/incomplete library page/i);
+  });
+
+  it("rejects an empty full reconciliation page when Kitsu omits the count", async () => {
+    const { client } = makeClient([
+      { match: "library-entries", response: { status: 200, body: JSON.stringify({ data: [], included: [] }) } },
+    ]);
+
+    await expect(client.getLibraryEntries("123", { requireComplete: true })).rejects.toThrow(/incomplete library page/i);
+  });
+
+  it("rejects a short page that cannot account for Kitsu's reported total", async () => {
+    const page = JSON.stringify({
+      data: [libraryEntry("1")],
+      included: [includedAnime("1", "A")],
+      meta: { count: 100 },
+    });
+    const { client } = makeClient([{ match: "library-entries", response: { status: 200, body: page } }], 100);
+
+    await expect(client.getLibraryEntries("123", { requireComplete: true })).rejects.toThrow(/incomplete library page/i);
+  });
 });
 
 describe("KitsuClient.getLibraryEntriesUpdatedSince", () => {

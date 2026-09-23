@@ -159,6 +159,117 @@ describe("JobQueue", () => {
     expect(delta.type).toBe("KITSU_DELTA_SYNC");
     expect(delta.priority).toBe(JobPriority.NORMAL);
   });
+
+  it("keeps an explicit queued full refresh ahead of a periodic reconcile", async () => {
+    const queue = new JobQueue(new FakeJobRepository());
+    const explicit = await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.HIGH,
+      payload: { userId: "u1" },
+      dedupeKey: "KITSU_SYNC:u1",
+    });
+
+    const periodic = await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.NORMAL,
+      payload: { userId: "u1", reconcileOnly: true },
+      dedupeKey: "KITSU_SYNC:u1",
+    });
+
+    expect(periodic.id).toBe(explicit.id);
+    expect(periodic.payload).toEqual({ userId: "u1" });
+  });
+
+  it("allows periodic reconciliation after a completed explicit full refresh", async () => {
+    const queue = new JobQueue(new FakeJobRepository());
+    const explicit = await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.HIGH,
+      payload: { userId: "u1" },
+      dedupeKey: "KITSU_SYNC:u1",
+    });
+    await queue.complete(explicit.id);
+
+    const periodic = await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.NORMAL,
+      payload: { userId: "u1", reconcileOnly: true },
+      dedupeKey: "KITSU_SYNC:u1",
+    });
+
+    expect(periodic.payload).toEqual({ userId: "u1", reconcileOnly: true });
+  });
+
+  it("does not downgrade a queued periodic full reconciliation when activity enqueues a delta", async () => {
+    const queue = new JobQueue(new FakeJobRepository());
+    const periodic = await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.NORMAL,
+      payload: { userId: "u1", reconcileOnly: true },
+      dedupeKey: "KITSU_SYNC:u1",
+    });
+
+    const delta = await queue.enqueue({
+      type: "KITSU_DELTA_SYNC",
+      priority: JobPriority.HIGH,
+      payload: { userId: "u1" },
+      dedupeKey: "KITSU_SYNC:u1",
+    });
+
+    expect(delta.id).toBe(periodic.id);
+    expect(delta.type).toBe("KITSU_FULL_SYNC");
+    expect(delta.payload).toEqual({ userId: "u1", reconcileOnly: true });
+  });
+
+  it("requeues an explicit full refresh after a periodic full is already running", async () => {
+    const queue = new JobQueue(new FakeJobRepository());
+    const periodic = await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.NORMAL,
+      payload: { userId: "u1", reconcileOnly: true },
+      dedupeKey: "KITSU_SYNC:u1",
+    });
+    expect((await queue.claimNext())?.id).toBe(periodic.id);
+
+    const explicit = await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.HIGH,
+      payload: { userId: "u1" },
+      dedupeKey: "KITSU_SYNC:u1",
+    });
+    expect(explicit.state).toBe("RUNNING");
+    expect(explicit.payload).toMatchObject({ reconcileOnly: true, catalogRefreshPending: true });
+
+    await queue.complete(periodic.id);
+    const queued = (await queue.list("QUEUED"))[0];
+    expect(queued).toMatchObject({ type: "KITSU_FULL_SYNC", payload: { userId: "u1" } });
+    expect(queued?.payload).not.toHaveProperty("reconcileOnly");
+  });
+
+  it("requeues an explicit full refresh after a delta is already running", async () => {
+    const queue = new JobQueue(new FakeJobRepository());
+    const delta = await queue.enqueue({
+      type: "KITSU_DELTA_SYNC",
+      priority: JobPriority.HIGH,
+      payload: { userId: "u1" },
+      dedupeKey: "KITSU_SYNC:u1",
+    });
+    expect((await queue.claimNext())?.id).toBe(delta.id);
+
+    const explicit = await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.HIGH,
+      payload: { userId: "u1" },
+      dedupeKey: "KITSU_SYNC:u1",
+    });
+    expect(explicit.state).toBe("RUNNING");
+    expect(explicit.payload).toMatchObject({ catalogRefreshPending: true });
+
+    await queue.complete(delta.id);
+    const queued = (await queue.list("QUEUED"))[0];
+    expect(queued).toMatchObject({ type: "KITSU_FULL_SYNC", payload: { userId: "u1" } });
+    expect(queued?.payload).not.toHaveProperty("catalogRefreshPending");
+  });
 });
 
 describe("JobWorker", () => {

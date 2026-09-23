@@ -28,13 +28,31 @@ class AppUpdateManagerTest {
     fun selectPreferredApkAsset_prefersReleaseArtifact() {
         val selected = selectPreferredApkAsset(
             listOf(
-                GitHubReleaseAssetDto(name = "anime-ongaku-debug.apk", browserDownloadUrl = "https://example.com/debug.apk"),
-                GitHubReleaseAssetDto(name = "anime-ongaku-release.apk", browserDownloadUrl = "https://example.com/release.apk")
+                GitHubReleaseAssetDto(name = "anime-ongaku-debug.apk", browserDownloadUrl = "https://github.com/nolanblew/animeonkaku/releases/download/v1.3.0/debug.apk"),
+                GitHubReleaseAssetDto(name = "anime-ongaku-release.apk", browserDownloadUrl = "https://github.com/nolanblew/animeonkaku/releases/download/v1.3.0/release.apk")
             )
         )
 
         assertNotNull(selected)
         assertEquals("anime-ongaku-release.apk", selected?.name)
+    }
+
+    @Test
+    fun selectPreferredApkAsset_skipsInvalidPreferredAssetAndUsesOfficialFallback() {
+        val selected = selectPreferredApkAsset(
+            listOf(
+                GitHubReleaseAssetDto(
+                    name = "anime-ongaku-release.apk",
+                    browserDownloadUrl = "https://example.com/release.apk"
+                ),
+                GitHubReleaseAssetDto(
+                    name = "anime-ongaku-universal.apk",
+                    browserDownloadUrl = "https://github.com/nolanblew/animeonkaku/releases/download/v1.3.0/universal.apk"
+                )
+            )
+        )
+
+        assertEquals("anime-ongaku-universal.apk", selected?.name)
     }
 
     @Test

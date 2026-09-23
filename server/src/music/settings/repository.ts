@@ -59,6 +59,7 @@ export class PgMusicSearchSettingsRepository implements MusicSearchSettingsRepos
             AND ka.deleted_at IS NULL AND ka.mapping_state='MAPPED'
           JOIN themes t ON t.animethemes_anime_id=e.animethemes_anime_id
             AND t.deleted_at IS NULL AND t.animethemes_song_id IS NOT NULL
+            AND upper(trim(t.theme_type)) ~ '^(OP|ED)([1-9][0-9]?)?$'
          GROUP BY e.user_id,ka.kitsu_id,e.animethemes_anime_id
       )
       SELECT DISTINCT ON (c.animethemes_anime_id) c.user_id,c.kitsu_id

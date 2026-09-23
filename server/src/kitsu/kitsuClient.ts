@@ -14,6 +14,8 @@ interface LibraryOptions {
   status?: string;
   accessToken?: string;
   onPage?: (entries: KitsuAnimeEntry[]) => void | Promise<void>;
+  /** Full reconciliation must reject a partial pagination result before tombstoning. */
+  requireComplete?: boolean;
 }
 
 interface JsonApiResource {
@@ -203,6 +205,7 @@ export class KitsuClient {
     let offset = 0;
     let totalCount: number | null = null;
     let shouldStop = false;
+    let previousPageWasFull = false;
 
     while (!shouldStop) {
       const params: Record<string, string> = {
@@ -225,8 +228,8 @@ export class KitsuClient {
       totalCount = toNumber(document.meta?.count) ?? totalCount;
 
       const includedAnime = indexIncluded(document.included, "anime");
-      const libraryResources = asArray(document.data)
-        .filter((resource) => resource.type === "libraryEntries");
+      const pageResources = asArray(document.data);
+      const libraryResources = pageResources.filter((resource) => resource.type === "libraryEntries");
       const pageEntries = libraryResources
         .flatMap((resource) => {
           const animeId = animeRelationshipId(resource);
@@ -255,13 +258,37 @@ export class KitsuClient {
         acceptedPageEntries.push(entry);
       }
 
+      if (
+        options.requireComplete &&
+        !shouldStop &&
+        totalCount !== null &&
+        pageResources.length < this.pageLimit &&
+        offset + pageResources.length < totalCount
+      ) {
+          throw new KitsuApiError(502, "Kitsu returned an incomplete library page (short before the reported count); refusing partial reconciliation.");
+      }
+
       entries.push(...acceptedPageEntries);
       await options.onPage?.(acceptedPageEntries);
 
-      offset += this.pageLimit;
-      if (libraryResources.length === 0 || (totalCount !== null && offset >= totalCount)) {
+      if (pageResources.length === 0) {
+        const incomplete = options.requireComplete && (
+          totalCount !== null ? offset < totalCount : offset === 0 || previousPageWasFull
+        );
+        if (incomplete) {
+          throw new KitsuApiError(502, "Kitsu returned an incomplete library page; refusing partial reconciliation.");
+        }
         break;
       }
+
+      offset += this.pageLimit;
+      if (totalCount !== null && offset >= totalCount) {
+        break;
+      }
+      if (totalCount === null && libraryResources.length < this.pageLimit) {
+        break;
+      }
+      previousPageWasFull = pageResources.length >= this.pageLimit;
     }
 
     return entries;

@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { KitsuAuthError } from "../src/auth/types.js";
 import { JobPriority, JobQueue } from "../src/jobs/index.js";
 import type { KitsuAnimeEntry, KitsuGenre } from "../src/kitsu/types.js";
 import { LibrarySyncPipeline } from "../src/sync/librarySyncPipeline.js";
+import type { LibraryEntrySyncState } from "../src/sync/types.js";
 import { FakeJobRepository } from "./helpers/fakeJobRepository.js";
 import { FakeTime } from "./helpers/fakeTime.js";
 
@@ -99,6 +100,14 @@ class FakeSyncRepo {
   }
 }
 
+class SyncStateFakeRepo extends FakeSyncRepo {
+  states: LibraryEntrySyncState[] = [];
+
+  async getLibraryEntrySyncStates(_userId: string, _kitsuIds: string[]): Promise<LibraryEntrySyncState[]> {
+    return this.states;
+  }
+}
+
 describe("LibrarySyncPipeline Kitsu sync", () => {
   it("full sync writes catalog/library/genres, tombstones missing rows, and enqueues follow-up jobs", async () => {
     const time = new FakeTime(new Date("2026-06-13T00:00:00.000Z").getTime());
@@ -184,6 +193,145 @@ describe("LibrarySyncPipeline Kitsu sync", () => {
     expect(repo.tombstones).toEqual([]);
     expect(repo.upsertedLibrary).toEqual([]);
     expect(repo.autoPlaylistRefreshes).toEqual(["u1"]);
+  });
+
+  it("notifies automatic music policy when an already-mapped library row changes", async () => {
+    const repo = new FakeSyncRepo();
+    const onLibraryChanged = vi.fn().mockResolvedValue(undefined);
+    const queue = new JobQueue(new FakeJobRepository());
+    const pipeline = new LibrarySyncPipeline({
+      repo,
+      kitsu: {
+        getLibraryEntries: async () => [],
+        getLibraryEntriesUpdatedSince: async () => [entry("1", { watchingStatus: "completed" })],
+        getAnimeCategories: async () => new Map<string, KitsuGenre[]>(),
+      },
+      animeThemes: {},
+      queue,
+      onLibraryChanged,
+    });
+    await queue.enqueue({
+      type: "KITSU_DELTA_SYNC",
+      priority: JobPriority.NORMAL,
+      payload: { userId: "u1", full: false },
+      dedupeKey: "KITSU_DELTA_SYNC:u1",
+    });
+    const job = (await queue.claimNext())!;
+
+    await pipeline.runKitsuSync({ userId: "u1", full: false, job });
+
+    expect(onLibraryChanged).toHaveBeenCalledWith("u1");
+  });
+
+  it("full reconciliation tombstones from the complete scan but only upserts changed entries", async () => {
+    const repo = new FakeSyncRepo();
+    repo.user.lastStatusSyncAt = new Date("2026-06-01T12:00:00.000Z");
+    const queue = new JobQueue(new FakeJobRepository());
+    const kitsuEntries = [
+      entry("1", { libraryUpdatedAt: "2026-06-01T00:00:00.000Z" }),
+      entry("2", { libraryUpdatedAt: "2026-06-02T00:00:00.000Z" }),
+    ];
+    const pipeline = new LibrarySyncPipeline({
+      repo,
+      kitsu: {
+        getLibraryEntries: async () => kitsuEntries,
+        getLibraryEntriesUpdatedSince: async () => [],
+        getAnimeCategories: async (ids: string[]) =>
+          new Map(ids.map((id) => [id, [{ slug: "action", displayName: "Action", source: "category" }]])),
+      },
+      animeThemes: {},
+      queue,
+    });
+    await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.NORMAL,
+      payload: { userId: "u1", full: true },
+      dedupeKey: "KITSU_FULL_SYNC:u1",
+    });
+
+    await pipeline.runKitsuSync({ userId: "u1", full: true, reconcileOnly: true, job: (await queue.claimNext())! });
+
+    expect(repo.upsertedAnime.map((item) => item.id)).toEqual(["2"]);
+    expect(repo.upsertedLibrary.map((item) => item.id)).toEqual(["2"]);
+    expect(repo.tombstones).toEqual([["1", "2"]]);
+    expect(repo.genres.has("1")).toBe(false);
+    expect(repo.genres.has("2")).toBe(true);
+    expect((await queue.list("QUEUED")).map((item) => item.type)).toEqual([
+      "MAP_THEMES",
+      "BACKFILL_SCAN",
+      "AUTO_PLAYLIST_REFRESH",
+    ]);
+  });
+
+  it("anchors the status watermark at sync start so edits during the read are not skipped", async () => {
+    const time = new FakeTime(new Date("2026-06-13T00:00:00.000Z").getTime());
+    const repo = new FakeSyncRepo();
+    const queue = new JobQueue(new FakeJobRepository(() => new Date(time.now())), {
+      now: () => new Date(time.now()),
+    });
+    const pipeline = new LibrarySyncPipeline({
+      repo,
+      kitsu: {
+        getLibraryEntries: async () => {
+          time.advance(5_000);
+          return [entry("1", { libraryUpdatedAt: "2026-06-13T00:00:01.000Z" })];
+        },
+        getLibraryEntriesUpdatedSince: async () => [],
+        getAnimeCategories: async () => new Map<string, KitsuGenre[]>(),
+      },
+      animeThemes: {},
+      queue,
+      now: () => new Date(time.now()),
+    });
+    await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.NORMAL,
+      payload: { userId: "u1", full: true },
+      dedupeKey: "KITSU_FULL_SYNC:u1",
+    });
+
+    await pipeline.runKitsuSync({ userId: "u1", full: true, reconcileOnly: true, job: (await queue.claimNext())! });
+
+    expect(repo.timestampUpdates.at(-1)).toEqual({
+      lastSyncAt: new Date("2026-06-13T00:00:05.000Z"),
+      lastStatusSyncAt: new Date("2026-06-13T00:00:00.000Z"),
+    });
+  });
+
+  it("repairs a missing or tombstoned local row during a full scan even with an old remote timestamp", async () => {
+    const repo = new SyncStateFakeRepo();
+    repo.user.lastStatusSyncAt = new Date("2026-06-13T00:00:00.000Z");
+    const oldRemoteDate = "2026-06-01T00:00:00.000Z";
+    repo.states = [{
+      kitsuId: "1",
+      watchingStatus: "current",
+      userRating: 9,
+      libraryUpdatedAt: new Date(oldRemoteDate),
+      watchedAt: null,
+      deletedAt: new Date("2026-06-12T00:00:00.000Z"),
+      catalogDeletedAt: null,
+    }];
+    const queue = new JobQueue(new FakeJobRepository());
+    const pipeline = new LibrarySyncPipeline({
+      repo,
+      kitsu: {
+        getLibraryEntries: async () => [entry("1", { libraryUpdatedAt: oldRemoteDate })],
+        getLibraryEntriesUpdatedSince: async () => [],
+        getAnimeCategories: async () => new Map<string, KitsuGenre[]>(),
+      },
+      animeThemes: {},
+      queue,
+    });
+    await queue.enqueue({
+      type: "KITSU_FULL_SYNC",
+      priority: JobPriority.NORMAL,
+      payload: { userId: "u1", full: true },
+      dedupeKey: "KITSU_FULL_SYNC:u1",
+    });
+
+    await pipeline.runKitsuSync({ userId: "u1", full: true, job: (await queue.claimNext())! });
+
+    expect(repo.upsertedLibrary.map((item) => item.id)).toEqual(["1"]);
   });
 
   it("skips users that need Kitsu reauth without calling upstream", async () => {

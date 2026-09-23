@@ -7,6 +7,10 @@ const baseEnvironment = {
 };
 
 describe("music provider configuration", () => {
+  it("defaults library reconciliation to a ten-minute cadence", () => {
+    expect(loadConfig(baseEnvironment).SYNC_INTERVAL_MINUTES).toBe(10);
+  });
+
   it("keeps the existing server startup configuration when catalog and discovery are disabled", () => {
     const config = loadConfig(baseEnvironment);
 

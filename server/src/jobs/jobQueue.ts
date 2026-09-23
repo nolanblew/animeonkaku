@@ -39,7 +39,35 @@ export class JobQueue {
       maxAttempts: input.maxAttempts ?? 5,
       nextRunAt: input.nextRunAt ?? this.now(),
     };
-    return this.repo.enqueue(repoInput);
+    let result = await this.repo.enqueue(repoInput);
+    if (
+      input.type === "KITSU_FULL_SYNC" &&
+      input.payload?.reconcileOnly !== true &&
+      input.dedupeKey &&
+      this.repo.markKitsuFullRefreshPending
+    ) {
+      // Mark after enqueue so a worker claiming the periodic row between the
+      // lookup and enqueue cannot lose the explicit refresh request. If the
+      // row completed in that small window, retrying the same deduped enqueue
+      // creates the explicit full job before returning.
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const isRunningPeriodicFull =
+          result.type === "KITSU_FULL_SYNC" && result.payload.reconcileOnly === true;
+        const isRunningDelta = result.type === "KITSU_DELTA_SYNC";
+        if (result.state !== "RUNNING" || (!isRunningPeriodicFull && !isRunningDelta)) {
+          break;
+        }
+        const marked = await this.repo.markKitsuFullRefreshPending(input.dedupeKey);
+        if (marked) {
+          // The repository returns the running row before the marker update;
+          // reflect the durable follow-up in the value returned to callers.
+          result = { ...result, payload: { ...result.payload, catalogRefreshPending: true } };
+          break;
+        }
+        result = await this.repo.enqueue(repoInput);
+      }
+    }
+    return result;
   }
 
   async findByDedupeKey(dedupeKey: string): Promise<JobRecord | null> {

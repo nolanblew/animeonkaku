@@ -57,6 +57,8 @@ import com.takeya.animeongaku.ui.theme.Ink900
 import com.takeya.animeongaku.ui.theme.Mist100
 import com.takeya.animeongaku.ui.theme.Mist200
 import com.takeya.animeongaku.ui.theme.Rose500
+import com.takeya.animeongaku.updater.AppUpdateDownloadState
+import com.takeya.animeongaku.updater.AppUpdateDownloadStatus
 import com.takeya.animeongaku.updater.AvailableAppUpdate
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -68,6 +70,7 @@ fun SettingsScreen(
     updaterEnabled: Boolean = false,
     isCheckingForUpdates: Boolean = false,
     availableUpdate: AvailableAppUpdate? = null,
+    downloadState: AppUpdateDownloadState = AppUpdateDownloadState(),
     onCheckForUpdates: () -> Unit = {},
     onDownloadUpdate: () -> Unit = {},
     onOpenReleasePage: () -> Unit = {},
@@ -179,8 +182,24 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(4.dp))
                     SettingsRow(
                         icon = Icons.Rounded.Download,
-                        title = "Download ${availableUpdate.versionName}",
-                        subtitle = "Download the signed GitHub release APK",
+                        title = when (downloadState.status) {
+                            AppUpdateDownloadStatus.Downloaded,
+                            AppUpdateDownloadStatus.AwaitingInstallPermission -> "Install ${availableUpdate.versionName}"
+                            AppUpdateDownloadStatus.Installing -> "Installing ${availableUpdate.versionName}..."
+                            AppUpdateDownloadStatus.Downloading -> "Downloading ${availableUpdate.versionName} (${downloadState.progress}%)"
+                            AppUpdateDownloadStatus.Queued -> "Download ${availableUpdate.versionName}"
+                            AppUpdateDownloadStatus.Paused -> "Retry ${availableUpdate.versionName}"
+                            else -> "Download ${availableUpdate.versionName}"
+                        },
+                        subtitle = when (downloadState.status) {
+                            AppUpdateDownloadStatus.Downloaded -> "The signed APK is ready to install"
+                            AppUpdateDownloadStatus.AwaitingInstallPermission -> "Allow installs from Anime Ongaku in Android settings"
+                            AppUpdateDownloadStatus.Installing -> "The Android package installer is open"
+                            AppUpdateDownloadStatus.Downloading -> "The update continues in the background"
+                            AppUpdateDownloadStatus.Paused -> "Android paused the download; tap to retry"
+                            AppUpdateDownloadStatus.Failed -> downloadState.message ?: "Download failed; tap to retry"
+                            else -> "Download and install the signed GitHub release APK"
+                        },
                         onClick = onDownloadUpdate
                     )
                 }

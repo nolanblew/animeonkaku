@@ -27,10 +27,21 @@ export interface KitsuCatalogRecord {
   mappingState: string;
 }
 
+export interface LibraryEntrySyncState {
+  kitsuId: string;
+  watchingStatus: string | null;
+  userRating: number | null;
+  libraryUpdatedAt: Date | null;
+  watchedAt: Date | null;
+  deletedAt: Date | null;
+  catalogDeletedAt: Date | null;
+}
+
 export interface SyncRepository {
   getUserSyncAuth(userId: string): Promise<SyncUserAuth | null>;
   upsertKitsuAnime(entries: KitsuAnimeEntry[]): Promise<void>;
   upsertLibraryEntries(userId: string, entries: KitsuAnimeEntry[]): Promise<void>;
+  getLibraryEntrySyncStates?(userId: string, kitsuIds: string[]): Promise<LibraryEntrySyncState[]>;
   tombstoneMissingLibraryEntries(userId: string, activeKitsuIds: string[]): Promise<void>;
   upsertAnimeGenres(kitsuId: string, genres: KitsuGenre[]): Promise<void>;
   updateUserSyncTimestamps(
@@ -75,6 +86,8 @@ export type AnimeThemesClientLike = Pick<
 export interface SyncJobInput {
   userId: string;
   full: boolean;
+  /** Periodic full scans use the authoritative library list without replaying catalog work. */
+  reconcileOnly?: boolean;
   job: JobRecord;
 }
 
@@ -101,4 +114,6 @@ export interface LibrarySyncPipelineDeps {
   mappingTimeBudgetMs?: number;
   /** Best-effort notification for newly observed AnimeThemes mappings. */
   onAnimeMapped?: (animeThemesIds: number[]) => Promise<void>;
+  /** Best-effort notification for library rows changed by a Kitsu sync. */
+  onLibraryChanged?: (userId: string) => Promise<void>;
 }
