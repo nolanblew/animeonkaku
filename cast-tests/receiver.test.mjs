@@ -10,10 +10,10 @@ test('up next uses queue occurrence identity, including duplicate songs', () => 
   assert.equal(nextTrack(items, 1, 'REPEAT_SINGLE'), items[0]);
   assert.equal(nextTrack(items, 99, 'REPEAT_ALL'), null);
 });
-test('next track is revealed only in the final twenty seconds', () => {
-  assert.equal(playbackView(69, 90, 'PLAYING', items[1]).showNext, false);
-  assert.equal(playbackView(70, 90, 'PLAYING', items[1]).showNext, true);
-  assert.equal(playbackView(70, 90, 'PAUSED', items[1]).animate, false);
+test('next track is revealed only in the final ten seconds', () => {
+  assert.equal(playbackView(79, 90, 'PLAYING', items[1]).showNext, false);
+  assert.equal(playbackView(80, 90, 'PLAYING', items[1]).showNext, true);
+  assert.equal(playbackView(80, 90, 'PAUSED', items[1]).animate, false);
   assert.equal(playbackView(90, 90, 'IDLE', null).showNext, false);
 });
 test('unknown duration and invalid time never produce invalid progress', () => {

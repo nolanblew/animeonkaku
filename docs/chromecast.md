@@ -14,7 +14,7 @@ The Android Now Playing header has a Cast button. Choose a device on the same ne
 
 Without a custom ID, Android uses Google's Default Media Receiver (`CC1AD845`). Audio and queue controls work through that receiver; the custom artwork screen, visualizer, and Up Next card require registration of our receiver. No production deployment or Cast registration is performed by building the code.
 
-The TV view shows artwork, title, artist, a bottom progress bar, and the next queue occurrence in the final 20 seconds. It respects repeat-one and repeat-all and continues automatically. Web Audio analysis drives the visualizer where supported; unsupported devices and reduced-motion mode show quiet bars. Audio output does not depend on visualization support.
+The TV view shows artwork, title, artist, a bottom progress bar, and the next queue occurrence in the final 10 seconds. It respects repeat-one and repeat-all and continues automatically. Web Audio analysis drives the visualizer where supported; unsupported devices and reduced-motion mode show quiet bars. Audio output does not depend on visualization support.
 
 ## Transport and access
 

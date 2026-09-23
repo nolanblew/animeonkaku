@@ -21,7 +21,7 @@ async page => {
   await page.goto('http://127.0.0.1:8100/cast/index.html');
   await page.waitForFunction(() => document.getElementById('title').textContent === 'Song occurrence 1');
   if (await page.locator('#up-next').isVisible()) throw new Error('Up Next shown too early');
-  await page.evaluate(() => { fixture.position = 75; });
+  await page.evaluate(() => { fixture.position = 85; });
   await page.waitForFunction(() => !document.getElementById('up-next').hidden);
   if (await page.locator('#next-title').textContent() !== 'Song occurrence 2') throw new Error('Duplicate queue occurrence lost');
   await page.evaluate(() => { fixture.state = 'PAUSED'; });

@@ -76,7 +76,7 @@ function draw(time) {
 requestAnimationFrame(draw);
 
 if (new URLSearchParams(location.search).has('preview')) {
-  render({ metadata: { title: 'An evening in color', artist: 'Anime Ongaku', albumName: 'THE PARTY MIX' } }, 75, 90,
+  render({ metadata: { title: 'An evening in color', artist: 'Anime Ongaku', albumName: 'THE PARTY MIX' } }, 85, 90,
     { media: { metadata: { title: 'The next opening', artist: 'Your favorite soundtrack' } } }, 'PLAYING');
 } else if (window.cast?.framework) {
   const context = cast.framework.CastReceiverContext.getInstance();

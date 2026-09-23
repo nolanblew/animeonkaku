@@ -12,7 +12,7 @@ export function playbackView(position, duration, state, next) {
   return {
     progress: known ? Math.min(1, elapsed / duration) : 0,
     remaining,
-    showNext: Boolean(next) && known && remaining > 0 && remaining <= 20 && state !== 'IDLE',
+    showNext: Boolean(next) && known && remaining > 0 && remaining <= 10 && state !== 'IDLE',
     animate: state === 'PLAYING',
   };
 }
