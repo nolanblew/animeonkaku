@@ -157,6 +157,7 @@ fun PlayerScreen(
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val playlistCoverUrls by viewModel.playlistCoverUrls.collectAsStateWithLifecycle()
     val isServerReachable by viewModel.isServerReachable.collectAsStateWithLifecycle()
+    val serverReachability by viewModel.serverReachability.collectAsStateWithLifecycle()
     val offlinePlayableMediaKeys by viewModel.offlinePlayableMediaKeys.collectAsStateWithLifecycle()
     val dislikedThemeIds by viewModel.dislikedThemeIds.collectAsStateWithLifecycle()
     val queuedThemeModesById by viewModel.queuedThemeModesById.collectAsStateWithLifecycle()
@@ -336,10 +337,6 @@ fun PlayerScreen(
     }.distinct()
     val upNextAnimeName = upNextItem?.display?.animeTitle ?: upNextItem?.display?.album ?: "Nothing queued"
     val upNextThemeTag = formatThemeTag(upNextTheme?.themeType)
-    val serverStatusMessage = serverAvailabilityMessage(
-        isServerReachable = isServerReachable,
-        hasCurrentItem = currentEntry != null
-    )
     val isExpanded = progress > 0.5f
     val configuration = LocalConfiguration.current
     val expandedArtworkSize = expandedPlayerArtworkSize(
@@ -619,17 +616,13 @@ fun PlayerScreen(
                         )
                     }
                 }
-                serverStatusMessage?.let { message ->
-                    Text(
-                        text = message,
-                        color = Ember400,
-                        style = MaterialTheme.typography.labelMedium,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .graphicsLayer { alpha = titlesAlpha }
-                    )
-                }
+                ServerAvailabilityNotice(
+                    server = serverReachability,
+                    hasCurrentItem = currentEntry != null,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer { alpha = titlesAlpha }
+                )
                 MarqueeText(
                     text = expandedTitle,
                     modifier = Modifier

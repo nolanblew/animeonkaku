@@ -199,7 +199,7 @@ fun PlaylistPickerSheet(
                     if (visiblePlaylists.isEmpty()) {
                         item {
                             Text(
-                                text = "No manual playlists yet. Create one above.",
+                                text = "No playlists yet. Create one above.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Mist200,
                                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)

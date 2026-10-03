@@ -628,7 +628,7 @@ private fun EmptySortCard(onAdd: () -> Unit) {
                 fontSize = 16.sp
             )
             Text(
-                text = "Without a sort key, tracks fall back to title order.",
+                text = "Songs are sorted by title unless you choose another order.",
                 color = Mist200,
                 fontSize = 13.sp,
                 lineHeight = 18.sp
@@ -877,7 +877,7 @@ private fun CategoricalOrderSheet(
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text = "First in the list = highest priority. Use arrows to reorder.",
+                text = "Items at the top come first. Use the arrows to reorder.",
                 color = Mist200,
                 fontSize = 13.sp
             )
