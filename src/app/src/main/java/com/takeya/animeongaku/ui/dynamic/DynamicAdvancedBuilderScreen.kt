@@ -133,7 +133,7 @@ fun DynamicAdvancedBuilderScreen(
         ) {
             AdvancedTopBar(onBack = onBack)
             Text(
-                text = "Build logic with nested groups. Add attributes, switch AND or OR gates, or negate an entire group.",
+                text = "Combine filters to choose which songs appear in this playlist.",
                 color = Mist200,
                 fontSize = 13.sp,
                 lineHeight = 18.sp,
@@ -480,7 +480,7 @@ private fun LogicGroupCard(
 
             if (children.isEmpty()) {
                 Text(
-                    text = "This group is empty. Add a filter or another group to keep building the flow.",
+                    text = "Add a filter or group to get started.",
                     color = Mist200,
                     fontSize = 13.sp,
                     lineHeight = 18.sp
@@ -1008,7 +1008,7 @@ private fun AttributeTypePickerSheet(
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text = "Pick the attribute first, then set its value in the next step.",
+                text = "Choose what to filter, then set a value.",
                 color = Mist200,
                 fontSize = 13.sp
             )

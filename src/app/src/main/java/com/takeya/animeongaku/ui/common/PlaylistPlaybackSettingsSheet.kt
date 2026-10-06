@@ -96,7 +96,7 @@ fun PlaylistPlaybackSettingsSheet(
                 }
             }
             Text(
-                text = "Used for playback and downloads when an allowed version is available.",
+                text = "Play and download this version when available.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Mist200
             )

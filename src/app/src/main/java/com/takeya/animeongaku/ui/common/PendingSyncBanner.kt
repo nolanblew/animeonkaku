@@ -41,7 +41,7 @@ fun PendingSyncBanner(
             color = Mist100
         )
         Text(
-            text = "You can keep editing; changes are kept locally until they sync.",
+            text = "Your changes are saved on this device and will sync when connected.",
             style = MaterialTheme.typography.labelSmall,
             color = Mist200
         )

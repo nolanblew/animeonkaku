@@ -4,6 +4,7 @@ import android.content.res.Configuration
 import com.takeya.animeongaku.media.PlaybackMode
 import com.takeya.animeongaku.media.PlaybackState
 import com.takeya.animeongaku.media.RetainedIntentReason
+import com.takeya.animeongaku.network.ServerReachabilityState
 import com.takeya.animeongaku.ui.player.ModeSelectionDecision
 import com.takeya.animeongaku.ui.player.VideoContentWarning
 import com.takeya.animeongaku.ui.player.derivePlayerModeUiState
@@ -29,11 +30,22 @@ class PlayerModeUiStateTest {
     @Test
     fun `server loss explains why only downloaded songs can play`() {
         assertEquals(
-            "Server unavailable · downloaded and cached songs can play",
-            serverAvailabilityMessage(isServerReachable = false, hasCurrentItem = true)
+            "Can't reach the server. Downloaded and cached songs can still play.",
+            serverAvailabilityMessage(ServerReachabilityState(false, 0, true), hasCurrentItem = true)
         )
-        assertNull(serverAvailabilityMessage(isServerReachable = true, hasCurrentItem = true))
-        assertNull(serverAvailabilityMessage(isServerReachable = false, hasCurrentItem = false))
+        assertNull(serverAvailabilityMessage(ServerReachabilityState(true, 0, true), hasCurrentItem = true))
+        assertNull(serverAvailabilityMessage(ServerReachabilityState(false, 0, true), hasCurrentItem = false))
+    }
+
+    @Test
+    fun `pending startup and reconnect probes do not report a server outage`() {
+        for (generation in listOf(0L, 1L)) {
+            for (lastReachable in listOf(false, true)) {
+                assertNull(serverAvailabilityMessage(
+                    ServerReachabilityState(lastReachable, generation, false), hasCurrentItem = true
+                ))
+            }
+        }
     }
 
     @Test
@@ -139,7 +151,7 @@ class PlayerModeUiStateTest {
         )
 
         assertEquals(PlaybackMode.TV_SIZE, state.actualMode)
-        assertEquals("Full Size preferred · playing TV Size", state.retainedIntentText)
+        assertEquals("Playing TV Size. Your preference is Full Size.", state.retainedIntentText)
     }
 
     @Test
@@ -178,7 +190,7 @@ class PlayerModeUiStateTest {
             ),
             state.selectionDecision(PlaybackMode.VIDEO)
         )
-        assertEquals("This video is marked as a spoiler and NSFW.", state.videoContentWarning?.message)
+        assertEquals("This video contains spoilers and adult content.", state.videoContentWarning?.message)
     }
 
     @Test

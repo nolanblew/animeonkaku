@@ -260,7 +260,7 @@ private fun HeaderSection() {
             color = Mist100
         )
         Text(
-            text = "Sync your anime list and auto-build a library of OPs, EDs, and OSTs.",
+            text = "Find openings, endings, and soundtracks from your Kitsu library.",
             style = MaterialTheme.typography.bodyMedium,
             color = Mist200
         )
@@ -637,7 +637,7 @@ private fun UnmatchedAnimeCard(unmatchedAnime: List<String>) {
             color = Rose500
         )
         Text(
-            text = "These anime were not matched by the server and will show 0 themes.",
+            text = "No themes found for these anime yet.",
             style = MaterialTheme.typography.labelSmall,
             color = Mist200
         )

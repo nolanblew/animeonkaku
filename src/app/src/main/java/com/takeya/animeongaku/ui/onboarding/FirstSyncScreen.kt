@@ -136,7 +136,7 @@ private fun DeltaSyncScreen(state: FirstSyncUiState) {
         }
         Spacer(Modifier.height(28.dp))
         Text(
-            text = "Getting your library up-to-date",
+            text = "Updating your library",
             style = MaterialTheme.typography.titleLarge,
             color = Mist100,
             fontWeight = FontWeight.SemiBold,
@@ -144,7 +144,7 @@ private fun DeltaSyncScreen(state: FirstSyncUiState) {
         )
         Spacer(Modifier.height(10.dp))
         Text(
-            text = "Welcome back! Your library is already on the server — we're just catching up on anything new.",
+            text = "Syncing changes since your last visit.",
             style = MaterialTheme.typography.bodyMedium,
             color = Mist200,
             textAlign = TextAlign.Center
@@ -183,13 +183,13 @@ private fun FullSyncCarouselScreen(state: FirstSyncUiState) {
             .padding(horizontal = 28.dp, vertical = 48.dp)
     ) {
         Text(
-            text = "Getting everything ready",
+            text = "Syncing your library",
             style = MaterialTheme.typography.headlineSmall,
             color = Mist100,
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "Your library is syncing — here's what Anime Ongaku can do.",
+            text = "You can explore these features while your library syncs.",
             style = MaterialTheme.typography.bodyMedium,
             color = Mist200
         )

@@ -70,6 +70,7 @@ class PlayerViewModel @Inject constructor(
 
     val isOnline: StateFlow<Boolean> = connectivityMonitor.isOnline
     val isServerReachable: StateFlow<Boolean> = serverReachabilityMonitor.isReachable
+    val serverReachability = serverReachabilityMonitor.state
 
     val hasRelatedMusic: StateFlow<Boolean> = nowPlayingState
         .map { it.currentEntry?.item?.anime?.kitsuId.orEmpty() }

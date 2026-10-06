@@ -4,6 +4,7 @@ import android.content.res.Configuration
 import com.takeya.animeongaku.media.PlaybackMode
 import com.takeya.animeongaku.media.PlaybackState
 import com.takeya.animeongaku.media.RetainedIntentReason
+import com.takeya.animeongaku.network.ServerReachabilityState
 
 data class VideoContentWarning(
     val spoiler: Boolean,
@@ -11,9 +12,9 @@ data class VideoContentWarning(
 ) {
     val message: String
         get() = when {
-            spoiler && nsfw -> "This video is marked as a spoiler and NSFW."
-            spoiler -> "This video is marked as a spoiler."
-            else -> "This video is marked as NSFW."
+            spoiler && nsfw -> "This video contains spoilers and adult content."
+            spoiler -> "This video contains spoilers."
+            else -> "This video contains adult content."
         }
 }
 
@@ -50,10 +51,10 @@ data class PlayerModeUiState(
 }
 
 fun serverAvailabilityMessage(
-    isServerReachable: Boolean,
+    server: ServerReachabilityState,
     hasCurrentItem: Boolean
-): String? = if (!isServerReachable && hasCurrentItem) {
-    "Server unavailable · downloaded and cached songs can play"
+): String? = if (server.verifiedForNetwork && !server.reachable && hasCurrentItem) {
+    "Can't reach the server. Downloaded and cached songs can still play."
 } else {
     null
 }
@@ -87,7 +88,7 @@ fun derivePlayerModeUiState(
         playbackState.retainedIntentReason != null &&
         preferred != null && actual != null && preferred != actual
     ) {
-        "${preferred.displayLabel()} preferred · playing ${actual.displayLabel()}"
+        "Playing ${actual.displayLabel()}. Your preference is ${preferred.displayLabel()}."
     } else {
         null
     }
