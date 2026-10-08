@@ -116,7 +116,12 @@ export class AuthService {
 
   /** Resolves a bearer token to its user+session; null when unknown or expired. */
   async authenticate(token: string): Promise<AuthContext | null> {
-    const found = await this.repo.findSessionByTokenHash(hashToken(token));
+    return this.authenticateTokenHash(hashToken(token));
+  }
+
+  /** Internal capability validation without retaining the parent's plaintext bearer token. */
+  async authenticateTokenHash(tokenHash: string): Promise<AuthContext | null> {
+    const found = await this.repo.findSessionByTokenHash(tokenHash);
     if (!found) return null;
     const now = this.now();
     if (found.session.expiresAt.getTime() <= now.getTime()) return null;

@@ -18,6 +18,7 @@ internal data class PlaybackMediaItems(
 )
 
 object PlaybackMediaExtras {
+    const val MEDIA_KEY = "anime_ongaku.media_key"
     const val PLAYABLE_KIND = "anime_ongaku.playable_kind"
     const val PLAYABLE_ID = "anime_ongaku.playable_id"
     const val PREFERRED_MODE = "anime_ongaku.preferred_mode"
@@ -56,6 +57,7 @@ internal fun ResolvedPlaybackItem.toPlaybackMediaDescriptor(
     val actualLabel = actualMode?.displayLabel()
     val bluetoothDisplay = bluetoothDisplayInfo(bluetoothMetadataStyle)
     val values = buildMap<String, Any> {
+        mediaKey?.let { put(PlaybackMediaExtras.MEDIA_KEY, it.value) }
         put(PlaybackMediaExtras.PLAYABLE_KIND, playableKey.kind.name)
         put(PlaybackMediaExtras.PLAYABLE_ID, playableKey.id)
         put(PlaybackMediaExtras.PREFERRED_MODE, preferredMode.name)

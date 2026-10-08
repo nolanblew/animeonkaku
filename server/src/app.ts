@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from "fastify";
+import { registerCastRoutes } from "./cast/routes.js";
 import {
   hasZodFastifySchemaValidationErrors,
   serializerCompiler,
@@ -189,6 +190,7 @@ function registerApiRoutes(app: FastifyInstance, deps: AppDeps, webPrefix: boole
   if (deps.topPicks) registerTopPicksRoutes(app, deps.authService, deps.topPicks);
   if (deps.mediaApi) {
     registerMediaRoutes(app, deps.authService, deps.mediaApi);
+    registerCastRoutes(app, deps.authService, deps.mediaApi);
   }
   if (deps.syncApi) {
     registerSyncRoutes(app, deps.authService, deps.syncApi);

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Anime Ongaku · Now Playing</title>
+  <link rel="stylesheet" href="./receiver.css">
+  <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+</head>
+<body>
+  <video id="media" crossorigin="anonymous"></video>
+  <img id="backdrop" alt="">
+  <div class="shade"></div>
+  <header><span class="brand">音楽 <b>ANIME ONGAKU</b></span><span id="status">Ready to cast</span></header>
+  <main>
+    <div class="art-frame"><img id="artwork" alt="Album artwork"><span class="art-placeholder">音</span></div>
+    <div class="identity"><span class="eyebrow" id="anime">YOUR SOUNDTRACK</span><h1 id="title">Make yourself at home.</h1><p id="artist">Choose some music in Anime Ongaku.</p><canvas id="visualizer" width="640" height="100" aria-label="Music visualizer"></canvas></div>
+  </main>
+  <aside id="up-next" hidden><img id="next-art" alt=""><div><span class="eyebrow" id="next-label">UP NEXT</span><h2 id="next-title"></h2><p id="next-artist"></p></div></aside>
+  <footer><div class="track-line"><span id="footer-title">A little music. A good evening.</span><span id="time">0:00 / 0:00</span></div><div class="progress"><div id="progress"></div></div></footer>
+  <script type="module" src="./receiver.mjs"></script>
+</body>
+</html>

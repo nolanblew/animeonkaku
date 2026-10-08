@@ -16,6 +16,8 @@ describe("web static hosting", () => {
     mkdirSync(join(root, "assets"));
     writeFileSync(join(root, "index.html"), "<!doctype html><title>Anime Ongaku</title>");
     writeFileSync(join(root, "assets", "index-ABC123.js"), "export const ready = true;");
+    mkdirSync(join(root, "cast"));
+    writeFileSync(join(root, "cast", "receiver.mjs"), "export const ready = true;");
     app = buildApp({
       authService: new AuthService(new FakeAuthRepo(), new StubKitsuAuthClient()),
       health: { pingDb: async () => {}, mediaRoot: root },
@@ -40,6 +42,13 @@ describe("web static hosting", () => {
     expect(response.statusCode).toBe(200);
     expect(response.headers["cache-control"]).toMatch(/max-age=31536000/);
     expect(response.headers["cache-control"]).toContain("immutable");
+  });
+
+  it("serves receiver modules as JavaScript with revalidation after deployments", async () => {
+    const response = await app.inject({ method: "GET", url: "/cast/receiver.mjs" });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("javascript");
+    expect(response.headers["cache-control"]).toBe("no-cache");
   });
 
   it.each(["/api/not-a-route", "/v1/not-a-route", "/admin/not-a-route", "/missing.js"])(
