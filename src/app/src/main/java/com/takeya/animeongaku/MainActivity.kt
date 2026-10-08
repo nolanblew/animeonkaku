@@ -18,6 +18,7 @@ import com.takeya.animeongaku.data.auth.SessionStateManager
 import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.sync.AutoPlaylistManager
 import com.takeya.animeongaku.sync.LibraryPullManager
+import com.takeya.animeongaku.media.MediaControllerManager
 import dagger.hilt.android.AndroidEntryPoint
 
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -43,6 +44,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var serverSettingsStore: ServerSettingsStore
     @Inject lateinit var sessionStateManager: SessionStateManager
     @Inject lateinit var appUpdateNotifier: AppUpdateNotifier
+    @Inject lateinit var mediaControllerManager: MediaControllerManager
 
     val pendingNavigateTo = mutableStateOf<String?>(null)
     private val appUpdateViewModel: AppUpdateViewModel by viewModels()
@@ -111,6 +113,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        mediaControllerManager.schedulePlaybackStatePersistenceIfNeeded()
         super.onStop()
         AppUpdateForegroundState.isForeground = false
         isForeground = false

@@ -120,9 +120,11 @@ class MediaPlaybackService : MediaSessionService() {
                 scope.launch {
                     try {
                         val result = sessionHydrationMutex.withLock {
+                            mediaControllerManager.awaitStartupRestoration()
+                            val persisted = nowPlayingPersistence.restore()
                             val selected = selectSessionHydrationState(
                                 nowPlayingManager.state.value,
-                                nowPlayingPersistence.restore()
+                                persisted
                             ) ?: return@withLock MediaSession.MediaItemsWithStartPosition(
                                 emptyList(), 0, C.TIME_UNSET
                             )
@@ -173,13 +175,17 @@ class MediaPlaybackService : MediaSessionService() {
         // which will actually play come from the same current queue entry.
         scope.launch {
             sessionHydrationMutex.withLock {
+                mediaControllerManager.awaitStartupRestoration()
+                if (player.mediaItemCount > 0) return@withLock
+                val persisted = nowPlayingPersistence.restore()
                 if (player.mediaItemCount > 0) return@withLock
                 val selected = selectSessionHydrationState(
                     nowPlayingManager.state.value,
-                    nowPlayingPersistence.restore()
+                    persisted
                 ) ?: return@withLock
                 val playbackItems = mediaControllerManager.prepareForSessionResumption(selected)
                 if (playbackItems.items.isEmpty()) return@withLock
+                if (player.mediaItemCount > 0) return@withLock
                 player.setMediaItems(playbackItems.items, playbackItems.currentIndex, selected.positionMs)
                 player.repeatMode = selected.repeatMode
                 player.playWhenReady = false
@@ -204,12 +210,12 @@ class MediaPlaybackService : MediaSessionService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        mediaControllerManager.schedulePlaybackStatePersistenceIfNeeded(player)
         super.onTaskRemoved(rootIntent)
-        mediaControllerManager.schedulePlaybackStatePersistenceIfNeeded()
     }
 
     override fun onDestroy() {
-        mediaControllerManager.schedulePlaybackStatePersistenceIfNeeded()
+        mediaControllerManager.schedulePlaybackStatePersistenceIfNeeded(player)
         scope.cancel()
         mediaSession.release()
         player.release()
@@ -299,11 +305,14 @@ internal fun selectSessionHydrationState(
     persistedState: RestoredQueueState?
 ): RestoredQueueState? {
     if (activeState.nowPlayingEntries.isEmpty()) return persistedState
-    val activeQueueId = activeState.currentEntry?.queueId
-    val persistedQueueId = persistedState?.nowPlayingState?.currentEntry?.queueId
+    val activeEntry = activeState.currentEntry
+    val persistedEntry = persistedState?.nowPlayingState?.currentEntry
+    val sameOccurrence = activeEntry != null && persistedEntry != null &&
+        activeEntry.queueId == persistedEntry.queueId &&
+        activeEntry.item.key == persistedEntry.item.key
     return RestoredQueueState(
         nowPlayingState = activeState,
-        positionMs = persistedState?.positionMs?.takeIf { activeQueueId == persistedQueueId } ?: 0L,
+        positionMs = persistedState?.positionMs?.takeIf { sameOccurrence } ?: 0L,
         repeatMode = persistedState?.repeatMode ?: Player.REPEAT_MODE_OFF
     )
 }

@@ -7,6 +7,12 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.concurrent.CancellationException
 import kotlin.math.min
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.emptyFlow
 
 /**
  * Small, side-effect-free policies used by the playback stack. Keeping them separate makes
@@ -37,6 +43,30 @@ internal fun playbackPositionPollIntervalMs(isPlaying: Boolean): Long? =
 
 internal fun shouldSchedulePlaybackTeardownPersist(hasUnsavedState: Boolean): Boolean =
     hasUnsavedState
+
+/** Checkpoint independently of the 500 ms UI poll so it cannot starve the save debounce. */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+internal fun playbackPositionCheckpoints(isPlaying: Flow<Boolean>): Flow<Unit> =
+    isPlaying.distinctUntilChanged().flatMapLatest { playing ->
+        if (!playing) emptyFlow() else flow {
+            while (true) {
+                delay(5_000L)
+                emit(Unit)
+            }
+        }
+    }
+
+internal data class PersistedPlaybackProgress(val positionMs: Long, val repeatMode: Int)
+
+/** Never attach the previous occurrence's position to a new (possibly duplicate) queue entry. */
+internal fun playbackProgressForPersistence(
+    queue: NowPlayingState,
+    playback: PlaybackState,
+): PersistedPlaybackProgress = PersistedPlaybackProgress(
+    positionMs = playback.positionMs.coerceAtLeast(0L)
+        .takeIf { queue.currentEntry?.queueId == playback.queueId } ?: 0L,
+    repeatMode = playback.repeatMode,
+)
 
 /** A save may clear dirty state only when it completed successfully for the latest revision. */
 internal fun shouldClearPlaybackDirtyAfterPersist(

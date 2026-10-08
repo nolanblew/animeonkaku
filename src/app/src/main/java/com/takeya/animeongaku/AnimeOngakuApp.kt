@@ -12,10 +12,8 @@ import com.takeya.animeongaku.work.LibraryPullScheduler
 import com.takeya.animeongaku.work.PendingWritesScheduler
 import com.takeya.animeongaku.download.DownloadPreferences
 import com.takeya.animeongaku.data.auth.SessionStorageMigrator
-import com.takeya.animeongaku.media.NowPlayingPersistence
 import com.takeya.animeongaku.media.AudioCacheProvider
 import com.takeya.animeongaku.media.MediaControllerManager
-import com.takeya.animeongaku.media.NowPlayingManager
 import com.takeya.animeongaku.media.PreCacheManager
 import com.takeya.animeongaku.media.PlaybackVariantHydrator
 import com.takeya.animeongaku.updater.AppUpdateScheduler
@@ -34,9 +32,8 @@ class AnimeOngakuApp : Application(), Configuration.Provider, ImageLoaderFactory
     @Inject lateinit var imageLoader: ImageLoader
     @Inject lateinit var preCacheManager: PreCacheManager
     @Inject lateinit var audioCacheProvider: AudioCacheProvider
-    @Inject lateinit var nowPlayingPersistence: NowPlayingPersistence
+    // Construct the singleton so it restores playback before connecting or saving queue state.
     @Inject lateinit var mediaControllerManager: MediaControllerManager
-    @Inject lateinit var nowPlayingManager: NowPlayingManager
     @Inject lateinit var downloadManager: DownloadManager
     @Inject lateinit var downloadPreferences: DownloadPreferences
     @Inject lateinit var dynamicPlaylistWorkScheduler: DynamicPlaylistWorkScheduler
@@ -70,16 +67,6 @@ class AnimeOngakuApp : Application(), Configuration.Provider, ImageLoaderFactory
             audioCacheProvider.warmUp()
         }
         
-        // Silent restore on app startup
-        scope.launch {
-            if (!nowPlayingManager.isActive) {
-                val restored = nowPlayingPersistence.restore()
-                if (restored != null) {
-                    mediaControllerManager.restore(restored, autoPlay = false)
-                }
-            }
-        }
-
         // Retry failed downloads once per day
         val now = System.currentTimeMillis()
         val lastRetry = downloadPreferences.lastRetryCheckAt

@@ -210,6 +210,23 @@ class PlaybackSessionStateTest {
     }
 
     @Test
+    fun `new queue during cold startup cannot inherit position from a reused saved queue id`() {
+        manager.playItems("Saved", listOf(PlayableItem.Theme(theme(1))))
+        val persisted = RestoredQueueState(manager.state.value, positionMs = 45_000, repeatMode = 2)
+        val restartedManager = newManager()
+        restartedManager.playItems("New selection", listOf(PlayableItem.Theme(theme(2))))
+        assertEquals(
+            persisted.nowPlayingState.currentEntry?.queueId,
+            restartedManager.state.value.currentEntry?.queueId
+        )
+
+        val selected = selectSessionHydrationState(restartedManager.state.value, persisted)!!
+
+        assertEquals(2L, selected.nowPlayingState.currentEntry?.item?.key?.id)
+        assertEquals(0L, selected.positionMs)
+    }
+
+    @Test
     fun `persisted queue hydrates bluetooth metadata when memory is empty`() {
         manager.playItems("Last", listOf(PlayableItem.Theme(theme(3))))
         val persisted = RestoredQueueState(manager.state.value, positionMs = 12_000, repeatMode = 1)

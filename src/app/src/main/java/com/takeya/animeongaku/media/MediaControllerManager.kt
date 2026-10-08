@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
@@ -51,6 +52,8 @@ import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.util.UUID
@@ -121,6 +124,13 @@ class MediaControllerManager @Inject constructor(
     private val playbackStateRevision = AtomicLong(0L)
     private val persistenceRevision = MutableStateFlow(0L)
     private val positionPollingActive = MutableStateFlow(false)
+    private val persistenceMutex = Mutex()
+    private var lastPersistedProgress: PersistedPlaybackProgress? = null
+    private val startupRestoration = PlaybackStartupRestoration(
+        currentQueue = { nowPlayingManager.state.value },
+        load = { nowPlayingPersistence.restore() },
+        apply = { restore(it, autoPlay = false) },
+    )
 
     private val _playbackState = MutableStateFlow(PlaybackState())
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
@@ -399,12 +409,17 @@ class MediaControllerManager @Inject constructor(
     }
 
     init {
-        connectController()
+        scope.launch(Dispatchers.Main) {
+            awaitStartupRestoration()
+            connectController()
+            startStatePersistence()
+        }
         startQueueSync()
         startPositionPolling()
-        startStatePersistence()
         startArtworkInjection()
     }
+
+    internal suspend fun awaitStartupRestoration() = startupRestoration.await()
 
     private fun connectController() {
         val sessionToken = SessionToken(
@@ -738,19 +753,28 @@ class MediaControllerManager @Inject constructor(
             // revision before I/O lets a newer seek/pause/repeat remain dirty until its own save.
             @OptIn(kotlinx.coroutines.FlowPreview::class)
             persistenceRevision
+                .combine(_controllerReady) { revision, ready -> if (ready) revision else 0L }
                 .filter { it > 0L }
                 .debounce(500L)
                 .collect { revision ->
                     persistPlaybackState(revision)
                 }
         }
+        scope.launch {
+            playbackPositionCheckpoints(positionPollingActive).collect {
+                // Android may kill the process for an update without a service teardown callback.
+                // Ordinary progress needs a checkpoint even when no seek/pause/queue event fires.
+                if (_controllerReady.value) markPlaybackStateDirty()
+            }
+        }
     }
 
     private suspend fun persistPlaybackState(revision: Long) {
+        if (!_controllerReady.value) return
         val state = nowPlayingManager.state.value
-        val positionMs = controller?.currentPosition ?: _playbackState.value.positionMs
-        val repeatMode = controller?.repeatMode ?: Player.REPEAT_MODE_OFF
-        persistPlaybackSnapshot(state, positionMs, repeatMode, revision)
+        controller?.let(::updatePlaybackPositionFromController)
+        val progress = playbackProgressForPersistence(state, _playbackState.value)
+        persistPlaybackSnapshot(state, progress.positionMs, progress.repeatMode, revision)
     }
 
     private suspend fun persistPlaybackSnapshot(
@@ -758,12 +782,15 @@ class MediaControllerManager @Inject constructor(
         positionMs: Long,
         repeatMode: Int,
         revision: Long,
-    ) {
+    ) = persistenceMutex.withLock {
+        // A delayed lifecycle save must not overwrite a newer debounced/checkpoint snapshot.
+        if (revision < playbackStateRevision.get()) return@withLock
         val persisted = if (state.nowPlayingEntries.isNotEmpty()) {
             nowPlayingPersistence.save(state, positionMs, repeatMode)
         } else {
             nowPlayingPersistence.clear()
         }
+        if (persisted) lastPersistedProgress = PersistedPlaybackProgress(positionMs, repeatMode)
         if (shouldClearPlaybackDirtyAfterPersist(
                 persisted = persisted,
                 savedRevision = revision,
@@ -849,9 +876,18 @@ class MediaControllerManager @Inject constructor(
 
         resolvedItemsByQueueId = desired.resolved.associateBy { it.queueId }
 
-        ctrl.setMediaItems(desired.items, desired.currentIndex, restoredState.positionMs)
+        val progress = playbackProgressForPersistence(
+            npState,
+            PlaybackState(
+                queueId = restoredState.nowPlayingState.currentEntry?.queueId,
+                positionMs = restoredState.positionMs,
+                repeatMode = restoredState.repeatMode,
+            ),
+        )
+        ctrl.setMediaItems(desired.items, desired.currentIndex, progress.positionMs)
         ctrl.repeatMode = restoredState.repeatMode
-        ctrl.playWhenReady = autoPlay
+        ctrl.playWhenReady = autoPlay || queueSyncPlayRequested ||
+            hasUnconsumedPlayRequest(npState.playRequestGeneration, lastConsumedPlayRequestGeneration)
         ctrl.prepare()
 
         lastSyncedMediaIds = desired.items.map { it.mediaId }
@@ -1288,6 +1324,7 @@ class MediaControllerManager @Inject constructor(
             isBuffering = ctrl.playbackState == Player.STATE_BUFFERING,
             hasMedia = ctrl.mediaItemCount > 0,
         ).copy(
+            repeatMode = ctrl.repeatMode,
             queueId = queueId,
             preferredMode = resolved?.preferredMode,
             actualMode = resolved?.actualMode,
@@ -1359,20 +1396,30 @@ class MediaControllerManager @Inject constructor(
     /**
      * Lifecycle owners call this rather than blocking the main thread for a second persistence
      * write. The normal debounced collector remains authoritative; this only covers a queue
-     * mutation that has not reached its debounce deadline yet.
+     * mutation that has not reached its debounce deadline yet and the latest player position.
      */
-    fun schedulePlaybackStatePersistenceIfNeeded(): Boolean {
-        if (!shouldSchedulePlaybackTeardownPersist(playbackStateDirty.get())) return false
-        if (!playbackStateDirty.compareAndSet(true, false)) return false
-
+    fun schedulePlaybackStatePersistenceIfNeeded(player: Player? = controller): Boolean {
+        if (!_controllerReady.value) return false
         val state = nowPlayingManager.state.value
-        val revision = playbackStateRevision.get()
         // Capture Media3 values before MediaPlaybackService releases its player/session. The
         // singleton's supervisor scope remains alive to perform only the file I/O afterward.
-        val positionMs = controller?.currentPosition ?: _playbackState.value.positionMs
-        val repeatMode = controller?.repeatMode ?: Player.REPEAT_MODE_OFF
+        val progress = playbackProgressForPersistence(
+            state,
+            player?.let {
+                PlaybackState(
+                    queueId = it.currentMediaItem?.mediaId?.toLongOrNull(),
+                    positionMs = it.currentPosition,
+                    repeatMode = it.repeatMode,
+                )
+            } ?: _playbackState.value,
+        )
+        // UI polling may already show the latest position while the file is several seconds old.
+        if (progress != lastPersistedProgress) markPlaybackStateDirty()
+        if (!shouldSchedulePlaybackTeardownPersist(playbackStateDirty.get())) return false
+        if (!playbackStateDirty.compareAndSet(true, false)) return false
+        val revision = playbackStateRevision.get()
         scope.launch {
-            persistPlaybackSnapshot(state, positionMs, repeatMode, revision)
+            persistPlaybackSnapshot(state, progress.positionMs, progress.repeatMode, revision)
         }
         return true
     }
