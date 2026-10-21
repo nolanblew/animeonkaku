@@ -1,5 +1,14 @@
 # Anime Ongaku Server
 
+In the admin dashboard, open **Users → Playlists** to inspect a user's playlists and
+choose **Exclude from fetching** for any manual or smart playlist. The preference
+is persisted and applies when automatic full-music search is set to **Playlists**;
+built-in playlists are already ignored. Exclusion covers both theme and full-song
+entries. Another included playlist can still qualify the same anime. Favorites,
+Everything, and explicit manual requests retain their existing behavior. Existing
+downloads and requests are retained; a scan already in progress may finish.
+Use **Include in fetching** to restore eligibility on the next policy scan.
+
 Self-hosted API server for the Anime Ongaku Android app. Design docs live in [`../.planning/`](../.planning/FINAL_PLAN.md). The current server includes the S1 skeleton plus S2 upstream clients for Kitsu and AnimeThemes.
 
 ## Run with Docker
@@ -37,6 +46,8 @@ scripts/deploy-server.sh --host nolan@192.168.68.68 --env-file server/.env.produ
 The scripts prefer `rsync` for minimal incremental uploads and fall back to a small tarball containing only server build inputs. They do not copy database or media data. On the remote host they create `~/docker-data/anime-ongaku-server/media` and `~/docker-data/anime-ongaku-server/postgres`, copy the server Docker files into `~/dockers/anime-ongaku-server`, run `docker compose -p anime-ongaku-server -f docker-compose.yml -f docker-compose.lan.yml up -d --build`, and wait for `http://127.0.0.1:48668/healthz`.
 
 Keep the production `.env` out of git. If `~/dockers/anime-ongaku-server/.env` already exists, future deploys can omit `-EnvFile` / `--env-file`; the remote file is preserved. Use `-HostPort <port>` / `--host-port <port>` if `48668` is already taken.
+
+LAN Compose mounts `resolv.lan.conf` into the API container. It tries Docker DNS for internal names such as `db`, then the LAN router for external lookups when Docker DNS returns a failure. Adjust the router address (default `192.168.68.1`) for your network, or set `ONGAKU_RESOLV_CONF` to another resolver file. A broken Docker DNS forwarder can leave `/healthz` healthy while Kitsu sign-in and sync fail, even with a Compose `dns` setting. For Nginx Proxy Manager, forward Ongaku to the server's LAN address and published port (`192.168.68.68:48668` here). Mixing Docker DNS and a router in Nginx's `resolver` directive causes intermittent failures for container names because Nginx rotates between resolvers.
 
 ## Develop locally
 

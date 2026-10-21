@@ -1,11 +1,12 @@
 import { readdir, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { KitsuAuthError } from "../auth/types.js";
-import { JobPriority } from "../jobs/types.js";
+import { DURABLE_MAX_ATTEMPTS, JobPriority } from "../jobs/types.js";
 import type { AnimeThemeEntry, AnimeThemesLookupResult } from "../animethemes/types.js";
 import type { KitsuAnimeEntry, KitsuGenre } from "../kitsu/types.js";
 import type { KitsuCatalogRecord, LibrarySyncPipelineDeps, MapThemesInput, SyncJobInput } from "./types.js";
 import { resolveManagedMediaPath } from "../media/mediaPathSafety.js";
+import { mapThemesDedupeKey } from "./syncJobKeys.js";
 
 const DEFAULT_MAPPING_BATCH_SIZE = 50;
 // Kept well under the MAP_THEMES job timeout so a single invocation always
@@ -60,6 +61,14 @@ export class LibrarySyncPipeline {
       ? await this.entriesChangedSince(input.userId, fetchedEntries, user.lastStatusSyncAt)
       : fetchedEntries;
 
+    // Provider metadata and playlist/music work are durable independent jobs;
+    // import success no longer depends on those providers or materializers.
+    const completedAt = this.now();
+    if (this.deps.repo.commitLibraryImport) {
+      await this.deps.repo.commitLibraryImport({ userId: input.userId, entries,
+        ...(input.full ? { activeKitsuIds: fetchedEntries.map((entry) => entry.id) } : {}),
+        forceCatalog: !input.reconcileOnly, startedAt: syncStartedAt, completedAt });
+    } else {
     await this.deps.repo.upsertKitsuAnime(entries);
     await this.deps.repo.upsertLibraryEntries(input.userId, entries);
     if (input.full) {
@@ -75,25 +84,16 @@ export class LibrarySyncPipeline {
     // check into expensive background churn, so only unmapped/new catalog
     // rows receive those follow-ups.
     const catalogWorkEntries = await this.entriesNeedingCatalogWork(entries, input.reconcileOnly === true);
-    await this.upsertGenres(catalogWorkEntries);
     await this.enqueueFollowUps(input.userId, catalogWorkEntries, input.reconcileOnly === true && entries.length > 0);
-    await this.deps.repo.refreshAutoPlaylists?.(input.userId);
-    // Automatic full-song policy eligibility is broader than theme mapping:
-    // an already-mapped anime can become eligible after a library add/status
-    // change, so notify the policy reconciler for every changed library row.
-    // Mapping emits a second notification after new themes are persisted.
-    if (entries.length > 0) {
-      await this.deps.onLibraryChanged?.(input.userId).catch(() => undefined);
-    }
-
-    const completedAt = this.now();
     await this.deps.repo.updateUserSyncTimestamps(input.userId, {
       lastSyncAt: completedAt,
       lastStatusSyncAt: syncStartedAt,
     });
+    }
     await this.updateProgress(input.job.id, {
       phase: "DONE",
       total: fetchedEntries.length,
+      independentlyRetryableStages: true,
       updated: entries.length,
       completedAt: completedAt.getTime(),
     });
@@ -108,6 +108,7 @@ export class LibrarySyncPipeline {
       ]),
     );
     const allMapped = new Map<string, number>();
+    let metadataUnavailable = false;
     const startedAt = this.now().getTime();
 
     await this.updateProgress(input.job.id, {
@@ -120,14 +121,28 @@ export class LibrarySyncPipeline {
       const batch = kitsuIds.slice(offset, offset + this.mappingBatchSize);
       const batchMapped = new Map<string, number>();
       const batchThemes: AnimeThemeEntry[] = [];
+      const genres = input.hydrateCatalog
+        ? await this.deps.kitsu.getAnimeCategories(batch) : new Map<string, KitsuGenre[]>();
+      if (input.hydrateCatalog && batch.some((id) => !genres.has(id))) {
+        throw new Error("Kitsu returned incomplete category metadata; retrying catalog stage.");
+      }
       await this.mapBatch(batch, catalog, batchMapped, batchThemes);
-      await this.flushMappings(batchThemes, batchMapped);
+      metadataUnavailable ||= batchThemes.some((theme) => /^(OP|ED)/.test(theme.themeType ?? "") && theme.animeThemesSongId === null);
+      metadataUnavailable ||= [...batchMapped.values()].some((id) => !batchThemes.some((theme) => theme.animeId === id && /^(OP|ED)/.test(theme.themeType ?? "")));
+      if (this.deps.repo.commitCatalogResult) {
+        await this.deps.repo.commitCatalogResult({ userId: input.userId, kitsuIds: batch,
+          themes: dedupeThemes(batchThemes), mappings: batchMapped, genres, checkedAt: this.now() });
+        await this.deps.onAnimeMapped?.([...new Set(batchMapped.values())]).catch(() => undefined);
+      } else {
+        await this.flushMappings(batchThemes, batchMapped);
+        for (const [id, values] of genres) await this.deps.repo.upsertAnimeGenres(id, values);
+      }
       // A library sync queues this mapping work before the first refresh can
       // run. Refresh after each persisted mapping batch so newly mapped anime
       // become visible to auto and dynamic playlists immediately, even when a
       // long mapping job yields before its final batch. The queued refresh at
       // the end remains a recovery path for adapters where this hook is absent.
-      if (input.userId && batchMapped.size > 0) {
+      if (!this.deps.repo.commitCatalogResult && input.userId && batchMapped.size > 0) {
         await this.deps.repo.refreshAutoPlaylists?.(input.userId);
       }
       for (const [kitsuId, animeThemesId] of batchMapped) {
@@ -150,8 +165,11 @@ export class LibrarySyncPipeline {
         await this.deps.queue.enqueue({
           type: "MAP_THEMES",
           priority: JobPriority.NORMAL,
-          payload: payloadWithOptionalUser({ kitsuIds: remaining }, input.userId),
+          payload: { ...payloadWithOptionalUser({ kitsuIds: remaining }, input.userId),
+            ...(input.hydrateCatalog ? { hydrateCatalog: true } : {}) },
           dedupeKey: mapThemesDedupeKey(input.userId, remaining),
+          preserveRetryState: true,
+          maxAttempts: DURABLE_MAX_ATTEMPTS,
         });
         await this.updateProgress(input.job.id, {
           phase: "YIELDED",
@@ -162,16 +180,8 @@ export class LibrarySyncPipeline {
       }
     }
 
-    // Wait until the final mapping continuation has persisted every batch
-    // before triggering the automatic music scan. Playlist materialization is
-    // still refreshed per batch above, while the policy sees the complete
-    // mapped library and cannot run between two yielded mapping jobs.
-    if (input.userId && allMapped.size > 0) {
-      await this.deps.onLibraryChanged?.(input.userId).catch(() => undefined);
-    }
-
     const unmatched = kitsuIds.filter((id) => !allMapped.has(id));
-    if (unmatched.length > 0) {
+    if (unmatched.length > 0 && !this.deps.repo.commitCatalogResult) {
       await this.deps.repo.markAnimeUnmatched?.(unmatched);
     }
 
@@ -181,12 +191,17 @@ export class LibrarySyncPipeline {
         priority: JobPriority.MAINTENANCE,
         payload: { userId: input.userId },
         dedupeKey: `BACKFILL_SCAN:${input.userId}`,
+        preserveRetryState: true,
+        maxAttempts: DURABLE_MAX_ATTEMPTS,
       });
-      await this.deps.queue.enqueue({
+      if (!this.deps.repo.commitCatalogResult) await this.deps.queue.enqueue({
         type: "AUTO_PLAYLIST_REFRESH",
         priority: JobPriority.NORMAL,
         payload: { userId: input.userId },
         dedupeKey: `AUTO_PLAYLIST_REFRESH:${input.userId}`,
+        preserveRetryState: true,
+        rerunIfRunning: true,
+        maxAttempts: DURABLE_MAX_ATTEMPTS,
       });
     } else {
       await this.deps.queue.enqueue({
@@ -194,6 +209,8 @@ export class LibrarySyncPipeline {
         priority: JobPriority.MAINTENANCE,
         payload: {},
         dedupeKey: "BACKFILL_SCAN:all",
+        preserveRetryState: true,
+        maxAttempts: DURABLE_MAX_ATTEMPTS,
       });
     }
 
@@ -202,6 +219,7 @@ export class LibrarySyncPipeline {
       total: kitsuIds.length,
       mapped: allMapped.size,
       unmatched,
+      metadataUnavailable,
     });
   }
 
@@ -235,6 +253,14 @@ export class LibrarySyncPipeline {
 
   async runAutoPlaylistRefresh(input: { userId: string; job: { id: number } }): Promise<void> {
     await this.deps.repo.refreshAutoPlaylists?.(input.userId);
+    await this.deps.queue.enqueue({ type: "MUSIC_POLICY_SYNC", priority: JobPriority.HIGH,
+      payload: { userId: input.userId }, dedupeKey: `MUSIC_POLICY_SYNC:${input.userId}`,
+      preserveRetryState: true, rerunIfRunning: true, maxAttempts: DURABLE_MAX_ATTEMPTS });
+    await this.updateProgress(input.job.id, { phase: "DONE", userId: input.userId });
+  }
+
+  async runMusicPolicySync(input: { userId: string; job: { id: number } }): Promise<void> {
+    await this.deps.onLibraryChanged?.(input.userId);
     await this.updateProgress(input.job.id, { phase: "DONE", userId: input.userId });
   }
 
@@ -339,12 +365,14 @@ export class LibrarySyncPipeline {
     enqueueBackfill: boolean,
   ): Promise<void> {
     const kitsuIds = unique(entries.map((entry) => entry.id));
-    if (kitsuIds.length > 0) {
+    for (const kitsuId of kitsuIds) {
       await this.deps.queue.enqueue({
         type: "MAP_THEMES",
         priority: JobPriority.NORMAL,
-        payload: { kitsuIds, userId },
-        dedupeKey: `MAP_THEMES:${userId}:${kitsuIds.join(",")}`,
+        payload: { kitsuIds: [kitsuId], userId, hydrateCatalog: true },
+        dedupeKey: mapThemesDedupeKey(userId, [kitsuId]),
+        preserveRetryState: true,
+        maxAttempts: DURABLE_MAX_ATTEMPTS,
       });
     }
     if (enqueueBackfill) {
@@ -360,6 +388,9 @@ export class LibrarySyncPipeline {
       priority: JobPriority.NORMAL,
       payload: { userId },
       dedupeKey: `AUTO_PLAYLIST_REFRESH:${userId}`,
+      preserveRetryState: true,
+      rerunIfRunning: entries.length > 0,
+      maxAttempts: DURABLE_MAX_ATTEMPTS,
     });
   }
 
@@ -556,10 +587,6 @@ function payloadWithOptionalUser(
   userId: string | undefined,
 ): { kitsuIds: string[]; userId?: string } {
   return userId ? { ...payload, userId } : payload;
-}
-
-function mapThemesDedupeKey(userId: string | undefined, kitsuIds: string[]): string {
-  return `MAP_THEMES:${userId ?? "all"}:${kitsuIds.join(",")}`;
 }
 
 async function listFiles(root: string): Promise<string[]> {

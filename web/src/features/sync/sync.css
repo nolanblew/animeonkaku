@@ -44,3 +44,8 @@
 @media (prefers-reduced-motion: reduce) {
   .sync-page__progress span { transition: none; }
 }
+
+.sync-page__stages { display: grid; gap: .85rem; }
+.sync-page__stages > h2, .sync-page__stages > p, .sync-page__stages h3 { margin: 0; }
+.sync-page__stages > p { color: var(--muted, #a2a7b5); line-height: 1.55; }
+.sync-page__stages .sync-page__status { overflow-wrap: anywhere; }

@@ -40,10 +40,14 @@ describe("MusicSearchPolicyService", () => {
     }));
 
     await expect(service.reconcile()).resolves.toMatchObject({ mode: "EVERYTHING", queued: 1 });
-    expect(requests.trigger).toHaveBeenCalledWith("u1", "bookworm-4", "AUTOMATIC");
+    expect(queue.enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      payload: { userId: "u1", kitsuId: "bookworm-4" },
+      preserveRetryState: true,
+    }));
+    expect(requests.trigger).not.toHaveBeenCalled();
   });
 
-  it("keeps one import follow-up when the import scan is already running", async () => {
+  it("keeps one durable replay when imports finish during a running scan", async () => {
     const settingsRepo = {
       getMode: vi.fn().mockResolvedValue({ mode: "EVERYTHING", updatedAt: new Date("2026-09-18T00:00:00.000Z") }),
       setMode: vi.fn(),
@@ -63,12 +67,28 @@ describe("MusicSearchPolicyService", () => {
 
     await expect(service.enqueueImportReconciliation()).resolves.toBe(true);
     await expect(service.enqueueImportReconciliation()).resolves.toBe(true);
+    await queue.complete(running!.id);
     const queued = await queue.list("QUEUED");
     expect(queued).toHaveLength(1);
     expect(queued[0]).toMatchObject({
       type: "RECONCILE_MUSIC_SEARCH_POLICY",
       priority: JobPriority.NORMAL,
-      dedupeKey: "RECONCILE_MUSIC_SEARCH_POLICY:IMPORT:FOLLOWUP",
+      dedupeKey: "RECONCILE_MUSIC_SEARCH_POLICY:IMPORT",
     });
+  });
+
+  it("replays a running global scan when the configured mode changes", async () => {
+    const settingsRepo = {
+      getMode: vi.fn().mockResolvedValue({ mode: "EVERYTHING", updatedAt: new Date() }),
+      setMode: vi.fn().mockResolvedValue({ mode: "PLAYLISTS", updatedAt: new Date() }),
+      listEligibleAnime: vi.fn().mockResolvedValue([]),
+    };
+    const queue = new JobQueue(new FakeJobRepository());
+    const service = new MusicSearchPolicyService({ repo: settingsRepo, queue, requests: { trigger: vi.fn() } });
+    await service.enqueueReconciliation();
+    const running = (await queue.claimNext())!;
+    await service.updateMode("PLAYLISTS");
+    await queue.complete(running.id);
+    expect(await queue.list("QUEUED")).toHaveLength(1);
   });
 });

@@ -22,7 +22,7 @@ import { runMigrations } from "./db/migrate.js";
 import { CircuitBreaker } from "./http/circuitBreaker.js";
 import { TokenBucket } from "./http/tokenBucket.js";
 import { UpstreamHttp } from "./http/upstream.js";
-import { JobPriority, JobQueue, JobWorker, PgJobRepository } from "./jobs/index.js";
+import { DURABLE_MAX_ATTEMPTS, JobPriority, JobQueue, JobWorker, PgJobRepository } from "./jobs/index.js";
 import { RealKitsuAuthClient } from "./kitsu/kitsuAuthClient.js";
 import { KitsuClient } from "./kitsu/kitsuClient.js";
 import { createJsonStdoutLogger, RecentLogStore } from "./logging.js";
@@ -209,7 +209,7 @@ const syncPipeline = new LibrarySyncPipeline({
     // Import-triggered scans should run alongside normal mapping work instead
     // of waiting behind a large maintenance backlog. The scan itself remains
     // coalesced and only selects missing eligible full-song themes.
-    await musicSearchPolicy.enqueueImportReconciliation();
+    await musicSearchPolicy.reconcile();
   },
 });
 const artistCatalogService = new ArtistCatalogService(
@@ -390,7 +390,7 @@ const app = buildApp({
     musicCatalogEnabled: config.MUSIC_CATALOG_ENABLED,
     loudnessPlaybackGainEnabled: config.LOUDNESS_PLAYBACK_GAIN_ENABLED,
   }),
-  syncApi: new JobSyncApiService(jobQueue),
+  syncApi: new JobSyncApiService(jobQueue, async (userId) => (await syncRepo.getUserSyncAuth(userId))?.lastSyncAt ?? null),
   proxyApi: new CachedProxyService({
     upstream: new UpstreamProxyService(animeThemesClient, kitsuClient, syncRepo),
     musicSearch: (userId, query) => clientApi.searchMusic(userId, query),
@@ -407,6 +407,8 @@ const app = buildApp({
       priority: JobPriority.HIGH,
       payload: { userId: result.user.kitsuUserId },
       dedupeKey: kitsuSyncDedupeKey(result.user.kitsuUserId),
+      preserveRetryState: true,
+      maxAttempts: DURABLE_MAX_ATTEMPTS,
     });
   },
   onAuthenticatedRequest: (user) => deviceActivitySync.onUserActivity(user),

@@ -1,4 +1,4 @@
-import { JobPriority } from "../jobs/types.js";
+import { DURABLE_MAX_ATTEMPTS, JobPriority } from "../jobs/types.js";
 import type { JobQueue } from "../jobs/jobQueue.js";
 import { kitsuSyncDedupeKey } from "./syncJobKeys.js";
 
@@ -78,9 +78,11 @@ export class SyncScheduler {
     for (const userId of await this.options.repo.listActiveUserIds(activeAfter)) {
       await this.options.queue.enqueue({
         type: "KITSU_FULL_SYNC",
-        priority: JobPriority.NORMAL,
+        priority: JobPriority.HIGH,
         payload: reconcileOnly ? { userId, reconcileOnly: true } : { userId },
         dedupeKey: kitsuSyncDedupeKey(userId),
+        preserveRetryState: true,
+        maxAttempts: DURABLE_MAX_ATTEMPTS,
       });
     }
   }
@@ -96,6 +98,8 @@ export class SyncScheduler {
         priority: JobPriority.NORMAL,
         payload: { userId },
         dedupeKey: `AUTO_PLAYLIST_REFRESH:${userId}`,
+        preserveRetryState: true,
+        maxAttempts: DURABLE_MAX_ATTEMPTS,
       });
     }
     await this.options.pipeline.scanOrphanFiles(this.options.mediaRoot);

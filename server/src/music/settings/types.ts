@@ -14,7 +14,8 @@ export interface EligibleAnime {
 export interface MusicSearchSettingsRepository {
   getMode(): Promise<MusicSearchSettingsRecord>;
   setMode(mode: MusicSearchMode): Promise<MusicSearchSettingsRecord>;
-  listEligibleAnime(mode: Exclude<MusicSearchMode, "MANUAL">): Promise<EligibleAnime[]>;
+  /** A targeted check retains already-requested items so a retry can finish enqueueing their batches. */
+  listEligibleAnime(mode: Exclude<MusicSearchMode, "MANUAL">, target?: EligibleAnime): Promise<EligibleAnime[]>;
 }
 
 export interface MusicSearchSettingsDto {

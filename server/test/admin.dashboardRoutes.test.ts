@@ -14,6 +14,8 @@ describe("comprehensive admin dashboard", () => {
   const dashboard = {
     overview: vi.fn(),
     listUsers: vi.fn(),
+    listUserPlaylists: vi.fn().mockResolvedValue([]),
+    setPlaylistMusicSearchExcluded: vi.fn().mockResolvedValue({ excludeFromMusicSearch: true }),
     listAnime: vi.fn(),
     listSongs: vi.fn(),
     listLogs: vi.fn(),
@@ -98,6 +100,23 @@ describe("comprehensive admin dashboard", () => {
     expect(response.body).toContain("s.capacityBytes");
     expect(response.body).toContain("Available space");
     expect(response.body).toContain("s.freeBytes");
+  });
+
+  it("protects playlist inspection and validates exclusion updates", async () => {
+    const url = "/api/v1/admin/users/7/playlists/21/music-search";
+    expect((await app.inject({ method: "PUT", url, payload: { excluded: true } })).statusCode).toBe(401);
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/users/7/playlists" })).statusCode).toBe(401);
+    const headers = { cookie: await cookie() };
+    expect((await app.inject({ method: "GET", url: "/api/v1/admin/users/7/playlists", headers })).json()).toEqual({ playlists: [] });
+    expect(dashboard.listUserPlaylists).toHaveBeenCalledWith("7");
+    for (const excluded of [true, false]) {
+      expect((await app.inject({ method: "PUT", url, headers, payload: { excluded } })).statusCode).toBe(200);
+      expect(dashboard.setPlaylistMusicSearchExcluded).toHaveBeenLastCalledWith("7", "21", excluded);
+    }
+    for (const payload of [{ excluded: "false" }, {}, { excluded: true, userId: "other" }]) {
+      expect((await app.inject({ method: "PUT", url, headers, payload })).statusCode).toBe(400);
+    }
+    expect((await app.inject({ method: "PUT", url: url.replace("/21/", "/-1/"), headers, payload: { excluded: true } })).statusCode).toBe(400);
   });
 
   it("protects and serves dashboard projections", async () => {

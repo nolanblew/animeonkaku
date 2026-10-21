@@ -373,6 +373,12 @@ class FakeClientApi implements ClientApiService {
 
 class FakeSyncApi implements SyncApiService {
   enqueued: Array<{ userId: string; full: boolean }> = [];
+  retried: Array<{ userId: string; stage: string }> = [];
+
+  async retryStage(userId: string, stage: "library" | "catalog" | "playlists" | "musicPolicy") {
+    this.retried.push({ userId, stage });
+    return { retried: 1 };
+  }
 
   async enqueueSync(userId: string, full: boolean) {
     this.enqueued.push({ userId, full });
@@ -780,6 +786,17 @@ describe("client API routes", () => {
     });
     expect(status.statusCode).toBe(200);
     expect(status.json()).toMatchObject({ state: "RUNNING", phase: "MAPPING_THEMES" });
+  });
+
+  it("authenticates stage retries, rejects unknown stages, and uses the session user", async () => {
+    expect((await app.inject({ method: "POST", url: "/v1/sync/stages/catalog/retry" })).statusCode).toBe(401);
+    const token = await bearer();
+    const headers = { authorization: `Bearer ${token}` };
+    expect((await app.inject({ method: "POST", url: "/v1/sync/stages/IMPORT_AMF_MUSIC_ITEM/retry", headers })).statusCode).toBe(400);
+    const result = await app.inject({ method: "POST", url: "/v1/sync/stages/catalog/retry", headers, payload: { userId: "other" } });
+    expect(result.statusCode).toBe(200);
+    expect(result.json()).toEqual({ retried: 1 });
+    expect(syncApi.retried).toEqual([{ userId: "stub-nolan", stage: "catalog" }]);
   });
 
   it("defaults manual sync requests to full reconciliation", async () => {

@@ -2,9 +2,10 @@ import type { JobHandler, JobRecord } from "../jobs/types.js";
 
 interface SyncPipelineHandlers {
   runKitsuSync(input: { userId: string; full: boolean; reconcileOnly?: boolean; job: JobRecord }): Promise<void>;
-  runMapThemes(input: { kitsuIds: string[]; userId?: string; job: JobRecord }): Promise<void>;
+  runMapThemes(input: { kitsuIds: string[]; userId?: string; hydrateCatalog?: boolean; job: JobRecord }): Promise<void>;
   runBackfillScan(input: { userId?: string; job: JobRecord }): Promise<void>;
   runAutoPlaylistRefresh(input: { userId: string; job: JobRecord }): Promise<void>;
+  runMusicPolicySync?(input: { userId: string; job: JobRecord }): Promise<void>;
 }
 
 export type SyncUserChangeCategory = "library" | "playlist";
@@ -19,6 +20,7 @@ export function createSyncJobHandlers(pipeline: SyncPipelineHandlers, options: S
   MAP_THEMES: JobHandler;
   BACKFILL_SCAN: JobHandler;
   AUTO_PLAYLIST_REFRESH: JobHandler;
+  MUSIC_POLICY_SYNC: JobHandler;
 } {
   return {
     KITSU_FULL_SYNC: async (payload, job) => {
@@ -32,9 +34,10 @@ export function createSyncJobHandlers(pipeline: SyncPipelineHandlers, options: S
       options.onUserChanges?.(userId, ["library"]);
     },
     MAP_THEMES: async (payload, job) => {
-      const input: { kitsuIds: string[]; userId?: string; job: JobRecord } = {
+      const input: { kitsuIds: string[]; userId?: string; hydrateCatalog?: boolean; job: JobRecord } = {
         kitsuIds: requiredStringArray(payload.kitsuIds, "kitsuIds"),
         job,
+        ...(payload.hydrateCatalog === true ? { hydrateCatalog: true } : {}),
       };
       if (typeof payload.userId === "string" && payload.userId.length > 0) {
         input.userId = payload.userId;
@@ -53,6 +56,10 @@ export function createSyncJobHandlers(pipeline: SyncPipelineHandlers, options: S
       const userId = requiredString(payload.userId, "userId");
       await pipeline.runAutoPlaylistRefresh({ userId, job });
       options.onUserChanges?.(userId, ["playlist"]);
+    },
+    MUSIC_POLICY_SYNC: async (payload, job) => {
+      const userId = requiredString(payload.userId, "userId");
+      await pipeline.runMusicPolicySync?.({ userId, job });
     },
   };
 }

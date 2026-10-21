@@ -1,0 +1,1 @@
+ALTER TABLE "playlists" ADD COLUMN "exclude_from_music_search" boolean DEFAULT false NOT NULL;

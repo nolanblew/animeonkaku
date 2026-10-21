@@ -1,5 +1,5 @@
 import type { JobQueue } from "../jobs/jobQueue.js";
-import { JobPriority } from "../jobs/types.js";
+import { DURABLE_MAX_ATTEMPTS, JobPriority } from "../jobs/types.js";
 import { kitsuSyncDedupeKey } from "./syncJobKeys.js";
 
 /** The slice of the authenticated user the trigger needs. */
@@ -62,6 +62,8 @@ export class DeviceActivitySyncTrigger {
       priority: JobPriority.HIGH,
       payload: { userId: user.kitsuUserId },
       dedupeKey: kitsuSyncDedupeKey(user.kitsuUserId),
+      preserveRetryState: true,
+      maxAttempts: DURABLE_MAX_ATTEMPTS,
     });
   }
 }

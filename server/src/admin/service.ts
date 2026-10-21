@@ -2,6 +2,7 @@ import { readdir, rm, stat, statfs } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join, relative, sep } from "node:path";
 import type { Pool } from "pg";
+import { ApiError } from "../api/errors.js";
 import { JobPriority, type JobQueue } from "../jobs/index.js";
 import type { RecentLogStore } from "../logging.js";
 import { resolveManagedMediaPath } from "../media/mediaPathSafety.js";
@@ -45,6 +46,22 @@ export class PgAdminDashboardService implements AdminDashboardApi {
       WHERE u.username ILIKE $1 OR u.kitsu_user_id ILIKE $1
       GROUP BY u.kitsu_user_id ORDER BY u.username LIMIT $2`, [q, input.limit]);
     return result.rows.map((row) => ({ id: row.id, username: row.username, authState: row.auth_state, lastSyncAt: iso(row.last_sync_at), sessionCount: Number(row.session_count), libraryCount: Number(row.library_count) }));
+  }
+
+  async listUserPlaylists(userId: string) {
+    await this.requireUser(userId);
+    const result = await this.options.pool.query(`SELECT p.id,p.name,p.is_auto,p.is_dynamic,p.exclude_from_music_search,
+      (SELECT count(*) FROM playlist_entries pe WHERE pe.playlist_id=p.id) entry_count
+      FROM playlists p WHERE p.user_id=$1 AND p.deleted_at IS NULL ORDER BY p.name,p.id`, [userId]);
+    return result.rows.map((row) => ({ id: String(row.id), name: row.name, isAuto: row.is_auto,
+      isDynamic: row.is_dynamic, excludeFromMusicSearch: row.exclude_from_music_search, entryCount: Number(row.entry_count) }));
+  }
+
+  async setPlaylistMusicSearchExcluded(userId: string, playlistId: string, excluded: boolean) {
+    const result = await this.options.pool.query(`UPDATE playlists SET exclude_from_music_search=$3
+      WHERE user_id=$1 AND id=$2 AND deleted_at IS NULL AND is_auto=false RETURNING id`, [userId, playlistId, excluded]);
+    if (!result.rows.length) throw new ApiError(404, "PLAYLIST_NOT_FOUND", "User-created playlist not found for this user.");
+    return { id: playlistId, excludeFromMusicSearch: excluded };
   }
 
   async listAnime(input: { query: string | undefined; limit: number }) {

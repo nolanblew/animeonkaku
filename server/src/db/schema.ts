@@ -130,6 +130,7 @@ export const kitsuAnime = pgTable("kitsu_anime", {
   averageRating: doublePrecision("average_rating"),
   slug: text("slug"),
   mappingState: text("mapping_state").notNull().default("UNMAPPED"), // UNMAPPED | MAPPED | UNMATCHED
+  catalogCheckedAt: timestamp("catalog_checked_at", { withTimezone: true }),
   updatedAt: updatedAt(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 }, (t) => [
@@ -453,6 +454,7 @@ export const playlists = pgTable(
       .references(() => users.kitsuUserId, { onDelete: "cascade" }),
     name: text("name").notNull(),
     isAuto: boolean("is_auto").notNull().default(false),
+    excludeFromMusicSearch: boolean("exclude_from_music_search").notNull().default(false),
     autoKind: text("auto_kind"), // KITSU_LIBRARY | CURRENTLY_WATCHING | LIKED_SONGS | null
     gradientSeed: integer("gradient_seed").notNull().default(0),
     defaultMode: text("default_mode").$type<PlaylistPlaybackMode>().notNull().default("TV_SIZE"),
