@@ -68,15 +68,21 @@ export class DrizzleSyncRepository implements SyncRepository {
           payload: { userId: input.userId, kitsuIds: [kitsuId], hydrateCatalog: true },
           dedupeKey: mapThemesDedupeKey(input.userId, [kitsuId]) }, input.forceCatalog);
       }
-      // Old aggregate retries are obsolete only when every requested anime
-      // has a canonical replacement committed by this same transaction.
-      if (catalogIds.length) await tx.execute(sql`
+      // A removed library item needs no replacement. Every still-active
+      // requested anime must have a canonical intent in this transaction.
+      if (catalogIds.length || input.activeKitsuIds !== undefined) await tx.execute(sql`
         UPDATE jobs SET state = 'CANCELLED', progress = progress || '{"superseded":true}'::jsonb, updated_at = now()
         WHERE type = 'MAP_THEMES' AND state IN ('QUEUED', 'FAILED')
           AND payload->>'userId' = ${input.userId}
           AND left(dedupe_key, length(${'MAP_THEMES:' + input.userId + ':'})) = ${'MAP_THEMES:' + input.userId + ':'}
           AND jsonb_typeof(payload->'kitsuIds') = 'array'
-          AND payload->'kitsuIds' <@ ${JSON.stringify(catalogIds)}::jsonb`);
+          AND NOT EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(payload->'kitsuIds') = 'array'
+              THEN payload->'kitsuIds' ELSE '[]'::jsonb END) AS requested(kitsu_id)
+            WHERE EXISTS (SELECT 1 FROM library_entries active
+              WHERE active.user_id = ${input.userId} AND active.kitsu_id = requested.kitsu_id AND active.deleted_at IS NULL)
+              AND NOT (${JSON.stringify(catalogIds)}::jsonb @> jsonb_build_array(requested.kitsu_id))
+          )`);
       // A tombstone is a library change even when the changed-entry list is empty.
       if (input.entries.length > 0 || removed) {
         await repo.requestFollowUp({ type: "AUTO_PLAYLIST_REFRESH", priority: JobPriority.HIGH,

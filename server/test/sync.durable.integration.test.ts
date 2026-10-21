@@ -185,6 +185,8 @@ describe.skipIf(!adminUrl)("durable sync stages (PostgreSQL)", () => {
   });
 
   it("supersedes obsolete aggregate retries only after their complete replacement is committed", async () => {
+    await repo.upsertKitsuAnime([entry("1"), entry("2")]);
+    await repo.upsertLibraryEntries("u1", [entry("1"), entry("2")]);
     const old = await queue.enqueue({ type: "MAP_THEMES", priority: 20, payload: { userId: "u1", kitsuIds: ["1", "2"] }, dedupeKey: "MAP_THEMES:u1:1,2" });
     const running = await queue.enqueue({ type: "MAP_THEMES", priority: 20, payload: { userId: "u1", kitsuIds: ["1"] }, dedupeKey: "MAP_THEMES:u1:1" });
     await pool.query("UPDATE jobs SET state = 'RUNNING' WHERE id = $1", [running.id]);
@@ -194,6 +196,32 @@ describe.skipIf(!adminUrl)("durable sync stages (PostgreSQL)", () => {
     await repo.commitLibraryImport({ userId: "u1", entries: [entry("1"), entry("2")], forceCatalog: true, startedAt: now, completedAt: now });
     expect(await queue.findByDedupeKey(old.dedupeKey!)).toMatchObject({ state: "CANCELLED", progress: { superseded: true } });
     expect((await queue.findByDedupeKey(running.dedupeKey!))?.state).toBe("RUNNING");
+  });
+
+  it("retires legacy retries containing removed anime while preserving uncovered active, running, shared and other-user work", async () => {
+    await repo.upsertKitsuAnime([entry("1"), entry("2"), entry("3")]);
+    await repo.upsertLibraryEntries("u1", [entry("1"), entry("2"), entry("3")]);
+    const old = await queue.enqueue({ type: "MAP_THEMES", priority: 20,
+      payload: { userId: "u1", kitsuIds: ["1", "2", "4"] }, dedupeKey: "MAP_THEMES:u1:1,2,4" });
+    const uncovered = await queue.enqueue({ type: "MAP_THEMES", priority: 20,
+      payload: { userId: "u1", kitsuIds: ["1", "3"] }, dedupeKey: "MAP_THEMES:u1:1,3" });
+    const running = await queue.enqueue({ type: "MAP_THEMES", priority: 20,
+      payload: { userId: "u1", kitsuIds: ["1", "2"] }, dedupeKey: "MAP_THEMES:u1:1,2" });
+    const shared = await queue.enqueue({ type: "MAP_THEMES", priority: 20,
+      payload: { kitsuIds: ["1", "2"] }, dedupeKey: "MAP_THEMES:u1:shared" });
+    const other = await queue.enqueue({ type: "MAP_THEMES", priority: 20,
+      payload: { userId: "u2", kitsuIds: ["1", "2"] }, dedupeKey: "MAP_THEMES:u2:1,2" });
+    await pool.query("UPDATE jobs SET state = 'FAILED' WHERE id = $1", [old.id]);
+    await pool.query("UPDATE jobs SET state = 'RUNNING' WHERE id = $1", [running.id]);
+    // The full read removes 2; 4 never had a local row. Active 3 is omitted
+    // from the changed rows and therefore has no replacement in this commit.
+    await repo.commitLibraryImport({ userId: "u1", entries: [entry("1")], activeKitsuIds: ["1", "3"],
+      forceCatalog: true, startedAt: now, completedAt: now });
+    expect(await queue.findByDedupeKey(old.dedupeKey!)).toMatchObject({ state: "CANCELLED", progress: { superseded: true } });
+    expect((await queue.findByDedupeKey(uncovered.dedupeKey!))?.state).toBe("QUEUED");
+    expect((await queue.findByDedupeKey(running.dedupeKey!))?.state).toBe("RUNNING");
+    expect((await queue.findByDedupeKey(shared.dedupeKey!))?.state).toBe("QUEUED");
+    expect((await queue.findByDedupeKey(other.dedupeKey!))?.state).toBe("QUEUED");
   });
 
   async function rejectPlaylistIntents() {
