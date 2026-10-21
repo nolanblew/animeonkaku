@@ -72,7 +72,7 @@ describe("MusicSearchPolicyService", () => {
     expect(queued).toHaveLength(1);
     expect(queued[0]).toMatchObject({
       type: "RECONCILE_MUSIC_SEARCH_POLICY",
-      priority: JobPriority.NORMAL,
+      priority: JobPriority.HIGH,
       dedupeKey: "RECONCILE_MUSIC_SEARCH_POLICY:IMPORT",
     });
   });

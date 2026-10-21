@@ -22,18 +22,18 @@ export class MusicSearchPolicyService {
 
   async updateMode(mode: MusicSearchMode): Promise<MusicSearchSettingsDto> {
     const updated = await this.deps.repo.setMode(mode);
-    await this.enqueueReconciliationWithKey(JobPriority.MAINTENANCE, "RECONCILE_MUSIC_SEARCH_POLICY", true);
+    await this.enqueueReconciliationWithKey(JobPriority.HIGH, "RECONCILE_MUSIC_SEARCH_POLICY", true);
     return toDto(updated);
   }
 
-  async enqueueReconciliation(priority: number = JobPriority.MAINTENANCE): Promise<boolean> {
+  async enqueueReconciliation(priority: number = JobPriority.HIGH): Promise<boolean> {
     return (await this.enqueueReconciliationWithKey(priority, "RECONCILE_MUSIC_SEARCH_POLICY")) !== null;
   }
 
   /** Queue a library-import follow-up independently of the periodic scan. */
   async enqueueImportReconciliation(): Promise<boolean> {
     return (await this.enqueueReconciliationWithKey(
-      JobPriority.NORMAL,
+      JobPriority.HIGH,
       "RECONCILE_MUSIC_SEARCH_POLICY:IMPORT",
       true,
     )) !== null;
@@ -64,7 +64,9 @@ export class MusicSearchPolicyService {
     // cannot repeatedly starve the rest of the policy's eligible anime.
     const outcomes = await Promise.allSettled(eligible.map((anime) => this.deps.queue.enqueue({
       type: "RECONCILE_MUSIC_SEARCH_POLICY",
-      priority: JobPriority.NORMAL,
+      // Planning persists the request and queues provider work; it performs
+      // no provider HTTP or media I/O and must not wait behind catalog jobs.
+      priority: JobPriority.HIGH,
       payload: { userId: anime.userId, kitsuId: anime.kitsuId },
       dedupeKey: `RECONCILE_MUSIC_SEARCH_POLICY:ANIME:${anime.userId}:${anime.kitsuId}`,
       maxAttempts: DURABLE_MAX_ATTEMPTS,

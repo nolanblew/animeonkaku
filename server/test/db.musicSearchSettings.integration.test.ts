@@ -8,10 +8,44 @@ import { RecentLogStore } from "../src/logging.js";
 import { PgMusicRequestRepository } from "../src/music/requests/repository.js";
 import { MusicRequestService } from "../src/music/requests/service.js";
 import { MusicSearchPolicyService } from "../src/music/settings/service.js";
+import { createMusicSearchPolicyHandlers } from "../src/music/settings/handlers.js";
+import { JobPriority, JobQueue, JobWorker, PgJobRepository } from "../src/jobs/index.js";
 
 const adminDatabaseUrl = process.env.MIGRATION_TEST_DATABASE_URL;
 
 describe.skipIf(!adminDatabaseUrl)("music search settings (PostgreSQL)", () => {
+  it("persists automatic requests through the high-priority worker while a large catalog remains queued", async () => {
+    await withDatabase(async (pool) => {
+      await seedEligibility(pool);
+      const policyRepo = new PgMusicSearchSettingsRepository(pool);
+      await policyRepo.setMode("PLAYLISTS");
+      const queue = new JobQueue(new PgJobRepository(pool));
+      await pool.query(`INSERT INTO jobs (type,priority,payload,dedupe_key)
+        SELECT 'MAP_THEMES',20,jsonb_build_object('userId','u1','kitsuIds',jsonb_build_array(n::text)),
+          'catalog-' || n::text FROM generate_series(1,665) n`);
+      // A scan queued before the upgrade is promoted without changing its
+      // retry bookkeeping when the next scheduler request offers it again.
+      await queue.enqueue({ type: "RECONCILE_MUSIC_SEARCH_POLICY", priority: JobPriority.MAINTENANCE,
+        dedupeKey: "RECONCILE_MUSIC_SEARCH_POLICY" });
+      const policy = new MusicSearchPolicyService({ repo: policyRepo, queue,
+        requests: new MusicRequestService({ repo: new PgMusicRequestRepository(pool), queue }) });
+      await policy.enqueueReconciliation();
+      const worker = new JobWorker(queue, { maxPriority: JobPriority.HIGH,
+        handlers: createMusicSearchPolicyHandlers(policy), jitterMs: () => 0 });
+
+      expect(await worker.runOnce()).toBe(true); // Global eligibility scan.
+      expect(await worker.runOnce()).toBe(true); // Per-anime request preparation.
+      expect(await worker.runOnce()).toBe(false); // Provider work stays NORMAL.
+
+      expect((await pool.query("SELECT requested_by_user_id,kitsu_id,source FROM anime_music_requests")).rows)
+        .toEqual([{ requested_by_user_id: "u1", kitsu_id: "k2", source: "AUTOMATIC" }]);
+      expect((await pool.query("SELECT count(*) FROM anime_music_request_batches")).rows[0].count).toBe("1");
+      expect((await pool.query("SELECT count(*) FROM jobs WHERE type='MAP_THEMES' AND state='QUEUED' AND priority=20")).rows[0].count).toBe("665");
+      expect((await pool.query("SELECT state,priority FROM jobs WHERE type='SUBMIT_AMF_MUSIC_BATCH'")).rows)
+        .toEqual([{ state: "QUEUED", priority: JobPriority.NORMAL }]);
+    });
+  }, 30_000);
+
   it("persists exclusions, respects ownership, and retains eligibility from other playlists", async () => {
     await withDatabase(async (pool) => {
       await seedEligibility(pool);

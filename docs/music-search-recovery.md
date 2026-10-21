@@ -15,6 +15,13 @@ and a large retry budget, rather than requiring a manual retry after five
 failures. An enqueue failure fails the scan after the other anime have been
 offered to the queue, preserving a durable reason for retry.
 
+Global scans and per-anime request preparation run at `HIGH` priority so the
+existing high-priority worker can persist requests while a large catalog
+backlog continues. These jobs perform database planning and queue insertion.
+Provider submission, polling, and media import keep their existing `NORMAL`
+priority; a visible queued request can still wait for those workers. This
+priority change does not submit or approve items awaiting operator review.
+
 Request persistence and provider submission remain separate. If a request was
 persisted before enqueueing its provider batch failed, the targeted policy job
 may replay that active request. Request identity and the provider idempotency
