@@ -31,6 +31,19 @@ export class FakeJobRepository implements JobRepository {
     const existing = input.dedupeKey
       ? [...this.jobs.values()].find((job) => job.dedupeKey === input.dedupeKey)
       : undefined;
+    if (existing && input.preserveRetryState && ["RUNNING", "QUEUED", "FAILED"].includes(existing.state)) {
+      if (existing.state === "FAILED" && existing.maxAttempts < input.maxAttempts) existing.state = "QUEUED";
+      if (existing.state === "RUNNING" && input.rerunIfRunning) {
+        existing.payload = { ...existing.payload, _rerunRequested: true, _rerunPayload: input.payload };
+      }
+      if (["QUEUED", "FAILED"].includes(existing.state) && input.dedupeKey?.startsWith("KITSU_SYNC:") && input.type === "KITSU_FULL_SYNC") {
+        if (existing.type !== "KITSU_FULL_SYNC" || existing.payload.reconcileOnly === true) existing.payload = input.payload;
+        existing.type = "KITSU_FULL_SYNC";
+      }
+      existing.priority = Math.min(existing.priority, input.priority);
+      existing.maxAttempts = Math.max(existing.maxAttempts, input.maxAttempts);
+      return { ...existing };
+    }
     if (
       existing &&
       (existing.state === "QUEUED" ||
@@ -102,6 +115,15 @@ export class FakeJobRepository implements JobRepository {
   async complete(id: number): Promise<void> {
     const job = this.jobs.get(id);
     if (job) {
+      if (job.payload._rerunRequested === true) {
+        job.state = "QUEUED";
+        job.payload = job.payload._rerunPayload as Record<string, unknown>;
+        job.progress = {};
+        job.attempts = 0;
+        job.lastError = null;
+        job.nextRunAt = this.now();
+        return;
+      }
       if (
         (job.type === "KITSU_FULL_SYNC" || job.type === "KITSU_DELTA_SYNC") &&
         job.payload.catalogRefreshPending === true
@@ -158,6 +180,13 @@ export class FakeJobRepository implements JobRepository {
     job.lastError = null;
     job.updatedAt = this.now();
     return { ...job };
+  }
+
+  async retryFailed(id: number, now: Date): Promise<JobRecord | null> {
+    const job = this.jobs.get(id);
+    if (!job || job.state !== "FAILED") return null;
+    job.attempts = 0;
+    return this.retry(id, now);
   }
 
   async updateProgress(id: number, progress: Record<string, unknown>): Promise<void> {

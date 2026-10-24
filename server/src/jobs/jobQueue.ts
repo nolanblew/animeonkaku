@@ -18,6 +18,8 @@ export interface EnqueueInput {
   dedupeKey?: string | null;
   maxAttempts?: number;
   nextRunAt?: Date;
+  preserveRetryState?: boolean;
+  rerunIfRunning?: boolean;
 }
 
 export class JobQueue {
@@ -38,6 +40,8 @@ export class JobQueue {
       dedupeKey: input.dedupeKey ?? null,
       maxAttempts: input.maxAttempts ?? 5,
       nextRunAt: input.nextRunAt ?? this.now(),
+      ...(input.preserveRetryState ? { preserveRetryState: true } : {}),
+      ...(input.rerunIfRunning ? { rerunIfRunning: true } : {}),
     };
     let result = await this.repo.enqueue(repoInput);
     if (
@@ -123,6 +127,10 @@ export class JobQueue {
 
   async retryJob(id: number): Promise<JobRecord | null> {
     return this.repo.retry(id, this.now());
+  }
+
+  async retryFailedJob(id: number): Promise<JobRecord | null> {
+    return this.repo.retryFailed?.(id, this.now()) ?? null;
   }
 
   async updateProgress(id: number, progress: Record<string, unknown>): Promise<void> {

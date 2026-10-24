@@ -7,6 +7,8 @@ import {
   isNotNull,
   isNull,
   notInArray,
+  or,
+  lt,
   sql,
 } from "drizzle-orm";
 import type { AnimeThemeEntry, AnimeThemesArtistCredit } from "../animethemes/types.js";
@@ -30,7 +32,11 @@ import type { KitsuAnimeEntry, KitsuGenre } from "../kitsu/types.js";
 import { CANONICAL_AUDIO, IMAGE_VARIANT } from "../media/types.js";
 import { DrizzleDynamicPlaylistEvaluator } from "../playlists/dynamicPlaylistEvaluator.js";
 import { DrizzleAutoPlaylistRefresher } from "./autoPlaylistRefresher.js";
-import type { KitsuCatalogRecord, LibraryEntrySyncState, SyncRepository, SyncUserAuth } from "./types.js";
+import type { CatalogResultCommit, LibraryImportCommit, KitsuCatalogRecord, LibraryEntrySyncState, SyncRepository, SyncUserAuth } from "./types.js";
+import { durableJobInsert } from "../jobs/durableJobSql.js";
+import type { EnqueueJobInput } from "../jobs/types.js";
+import { DURABLE_MAX_ATTEMPTS, JobPriority } from "../jobs/types.js";
+import { mapThemesDedupeKey } from "./syncJobKeys.js";
 
 export class DrizzleSyncRepository implements SyncRepository {
   private readonly autoPlaylistRefresher: DrizzleAutoPlaylistRefresher;
@@ -39,6 +45,81 @@ export class DrizzleSyncRepository implements SyncRepository {
   constructor(private readonly db: Db) {
     this.autoPlaylistRefresher = new DrizzleAutoPlaylistRefresher(db);
     this.dynamicPlaylistEvaluator = new DrizzleDynamicPlaylistEvaluator(db);
+  }
+
+  async commitLibraryImport(input: LibraryImportCommit): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const repo = new DrizzleSyncRepository(tx as unknown as Db);
+      await repo.upsertKitsuAnime(input.entries);
+      await repo.upsertLibraryEntries(input.userId, input.entries);
+      let removed = false;
+      if (input.activeKitsuIds !== undefined) {
+        const conditions = [eq(libraryEntries.userId, input.userId), eq(libraryEntries.isManuallyAdded, false), isNull(libraryEntries.deletedAt)];
+        if (input.activeKitsuIds.length) conditions.push(notInArray(libraryEntries.kitsuId, input.activeKitsuIds));
+        const deleted = await tx.update(libraryEntries).set({ deletedAt: input.completedAt, updatedAt: input.completedAt })
+          .where(and(...conditions)).returning({ id: libraryEntries.kitsuId });
+        removed = deleted.length > 0;
+      }
+      const catalogIds = input.forceCatalog
+        ? [...new Set(input.entries.map((entry) => entry.id))]
+        : await repo.getCatalogWorkIds(input.userId, new Date(input.completedAt.getTime() - 24 * 60 * 60_000));
+      for (const kitsuId of catalogIds) {
+        await repo.requestFollowUp({ type: "MAP_THEMES", priority: JobPriority.NORMAL,
+          payload: { userId: input.userId, kitsuIds: [kitsuId], hydrateCatalog: true },
+          dedupeKey: mapThemesDedupeKey(input.userId, [kitsuId]) }, input.forceCatalog);
+      }
+      // A removed library item needs no replacement. Every still-active
+      // requested anime must have a canonical intent in this transaction.
+      if (catalogIds.length || input.activeKitsuIds !== undefined) await tx.execute(sql`
+        UPDATE jobs SET state = 'CANCELLED', progress = progress || '{"superseded":true}'::jsonb, updated_at = now()
+        WHERE type = 'MAP_THEMES' AND state IN ('QUEUED', 'FAILED')
+          AND payload->>'userId' = ${input.userId}
+          AND left(dedupe_key, length(${'MAP_THEMES:' + input.userId + ':'})) = ${'MAP_THEMES:' + input.userId + ':'}
+          AND jsonb_typeof(payload->'kitsuIds') = 'array'
+          AND NOT EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(payload->'kitsuIds') = 'array'
+              THEN payload->'kitsuIds' ELSE '[]'::jsonb END) AS requested(kitsu_id)
+            WHERE EXISTS (SELECT 1 FROM library_entries active
+              WHERE active.user_id = ${input.userId} AND active.kitsu_id = requested.kitsu_id AND active.deleted_at IS NULL)
+              AND NOT (${JSON.stringify(catalogIds)}::jsonb @> jsonb_build_array(requested.kitsu_id))
+          )`);
+      // A tombstone is a library change even when the changed-entry list is empty.
+      if (input.entries.length > 0 || removed) {
+        await repo.requestFollowUp({ type: "AUTO_PLAYLIST_REFRESH", priority: JobPriority.HIGH,
+          payload: { userId: input.userId }, dedupeKey: `AUTO_PLAYLIST_REFRESH:${input.userId}` }, true);
+      }
+      await repo.updateUserSyncTimestamps(input.userId, { lastSyncAt: input.completedAt, lastStatusSyncAt: input.startedAt });
+    });
+  }
+
+  async getCatalogWorkIds(userId: string, checkedBefore: Date): Promise<string[]> {
+    const rows = await this.db.select({ id: kitsuAnime.kitsuId }).from(libraryEntries)
+      .innerJoin(kitsuAnime, eq(libraryEntries.kitsuId, kitsuAnime.kitsuId))
+      .where(and(eq(libraryEntries.userId, userId), isNull(libraryEntries.deletedAt), isNull(kitsuAnime.deletedAt),
+        or(isNull(kitsuAnime.catalogCheckedAt), and(lt(kitsuAnime.catalogCheckedAt, checkedBefore),
+          or(sql`${kitsuAnime.mappingState} <> 'MAPPED'`, isNull(kitsuAnime.animethemesAnimeId),
+            sql`NOT EXISTS (SELECT 1 FROM themes WHERE themes.animethemes_anime_id = ${kitsuAnime.animethemesAnimeId} AND themes.deleted_at IS NULL)`,
+            sql`EXISTS (SELECT 1 FROM themes WHERE themes.animethemes_anime_id = ${kitsuAnime.animethemesAnimeId}
+              AND themes.deleted_at IS NULL AND themes.theme_type ~ '^(OP|ED)' AND themes.animethemes_song_id IS NULL)`)))));
+    return rows.map((row) => row.id);
+  }
+
+  async commitCatalogResult(input: CatalogResultCommit): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const repo = new DrizzleSyncRepository(tx as unknown as Db);
+      await repo.saveAnimeThemesCatalog(input.themes);
+      await repo.setAnimeThemeMappings(input.mappings);
+      await repo.markAnimeUnmatched(input.kitsuIds.filter((id) => !input.mappings.has(id)));
+      for (const [id, genres] of input.genres) await repo.upsertAnimeGenres(id, genres);
+      if (input.kitsuIds.length) await tx.update(kitsuAnime).set({ catalogCheckedAt: input.checkedAt })
+        .where(inArray(kitsuAnime.kitsuId, input.kitsuIds));
+      if (input.userId) await repo.requestFollowUp({ type: "AUTO_PLAYLIST_REFRESH", priority: JobPriority.HIGH,
+        payload: { userId: input.userId }, dedupeKey: `AUTO_PLAYLIST_REFRESH:${input.userId}` }, true);
+    });
+  }
+
+  private async requestFollowUp(input: Pick<EnqueueJobInput, "type" | "priority" | "payload" | "dedupeKey">, rerunIfRunning: boolean): Promise<void> {
+    await this.db.execute(durableJobInsert({ ...input, maxAttempts: DURABLE_MAX_ATTEMPTS, nextRunAt: new Date(), rerunIfRunning }));
   }
 
   async getUserSyncAuth(userId: string): Promise<SyncUserAuth | null> {

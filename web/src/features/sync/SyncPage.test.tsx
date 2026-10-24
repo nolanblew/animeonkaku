@@ -5,23 +5,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AuthContextValue, FirstSyncState } from '../../auth/AuthProvider'
 import { useAuth } from '../../auth/AuthProvider'
 import { apiClient } from '../../lib/api'
-import { SyncPage } from './SyncPage'
+import { SyncPage, type SyncStatus } from './SyncPage'
 
 vi.mock('../../auth/AuthProvider', () => ({
   useAuth: vi.fn(),
 }))
 
 const mockedUseAuth = vi.mocked(useAuth)
-
-type SyncStatus = {
-  state: 'IDLE' | 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED'
-  phase: string | null
-  progress: Record<string, unknown>
-  lastCompletedAt: number | null
-  unmatched: string[]
-  mapping: { state: string; lastError: string | null } | null
-  upstreamBlocked: boolean
-}
 
 function makeStatus(overrides: Partial<SyncStatus> = {}): SyncStatus {
   return {
@@ -91,6 +81,77 @@ afterEach(() => {
 })
 
 describe('SyncPage authenticated Kitsu sync lifecycle', () => {
+  it('keeps polling queued catalog work when another catalog job has failed', async () => {
+    mockedUseAuth.mockReturnValue(makeAuth())
+    const stages: SyncStatus['stages'] = {
+      catalog: { state: 'FAILED', counts: { FAILED: 1, QUEUED: 1 }, updatedAt: null, lastCompletedAt: null, nextRetryAt: null, lastError: 'One anime could not be matched', failedJobIds: [42], attentionCount: 0, truncated: false },
+    }
+    vi.spyOn(apiClient, 'get')
+      .mockResolvedValueOnce(makeStatus({ state: 'DONE', libraryState: 'DONE', stages }))
+      .mockResolvedValue(makeStatus({ state: 'DONE', libraryState: 'DONE', stages: {
+        catalog: { ...stages.catalog!, counts: { FAILED: 1, DONE: 1 } },
+      } }))
+    let pollCallback: (() => void) | null = null
+    vi.spyOn(window, 'setInterval').mockImplementation((handler, delay) => {
+      if (delay === 2_000) pollCallback = handler as () => void
+      return 1
+    })
+    renderPage()
+    expect(await screen.findByText('1 queued · 1 failed')).toBeInTheDocument()
+    expect(screen.getByText('Kitsu library updated')).toBeInTheDocument()
+    await waitFor(() => expect(pollCallback).not.toBeNull())
+    await act(async () => { pollCallback?.() })
+    expect(await screen.findByText('1 failed · 1 complete')).toBeInTheDocument()
+    expect(apiClient.get).toHaveBeenCalledTimes(2)
+  })
+
+  it('describes an idle background stage without exposing queue storage details', async () => {
+    mockedUseAuth.mockReturnValue(makeAuth())
+    mockStatus(makeStatus({ stages: {
+      catalog: { state: 'IDLE', counts: {}, updatedAt: null, lastCompletedAt: null, nextRetryAt: null, lastError: null, failedJobIds: [], attentionCount: 0, truncated: false },
+    } }))
+    renderPage()
+    expect(await screen.findByText('No updates yet')).toBeInTheDocument()
+  })
+
+  it('does not invent a percentage when the server has no progress totals', async () => {
+    mockedUseAuth.mockReturnValue(makeAuth())
+    mockStatus(makeStatus({ state: 'RUNNING', phase: 'SYNCING_LIBRARY' }))
+    renderPage()
+    const progress = await screen.findByRole('progressbar', { name: /library sync progress/i })
+    expect(progress).not.toHaveAttribute('aria-valuenow')
+    expect(progress).toHaveAttribute('aria-valuetext', 'Syncing library')
+  })
+  it('shows a completed import separately from failed mapping and retries only that stage', async () => {
+    const auth = makeAuth()
+    mockedUseAuth.mockReturnValue(auth)
+    mockStatus(makeStatus({
+      state: 'QUEUED', phase: 'MAPPING_THEMES', libraryState: 'DONE',
+      stages: {
+        catalog: { state: 'FAILED', counts: { FAILED: 1, DONE: 664 }, updatedAt: Date.UTC(2026, 9, 21), lastCompletedAt: Date.UTC(2026, 9, 21), nextRetryAt: null, lastError: 'AnimeThemes HTTP 403', failedJobIds: [42], attentionCount: 2, truncated: false },
+        playlists: { state: 'QUEUED', counts: { QUEUED: 1 }, updatedAt: Date.UTC(2026, 9, 21), lastCompletedAt: null, nextRetryAt: Date.UTC(2026, 9, 21, 12), lastError: 'Temporary database failure', failedJobIds: [], attentionCount: 0, truncated: false },
+      },
+    }))
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue({ retried: 1 })
+    renderPage()
+    expect(await screen.findByRole('heading', { name: /sync complete.*library is ready/i })).toBeInTheDocument()
+    const catalog = screen.getByRole('region', { name: 'Theme catalog matching' })
+    expect(within(catalog).getByText('1 failed · 664 complete')).toBeInTheDocument()
+    expect(within(catalog).getByText(/2 catalog items have no matching metadata/i)).toBeInTheDocument()
+    expect(screen.getByText(/automatic retry scheduled/i)).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Sync failed' })).not.toBeInTheDocument()
+    await userEvent.setup().click(within(catalog).getByRole('button', { name: /retry theme catalog matching/i }))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/v1/sync/stages/catalog/retry', {}))
+  })
+
+  it('opens a first-time library once import completes while mapping continues', async () => {
+    const auth = makeAuth({ firstSync: { status: 'syncing', mode: 'FULL', syncMode: 'FULL', isNewUser: true } })
+    mockedUseAuth.mockReturnValue(auth)
+    mockStatus(makeStatus({ state: 'RUNNING', phase: 'MAPPING_THEMES', libraryState: 'DONE' }))
+    renderPage()
+    expect(await screen.findByText('Library home')).toBeInTheDocument()
+    expect(auth.markInitialSyncReady).toHaveBeenCalledTimes(1)
+  })
   it('gates first-sync controls and shows Full progress until the server reports completion', async () => {
     const auth = makeAuth({
       firstSync: { status: 'syncing', mode: 'FULL', syncMode: 'FULL', isNewUser: true },

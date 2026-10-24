@@ -84,7 +84,7 @@ describe.skipIf(!adminDatabaseUrl)("ready-only listener music catalog (PostgreSQ
     await withDatabase(async (pool) => {
       await seedCatalog(pool);
       const service = new DrizzleClientApiService(drizzle(pool), queue, undefined, undefined, true);
-      const mediaCursor = Date.now();
+      const mediaCursor = await databaseCursor(pool);
       await tick();
       await pool.query(`
         INSERT INTO media_files (kind,ref_id,variant,origin_url,state,file_path,byte_size)
@@ -100,7 +100,7 @@ describe.skipIf(!adminDatabaseUrl)("ready-only listener music catalog (PostgreSQ
         video: { url: "https://example.invalid/video-new.webm" },
       });
 
-      const mappingCursor = Date.now();
+      const mappingCursor = await databaseCursor(pool);
       await tick();
       await pool.query("INSERT INTO library_entries (user_id,kitsu_id,watching_status) VALUES ('user-1','kitsu-2','current')");
       const mappingChanges = await service.getChanges("user-1", mappingCursor);
@@ -114,7 +114,7 @@ describe.skipIf(!adminDatabaseUrl)("ready-only listener music catalog (PostgreSQ
     await withDatabase(async (pool) => {
       await seedCatalog(pool);
       const service = new DrizzleClientApiService(drizzle(pool), queue, undefined, undefined, true);
-      const cursor = Date.now();
+      const cursor = await databaseCursor(pool);
       await tick();
       await pool.query(`
         INSERT INTO media_files (kind,ref_id,variant,origin_url,state,file_path,byte_size,content_type,source_file_name) VALUES
@@ -187,6 +187,14 @@ async function seedCatalog(pool: Pool): Promise<void> {
 
 async function tick(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 5));
+}
+
+/** Fixture timestamps use PostgreSQL defaults; remote test DBs can have clock skew. */
+async function databaseCursor(pool: Pool): Promise<number> {
+  const result = await pool.query<{ cursor: string }>(
+    "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint AS cursor",
+  );
+  return Number(result.rows[0]!.cursor);
 }
 
 async function withDatabase(run: (pool: Pool) => Promise<void>): Promise<void> {

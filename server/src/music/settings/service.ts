@@ -1,7 +1,7 @@
 import type { JobQueue } from "../../jobs/jobQueue.js";
-import { JobPriority } from "../../jobs/types.js";
+import { DURABLE_MAX_ATTEMPTS, JobPriority } from "../../jobs/types.js";
 import type { MusicRequestSource } from "../requests/types.js";
-import type { MusicSearchMode, MusicSearchSettingsDto, MusicSearchSettingsRecord, MusicSearchSettingsRepository } from "./types.js";
+import type { EligibleAnime, MusicSearchMode, MusicSearchSettingsDto, MusicSearchSettingsRecord, MusicSearchSettingsRepository } from "./types.js";
 
 export type { MusicSearchMode } from "./types.js";
 
@@ -22,33 +22,24 @@ export class MusicSearchPolicyService {
 
   async updateMode(mode: MusicSearchMode): Promise<MusicSearchSettingsDto> {
     const updated = await this.deps.repo.setMode(mode);
-    await this.enqueueReconciliation();
+    await this.enqueueReconciliationWithKey(JobPriority.HIGH, "RECONCILE_MUSIC_SEARCH_POLICY", true);
     return toDto(updated);
   }
 
-  async enqueueReconciliation(priority: number = JobPriority.MAINTENANCE): Promise<boolean> {
+  async enqueueReconciliation(priority: number = JobPriority.HIGH): Promise<boolean> {
     return (await this.enqueueReconciliationWithKey(priority, "RECONCILE_MUSIC_SEARCH_POLICY")) !== null;
   }
 
   /** Queue a library-import follow-up independently of the periodic scan. */
   async enqueueImportReconciliation(): Promise<boolean> {
-    const importKey = "RECONCILE_MUSIC_SEARCH_POLICY:IMPORT";
-    const queued = await this.enqueueReconciliationWithKey(
-      JobPriority.NORMAL,
-      importKey,
-    );
-    if (queued === null) return false;
-
-    // A same-key enqueue returns the RUNNING record while a worker is already
-    // scanning. Preserve one bounded follow-up so an import that completes
-    // during that scan is not lost to queue deduplication.
-    if (queued.state === "RUNNING") {
-      await this.enqueueReconciliationWithKey(JobPriority.NORMAL, `${importKey}:FOLLOWUP`);
-    }
-    return true;
+    return (await this.enqueueReconciliationWithKey(
+      JobPriority.HIGH,
+      "RECONCILE_MUSIC_SEARCH_POLICY:IMPORT",
+      true,
+    )) !== null;
   }
 
-  private async enqueueReconciliationWithKey(priority: number, dedupeKey: string) {
+  private async enqueueReconciliationWithKey(priority: number, dedupeKey: string, rerunIfRunning = false) {
     // Manual mode intentionally leaves the queue quiet. This method is also
     // called from library mapping hooks, so creating a no-op reconciliation
     // job for every mapped anime would add durable queue churn without ever
@@ -59,7 +50,9 @@ export class MusicSearchPolicyService {
       type: "RECONCILE_MUSIC_SEARCH_POLICY",
       priority,
       dedupeKey,
-      maxAttempts: 5,
+      maxAttempts: DURABLE_MAX_ATTEMPTS,
+      preserveRetryState: true,
+      rerunIfRunning,
     });
   }
 
@@ -67,8 +60,33 @@ export class MusicSearchPolicyService {
     const { mode } = await this.deps.repo.getMode();
     if (mode === "MANUAL") return { mode, queued: 0 };
     const eligible = await this.deps.repo.listEligibleAnime(mode);
-    for (const anime of eligible) await this.deps.requests.trigger(anime.userId, anime.kitsuId, "AUTOMATIC");
+    // Each anime owns its retry state. A malformed request or provider failure
+    // cannot repeatedly starve the rest of the policy's eligible anime.
+    const outcomes = await Promise.allSettled(eligible.map((anime) => this.deps.queue.enqueue({
+      type: "RECONCILE_MUSIC_SEARCH_POLICY",
+      // Planning persists the request and queues provider work; it performs
+      // no provider HTTP or media I/O and must not wait behind catalog jobs.
+      priority: JobPriority.HIGH,
+      payload: { userId: anime.userId, kitsuId: anime.kitsuId },
+      dedupeKey: `RECONCILE_MUSIC_SEARCH_POLICY:ANIME:${anime.userId}:${anime.kitsuId}`,
+      maxAttempts: DURABLE_MAX_ATTEMPTS,
+      preserveRetryState: true,
+    })));
+    const failures = outcomes.flatMap((outcome, index) => outcome.status === "rejected"
+      ? [new Error(`Could not queue automatic music for Kitsu ${eligible[index]!.kitsuId}: ${String(outcome.reason)}`)] : []);
+    if (failures.length > 0) throw new AggregateError(failures, failures.map((error) => error.message).join("; "));
     return { mode, queued: eligible.length };
+  }
+
+  async reconcileAnime(anime: EligibleAnime): Promise<void> {
+    // Policy membership can change while this job is backing off. Recheck
+    // exclusions and mode before any acquisition, retaining existing request
+    // items so retries can replay their persisted batches idempotently.
+    const { mode } = await this.deps.repo.getMode();
+    if (mode === "MANUAL") return;
+    const eligible = await this.deps.repo.listEligibleAnime(mode, anime);
+    if (!eligible.some((entry) => entry.userId === anime.userId && entry.kitsuId === anime.kitsuId)) return;
+    await this.deps.requests.trigger(anime.userId, anime.kitsuId, "AUTOMATIC");
   }
 }
 

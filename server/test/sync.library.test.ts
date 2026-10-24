@@ -5,6 +5,7 @@ import type { KitsuAnimeEntry, KitsuGenre } from "../src/kitsu/types.js";
 import { LibrarySyncPipeline } from "../src/sync/librarySyncPipeline.js";
 import type { LibraryEntrySyncState } from "../src/sync/types.js";
 import { FakeJobRepository } from "./helpers/fakeJobRepository.js";
+import { mapThemesDedupeKey } from "../src/sync/syncJobKeys.js";
 import { FakeTime } from "./helpers/fakeTime.js";
 
 function entry(id: string, overrides: Partial<KitsuAnimeEntry> = {}): KitsuAnimeEntry {
@@ -109,7 +110,7 @@ class SyncStateFakeRepo extends FakeSyncRepo {
 }
 
 describe("LibrarySyncPipeline Kitsu sync", () => {
-  it("full sync writes catalog/library/genres, tombstones missing rows, and enqueues follow-up jobs", async () => {
+  it("full sync imports the library and queues independent catalog and playlist stages", async () => {
     const time = new FakeTime(new Date("2026-06-13T00:00:00.000Z").getTime());
     const repo = new FakeSyncRepo();
     const queue = new JobQueue(new FakeJobRepository(() => new Date(time.now())), {
@@ -142,18 +143,17 @@ describe("LibrarySyncPipeline Kitsu sync", () => {
     expect(repo.upsertedAnime.map((anime) => anime.id)).toEqual(["1", "2"]);
     expect(repo.upsertedLibrary.map((anime) => anime.id)).toEqual(["1", "2"]);
     expect(repo.tombstones).toEqual([["1", "2"]]);
-    expect(repo.genres.get("1")).toEqual([
-      { slug: "action", displayName: "Action", source: "category" },
-    ]);
+    expect(repo.genres.size).toBe(0);
     expect(repo.timestampUpdates.at(-1)).toEqual({
       lastSyncAt: new Date(time.now()),
       lastStatusSyncAt: new Date(time.now()),
     });
-    expect(repo.autoPlaylistRefreshes).toEqual(["u1"]);
+    expect(repo.autoPlaylistRefreshes).toEqual([]);
 
     const jobs = await queue.list("QUEUED");
     expect(jobs.map((queued) => [queued.type, queued.payload, queued.dedupeKey])).toEqual([
-      ["MAP_THEMES", { kitsuIds: ["1", "2"], userId: "u1" }, "MAP_THEMES:u1:1,2"],
+      ["MAP_THEMES", { kitsuIds: ["1"], userId: "u1", hydrateCatalog: true }, mapThemesDedupeKey("u1", ["1"])],
+      ["MAP_THEMES", { kitsuIds: ["2"], userId: "u1", hydrateCatalog: true }, mapThemesDedupeKey("u1", ["2"])],
       ["AUTO_PLAYLIST_REFRESH", { userId: "u1" }, "AUTO_PLAYLIST_REFRESH:u1"],
     ]);
     expect((await queue.list()).find((queued) => queued.id === job.id)?.progress).toMatchObject({
@@ -162,7 +162,7 @@ describe("LibrarySyncPipeline Kitsu sync", () => {
     });
   });
 
-  it("delta sync uses lastStatusSyncAt, does not tombstone, and refreshes auto playlists even when unchanged", async () => {
+  it("delta sync uses lastStatusSyncAt and defers playlist materialization", async () => {
     const repo = new FakeSyncRepo();
     repo.user.lastStatusSyncAt = new Date("2026-06-12T00:00:00.000Z");
     const queue = new JobQueue(new FakeJobRepository());
@@ -192,7 +192,7 @@ describe("LibrarySyncPipeline Kitsu sync", () => {
     expect(calls).toEqual(["2026-06-12T00:00:00.000Z"]);
     expect(repo.tombstones).toEqual([]);
     expect(repo.upsertedLibrary).toEqual([]);
-    expect(repo.autoPlaylistRefreshes).toEqual(["u1"]);
+    expect(repo.autoPlaylistRefreshes).toEqual([]);
   });
 
   it("notifies automatic music policy when an already-mapped library row changes", async () => {
@@ -220,6 +220,10 @@ describe("LibrarySyncPipeline Kitsu sync", () => {
 
     await pipeline.runKitsuSync({ userId: "u1", full: false, job });
 
+    expect(onLibraryChanged).not.toHaveBeenCalled();
+    await pipeline.runAutoPlaylistRefresh({ userId: "u1", job });
+    expect((await queue.list("QUEUED")).some((item) => item.type === "MUSIC_POLICY_SYNC")).toBe(true);
+    await pipeline.runMusicPolicySync({ userId: "u1", job });
     expect(onLibraryChanged).toHaveBeenCalledWith("u1");
   });
 
@@ -255,7 +259,7 @@ describe("LibrarySyncPipeline Kitsu sync", () => {
     expect(repo.upsertedLibrary.map((item) => item.id)).toEqual(["2"]);
     expect(repo.tombstones).toEqual([["1", "2"]]);
     expect(repo.genres.has("1")).toBe(false);
-    expect(repo.genres.has("2")).toBe(true);
+    expect(repo.genres.has("2")).toBe(false);
     expect((await queue.list("QUEUED")).map((item) => item.type)).toEqual([
       "MAP_THEMES",
       "BACKFILL_SCAN",

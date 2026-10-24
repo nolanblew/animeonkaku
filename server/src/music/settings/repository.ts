@@ -21,7 +21,7 @@ export class PgMusicSearchSettingsRepository implements MusicSearchSettingsRepos
     return { mode: row.mode, updatedAt: row.updated_at };
   }
 
-  async listEligibleAnime(mode: Exclude<MusicSearchMode, "MANUAL">): Promise<EligibleAnime[]> {
+  async listEligibleAnime(mode: Exclude<MusicSearchMode, "MANUAL">, target?: EligibleAnime): Promise<EligibleAnime[]> {
     const result = await this.pool.query<{ user_id: string; kitsu_id: string }>(`
       WITH song_anime AS (
         SELECT tfs.song_id,t.animethemes_anime_id
@@ -41,12 +41,12 @@ export class PgMusicSearchSettingsRepository implements MusicSearchSettingsRepos
         SELECT p.user_id,t.animethemes_anime_id
           FROM playlists p JOIN playlist_entries pe ON pe.playlist_id=p.id AND pe.item_type='THEME'
           JOIN themes t ON t.id=pe.item_id AND t.deleted_at IS NULL
-         WHERE $1='PLAYLISTS' AND p.deleted_at IS NULL AND p.is_auto=false
+         WHERE $1='PLAYLISTS' AND p.deleted_at IS NULL AND p.is_auto=false AND p.exclude_from_music_search=false
         UNION
         SELECT p.user_id,sa.animethemes_anime_id
           FROM playlists p JOIN playlist_entries pe ON pe.playlist_id=p.id AND pe.item_type='SONG'
           JOIN song_anime sa ON sa.song_id=pe.item_id
-         WHERE $1='PLAYLISTS' AND p.deleted_at IS NULL AND p.is_auto=false
+         WHERE $1='PLAYLISTS' AND p.deleted_at IS NULL AND p.is_auto=false AND p.exclude_from_music_search=false
         UNION
         SELECT le.user_id,ka.animethemes_anime_id
           FROM library_entries le JOIN kitsu_anime ka ON ka.kitsu_id=le.kitsu_id
@@ -64,11 +64,19 @@ export class PgMusicSearchSettingsRepository implements MusicSearchSettingsRepos
       )
       SELECT DISTINCT ON (c.animethemes_anime_id) c.user_id,c.kitsu_id
         FROM candidates c
-       WHERE NOT EXISTS (SELECT 1 FROM anime_music_requests r WHERE r.animethemes_anime_id=c.animethemes_anime_id)
+       WHERE ($2::text IS NULL OR (c.user_id=$2 AND c.kitsu_id=$3))
+         AND (($2::text IS NOT NULL AND EXISTS (
+               SELECT 1 FROM anime_music_requests active_request
+                WHERE active_request.animethemes_anime_id=c.animethemes_anime_id
+                  AND active_request.completed_at IS NULL
+                  AND active_request.scope IN ('FULL_SONGS','LEGACY_ALL')
+             ))
+          OR NOT EXISTS (SELECT 1 FROM anime_music_requests r WHERE r.animethemes_anime_id=c.animethemes_anime_id)
           OR EXISTS (
             SELECT 1 FROM themes current_theme
              WHERE current_theme.animethemes_anime_id=c.animethemes_anime_id
                AND current_theme.deleted_at IS NULL AND current_theme.animethemes_song_id IS NOT NULL
+               AND upper(trim(current_theme.theme_type)) ~ '^(OP|ED)([1-9][0-9]?)?$'
                AND NOT EXISTS (
                  SELECT 1 FROM anime_music_request_items requested_item
                  JOIN anime_music_request_batches requested_batch ON requested_batch.id=requested_item.batch_id
@@ -76,8 +84,8 @@ export class PgMusicSearchSettingsRepository implements MusicSearchSettingsRepos
                   WHERE requested.animethemes_anime_id=c.animethemes_anime_id
                     AND requested_item.theme_id=current_theme.id
                )
-          )
-       ORDER BY c.animethemes_anime_id,c.user_id,c.kitsu_id`, [mode]);
+          ))
+       ORDER BY c.animethemes_anime_id,c.user_id,c.kitsu_id`, [mode, target?.userId ?? null, target?.kitsuId ?? null]);
     return result.rows.map((row) => ({ userId: row.user_id, kitsuId: row.kitsu_id }));
   }
 }

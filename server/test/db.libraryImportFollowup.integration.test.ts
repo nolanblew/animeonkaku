@@ -2,14 +2,15 @@ import { Client, Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { describe, expect, it, vi } from "vitest";
 import { runMigrations } from "../src/db/migrate.js";
-import { JobPriority, JobQueue } from "../src/jobs/index.js";
+import { JobPriority, JobQueue, JobWorker, PgJobRepository } from "../src/jobs/index.js";
 import { MusicSearchPolicyService } from "../src/music/settings/service.js";
 import { PgMusicSearchSettingsRepository } from "../src/music/settings/repository.js";
 import { DrizzleSyncRepository } from "../src/sync/drizzleSyncRepository.js";
 import { LibrarySyncPipeline } from "../src/sync/librarySyncPipeline.js";
+import { createSyncJobHandlers } from "../src/sync/jobHandlers.js";
+import { createMusicSearchPolicyHandlers } from "../src/music/settings/handlers.js";
 import type { AnimeThemeEntry } from "../src/animethemes/types.js";
 import type { KitsuAnimeEntry } from "../src/kitsu/types.js";
-import { FakeJobRepository } from "./helpers/fakeJobRepository.js";
 
 const adminDatabaseUrl = process.env.MIGRATION_TEST_DATABASE_URL;
 
@@ -37,7 +38,9 @@ describe.skipIf(!adminDatabaseUrl)("library import follow-ups (PostgreSQL)", () 
       const syncRepo = new DrizzleSyncRepository(db);
       await syncRepo.upsertLibraryEntries("u1", [libraryEntry("bookworm-4", "current")]);
 
-      const queue = new JobQueue(new FakeJobRepository());
+      // The pipeline writes transactional follow-up intents directly to
+      // PostgreSQL, so execute the same persisted queue used in production.
+      const queue = new JobQueue(new PgJobRepository(pool));
       const settingsRepo = new PgMusicSearchSettingsRepository(pool);
       await settingsRepo.setMode("PLAYLISTS");
       const trigger = vi.fn().mockResolvedValue(undefined);
@@ -47,9 +50,14 @@ describe.skipIf(!adminDatabaseUrl)("library import follow-ups (PostgreSQL)", () 
         requests: { trigger },
       });
       const mappedTheme = theme();
+      let upstreamStatus: KitsuAnimeEntry["watchingStatus"] = "current";
       const pipeline = new LibrarySyncPipeline({
         repo: syncRepo,
-        kitsu: {} as never,
+        kitsu: {
+          getLibraryEntries: async () => [],
+          getLibraryEntriesUpdatedSince: async () => [libraryEntry("bookworm-4", upstreamStatus)],
+          getAnimeCategories: async (ids) => new Map(ids.map((id) => [id, []])),
+        },
         animeThemes: {
           fetchByKitsuIds: async () => ({
             mappings: new Map([["bookworm-4", 4001]]),
@@ -58,8 +66,14 @@ describe.skipIf(!adminDatabaseUrl)("library import follow-ups (PostgreSQL)", () 
         },
         queue,
         onLibraryChanged: async () => {
-          await musicPolicy.enqueueImportReconciliation();
+          await musicPolicy.reconcile();
         },
+      });
+      const worker = new JobWorker(queue, {
+        handlers: { ...createSyncJobHandlers(pipeline), ...createMusicSearchPolicyHandlers(musicPolicy) },
+        // Media downloads are independent maintenance work outside this test.
+        maxPriority: JobPriority.NORMAL,
+        jitterMs: () => 0,
       });
 
       const mapJob = await queue.enqueue({
@@ -68,13 +82,12 @@ describe.skipIf(!adminDatabaseUrl)("library import follow-ups (PostgreSQL)", () 
         payload: { kitsuIds: ["bookworm-4"], userId: "u1" },
         dedupeKey: "MAP_THEMES:u1:bookworm-4",
       });
-      const claimed = (await queue.claimNext())!;
-      expect(claimed.id).toBe(mapJob.id);
-      await pipeline.runMapThemes({
-        kitsuIds: ["bookworm-4"],
-        userId: "u1",
-        job: claimed,
-      });
+      expect(await worker.runOnce()).toBe(true); // MAP_THEMES commits its outbox.
+      expect((await queue.findByDedupeKey(mapJob.dedupeKey!))?.state).toBe("DONE");
+      expect((await pool.query("SELECT item_id FROM playlist_entries WHERE playlist_id=41")).rows).toEqual([]);
+      expect(trigger).not.toHaveBeenCalled();
+      expect((await queue.list("QUEUED")).some((job) => job.type === "AUTO_PLAYLIST_REFRESH")).toBe(true);
+      expect(await worker.runOnce()).toBe(true); // Refresh the materialized playlist.
 
       const autoEntries = await pool.query<{ item_id: number }>(
         "SELECT item_id FROM playlist_entries WHERE playlist_id=41 ORDER BY order_index",
@@ -85,33 +98,31 @@ describe.skipIf(!adminDatabaseUrl)("library import follow-ups (PostgreSQL)", () 
       expect(autoEntries.rows.map((row) => Number(row.item_id))).toEqual([400101]);
       expect(snapshotEntries.rows.map((row) => Number(row.item_id))).toEqual([999]);
 
+      expect((await queue.list("QUEUED")).some((job) => job.type === "MUSIC_POLICY_SYNC")).toBe(true);
+      expect(await worker.runOnce()).toBe(true); // Persist eligible per-anime requests.
       expect((await queue.list("QUEUED")).some((job) => job.type === "RECONCILE_MUSIC_SEARCH_POLICY")).toBe(true);
-      await expect(musicPolicy.reconcile()).resolves.toMatchObject({ mode: "PLAYLISTS", queued: 1 });
+      expect(trigger).not.toHaveBeenCalled();
+      expect(await worker.runOnce()).toBe(true); // Execute the independently retryable request.
       expect(trigger).toHaveBeenCalledWith("u1", "bookworm-4", "AUTOMATIC");
 
       // A status-only sync for an already-mapped anime must re-materialize
       // auto-update playlists and remove the theme when it no longer matches.
       // Snapshot playlists remain untouched by the normal refresh path.
-      const statusPipeline = new LibrarySyncPipeline({
-        repo: syncRepo,
-        kitsu: {
-          getLibraryEntries: async () => [],
-          getLibraryEntriesUpdatedSince: async () => [libraryEntry("bookworm-4", "completed")],
-          getAnimeCategories: async () => new Map(),
-        },
-        animeThemes: {},
-        queue,
-        onLibraryChanged: async () => {
-          await musicPolicy.enqueueImportReconciliation();
-        },
-      });
+      upstreamStatus = "completed";
       const statusJob = await queue.enqueue({
         type: "KITSU_DELTA_SYNC",
         priority: JobPriority.NORMAL,
         payload: { userId: "u1", full: false },
         dedupeKey: "KITSU_DELTA_SYNC:u1",
       });
-      await statusPipeline.runKitsuSync({ userId: "u1", full: false, job: statusJob });
+      // Drive import, playlist and policy through durable handlers too. A
+      // status edit must remove policy eligibility before another acquisition.
+      for (let remaining = 20; remaining > 0; remaining -= 1) {
+        if (!(await worker.runOnce())) break;
+        if (remaining === 1) throw new Error("Follow-up queue did not drain");
+      }
+      expect((await queue.findByDedupeKey(statusJob.dedupeKey!))?.state).toBe("DONE");
+      expect((await queue.list()).filter((job) => job.priority <= JobPriority.NORMAL).every((job) => job.state === "DONE")).toBe(true);
 
       const removedAutoEntries = await pool.query<{ item_id: number }>(
         "SELECT item_id FROM playlist_entries WHERE playlist_id=41 ORDER BY order_index",
@@ -122,6 +133,7 @@ describe.skipIf(!adminDatabaseUrl)("library import follow-ups (PostgreSQL)", () 
       expect(removedAutoEntries.rows).toEqual([]);
       expect(preservedSnapshotEntries.rows.map((row) => Number(row.item_id))).toEqual([999]);
       await expect(musicPolicy.reconcile()).resolves.toMatchObject({ mode: "PLAYLISTS", queued: 0 });
+      expect(trigger).toHaveBeenCalledTimes(1);
     });
   }, 30_000);
 });

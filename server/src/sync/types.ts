@@ -38,6 +38,11 @@ export interface LibraryEntrySyncState {
 }
 
 export interface SyncRepository {
+  /** Commit library rows, removals, watermark and downstream job intents together. */
+  commitLibraryImport?(input: LibraryImportCommit): Promise<void>;
+  /** Commit mapping/category results and playlist refresh intents together. */
+  commitCatalogResult?(input: CatalogResultCommit): Promise<void>;
+  getCatalogWorkIds?(userId: string, checkedBefore: Date): Promise<string[]>;
   getUserSyncAuth(userId: string): Promise<SyncUserAuth | null>;
   upsertKitsuAnime(entries: KitsuAnimeEntry[]): Promise<void>;
   upsertLibraryEntries(userId: string, entries: KitsuAnimeEntry[]): Promise<void>;
@@ -69,6 +74,24 @@ export interface SyncRepository {
   deactivateInactiveUsers?(activeAfter: Date): Promise<string[]>;
 }
 
+export interface LibraryImportCommit {
+  userId: string;
+  entries: KitsuAnimeEntry[];
+  activeKitsuIds?: string[];
+  forceCatalog: boolean;
+  startedAt: Date;
+  completedAt: Date;
+}
+
+export interface CatalogResultCommit {
+  userId?: string | undefined;
+  kitsuIds: string[];
+  themes: AnimeThemeEntry[];
+  mappings: Map<string, number>;
+  genres: Map<string, KitsuGenre[]>;
+  checkedAt: Date;
+}
+
 export interface KitsuClientLike
   extends Pick<KitsuClient, "getLibraryEntries" | "getLibraryEntriesUpdatedSince" | "getAnimeCategories"> {
   getAnimeMappings?: KitsuClient["getAnimeMappings"];
@@ -95,6 +118,7 @@ export interface MapThemesInput {
   kitsuIds: string[];
   userId?: string | undefined;
   job: JobRecord;
+  hydrateCatalog?: boolean;
 }
 
 export interface LibrarySyncPipelineDeps {

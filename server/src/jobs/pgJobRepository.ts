@@ -1,4 +1,6 @@
 import type pg from "pg";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { durableJobInsert } from "./durableJobSql.js";
 import type { EnqueueJobInput, JobRecord, JobRepository, JobState, JobType, RetryJobInput } from "./types.js";
 
 interface JobRow {
@@ -38,6 +40,11 @@ export class PgJobRepository implements JobRepository {
   }
 
   async enqueue(input: EnqueueJobInput): Promise<JobRecord> {
+    if (input.preserveRetryState) {
+      const query = new PgDialect().sqlToQuery(durableJobInsert(input));
+      const result = await this.pool.query<JobRow>(query.sql, query.params);
+      return toJobRecord(result.rows[0]!);
+    }
     const result = await this.pool.query<JobRow>(
       `
         INSERT INTO jobs (type, priority, payload, dedupe_key, max_attempts, next_run_at)
@@ -132,46 +139,21 @@ export class PgJobRepository implements JobRepository {
 
   async complete(id: number): Promise<void> {
     await this.pool.query(
-      `UPDATE jobs
-       SET state = CASE
-             WHEN state = 'RUNNING' AND type IN ('KITSU_FULL_SYNC', 'KITSU_DELTA_SYNC')
-               AND COALESCE(payload->>'catalogRefreshPending', 'false') = 'true'
-               THEN 'QUEUED'
-             ELSE 'DONE'
-           END,
-           type = CASE
-             WHEN state = 'RUNNING' AND type IN ('KITSU_FULL_SYNC', 'KITSU_DELTA_SYNC')
-               AND COALESCE(payload->>'catalogRefreshPending', 'false') = 'true'
-               THEN 'KITSU_FULL_SYNC'
-             ELSE type
-           END,
-           payload = CASE
-             WHEN state = 'RUNNING' AND type IN ('KITSU_FULL_SYNC', 'KITSU_DELTA_SYNC')
-               AND COALESCE(payload->>'catalogRefreshPending', 'false') = 'true'
-               THEN payload - 'reconcileOnly' - 'catalogRefreshPending'
-             ELSE payload
-           END,
-           progress = CASE
-             WHEN state = 'RUNNING' AND type IN ('KITSU_FULL_SYNC', 'KITSU_DELTA_SYNC')
-               AND COALESCE(payload->>'catalogRefreshPending', 'false') = 'true'
-               THEN '{}'::jsonb
-             ELSE progress
-           END,
-           attempts = CASE
-             WHEN state = 'RUNNING' AND type IN ('KITSU_FULL_SYNC', 'KITSU_DELTA_SYNC')
-               AND COALESCE(payload->>'catalogRefreshPending', 'false') = 'true'
-               THEN 0
-             ELSE attempts
-           END,
-           next_run_at = CASE
-             WHEN state = 'RUNNING' AND type IN ('KITSU_FULL_SYNC', 'KITSU_DELTA_SYNC')
-               AND COALESCE(payload->>'catalogRefreshPending', 'false') = 'true'
-               THEN now()
-             ELSE next_run_at
-           END,
-           updated_at = now()
-       WHERE id = $1`,
-      [id],
+      `UPDATE jobs SET
+        state = CASE WHEN state = 'RUNNING' AND (
+          payload->>'_rerunRequested' = 'true' OR payload->>'catalogRefreshPending' = 'true'
+        ) THEN 'QUEUED' ELSE 'DONE' END,
+        type = CASE WHEN payload->>'catalogRefreshPending' = 'true'
+          AND type IN ('KITSU_FULL_SYNC', 'KITSU_DELTA_SYNC') THEN 'KITSU_FULL_SYNC' ELSE type END,
+        payload = CASE WHEN payload->>'_rerunRequested' = 'true' THEN payload->'_rerunPayload'
+          WHEN payload->>'catalogRefreshPending' = 'true' THEN payload - 'reconcileOnly' - 'catalogRefreshPending'
+          ELSE payload END,
+        attempts = CASE WHEN payload->>'_rerunRequested' = 'true' OR payload->>'catalogRefreshPending' = 'true' THEN 0 ELSE attempts END,
+        progress = CASE WHEN payload->>'_rerunRequested' = 'true' OR payload->>'catalogRefreshPending' = 'true' THEN '{}'::jsonb ELSE progress END,
+        last_error = CASE WHEN payload->>'_rerunRequested' = 'true' OR payload->>'catalogRefreshPending' = 'true' THEN NULL ELSE last_error END,
+        next_run_at = CASE WHEN payload->>'_rerunRequested' = 'true' OR payload->>'catalogRefreshPending' = 'true' THEN now() ELSE next_run_at END,
+        updated_at = now()
+      WHERE id = $1`, [id],
     );
   }
 
@@ -246,6 +228,14 @@ export class PgJobRepository implements JobRepository {
         RETURNING *
       `,
       [id, now],
+    );
+    return result.rows[0] ? toJobRecord(result.rows[0]) : null;
+  }
+
+  async retryFailed(id: number, now: Date): Promise<JobRecord | null> {
+    const result = await this.pool.query<JobRow>(
+      `UPDATE jobs SET state = 'QUEUED', attempts = 0, next_run_at = $2,
+        last_error = NULL, updated_at = now() WHERE id = $1 AND state = 'FAILED' RETURNING *`, [id, now],
     );
     return result.rows[0] ? toJobRecord(result.rows[0]) : null;
   }

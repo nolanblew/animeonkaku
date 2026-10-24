@@ -5,6 +5,9 @@ export const JobPriority = {
   MAINTENANCE: 30,
 } as const;
 
+/** Durable reconciliation keeps retrying with the queue's capped 30-minute backoff. */
+export const DURABLE_MAX_ATTEMPTS = 1_000_000;
+
 export type JobPriorityValue = (typeof JobPriority)[keyof typeof JobPriority];
 
 export type JobState = "QUEUED" | "RUNNING" | "DONE" | "FAILED" | "CANCELLED";
@@ -18,6 +21,7 @@ export type JobType =
   | "ANALYZE_AUDIO_LOUDNESS"
   | "BACKFILL_SCAN"
   | "AUTO_PLAYLIST_REFRESH"
+  | "MUSIC_POLICY_SYNC"
   | "MUSIC_CATALOG_SCAN"
   | "DISCOVER_ANIME_MUSIC"
   | "RECONCILE_MUSIC_ACQUISITION"
@@ -54,6 +58,10 @@ export interface EnqueueJobInput {
   dedupeKey?: string | null;
   maxAttempts: number;
   nextRunAt: Date;
+  /** Automated requests retain an existing retry's error, attempts and deadline. */
+  preserveRetryState?: boolean;
+  /** A real change observed while executing requires another pass after completion. */
+  rerunIfRunning?: boolean;
 }
 
 export interface RetryJobInput {
@@ -80,6 +88,7 @@ export interface JobRepository {
   /** Delete a bounded batch of old completed/cancelled work during maintenance. */
   pruneTerminalJobs(olderThan: Date, limit: number): Promise<number>;
   retry(id: number, now: Date): Promise<JobRecord | null>;
+  retryFailed?(id: number, now: Date): Promise<JobRecord | null>;
   updateProgress(id: number, progress: Record<string, unknown>): Promise<void>;
   hasQueuedPriorityAtOrBelow(priority: number): Promise<boolean>;
 }
