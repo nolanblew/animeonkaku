@@ -88,6 +88,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        mediaControllerManager.setAppForeground(true)
         AppUpdateForegroundState.isForeground = true
         if (BuildConfig.UPDATER_ENABLED && appUpdateNotifier.needsNotificationPermissionRequest()) {
             appUpdateNotifier.markNotificationPermissionRequested()
@@ -114,6 +115,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         mediaControllerManager.schedulePlaybackStatePersistenceIfNeeded()
+        mediaControllerManager.setAppForeground(false)
         super.onStop()
         AppUpdateForegroundState.isForeground = false
         isForeground = false

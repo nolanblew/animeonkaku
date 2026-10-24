@@ -20,10 +20,12 @@ import com.takeya.animeongaku.R
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -129,11 +131,13 @@ class MediaPlaybackService : MediaSessionService() {
                                 emptyList(), 0, C.TIME_UNSET
                             )
                             val playbackItems = mediaControllerManager.prepareForSessionResumption(selected)
+                            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                            val selectedPosition = reconnectPlaybackProgress(nowPlayingManager.state.value, selected).positionMs
                             val selectedMediaId = playbackItems.items.getOrNull(playbackItems.currentIndex)?.mediaId
                             val position = if (player.currentMediaItem?.mediaId == selectedMediaId) {
-                                player.currentPosition.takeIf { it > 0 } ?: selected.positionMs
+                                player.currentPosition.takeIf { it > 0 } ?: selectedPosition
                             } else {
-                                selected.positionMs
+                                selectedPosition
                             }
                             MediaSession.MediaItemsWithStartPosition(
                                 playbackItems.items,
@@ -174,28 +178,39 @@ class MediaPlaybackService : MediaSessionService() {
         // Populate the paused player as soon as the service starts so that metadata and the item
         // which will actually play come from the same current queue entry.
         scope.launch {
-            sessionHydrationMutex.withLock {
-                mediaControllerManager.awaitStartupRestoration()
-                if (player.mediaItemCount > 0) return@withLock
-                val persisted = nowPlayingPersistence.restore()
-                if (player.mediaItemCount > 0) return@withLock
-                val selected = selectSessionHydrationState(
-                    nowPlayingManager.state.value,
-                    persisted
-                ) ?: return@withLock
-                val playbackItems = mediaControllerManager.prepareForSessionResumption(selected)
-                if (playbackItems.items.isEmpty()) return@withLock
-                if (player.mediaItemCount > 0) return@withLock
-                player.setMediaItems(playbackItems.items, playbackItems.currentIndex, selected.positionMs)
-                player.repeatMode = selected.repeatMode
-                player.playWhenReady = false
-                player.prepare()
+            try {
+                sessionHydrationMutex.withLock {
+                    mediaControllerManager.awaitStartupRestoration()
+                    if (player.mediaItemCount > 0) return@withLock
+                    val persisted = nowPlayingPersistence.restore()
+                    if (player.mediaItemCount > 0) return@withLock
+                    val selected = selectSessionHydrationState(
+                        nowPlayingManager.state.value,
+                        persisted
+                    ) ?: return@withLock
+                    val playbackItems = mediaControllerManager.prepareForSessionResumption(selected)
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    if (playbackItems.items.isEmpty()) return@withLock
+                    if (player.mediaItemCount > 0) return@withLock
+                    val progress = reconnectPlaybackProgress(nowPlayingManager.state.value, selected)
+                    player.setMediaItems(playbackItems.items, playbackItems.currentIndex, progress.positionMs)
+                    player.repeatMode = selected.repeatMode
+                    player.playWhenReady = false
+                    player.prepare()
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // Metadata is optional. A transient Room/resolution failure during service startup
+                // must not escape a SupervisorJob's child and terminate the process.
+                Log.w("MediaPlaybackService", "Unable to restore idle playback metadata", error)
             }
         }
 
         val notificationProvider = DefaultMediaNotificationProvider(this)
         notificationProvider.setSmallIcon(R.drawable.ic_notification)
         setMediaNotificationProvider(notificationProvider)
+        mediaControllerManager.setPlaybackServiceAvailable(true)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession = mediaSession
@@ -215,6 +230,7 @@ class MediaPlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        mediaControllerManager.setPlaybackServiceAvailable(false)
         mediaControllerManager.schedulePlaybackStatePersistenceIfNeeded(player)
         scope.cancel()
         mediaSession.release()
