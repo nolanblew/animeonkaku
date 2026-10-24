@@ -51,6 +51,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -116,9 +117,9 @@ class MediaControllerManager @Inject constructor(
     
     // Store restored state that should be applied once controller connects
     private var pendingRestoreState: Pair<RestoredQueueState, Boolean>? = null
-    private var controllerConnectionAttempts = 0
-    private var controllerReconnectJob: Job? = null
+    private var controllerRestoreJob: Job? = null
     private var queueSyncPlayRequested = false
+    private var lastControllerPlayWhenReady = false
     private var lastConsumedPlayRequestGeneration = 0L
     private val playbackStateDirty = AtomicBoolean(false)
     private val playbackStateRevision = AtomicLong(0L)
@@ -143,6 +144,33 @@ class MediaControllerManager @Inject constructor(
     private val _controllerConnectionState = MutableStateFlow(MediaControllerConnectionState())
     val controllerConnectionState: StateFlow<MediaControllerConnectionState> =
         _controllerConnectionState.asStateFlow()
+
+    private val controllerConnection: PlaybackControllerConnection<MediaController> = PlaybackControllerConnection(
+        scope = scope,
+        executor = androidx.core.content.ContextCompat.getMainExecutor(context),
+        connect = {
+            val token = SessionToken(context, ComponentName(context, MediaPlaybackService::class.java))
+            MediaController.Builder(context, token)
+                .setListener(object : MediaController.Listener {
+                    override fun onDisconnected(controller: MediaController) {
+                        controllerConnection.disconnected(
+                            controller, IllegalStateException("Playback service disconnected")
+                        )
+                    }
+                })
+                .buildAsync()
+        },
+        releaseFuture = { MediaController.releaseFuture(it) },
+        release = { it.release() },
+        onConnected = ::onControllerConnected,
+        onDisconnected = ::onControllerDisconnected,
+        onFailure = { error, attempt ->
+            _controllerConnectionState.value = MediaControllerConnectionState(
+                retryAttempt = attempt,
+                errorMessage = error.localizedMessage ?: "Unable to connect playback service"
+            )
+        },
+    )
 
     private var consecutiveErrors = 0
     private val MAX_CONSECUTIVE_ERRORS = 5
@@ -183,6 +211,10 @@ class MediaControllerManager @Inject constructor(
     }
 
     private val playerListener = object : Player.Listener {
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            lastControllerPlayWhenReady = playWhenReady
+        }
+
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             markPlaybackStateDirty()
             _playbackState.value = _playbackState.value.copy(isPlaying = isPlaying)
@@ -411,7 +443,7 @@ class MediaControllerManager @Inject constructor(
     init {
         scope.launch(Dispatchers.Main) {
             awaitStartupRestoration()
-            connectController()
+            controllerConnection.enable()
             startStatePersistence()
         }
         startQueueSync()
@@ -421,84 +453,89 @@ class MediaControllerManager @Inject constructor(
 
     internal suspend fun awaitStartupRestoration() = startupRestoration.await()
 
-    private fun connectController() {
-        val sessionToken = SessionToken(
-            context,
-            ComponentName(context, MediaPlaybackService::class.java)
-        )
-        val controllerListener = object : MediaController.Listener {
-            override fun onDisconnected(disconnectedController: MediaController) {
-                if (controller !== disconnectedController) return
-                val resumeAfterReconnect = runCatching { disconnectedController.playWhenReady }
-                    .getOrDefault(false)
-                runCatching { disconnectedController.removeListener(playerListener) }
-                controller = null
-                _mediaController.value = null
-                _controllerReady.value = false
-                positionPollingActive.value = false
-                lastSyncedVersion = -1L
-                queueSyncPlayRequested = queueSyncPlayRequested || resumeAfterReconnect
-                handleControllerConnectionFailure(
-                    IllegalStateException("Playback service disconnected")
-                )
-            }
-        }
-
-        val future = MediaController.Builder(context, sessionToken)
-            .setListener(controllerListener)
-            .buildAsync()
-        future.addListener(
-            {
-                try {
-                    val ctrl = future.get()
-                    controllerConnectionAttempts = 0
-                    controllerReconnectJob = null
-                    controller = ctrl
-                    _mediaController.value = ctrl
-                    ctrl.addListener(playerListener)
-                    _controllerConnectionState.value = MediaControllerConnectionState(isReady = true)
-
-                    // Do not publish readiness until a pending restore has populated Media3. This
-                    // prevents the queue observer from racing the restore and losing its pause
-                    // state or saved position.
-                    val pendingRestore = pendingRestoreState
-                    if (pendingRestore == null) {
-                        _controllerReady.value = true
-                        updatePlaybackPositionFromController(ctrl)
-                        positionPollingActive.value = ctrl.isPlaying
-                    } else {
-                        pendingRestoreState = null
-                        scope.launch {
-                            try {
-                                restoreFromPersistedState(pendingRestore.first, ctrl, pendingRestore.second)
-                            } finally {
-                                _controllerReady.value = true
-                                updatePlaybackPositionFromController(ctrl)
-                                positionPollingActive.value = ctrl.isPlaying
-                            }
-                        }
-                    }
-                } catch (error: Exception) {
-                    handleControllerConnectionFailure(error)
-                }
-            },
-            androidx.core.content.ContextCompat.getMainExecutor(context)
-        )
+    /** MainActivity may initiate a service; background workers alone only restore metadata. */
+    fun setAppForeground(foreground: Boolean) {
+        controllerConnection.setForeground(foreground)
     }
 
-    private fun handleControllerConnectionFailure(error: Throwable) {
-        _controllerReady.value = false
-        val attempt = controllerConnectionAttempts++
-        _controllerConnectionState.value = MediaControllerConnectionState(
-            isReady = false,
-            retryAttempt = attempt + 1,
-            errorMessage = error.localizedMessage ?: "Unable to connect playback service"
-        )
-        controllerReconnectJob?.cancel()
-        controllerReconnectJob = scope.launch {
-            delay(controllerConnectionRetryDelayMs(failure = error, attempt = attempt))
-            connectController()
+    /** An externally started service may connect its local listener without restarting a stopped one. */
+    internal fun setPlaybackServiceAvailable(available: Boolean) {
+        controllerConnection.setServiceAvailable(available)
+    }
+
+    private fun onControllerConnected(ctrl: MediaController) {
+        controller = ctrl
+        _mediaController.value = ctrl
+        ctrl.addListener(playerListener)
+        // Service metadata hydration can have recorded this version without consuming an explicit
+        // app Play. The first controller sync must still apply any outstanding transport request.
+        lastSyncedVersion = -1L
+        _controllerConnectionState.value = MediaControllerConnectionState(isReady = true)
+
+        // Keep the queue collectors suspended until restoration applies position and paused intent.
+        val pendingRestore = pendingRestoreState
+        val queue = nowPlayingManager.state.value
+        if (shouldAdoptConnectedPlayback(
+                ctrl.currentMediaItem?.mediaId,
+                queue,
+                hasPendingPlayRequest = queueSyncPlayRequested || pendingRestore?.second == true ||
+                    hasUnconsumedPlayRequest(queue.playRequestGeneration, lastConsumedPlayRequestGeneration)
+            )) {
+            // An external controller may have started the service while the app was backgrounded.
+            // Its live item/position/play intent supersede our cold-start snapshot.
+            ctrl.currentMediaItem?.mediaId?.toLongOrNull()?.let { nowPlayingManager.onTrackChangedByQueueId(it) }
+            pendingRestoreState = null
+            queueSyncPlayRequested = false
+            lastConsumedPlayRequestGeneration = nowPlayingManager.state.value.playRequestGeneration
+            publishControllerReady(ctrl)
+        } else if (pendingRestore == null) {
+            publishControllerReady(ctrl)
+        } else {
+            launchControllerRestore(pendingRestore.first, ctrl, pendingRestore.second)
         }
+    }
+
+    private fun onControllerDisconnected(ctrl: MediaController) {
+        controllerRestoreJob?.cancel()
+        controllerRestoreJob = null
+        latestQueueSync.invalidate()
+        // A released MediaController returns defaults. Use the last observed progress instead of
+        // overwriting the saved position with zero while the app waits to return to the foreground.
+        if (pendingRestoreState == null) {
+            val state = nowPlayingManager.state.value
+            val progress = playbackProgressForPersistence(state, _playbackState.value)
+            pendingRestoreState = RestoredQueueState(state, progress.positionMs, progress.repeatMode) to false
+        }
+        queueSyncPlayRequested = queueSyncPlayRequested || lastControllerPlayWhenReady
+        lastControllerPlayWhenReady = false
+        runCatching { ctrl.removeListener(playerListener) }
+        controller = null
+        _mediaController.value = null
+        _controllerReady.value = false
+        positionPollingActive.value = false
+        _playbackState.update { it.copy(isPlaying = false, isBuffering = false) }
+        lastSyncedVersion = -1L
+    }
+
+    private fun publishControllerReady(ctrl: MediaController) {
+        if (controller !== ctrl) return
+        _controllerReady.value = true
+        updatePlaybackPositionFromController(ctrl)
+        lastControllerPlayWhenReady = ctrl.playWhenReady
+        positionPollingActive.value = ctrl.isPlaying
+    }
+
+    private fun launchControllerRestore(state: RestoredQueueState, ctrl: MediaController, autoPlay: Boolean) {
+        controllerRestoreJob?.cancel()
+        controllerRestoreJob = scope.launchPlaybackRestoration(
+            restore = { restoreFromPersistedState(state, ctrl, autoPlay) },
+            isCurrent = { controller === ctrl },
+            onReady = {
+                pendingRestoreState = null
+                publishControllerReady(ctrl)
+            },
+            onFailure = { controllerConnection.disconnected(ctrl, it) },
+        )
     }
 
     private fun startQueueSync() {
@@ -811,62 +848,54 @@ class MediaControllerManager @Inject constructor(
         // Suspend queue collection while restore owns Media3 so the generic structural sync does
         // not turn a deliberately paused restored queue into playback.
         _controllerReady.value = false
+        controllerRestoreJob?.cancel()
+        pendingRestoreState = restoredState to autoPlay
         nowPlayingManager.restoreState(restoredState.nowPlayingState)
         
         val ctrl = controller
-        if (ctrl == null) {
-            // Wait for connect
-            pendingRestoreState = Pair(restoredState, autoPlay)
-        } else {
-            scope.launch {
-                try {
-                    restoreFromPersistedState(restoredState, ctrl, autoPlay)
-                } finally {
-                    _controllerReady.value = true
-                    updatePlaybackPositionFromController(ctrl)
-                    positionPollingActive.value = ctrl.isPlaying
-                }
-            }
+        if (ctrl != null) {
+            launchControllerRestore(restoredState, ctrl, autoPlay)
         }
     }
 
     internal suspend fun prepareForSessionResumption(restoredState: RestoredQueueState): PlaybackMediaItems {
-        val npState = restoredState.nowPlayingState
-        nowPlayingManager.restoreState(npState)
-        val desired = buildDesiredItems(nowPlayingManager.state.value)
-            ?: run {
-                clearSyncedQueueState(npState.queueVersion)
-                return PlaybackMediaItems(emptyList(), 0)
-            }
-
-        lastSyncedMediaIds = desired.items.map { it.mediaId }
-        lastSyncedDescriptors = desired.descriptors
-        resolvedItemsByQueueId = desired.resolved.associateBy { it.queueId }
-        lastSyncedVersion = npState.queueVersion
-        lastConsumedPlayRequestGeneration = npState.playRequestGeneration
-        rememberQueueStructure(npState)
-        return PlaybackMediaItems(desired.items, desired.currentIndex)
+        nowPlayingManager.restoreState(restoredState.nowPlayingState)
+        return playbackItemsForSessionResumption()
     }
 
     internal suspend fun playbackItemsForSessionResumption(): PlaybackMediaItems {
-        val npState = nowPlayingManager.state.value
-        val desired = buildDesiredItems(npState)
-            ?: run {
-                clearSyncedQueueState(npState.queueVersion)
-                return PlaybackMediaItems(emptyList(), 0)
-            }
+        var npState: NowPlayingState
+        var desired: DesiredPlaybackQueue?
+        do {
+            npState = nowPlayingManager.state.value
+            desired = buildDesiredItems(npState)
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        } while (nowPlayingManager.state.value !== npState)
+        if (desired == null) {
+            clearSyncedQueueState(npState.queueVersion)
+            return PlaybackMediaItems(emptyList(), 0)
+        }
         lastSyncedMediaIds = desired.items.map { it.mediaId }
         lastSyncedDescriptors = desired.descriptors
         resolvedItemsByQueueId = desired.resolved.associateBy { it.queueId }
         lastSyncedVersion = npState.queueVersion
-        lastConsumedPlayRequestGeneration = npState.playRequestGeneration
+        // Hydrating metadata is not playback. Only a real controller transport commit consumes
+        // app play requests; otherwise a Play made during binding could leave this queue paused.
         rememberQueueStructure(npState)
         return PlaybackMediaItems(desired.items, desired.currentIndex)
     }
 
     private suspend fun restoreFromPersistedState(restoredState: RestoredQueueState, ctrl: MediaController, autoPlay: Boolean = false) {
-        val npState = nowPlayingManager.state.value
-        val desired = buildDesiredItems(npState)
+        var npState: NowPlayingState
+        var desired: DesiredPlaybackQueue?
+        do {
+            npState = nowPlayingManager.state.value
+            desired = buildDesiredItems(npState)
+            // Resolution suspends for Room I/O; discard a late result after disconnect or a newer
+            // queue intent. The queue collectors remain suspended until a current restore commits.
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            if (controller !== ctrl) return
+        } while (nowPlayingManager.state.value !== npState)
         if (desired == null) {
             ctrl.clearMediaItems()
             ctrl.stop()
@@ -876,18 +905,12 @@ class MediaControllerManager @Inject constructor(
 
         resolvedItemsByQueueId = desired.resolved.associateBy { it.queueId }
 
-        val progress = playbackProgressForPersistence(
-            npState,
-            PlaybackState(
-                queueId = restoredState.nowPlayingState.currentEntry?.queueId,
-                positionMs = restoredState.positionMs,
-                repeatMode = restoredState.repeatMode,
-            ),
-        )
+        val progress = reconnectPlaybackProgress(npState, restoredState)
         ctrl.setMediaItems(desired.items, desired.currentIndex, progress.positionMs)
         ctrl.repeatMode = restoredState.repeatMode
         ctrl.playWhenReady = autoPlay || queueSyncPlayRequested ||
             hasUnconsumedPlayRequest(npState.playRequestGeneration, lastConsumedPlayRequestGeneration)
+        queueSyncPlayRequested = false
         ctrl.prepare()
 
         lastSyncedMediaIds = desired.items.map { it.mediaId }

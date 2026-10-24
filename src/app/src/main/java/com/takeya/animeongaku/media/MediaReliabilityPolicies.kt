@@ -68,6 +68,29 @@ internal fun playbackProgressForPersistence(
     repeatMode = playback.repeatMode,
 )
 
+/** A new service may resume only the exact occurrence and playable item captured at disconnect. */
+internal fun reconnectPlaybackProgress(
+    current: NowPlayingState,
+    restored: RestoredQueueState,
+): PersistedPlaybackProgress {
+    val entry = current.currentEntry
+    val savedEntry = restored.nowPlayingState.currentEntry
+    val sameOccurrence = entry != null && savedEntry != null &&
+        entry.queueId == savedEntry.queueId && entry.item.key == savedEntry.item.key
+    return PersistedPlaybackProgress(
+        positionMs = restored.positionMs.coerceAtLeast(0L).takeIf { sameOccurrence } ?: 0L,
+        repeatMode = restored.repeatMode,
+    )
+}
+
+/** External playback that already populated this session wins over a pending cold-start restore. */
+internal fun shouldAdoptConnectedPlayback(
+    mediaId: String?,
+    queue: NowPlayingState,
+    hasPendingPlayRequest: Boolean,
+): Boolean = !hasPendingPlayRequest &&
+    mediaId?.toLongOrNull()?.let { id -> queue.nowPlayingEntries.any { it.queueId == id } } == true
+
 /** A save may clear dirty state only when it completed successfully for the latest revision. */
 internal fun shouldClearPlaybackDirtyAfterPersist(
     persisted: Boolean,

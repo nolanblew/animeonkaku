@@ -11,6 +11,8 @@ import com.takeya.animeongaku.media.QueueEntry
 import com.takeya.animeongaku.media.RestoredQueueState
 import com.takeya.animeongaku.media.playbackPositionCheckpoints
 import com.takeya.animeongaku.media.playbackProgressForPersistence
+import com.takeya.animeongaku.media.reconnectPlaybackProgress
+import com.takeya.animeongaku.media.shouldAdoptConnectedPlayback
 import com.takeya.animeongaku.media.restorePersistedQueueState
 import com.takeya.animeongaku.media.toPersistedState
 import com.takeya.animeongaku.media.writeTextAtomically
@@ -158,6 +160,40 @@ class PlaybackRestartPersistenceTest {
         val currentOccurrence = oldOccurrence.copy(queueId = 102L, positionMs = 42_000L)
         assertEquals(42_000L, playbackProgressForPersistence(queue, currentOccurrence).positionMs)
         assertEquals(2, playbackProgressForPersistence(queue, currentOccurrence).repeatMode)
+    }
+
+    @Test
+    fun `idle reconnect preserves position and repeat for the exact paused occurrence`() {
+        val queue = savedQueue()
+        val saved = RestoredQueueState(queue, 42_000L, 2)
+        val progress = reconnectPlaybackProgress(queue, saved)
+        assertEquals(42_000L, progress.positionMs)
+        assertEquals(2, progress.repeatMode)
+        assertEquals(0L, reconnectPlaybackProgress(queue.copy(currentIndex = 0), saved).positionMs)
+    }
+
+    @Test
+    fun `reconnect rejects saved position when a queue id is reused for another playable item`() {
+        val queue = savedQueue()
+        val replacement = queue.nowPlayingEntries.map { entry ->
+            if (entry.queueId == 102L) QueueEntry(102L, entry.themeOrNull!!.copy(id = 9L)) else entry
+        }
+        val changed = queue.copy(nowPlayingEntries = replacement)
+        assertEquals(0L, reconnectPlaybackProgress(changed, RestoredQueueState(queue, 42_000L, 2)).positionMs)
+    }
+
+    @Test
+    fun `live external playback supersedes cold restore even after changing to a duplicate occurrence`() {
+        val queue = savedQueue()
+        assertTrue(shouldAdoptConnectedPlayback("101", queue, hasPendingPlayRequest = false))
+        assertTrue(shouldAdoptConnectedPlayback("102", queue, hasPendingPlayRequest = false))
+        assertFalse(shouldAdoptConnectedPlayback(null, queue, hasPendingPlayRequest = false))
+        assertFalse(shouldAdoptConnectedPlayback("999", queue, hasPendingPlayRequest = false))
+    }
+
+    @Test
+    fun `a newer explicit play request takes precedence over old external session playback`() {
+        assertFalse(shouldAdoptConnectedPlayback("102", savedQueue(), hasPendingPlayRequest = true))
     }
 
     private fun savedQueue(): NowPlayingState {
