@@ -13,6 +13,7 @@ import com.takeya.animeongaku.media.PlayableItem
 import com.takeya.animeongaku.media.PlaybackMode
 import com.takeya.animeongaku.media.QueueEntry
 import com.takeya.animeongaku.media.ThemeModePolicy
+import com.takeya.animeongaku.media.cast.castHandoff
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -58,6 +59,24 @@ class NowPlayingManagerTest {
     }
 
     // ─── play() ─────────────────────────────────────────────────────────
+
+    @Test
+    fun `Cast handoff retains current duplicate through multi song Play Next and append`() {
+        val song = theme(1)
+        manager.play("cast", listOf(song, theme(2), song), startIndex = 2)
+        val currentId = manager.state.value.currentEntry!!.queueId.toString()
+        val earlierId = manager.state.value.historyEntries.first().queueId.toString()
+        manager.playNext(listOf(song, theme(3)))
+        manager.addToQueue(song)
+        val state = manager.state.value
+        val ids = state.nowPlayingEntries.map { it.queueId.toString() }
+        val handoff = castHandoff(ids, currentId, 42_000, true, true)!!
+        assertEquals(6, ids.distinct().size)
+        assertEquals(2, handoff.index)
+        assertEquals(42_000L, handoff.positionMs)
+        assertEquals(earlierId, ids.first())
+        assertEquals(listOf(1L, 3L, 1L), state.nowPlaying.drop(handoff.index + 1).map { it.id })
+    }
 
     @Test
     fun `play with empty list does nothing`() {

@@ -17,6 +17,9 @@ import androidx.media3.session.SessionResult
 import com.takeya.animeongaku.MainActivity
 import com.takeya.animeongaku.BuildConfig
 import com.takeya.animeongaku.R
+import com.takeya.animeongaku.media.cast.CastPlaybackBridge
+import com.takeya.animeongaku.data.remote.OngakuCastApi
+import com.takeya.animeongaku.data.server.ServerSettingsStore
 import com.takeya.animeongaku.data.repository.UserPreferencesRepository
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -48,9 +51,13 @@ class MediaPlaybackService : MediaSessionService() {
     @Inject lateinit var nowPlayingPersistence: NowPlayingPersistence
     @Inject lateinit var mediaControllerManager: MediaControllerManager
     @Inject lateinit var userPreferencesRepository: UserPreferencesRepository
+    @Inject lateinit var ongakuApi: OngakuCastApi
+    @Inject lateinit var serverSettingsStore: ServerSettingsStore
 
-    private lateinit var player: ExoPlayer
+    private lateinit var localPlayer: ExoPlayer
+    private val player: Player get() = if (::mediaSession.isInitialized) mediaSession.player else localPlayer
     private lateinit var mediaSession: MediaSession
+    private var castBridge: CastPlaybackBridge? = null
     
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val sessionHydrationMutex = Mutex()
@@ -62,7 +69,7 @@ class MediaPlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        player = ExoPlayer.Builder(this)
+        localPlayer = ExoPlayer.Builder(this)
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(audioCacheProvider.playerDataSourceFactory)
             )
@@ -205,6 +212,8 @@ class MediaPlaybackService : MediaSessionService() {
                 // must not escape a SupervisorJob's child and terminate the process.
                 Log.w("MediaPlaybackService", "Unable to restore idle playback metadata", error)
             }
+            castBridge = CastPlaybackBridge(this@MediaPlaybackService, localPlayer, mediaSession,
+                ongakuApi, serverSettingsStore, scope).also { it.initialize() }
         }
 
         val notificationProvider = DefaultMediaNotificationProvider(this)
@@ -217,11 +226,11 @@ class MediaPlaybackService : MediaSessionService() {
 
     private fun applyCurrentItemLoudness() {
         // Player volume is per-app content gain; Android's device/media-stream volume is untouched.
-        val volume = player.currentMediaItem?.loudnessPlayerVolume() ?: 1f
+        val volume = localPlayer.currentMediaItem?.loudnessPlayerVolume() ?: 1f
         if (BuildConfig.DEBUG) {
             Log.d("MediaPlaybackService", "Applying per-item loudness volume=$volume")
         }
-        player.volume = volume
+        localPlayer.volume = volume
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -233,8 +242,9 @@ class MediaPlaybackService : MediaSessionService() {
         mediaControllerManager.setPlaybackServiceAvailable(false)
         mediaControllerManager.schedulePlaybackStatePersistenceIfNeeded(player)
         scope.cancel()
+        castBridge?.release()
         mediaSession.release()
-        player.release()
+        localPlayer.release()
         super.onDestroy()
     }
 

@@ -43,6 +43,11 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 object NetworkModule {
     @Provides
     @Singleton
+    fun provideOngakuCastApi(@Named("ongaku") retrofit: Retrofit): com.takeya.animeongaku.data.remote.OngakuCastApi =
+        retrofit.create(com.takeya.animeongaku.data.remote.OngakuCastApi::class.java)
+
+    @Provides
+    @Singleton
     @Suppress("DEPRECATION")
     fun provideMoshi(): Moshi {
         val filterNodeFactory = PolymorphicJsonAdapterFactory.of(FilterNode::class.java, "type")

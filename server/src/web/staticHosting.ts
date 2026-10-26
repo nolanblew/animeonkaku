@@ -1,6 +1,6 @@
 import fastifyStatic from "@fastify/static";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 
 const RESERVED_PREFIXES = ["/api", "/v1", "/admin", "/healthz"];
 
@@ -10,6 +10,10 @@ export function registerWebStaticHosting(app: FastifyInstance, distPath: string)
     maxAge: "1y",
     immutable: true,
     serveDotFiles: false,
+    setHeaders: (response, filePath) => {
+      // Receiver assets have stable filenames and must refresh after a deployment.
+      if (filePath.startsWith(resolve(distPath, "cast") + sep)) response.header("Cache-Control", "no-cache");
+    },
   });
 
   app.get("/", async (_request, reply) => sendIndex(reply));
